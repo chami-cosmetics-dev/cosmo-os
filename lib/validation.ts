@@ -78,6 +78,16 @@ export function isReservedRoleName(name: string): boolean {
   return RESERVED_ROLE_NAMES.includes(normalized as (typeof RESERVED_ROLE_NAMES)[number]);
 }
 
+/** Profile update - only user-editable fields from invite form */
+export const profileUpdateSchema = z.object({
+  name: trimmedString(1, LIMITS.name.max),
+  knownName: z.string().max(LIMITS.knownName.max).optional(),
+  nicNo: z.string().max(LIMITS.nicNo.max).optional(),
+  gender: z.string().max(LIMITS.gender.max).optional(),
+  dateOfBirth: z.string().optional(),
+  mobile: z.string().max(LIMITS.mobile.max).optional(),
+});
+
 /** SMS portal config update - password optional (omit to keep current) */
 export const smsPortalConfigUpdateSchema = z.object({
   username: trimmedString(1, LIMITS.smsPortalUsername.max),
