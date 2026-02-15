@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { auth0 } from "@/lib/auth0";
 import { prisma } from "@/lib/prisma";
 
@@ -124,6 +125,27 @@ function normalizeRoleName(input: string) {
     .replace(/\s+/g, "-");
 }
 
+/** Cached promise so setup runs only once per process. */
+let rbacSetupPromise: Promise<void> | null = null;
+
+const EXPECTED_PERMISSION_COUNT = DEFAULT_PERMISSIONS.length;
+
+/**
+ * Ensures RBAC setup runs when needed. Uses a fast DB count check so we skip the
+ * full setup when permissions are already populated. This works across Next.js
+ * dev workers (each has its own process-level cache).
+ */
+async function ensureDefaultRbacSetupIfNeeded() {
+  const count = await prisma.permission.count();
+  if (count >= EXPECTED_PERMISSION_COUNT) {
+    return;
+  }
+  if (!rbacSetupPromise) {
+    rbacSetupPromise = ensureDefaultRbacSetup();
+  }
+  await rbacSetupPromise;
+}
+
 export async function ensureDefaultRbacSetup() {
   if (!isRbacPrismaReady()) {
     throw new Error(
@@ -184,7 +206,7 @@ export async function syncSessionUser(sessionUser: SessionUser) {
     return null;
   }
 
-  await ensureDefaultRbacSetup();
+  await ensureDefaultRbacSetupIfNeeded();
 
   const user = await prisma.user.upsert({
     where: { auth0Id: sessionUser.sub },
@@ -201,22 +223,7 @@ export async function syncSessionUser(sessionUser: SessionUser) {
     },
   });
 
-  const totalUsers = await prisma.user.count();
-  if (totalUsers === 1) {
-    const superAdminRole = await prisma.role.findUnique({
-      where: { name: "super_admin" },
-      select: { id: true },
-    });
-
-    if (superAdminRole) {
-      await prisma.userRole.createMany({
-        data: [{ userId: user.id, roleId: superAdminRole.id }],
-        skipDuplicates: true,
-      });
-    }
-  }
-
-  return prisma.user.findUnique({
+  const userWithRoles = await prisma.user.findUnique({
     where: { id: user.id },
     include: {
       userRoles: {
@@ -234,25 +241,66 @@ export async function syncSessionUser(sessionUser: SessionUser) {
       },
     },
   });
+
+  if (!userWithRoles) return null;
+
+  // Only run first-user logic when user has no roles (avoids count on every request)
+  if (userWithRoles.userRoles.length === 0) {
+    const totalUsers = await prisma.user.count();
+    if (totalUsers === 1) {
+      const superAdminRole = await prisma.role.findUnique({
+        where: { name: "super_admin" },
+        select: { id: true },
+      });
+      if (superAdminRole) {
+        await prisma.userRole.createMany({
+          data: [{ userId: user.id, roleId: superAdminRole.id }],
+          skipDuplicates: true,
+        });
+      }
+      return prisma.user.findUnique({
+        where: { id: user.id },
+        include: {
+          userRoles: {
+            include: {
+              role: {
+                include: {
+                  rolePermissions: {
+                    include: {
+                      permission: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+  }
+
+  return userWithRoles;
 }
 
-export async function getCurrentUserContext() {
-  const session = await auth0.getSession();
-  if (!session?.user) {
+type SessionLike = { user: { sub?: string; email?: string; name?: string; picture?: string } };
+
+async function getCurrentUserContextImpl(session?: SessionLike | null) {
+  const sess = session ?? (await auth0.getSession());
+  if (!sess?.user) {
     return null;
   }
 
   try {
     const user = await syncSessionUser({
-      sub: session.user.sub,
-      email: session.user.email ?? undefined,
-      name: session.user.name ?? undefined,
-      picture: session.user.picture ?? undefined,
+      sub: sess.user.sub,
+      email: sess.user.email ?? undefined,
+      name: sess.user.name ?? undefined,
+      picture: sess.user.picture ?? undefined,
     });
 
     if (!user) {
       return {
-        sessionUser: session.user,
+        sessionUser: sess.user,
         user: null,
         permissionKeys: [],
         roleNames: [],
@@ -272,7 +320,7 @@ export async function getCurrentUserContext() {
     const roleNames = Array.from(new Set(user.userRoles.map((r) => r.role.name)));
 
     return {
-      sessionUser: session.user,
+      sessionUser: sess.user,
       user,
       permissionKeys,
       roleNames,
@@ -282,13 +330,62 @@ export async function getCurrentUserContext() {
       console.error("Failed to build RBAC context:", error);
     }
     return {
-      sessionUser: session.user,
+      sessionUser: sess.user,
       user: null,
       permissionKeys: [],
       roleNames: [],
     };
   }
 }
+
+/** TTL cache for parallel API requests from same user (e.g. settings page fetches 5 APIs at once). */
+const USER_CONTEXT_TTL_MS = 2000;
+const userContextCache = new Map<
+  string,
+  {
+    result: Awaited<ReturnType<typeof getCurrentUserContextImpl>>;
+    timestamp: number;
+  }
+>();
+
+function getCachedUserContext(
+  sub: string
+): Awaited<ReturnType<typeof getCurrentUserContextImpl>> | undefined {
+  const entry = userContextCache.get(sub);
+  if (!entry || Date.now() - entry.timestamp > USER_CONTEXT_TTL_MS) {
+    if (entry) userContextCache.delete(sub);
+    return undefined;
+  }
+  return entry.result;
+}
+
+function setCachedUserContext(
+  sub: string,
+  result: Awaited<ReturnType<typeof getCurrentUserContextImpl>>
+) {
+  const now = Date.now();
+  for (const [k, v] of userContextCache.entries()) {
+    if (now - v.timestamp > USER_CONTEXT_TTL_MS) userContextCache.delete(k);
+  }
+  userContextCache.set(sub, { result, timestamp: now });
+}
+
+async function getCurrentUserContextCached() {
+  const session = await auth0.getSession();
+  if (!session?.user?.sub) {
+    return null;
+  }
+  const cached = getCachedUserContext(session.user.sub);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const result = await getCurrentUserContextImpl(session);
+  setCachedUserContext(session.user.sub, result);
+  return result;
+}
+
+/** Cached per-request to avoid duplicate auth/sync when layout and page both need context. */
+export const getCurrentUserContext = cache(getCurrentUserContextCached);
 
 export function hasPermission(
   context: Awaited<ReturnType<typeof getCurrentUserContext>>,
@@ -331,7 +428,7 @@ export async function listRbacData() {
     );
   }
 
-  await ensureDefaultRbacSetup();
+  await ensureDefaultRbacSetupIfNeeded();
 
   const [users, roles, permissions] = await Promise.all([
     prisma.user.findMany({
