@@ -69,6 +69,30 @@ export async function GET(
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
+  const companyId = user.companyId;
+  const lookups =
+    companyId && isSuperAdmin
+      ? await Promise.all([
+          prisma.companyLocation.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true, address: true },
+          }),
+          prisma.department.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          }),
+          prisma.designation.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          }),
+        ])
+      : null;
+
+  const [locations, departments, designations] = lookups ?? [[], [], []];
+
   return NextResponse.json({
     id: user.id,
     name: user.name,
@@ -81,6 +105,11 @@ export async function GET(
     companyId: user.companyId,
     userRoles: user.userRoles.map((ur) => ur.role),
     employeeProfile: user.employeeProfile,
+    ...(lookups && {
+      locations,
+      departments,
+      designations,
+    }),
   });
 }
 

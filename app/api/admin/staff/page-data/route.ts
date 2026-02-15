@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { hasPermission, requirePermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("staff.read");
@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
   const userId = auth.context!.user!.id;
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
-  const hasCompanyAccess = hasPermission(auth.context, "settings.company");
 
   let companyId: string | null = null;
   if (!isSuperAdmin) {
@@ -102,9 +101,8 @@ export async function GET(request: NextRequest) {
     }));
   })();
 
-  const lookupsPromise =
-    companyId && hasCompanyAccess
-      ? Promise.all([
+  const lookupsPromise = companyId
+    ? Promise.all([
           prisma.companyLocation.findMany({
             where: { companyId },
             orderBy: { name: "asc" },

@@ -30,6 +30,9 @@ type StaffMember = {
   mobile: string | null;
   knownName: string | null;
   userRoles: Array<{ id: string; name: string }>;
+  locations?: Location[];
+  departments?: Department[];
+  designations?: Designation[];
   employeeProfile: {
     id: string;
     employeeNumber: string | null;
@@ -325,9 +328,9 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
             <StaffEditForm
               staffId={editingId}
               initialData={editData}
-              locations={locations}
-              departments={departments}
-              designations={designations}
+              locations={editData?.locations ?? locations}
+              departments={editData?.departments ?? departments}
+              designations={editData?.designations ?? designations}
               canEdit={canManageStaff}
               onSaved={fetchStaff}
               onClose={closeEdit}
