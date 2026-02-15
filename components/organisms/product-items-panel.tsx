@@ -39,39 +39,34 @@ export function ProductItemsPanel() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const fetchItems = useCallback(async () => {
+  const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (locationFilter) params.set("location_id", locationFilter);
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
-    const res = await fetch(`/api/admin/product-items?${params}`);
+    const res = await fetch(`/api/admin/product-items/page-data?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load items");
       return;
     }
-    const data = (await res.json()) as ProductItem[];
-    setItems(data);
-  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter]);
-
-  const fetchLookups = useCallback(async () => {
-    const res = await fetch("/api/admin/product-items/meta");
-    if (!res.ok) return;
     const data = (await res.json()) as {
+      items: ProductItem[];
       locations: Array<{ id: string; name: string }>;
       vendors: Array<{ id: string; name: string }>;
       categories: Array<{ id: string; name: string }>;
     };
+    setItems(data.items);
     setLocations(data.locations ?? []);
     setVendors(data.vendors ?? []);
     setCategories(data.categories ?? []);
-  }, []);
+  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([fetchItems(), fetchLookups()])
+    fetchPageData()
       .then(() => {
         if (!cancelled) setLoading(false);
       })
@@ -84,7 +79,7 @@ export function ProductItemsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [fetchItems, fetchLookups]);
+  }, [fetchPageData]);
 
   function formatPrice(val: string | null): string {
     if (!val) return "—";

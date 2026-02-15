@@ -53,12 +53,14 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
   const [categoryBusy, setCategoryBusy] = useState(false);
 
   async function fetchData() {
-    const [vRes, cRes] = await Promise.all([
-      fetch("/api/admin/vendors"),
-      fetch("/api/admin/categories"),
-    ]);
-    if (vRes.ok) setVendors((await vRes.json()) as Vendor[]);
-    if (cRes.ok) setCategories((await cRes.json()) as Category[]);
+    const res = await fetch("/api/admin/vendors-categories/page-data");
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      vendors: Vendor[];
+      categories: Category[];
+    };
+    setVendors(data.vendors ?? []);
+    setCategories(data.categories ?? []);
   }
 
   useEffect(() => {
