@@ -91,21 +91,32 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
     setStaff(data);
   }, [statusFilter, debouncedSearch]);
 
-  const fetchLookups = useCallback(async () => {
-    const [locRes, deptRes, desRes] = await Promise.all([
-      fetch("/api/admin/company/locations"),
-      fetch("/api/admin/company/departments"),
-      fetch("/api/admin/company/designations"),
-    ]);
-    if (locRes.ok) setLocations((await locRes.json()) as Location[]);
-    if (deptRes.ok) setDepartments((await deptRes.json()) as Department[]);
-    if (desRes.ok) setDesignations((await desRes.json()) as Designation[]);
-  }, []);
+  const fetchPageData = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    const res = await fetch(`/api/admin/staff/page-data?${params}`);
+    if (!res.ok) {
+      const data = (await res.json()) as { error?: string };
+      notify.error(data.error ?? "Failed to load staff");
+      return;
+    }
+    const data = (await res.json()) as {
+      staff: StaffMember[];
+      locations: Location[];
+      departments: Department[];
+      designations: Designation[];
+    };
+    setStaff(data.staff);
+    setLocations(data.locations);
+    setDepartments(data.departments);
+    setDesignations(data.designations);
+  }, [statusFilter, debouncedSearch]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    Promise.all([fetchStaff(), fetchLookups()])
+    fetchPageData()
       .then(() => {
         if (!cancelled) setLoading(false);
       })
@@ -118,7 +129,7 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
     return () => {
       cancelled = true;
     };
-  }, [fetchStaff, fetchLookups]);
+  }, [fetchPageData]);
 
   async function openEdit(id: string) {
     setEditingId(id);
