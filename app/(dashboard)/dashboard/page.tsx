@@ -1,18 +1,39 @@
 import { prisma } from "@/lib/prisma";
+import { auth0 } from "@/lib/auth0";
 import { DashboardStats } from "@/components/organisms/dashboard-stats";
 import { RecentItemsList } from "@/components/organisms/recent-items-list";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  let items: Awaited<ReturnType<typeof prisma.item.findMany>> = [];
-  try {
-    items = await prisma.item.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 5,
-    });
-  } catch {
-    // Database may not be set up yet
+  const session = await auth0.getSession();
+  const user = session?.user ? await prisma.user.findUnique({
+    where: { auth0Id: session.user.sub! },
+    select: { companyId: true },
+  }) : null;
+
+  let items: Array<{ id: string; name: string; createdAt?: string }> = [];
+  if (user?.companyId) {
+    try {
+      const productItems = await prisma.productItem.findMany({
+        where: { companyId: user.companyId },
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          productTitle: true,
+          variantTitle: true,
+          updatedAt: true,
+        },
+      });
+      items = productItems.map((i) => ({
+        id: i.id,
+        name: i.variantTitle ? `${i.productTitle} (${i.variantTitle})` : i.productTitle,
+        createdAt: i.updatedAt.toISOString(),
+      }));
+    } catch {
+      // Database may not be set up yet
+    }
   }
 
   const stats = getDummyStats();
@@ -21,11 +42,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <DashboardStats stats={stats} />
       <RecentItemsList
-        items={items.map((i) => ({
-          id: i.id,
-          name: i.name,
-          createdAt: i.createdAt.toISOString(),
-        }))}
+        items={items}
       />
     </div>
   );

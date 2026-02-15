@@ -5,8 +5,13 @@ import { auth0 } from "./lib/auth0";
 export async function middleware(request: NextRequest) {
   const response = await auth0.middleware(request);
 
-  // Auth routes are handled by auth0
-  if (request.nextUrl.pathname.startsWith("/auth/")) {
+  // Public routes - no auth required
+  if (
+    request.nextUrl.pathname === "/login" ||
+    request.nextUrl.pathname.startsWith("/invite/") ||
+    request.nextUrl.pathname.startsWith("/auth/") ||
+    request.nextUrl.pathname.startsWith("/api/webhooks/")
+  ) {
     return response;
   }
 

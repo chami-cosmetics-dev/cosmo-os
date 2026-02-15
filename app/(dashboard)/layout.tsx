@@ -1,21 +1,20 @@
 import { redirect } from "next/navigation";
 
-import { auth0 } from "@/lib/auth0";
 import { DashboardTemplate } from "@/components/templates/dashboard-template";
+import { getCurrentUserContext } from "@/lib/rbac";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth0.getSession();
-
-  if (!session?.user) {
+  const context = await getCurrentUserContext();
+  if (!context?.sessionUser) {
     redirect("/login");
   }
 
   return (
-    <DashboardTemplate user={session.user}>
+    <DashboardTemplate user={context.sessionUser}>
       {children}
     </DashboardTemplate>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, User } from "lucide-react";
+import { LayoutDashboard, LogOut, User } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -62,8 +62,14 @@ export function UserMenu({ user }: UserMenuProps) {
         <DropdownMenuGroup>
           <DropdownMenuItem asChild>
             <Link href="/dashboard" className="flex items-center gap-2">
-              <User className="size-4" />
+              <LayoutDashboard className="size-4" />
               Dashboard
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild>
+            <Link href="/dashboard/profile" className="flex items-center gap-2">
+              <User className="size-4" />
+              Profile
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>

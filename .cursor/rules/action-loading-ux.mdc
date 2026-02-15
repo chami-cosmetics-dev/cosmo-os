@@ -1,0 +1,64 @@
+---
+description: Action buttons must show loading state and block other actions until complete
+globs: **/*.tsx
+alwaysApply: false
+---
+
+# Action Loading UX Pattern
+
+When building any feature with user-triggered actions (buttons, form submits, etc.):
+
+## 1. Show loading status on the active button
+
+- Display a spinner (e.g. `Loader2` from lucide-react with `className="animate-spin"`)
+- Change button text to describe the action in progress (e.g. "Saving...", "Sending...", "Deleting...")
+
+```tsx
+<Button disabled={isBusy}>
+  {busyKey === "save-item" ? (
+    <>
+      <Loader2 className="animate-spin" aria-hidden />
+      Saving...
+    </>
+  ) : (
+    "Save"
+  )}
+</Button>
+```
+
+## 2. Block other actions until complete or fail
+
+- Use a shared `busyKey` or `isBusy` state when any async action is in progress
+- Disable all related inputs, checkboxes, and buttons in the same panel/form when `isBusy`
+- Only re-enable after the action succeeds or fails (in `finally` block)
+
+```tsx
+const isBusy = busyKey !== null;
+
+<Input disabled={isBusy} />
+<Button disabled={isBusy}>Submit</Button>
+```
+
+## 3. Implementation checklist
+
+- [ ] Set `busyKey` (or equivalent) at start of async handler
+- [ ] Clear `busyKey` in `finally` block
+- [ ] Disable all actionable elements when busy
+- [ ] Show spinner + loading text on the button that triggered the action
+- [ ] Use `aria-hidden` on decorative spinners for accessibility
+
+## 4. Show action results via toast notifications
+
+- Use `notify` from `@/lib/notify` for all success/error feedback
+- Call `notify.success(message)` on success, `notify.error(message)` on failure
+- Do not use inline message divs or per-component state for action feedback
+
+```tsx
+import { notify } from "@/lib/notify";
+
+// On success
+notify.success("User roles updated.");
+
+// On error
+notify.error(error.message ?? "Something went wrong.");
+```
