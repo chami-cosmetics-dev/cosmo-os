@@ -2,20 +2,32 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentUserContext } from "@/lib/rbac";
+import { cuidSchema, trimmedString, LIMITS } from "@/lib/validation";
 
 const updateItemSchema = z.object({
-  name: z.string().min(1, "Name is required").optional(),
+  name: trimmedString(1, LIMITS.itemName.max).optional(),
 });
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const ctx = await getCurrentUserContext();
+  if (!ctx?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const idParsed = cuidSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
   try {
-    const { id } = await params;
 
     const item = await prisma.item.findUnique({
-      where: { id },
+      where: { id: idParsed.data },
     });
 
     if (!item) {
@@ -36,8 +48,18 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const ctx = await getCurrentUserContext();
+  if (!ctx?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const idParsed = cuidSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
   try {
-    const { id } = await params;
     const body = await request.json();
     const parsed = updateItemSchema.safeParse(body);
 
@@ -48,13 +70,15 @@ export async function PUT(
       );
     }
 
-    const existing = await prisma.item.findUnique({ where: { id } });
+    const existing = await prisma.item.findUnique({
+      where: { id: idParsed.data },
+    });
     if (!existing) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }
 
     const item = await prisma.item.update({
-      where: { id },
+      where: { id: idParsed.data },
       data: parsed.data,
     });
 
@@ -72,8 +96,18 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const ctx = await getCurrentUserContext();
+  if (!ctx?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const idParsed = cuidSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
   try {
-    const { id } = await params;
     const body = await request.json();
     const parsed = updateItemSchema.safeParse(body);
 
@@ -84,13 +118,15 @@ export async function PATCH(
       );
     }
 
-    const existing = await prisma.item.findUnique({ where: { id } });
+    const existing = await prisma.item.findUnique({
+      where: { id: idParsed.data },
+    });
     if (!existing) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }
 
     const item = await prisma.item.update({
-      where: { id },
+      where: { id: idParsed.data },
       data: parsed.data,
     });
 
@@ -108,16 +144,27 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const { id } = await params;
+  const ctx = await getCurrentUserContext();
+  if (!ctx?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-    const existing = await prisma.item.findUnique({ where: { id } });
+  const { id } = await params;
+  const idParsed = cuidSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
+  try {
+    const existing = await prisma.item.findUnique({
+      where: { id: idParsed.data },
+    });
     if (!existing) {
       return NextResponse.json({ error: "Item not found" }, { status: 404 });
     }
 
     await prisma.item.delete({
-      where: { id },
+      where: { id: idParsed.data },
     });
 
     return new NextResponse(null, { status: 204 });

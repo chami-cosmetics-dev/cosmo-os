@@ -1,6 +1,7 @@
 "use client";
 
-import { LayoutDashboard, Settings } from "lucide-react";
+import { LayoutDashboard, Mail, Settings, Users, UserCircle } from "lucide-react";
+import { usePathname } from "next/navigation";
 
 import {
   Sidebar,
@@ -23,6 +24,8 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ user }: AppSidebarProps) {
+  const pathname = usePathname();
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -34,8 +37,36 @@ export function AppSidebar({ user }: AppSidebarProps) {
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
-            <NavItem href="/dashboard" icon={LayoutDashboard} label="Dashboard" isActive />
-            <NavItem href="/dashboard/settings" icon={Settings} label="Settings" />
+            <NavItem
+              href="/dashboard"
+              icon={LayoutDashboard}
+              label="Dashboard"
+              isActive={pathname === "/dashboard"}
+            />
+            <NavItem
+              href="/dashboard/users"
+              icon={Users}
+              label="Users"
+              isActive={pathname === "/dashboard/users"}
+            />
+            <NavItem
+              href="/dashboard/staff"
+              icon={UserCircle}
+              label="Staff"
+              isActive={pathname === "/dashboard/staff"}
+            />
+            <NavItem
+              href="/dashboard/settings"
+              icon={Settings}
+              label="Settings"
+              isActive={pathname === "/dashboard/settings"}
+            />
+            <NavItem
+              href="/dashboard/settings/email-templates"
+              icon={Mail}
+              label="Email Templates"
+              isActive={pathname === "/dashboard/settings/email-templates"}
+            />
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { getCurrentUserContext } from "@/lib/rbac";
+import { trimmedString, LIMITS } from "@/lib/validation";
 
 const createItemSchema = z.object({
-  name: z.string().min(1, "Name is required"),
+  name: trimmedString(1, LIMITS.itemName.max),
 });
 
 export async function GET() {
+  const ctx = await getCurrentUserContext();
+  if (!ctx?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const items = await prisma.item.findMany({
       orderBy: { createdAt: "desc" },
@@ -23,6 +30,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const ctx = await getCurrentUserContext();
+  if (!ctx?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const parsed = createItemSchema.safeParse(body);
