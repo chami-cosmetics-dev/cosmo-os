@@ -15,11 +15,12 @@ type Designation = {
 
 interface DesignationsSettingsFormProps {
   canEdit: boolean;
+  initialDesignations?: Designation[];
 }
 
-export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormProps) {
-  const [designations, setDesignations] = useState<Designation[]>([]);
-  const [loading, setLoading] = useState(true);
+export function DesignationsSettingsForm({ canEdit, initialDesignations }: DesignationsSettingsFormProps) {
+  const [designations, setDesignations] = useState<Designation[]>(initialDesignations ?? []);
+  const [loading, setLoading] = useState(initialDesignations === undefined);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -39,6 +40,10 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
   }
 
   useEffect(() => {
+    if (initialDesignations !== undefined) {
+      setLoading(false);
+      return;
+    }
     async function load() {
       try {
         await fetchDesignations();
@@ -49,7 +54,7 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
       }
     }
     load();
-  }, []);
+  }, [initialDesignations]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();

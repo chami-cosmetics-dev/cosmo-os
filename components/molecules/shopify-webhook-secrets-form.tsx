@@ -17,11 +17,12 @@ type WebhookSecret = {
 
 interface ShopifyWebhookSecretsFormProps {
   canEdit: boolean;
+  initialSecrets?: WebhookSecret[];
 }
 
-export function ShopifyWebhookSecretsForm({ canEdit }: ShopifyWebhookSecretsFormProps) {
-  const [secrets, setSecrets] = useState<WebhookSecret[]>([]);
-  const [loading, setLoading] = useState(true);
+export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWebhookSecretsFormProps) {
+  const [secrets, setSecrets] = useState<WebhookSecret[]>(initialSecrets ?? []);
+  const [loading, setLoading] = useState(initialSecrets === undefined);
   const [newSecret, setNewSecret] = useState("");
   const [newName, setNewName] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -40,6 +41,10 @@ export function ShopifyWebhookSecretsForm({ canEdit }: ShopifyWebhookSecretsForm
   }
 
   useEffect(() => {
+    if (initialSecrets !== undefined) {
+      setLoading(false);
+      return;
+    }
     async function load() {
       try {
         await fetchSecrets();
@@ -50,7 +55,7 @@ export function ShopifyWebhookSecretsForm({ canEdit }: ShopifyWebhookSecretsForm
       }
     }
     load();
-  }, []);
+  }, [initialSecrets]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();

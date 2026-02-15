@@ -47,11 +47,12 @@ const emptyForm = (): Partial<Location> => ({
 
 interface LocationsSettingsFormProps {
   canEdit: boolean;
+  initialLocations?: Location[];
 }
 
-export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [loading, setLoading] = useState(true);
+export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSettingsFormProps) {
+  const [locations, setLocations] = useState<Location[]>(initialLocations ?? []);
+  const [loading, setLoading] = useState(initialLocations === undefined);
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -74,6 +75,10 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
   }
 
   useEffect(() => {
+    if (initialLocations !== undefined) {
+      setLoading(false);
+      return;
+    }
     async function load() {
       try {
         await fetchLocations();
@@ -84,7 +89,7 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
       }
     }
     load();
-  }, []);
+  }, [initialLocations]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
