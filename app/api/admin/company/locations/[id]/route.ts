@@ -3,11 +3,22 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
+import { cuidSchema, emailSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const updateLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
   address: z.string().max(LIMITS.address.max).optional(),
+  shortName: z.string().max(LIMITS.locationShortName.max).optional(),
+  invoiceHeader: z.string().max(LIMITS.invoiceHeader.max).optional(),
+  invoiceSubHeader: z.string().max(LIMITS.invoiceSubHeader.max).optional(),
+  invoiceFooter: z.string().max(LIMITS.invoiceFooter.max).optional(),
+  invoicePhone: z.string().max(LIMITS.mobile.max).optional(),
+  invoiceEmail: z
+    .union([emailSchema, z.literal("")])
+    .optional()
+    .transform((v) => (v === "" || v === undefined ? undefined : v)),
+  shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
+  shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -58,16 +69,35 @@ export async function PATCH(
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
 
+  const d = parsed.data;
+  const toOpt = (v: string | undefined) =>
+    v === undefined ? undefined : (v.trim() || null);
   const updated = await prisma.companyLocation.update({
     where: { id: idResult.data },
     data: {
-      name: parsed.data.name,
-      address: parsed.data.address?.trim() || null,
+      name: d.name,
+      address: d.address === undefined ? undefined : (d.address?.trim() || null),
+      shortName: toOpt(d.shortName),
+      invoiceHeader: toOpt(d.invoiceHeader),
+      invoiceSubHeader: toOpt(d.invoiceSubHeader),
+      invoiceFooter: toOpt(d.invoiceFooter),
+      invoicePhone: toOpt(d.invoicePhone),
+      invoiceEmail: d.invoiceEmail === undefined ? undefined : (d.invoiceEmail ?? null),
+      shopifyLocationId: toOpt(d.shopifyLocationId),
+      shopifyShopName: toOpt(d.shopifyShopName),
     },
     select: {
       id: true,
       name: true,
       address: true,
+      shortName: true,
+      invoiceHeader: true,
+      invoiceSubHeader: true,
+      invoiceFooter: true,
+      invoicePhone: true,
+      invoiceEmail: true,
+      shopifyLocationId: true,
+      shopifyShopName: true,
       createdAt: true,
       updatedAt: true,
     },

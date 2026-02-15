@@ -94,6 +94,20 @@ model CompanyLocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Location Short Name - used when sending SMS
+  shortName String?
+
+  // Invoice Details
+  invoiceHeader    String?
+  invoiceSubHeader String?
+  invoiceFooter    String?
+  invoicePhone     String?
+  invoiceEmail     String?
+
+  // Shopify Link Details
+  shopifyLocationId String?
+  shopifyShopName   String?
+
   company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   profiles EmployeeProfile[]
   invites  Invite[]
