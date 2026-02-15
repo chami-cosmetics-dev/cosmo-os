@@ -1,0 +1,322 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  employeeSize String?
+  address      String?
+  createdById  String   @unique
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdBy       User              @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  users           User[]            @relation("CompanyMembers")
+  invites         Invite[]
+  locations       CompanyLocation[]
+  departments     Department[]
+  designations    Designation[]
+  employeeProfiles EmployeeProfile[]
+  emailTemplates  EmailTemplate[]
+  smsPortalConfig SmsPortalConfig?
+  smsLogs         SmsLog[]
+  vendors               Vendor[]
+  categories            Category[]
+  productItems          ProductItem[]
+  shopifyWebhookSecrets ShopifyWebhookSecret[]
+}
+
+model ShopifyWebhookSecret {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String?
+  secret    String
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Vendor {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productItems  ProductItem[]
+
+  @@unique([companyId, name])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  fullName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productItems  ProductItem[]
+
+  @@unique([companyId, name])
+}
+
+model ProductItem {
+  id                 String   @id @default(cuid())
+  companyId          String
+  companyLocationId  String
+  shopifyLocationId  String
+  shopifyProductId   String
+  shopifyVariantId   String
+  productTitle       String
+  variantTitle       String?
+  sku                String?
+  price              Decimal  @db.Decimal(12, 2)
+  compareAtPrice     Decimal? @db.Decimal(12, 2)
+  vendorId           String?
+  categoryId         String?
+  status             String?
+  productType        String?
+  handle             String?
+  imageUrl           String?
+  tags               String?
+  barcode            String?
+  inventoryQuantity  Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  vendor        Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  category      Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([companyLocationId, shopifyVariantId])
+}
+
+model Invite {
+  id               String    @id @default(cuid())
+  email            String
+  token            String    @unique
+  expiresAt        DateTime
+  usedAt           DateTime?
+  invitedById      String?
+  companyId        String?
+  roleId           String
+  isSuperAdmin     Boolean   @default(false)
+  employeeNumber   String?
+  epfNumber        String?
+  locationId       String?
+  departmentId     String?
+  designationId    String?
+  appointmentDate  DateTime?
+  createdAt        DateTime  @default(now())
+
+  invitedBy  User?            @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
+  company    Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  role       Role              @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  location   CompanyLocation?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  department Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation Designation?      @relation(fields: [designationId], references: [id], onDelete: SetNull)
+}
+
+model User {
+  id          String     @id @default(cuid())
+  auth0Id     String     @unique
+  email       String?    @unique
+  name        String?
+  picture     String?
+  nicNo       String?
+  gender      String?
+  dateOfBirth DateTime?
+  mobile      String?
+  knownName   String?
+  companyId   String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  userRoles       UserRole[]
+  company         Company?         @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull)
+  invitesSent     Invite[]         @relation("InvitedBy")
+  createdCompany  Company?         @relation("CompanyCreator")
+  employeeProfile EmployeeProfile?
+  smsLogs         SmsLog[]
+}
+
+model CompanyLocation {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Location Short Name - used when sending SMS
+  shortName String?
+
+  // Invoice Details
+  invoiceHeader    String?
+  invoiceSubHeader String?
+  invoiceFooter    String?
+  invoicePhone     String?
+  invoiceEmail     String?
+
+  // Shopify Link Details
+  shopifyLocationId String?
+  shopifyShopName   String?
+
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profiles       EmployeeProfile[]
+  invites        Invite[]
+  productItems   ProductItem[]
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profiles EmployeeProfile[]
+  invites  Invite[]
+}
+
+model Designation {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profiles EmployeeProfile[]
+  invites  Invite[]
+}
+
+enum EmployeeStatus {
+  active
+  resigned
+}
+
+model EmployeeProfile {
+  id                        String         @id @default(cuid())
+  userId                    String         @unique
+  companyId                 String
+  employeeNumber            String?
+  epfNumber                 String?
+  locationId                String?
+  departmentId              String?
+  designationId             String?
+  appointmentDate           DateTime?
+  status                    EmployeeStatus @default(active)
+  resignedAt                DateTime?
+  resignationReason         String?
+  offboardingAcknowledgedAt DateTime?
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location   CompanyLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  department Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designation Designation?   @relation(fields: [designationId], references: [id], onDelete: SetNull)
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  companyId String
+  key       String
+  name      String
+  subject   String
+  bodyHtml  String
+  recipients String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+}
+
+model SmsPortalConfig {
+  id           String   @id @default(cuid())
+  companyId     String   @unique
+  username     String
+  password     String
+  authUrl      String
+  smsUrl       String
+  smsMask      String
+  campaignName String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model SmsLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  phoneNumber String
+  message    String
+  sentAt     DateTime @default(now())
+  sentById   String?
+  status     String
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sentBy  User?   @relation(fields: [sentById], references: [id], onDelete: SetNull)
+}
+
+model Role {
+  id              String           @id @default(cuid())
+  name            String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+  invites         Invite[]
+}
+
+model Permission {
+  id              String           @id @default(cuid())
+  key             String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  rolePermissions RolePermission[]
+}
+
+model UserRole {
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  assignedAt   DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}

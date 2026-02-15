@@ -1,0 +1,41 @@
+---
+description: Security and validation - never trust client, validate on both frontend and backend
+alwaysApply: true
+---
+
+# Security and Validation
+
+## Core principle: never trust the client
+
+The browser can be manipulated. All security checks and validation MUST be enforced server-side. Frontend validation is for UX only.
+
+## Backend validation (required)
+
+1. **Validate all input** with Zod using schemas from `@/lib/validation`
+2. **Validate IDs** - Use `cuidSchema` for all route params (id, userId, roleId)
+3. **Enforce length limits** - Use `LIMITS` and `trimmedString()` to prevent DoS
+4. **Check authorization** - Use `requirePermission()` or `getCurrentUserContext()` before any mutation
+5. **Validate business rules** - Reserved names, role assignments, etc. must be checked server-side
+
+## Frontend validation (for UX)
+
+- Validate on client for immediate feedback
+- Use same rules as backend when possible
+- Never rely on frontend validation for security
+
+## Shared validation lib (`lib/validation.ts`)
+
+- `cuidSchema` - For all Prisma IDs
+- `emailSchema` - Email with max length
+- `inviteTokenSchema` - 64-char hex token
+- `trimmedString(min, max)` - Trimmed strings with limits
+- `isReservedRoleName()` - Block reserved role names
+- `LIMITS` - Max lengths for all fields
+
+## API route checklist
+
+- [ ] Auth check (requirePermission or getCurrentUserContext)
+- [ ] Zod schema validation on request body/params
+- [ ] CUID validation for all [id] params
+- [ ] String length limits on all text inputs
+- [ ] Business rule checks (e.g. super_admin, reserved names)
