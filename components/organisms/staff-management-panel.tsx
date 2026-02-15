@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2, Pencil, UserMinus } from "lucide-react";
+import { Pencil, UserMinus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/sheet";
 import { ResignationForm } from "@/components/molecules/resignation-form";
 import { StaffEditForm } from "@/components/molecules/staff-edit-form";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string; address: string | null };
@@ -177,12 +179,14 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
       <Card>
         <CardHeader>
           <CardTitle>Staff</CardTitle>
+          <Skeleton className="h-4 w-96" />
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            Loading...
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-9 w-64" />
+            <Skeleton className="h-9 w-28" />
           </div>
+          <TableSkeleton columns={6} rows={6} />
         </CardContent>
       </Card>
     );

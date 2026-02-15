@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
 
 type ProductItem = {
@@ -146,9 +147,7 @@ export function ProductItemsPanel() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="size-8 animate-spin text-muted-foreground" aria-hidden />
-            </div>
+            <TableSkeleton columns={8} rows={6} />
           ) : items.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground text-sm">
               No product items yet. Items will appear here when synced from Shopify webhooks.

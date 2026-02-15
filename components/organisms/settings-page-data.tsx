@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
 
+import { CardSkeleton } from "@/components/skeletons/card-skeleton";
 import { CompanySettingsForm } from "@/components/molecules/company-settings-form";
 import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
 import { DesignationsSettingsForm } from "@/components/molecules/designations-settings-form";
@@ -75,9 +75,10 @@ export function SettingsPageData({ canEdit }: SettingsPageDataProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-muted-foreground text-sm py-8">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        Loading settings...
+      <div className="space-y-6">
+        <CardSkeleton title description contentLines={4} />
+        <CardSkeleton title description contentLines={2} />
+        <CardSkeleton title description contentLines={2} />
       </div>
     );
   }
