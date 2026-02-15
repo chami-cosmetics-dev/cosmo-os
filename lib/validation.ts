@@ -30,6 +30,11 @@ export const LIMITS = {
   emailTemplateSubject: { max: 200 },
   emailTemplateBody: { max: 10000 },
   emailTemplateRecipients: { max: 2000 },
+  smsPortalUsername: { max: 200 },
+  smsPortalPassword: { max: 128 },
+  smsPortalMask: { max: 64 },
+  smsPortalCampaign: { max: 64 },
+  smsPortalUrl: { max: 500 },
 } as const;
 
 /** CUID format - Prisma default ID format (c + 24 alphanumeric) */
@@ -66,3 +71,17 @@ export function isReservedRoleName(name: string): boolean {
   const normalized = name.toLowerCase().trim();
   return RESERVED_ROLE_NAMES.includes(normalized as (typeof RESERVED_ROLE_NAMES)[number]);
 }
+
+/** SMS portal config update - password optional (omit to keep current) */
+export const smsPortalConfigUpdateSchema = z.object({
+  username: trimmedString(1, LIMITS.smsPortalUsername.max),
+  password: z
+    .string()
+    .max(LIMITS.smsPortalPassword.max)
+    .transform((s) => s.trim())
+    .optional(),
+  authUrl: trimmedString(1, LIMITS.smsPortalUrl.max),
+  smsUrl: trimmedString(1, LIMITS.smsPortalUrl.max),
+  smsMask: trimmedString(1, LIMITS.smsPortalMask.max),
+  campaignName: trimmedString(1, LIMITS.smsPortalCampaign.max),
+});

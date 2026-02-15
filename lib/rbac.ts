@@ -34,6 +34,10 @@ const DEFAULT_PERMISSIONS = [
     key: "settings.email_templates",
     description: "View and edit email notification templates",
   },
+  {
+    key: "settings.sms_portal",
+    description: "View and edit SMS portal configuration",
+  },
 ] as const;
 
 const DEFAULT_ROLES = [
@@ -58,6 +62,7 @@ const DEFAULT_ROLES = [
       "roles.read",
       "settings.company",
       "settings.email_templates",
+      "settings.sms_portal",
     ],
   },
   {

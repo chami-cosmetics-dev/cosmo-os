@@ -7,7 +7,7 @@ import { LocationsSettingsForm } from "@/components/molecules/locations-settings
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { ChevronRight, Mail } from "lucide-react";
+import { ChevronRight, Mail, MessageSquare } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,9 @@ export default async function SettingsPage() {
     : false;
   const canManageEmailTemplates = context
     ? hasPermission(context, "settings.email_templates")
+    : false;
+  const canManageSmsPortal = context
+    ? hasPermission(context, "settings.sms_portal")
     : false;
 
   return (
@@ -47,28 +50,70 @@ export default async function SettingsPage() {
               </CardContent>
             </Card>
           )}
+          {canManageSmsPortal && (
+            <Card>
+              <CardHeader>
+                <CardTitle>SMS Portal</CardTitle>
+                <p className="text-muted-foreground text-sm">
+                  Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/settings/sms-portal">
+                    <MessageSquare className="size-4" aria-hidden />
+                    Configure SMS portal
+                    <ChevronRight className="size-4" aria-hidden />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </>
       ) : null}
-      {canManageEmailTemplates && !canManageCompany && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Email Templates</CardTitle>
-            <p className="text-muted-foreground text-sm">
-              Configure notification emails for staff events such as resignations.
-            </p>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/settings/email-templates">
-                <Mail className="size-4" aria-hidden />
-                Manage email templates
-                <ChevronRight className="size-4" aria-hidden />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
+      {(canManageEmailTemplates || canManageSmsPortal) && !canManageCompany && (
+        <>
+          {canManageEmailTemplates && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Email Templates</CardTitle>
+                <p className="text-muted-foreground text-sm">
+                  Configure notification emails for staff events such as resignations.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/settings/email-templates">
+                    <Mail className="size-4" aria-hidden />
+                    Manage email templates
+                    <ChevronRight className="size-4" aria-hidden />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {canManageSmsPortal && (
+            <Card>
+              <CardHeader>
+                <CardTitle>SMS Portal</CardTitle>
+                <p className="text-muted-foreground text-sm">
+                  Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/settings/sms-portal">
+                    <MessageSquare className="size-4" aria-hidden />
+                    Configure SMS portal
+                    <ChevronRight className="size-4" aria-hidden />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
-      {!canManageCompany && !canManageEmailTemplates && (
+      {!canManageCompany && !canManageEmailTemplates && !canManageSmsPortal && (
         <Card>
           <CardHeader>
             <CardTitle>Settings</CardTitle>

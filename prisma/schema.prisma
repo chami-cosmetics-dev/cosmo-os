@@ -34,6 +34,8 @@ model Company {
   designations    Designation[]
   employeeProfiles EmployeeProfile[]
   emailTemplates  EmailTemplate[]
+  smsPortalConfig SmsPortalConfig?
+  smsLogs         SmsLog[]
 }
 
 model Invite {
@@ -81,6 +83,7 @@ model User {
   invitesSent     Invite[]         @relation("InvitedBy")
   createdCompany  Company?         @relation("CompanyCreator")
   employeeProfile EmployeeProfile?
+  smsLogs         SmsLog[]
 }
 
 model CompanyLocation {
@@ -163,6 +166,35 @@ model EmailTemplate {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, key])
+}
+
+model SmsPortalConfig {
+  id           String   @id @default(cuid())
+  companyId     String   @unique
+  username     String
+  password     String
+  authUrl      String
+  smsUrl       String
+  smsMask      String
+  campaignName String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model SmsLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  phoneNumber String
+  message    String
+  sentAt     DateTime @default(now())
+  sentById   String?
+  status     String
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sentBy  User?   @relation(fields: [sentById], references: [id], onDelete: SetNull)
 }
 
 model Role {
