@@ -11,12 +11,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-model Item {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-}
-
 model Company {
   id           String   @id @default(cuid())
   name         String
@@ -36,6 +30,79 @@ model Company {
   emailTemplates  EmailTemplate[]
   smsPortalConfig SmsPortalConfig?
   smsLogs         SmsLog[]
+  vendors               Vendor[]
+  categories            Category[]
+  productItems          ProductItem[]
+  shopifyWebhookSecrets ShopifyWebhookSecret[]
+}
+
+model ShopifyWebhookSecret {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String?
+  secret    String
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Vendor {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productItems  ProductItem[]
+
+  @@unique([companyId, name])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  fullName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productItems  ProductItem[]
+
+  @@unique([companyId, name])
+}
+
+model ProductItem {
+  id                 String   @id @default(cuid())
+  companyId          String
+  companyLocationId  String
+  shopifyLocationId  String
+  shopifyProductId   String
+  shopifyVariantId   String
+  productTitle       String
+  variantTitle       String?
+  sku                String?
+  price              Decimal  @db.Decimal(12, 2)
+  compareAtPrice     Decimal? @db.Decimal(12, 2)
+  vendorId           String?
+  categoryId         String?
+  status             String?
+  productType        String?
+  handle             String?
+  imageUrl           String?
+  tags               String?
+  barcode            String?
+  inventoryQuantity  Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  vendor        Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  category      Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@unique([companyLocationId, shopifyVariantId])
 }
 
 model Invite {
@@ -108,9 +175,10 @@ model CompanyLocation {
   shopifyLocationId String?
   shopifyShopName   String?
 
-  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  profiles EmployeeProfile[]
-  invites  Invite[]
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profiles       EmployeeProfile[]
+  invites        Invite[]
+  productItems   ProductItem[]
 }
 
 model Department {

@@ -9,7 +9,8 @@ export async function middleware(request: NextRequest) {
   if (
     request.nextUrl.pathname === "/login" ||
     request.nextUrl.pathname.startsWith("/invite/") ||
-    request.nextUrl.pathname.startsWith("/auth/")
+    request.nextUrl.pathname.startsWith("/auth/") ||
+    request.nextUrl.pathname.startsWith("/api/webhooks/")
   ) {
     return response;
   }

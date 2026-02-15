@@ -25,7 +25,11 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
         ? "Settings"
         : pathname === "/dashboard/profile"
           ? "Profile"
-          : title;
+          : pathname === "/dashboard/products/items"
+            ? "Product Items"
+            : pathname === "/dashboard/products/vendors-categories"
+              ? "Vendors & Categories"
+              : title;
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">

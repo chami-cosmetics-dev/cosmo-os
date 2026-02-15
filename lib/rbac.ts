@@ -38,6 +38,14 @@ const DEFAULT_PERMISSIONS = [
     key: "settings.sms_portal",
     description: "View and edit SMS portal configuration",
   },
+  {
+    key: "products.read",
+    description: "View product items, vendors, and categories",
+  },
+  {
+    key: "products.manage",
+    description: "Manage vendors and categories",
+  },
 ] as const;
 
 const DEFAULT_ROLES = [
@@ -63,12 +71,14 @@ const DEFAULT_ROLES = [
       "settings.company",
       "settings.email_templates",
       "settings.sms_portal",
+      "products.read",
+      "products.manage",
     ],
   },
   {
     name: "viewer",
     description: "Read-only access to user directory, staff, and roles",
-    permissionKeys: ["users.read", "staff.read", "roles.read"],
+    permissionKeys: ["users.read", "staff.read", "roles.read", "products.read"],
   },
 ] as const;
 

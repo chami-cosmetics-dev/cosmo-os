@@ -41,6 +41,13 @@ export const LIMITS = {
   smsPortalMask: { max: 64 },
   smsPortalCampaign: { max: 64 },
   smsPortalUrl: { max: 500 },
+  productTitle: { max: 500 },
+  sku: { max: 100 },
+  vendorName: { max: 200 },
+  categoryName: { max: 500 },
+  categoryFullName: { max: 1000 },
+  shopifyWebhookSecret: { min: 32, max: 128 },
+  shopifyWebhookSecretName: { max: 100 },
 } as const;
 
 /** CUID format - Prisma default ID format (c + 24 alphanumeric) */

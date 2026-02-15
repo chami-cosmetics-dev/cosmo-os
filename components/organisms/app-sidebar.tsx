@@ -1,6 +1,15 @@
 "use client";
 
-import { LayoutDashboard, Mail, Settings, Users, UserCircle } from "lucide-react";
+import {
+  LayoutDashboard,
+  Mail,
+  Package,
+  Settings,
+  Tags,
+  Users,
+  UserCircle,
+} from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import {
@@ -11,6 +20,12 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
@@ -67,6 +82,32 @@ export function AppSidebar({ user }: AppSidebarProps) {
               label="Email Templates"
               isActive={pathname === "/dashboard/settings/email-templates"}
             />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Product Management</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/products/items"}>
+                  <Link href="/dashboard/products/items">
+                    <Package className="size-4" />
+                    <span>Items</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/products/vendors-categories"}
+                >
+                  <Link href="/dashboard/products/vendors-categories">
+                    <Tags className="size-4" />
+                    <span>Vendors & Categories</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
