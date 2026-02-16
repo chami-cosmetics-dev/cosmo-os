@@ -8,6 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -777,7 +782,7 @@ export function UserManagementPanel({
                               {role.description ?? "—"}
                             </td>
                             <td className="px-4 py-2.5">
-                              <div className="flex max-w-[280px] flex-wrap gap-1">
+                              <div className="flex max-w-[280px] flex-wrap items-center gap-1">
                                 {permKeys.slice(0, 5).map((k) => (
                                   <span
                                     key={k}
@@ -787,9 +792,36 @@ export function UserManagementPanel({
                                   </span>
                                 ))}
                                 {permKeys.length > 5 && (
-                                  <span className="text-muted-foreground text-xs">
-                                    +{permKeys.length - 5}
-                                  </span>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="text-muted-foreground hover:text-foreground cursor-pointer text-xs underline underline-offset-2"
+                                      >
+                                        +{permKeys.length - 5} more
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="start"
+                                      className="max-h-64 w-72 overflow-y-auto"
+                                    >
+                                      <div className="space-y-1 p-2">
+                                        <p className="text-muted-foreground mb-2 text-xs font-medium">
+                                          All permissions ({permKeys.length})
+                                        </p>
+                                        <div className="flex flex-wrap gap-1">
+                                          {permKeys.map((k) => (
+                                            <span
+                                              key={k}
+                                              className="bg-muted rounded px-1.5 py-0.5 text-xs"
+                                            >
+                                              {k}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 )}
                               </div>
                             </td>
