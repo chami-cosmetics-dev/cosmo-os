@@ -6,7 +6,9 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordStrengthIndicator } from "@/components/molecules/password-strength-indicator";
 import { notify } from "@/lib/notify";
+import { isPasswordStrong } from "@/lib/password-strength";
 
 const EMPLOYEE_SIZE_OPTIONS = [
   { value: "", label: "Select size" },
@@ -50,6 +52,14 @@ export function InviteActivateForm({
   const [companyName, setCompanyName] = useState("");
   const [employeeSize, setEmployeeSize] = useState("");
   const [address, setAddress] = useState("");
+
+  const passwordStrong = isPasswordStrong(password);
+  const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
+  const canSubmit =
+    status !== "loading" &&
+    passwordStrong &&
+    passwordsMatch &&
+    (!isSuperAdmin || (companyName.trim() && address.trim()));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -207,8 +217,11 @@ export function InviteActivateForm({
           onChange={(e) => setPassword(e.target.value)}
           required
           disabled={status === "loading"}
-          placeholder="Min 8 chars, uppercase, lowercase, number"
+          placeholder="Create a strong password"
+          minLength={8}
+          maxLength={128}
         />
+        <PasswordStrengthIndicator password={password} />
       </div>
       <div className="space-y-2">
         <label htmlFor="confirmPassword" className="text-sm font-medium">
@@ -221,7 +234,13 @@ export function InviteActivateForm({
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
           disabled={status === "loading"}
+          placeholder="Re-enter your password"
+          minLength={8}
+          maxLength={128}
         />
+        {confirmPassword.length > 0 && !passwordsMatch && (
+          <p className="text-destructive text-xs">Passwords do not match</p>
+        )}
       </div>
 
       {isSuperAdmin && (
@@ -278,7 +297,7 @@ export function InviteActivateForm({
         </>
       )}
 
-      <Button type="submit" disabled={status === "loading"}>
+      <Button type="submit" disabled={!canSubmit}>
         {status === "loading" ? (
           <>
             <Loader2 className="animate-spin" aria-hidden />

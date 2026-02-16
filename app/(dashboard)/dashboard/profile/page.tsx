@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProfileForm } from "@/components/molecules/profile-form";
+import { PasswordChangeModal } from "@/components/molecules/password-change-modal";
 import { getCurrentUserContext } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 
@@ -71,6 +72,19 @@ export default async function ProfilePage() {
         </CardHeader>
         <CardContent>
           <ProfileForm initialData={profileData} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Update your account password. Use a strong password with at least 8
+            characters, including uppercase, lowercase, and a number.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <PasswordChangeModal />
         </CardContent>
       </Card>
     </div>
