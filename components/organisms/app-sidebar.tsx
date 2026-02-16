@@ -1,5 +1,6 @@
 "use client";
 
+import packageJson from "@/package.json";
 import {
   AlertCircle,
   LayoutDashboard,
@@ -47,7 +48,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex items-center gap-2 px-2 py-2">
-          <span className="font-semibold">Cosmo OS</span>
+          <span className="font-semibold">Cosmo OS (Beta) v{packageJson.version}</span>
         </div>
       </SidebarHeader>
       <SidebarContent>
