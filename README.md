@@ -1,1 +1,1 @@
-# cosmo-os.
+# cosmo-os
