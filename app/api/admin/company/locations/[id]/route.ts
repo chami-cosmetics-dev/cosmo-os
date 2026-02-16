@@ -100,9 +100,7 @@ export async function PATCH(
       invoiceEmail: d.invoiceEmail === undefined ? undefined : (d.invoiceEmail ?? null),
       shopifyLocationId: toOpt(d.shopifyLocationId),
       shopifyShopName: toOpt(d.shopifyShopName),
-      defaultMerchant: d.defaultMerchantUserId
-        ? { connect: { id: d.defaultMerchantUserId } }
-        : { disconnect: true },
+      defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
       id: true,
