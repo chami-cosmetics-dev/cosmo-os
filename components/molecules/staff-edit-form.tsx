@@ -28,6 +28,8 @@ type StaffMember = {
   dateOfBirth: string | null;
   mobile: string | null;
   knownName: string | null;
+  shopifyUserIds?: string[];
+  couponCodes?: string[];
   employeeProfile: {
     employeeNumber: string | null;
     epfNumber: string | null;
@@ -79,6 +81,8 @@ export function StaffEditForm({
   const [departmentId, setDepartmentId] = useState("");
   const [designationId, setDesignationId] = useState("");
   const [appointmentDate, setAppointmentDate] = useState("");
+  const [shopifyUserIds, setShopifyUserIds] = useState("");
+  const [couponCodes, setCouponCodes] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
@@ -98,6 +102,12 @@ export function StaffEditForm({
       setDesignationId(initialData.employeeProfile?.designationId ?? "");
       setAppointmentDate(
         formatDateForInput(initialData.employeeProfile?.appointmentDate)
+      );
+      setShopifyUserIds(
+        (initialData as StaffMember).shopifyUserIds?.join(", ") ?? ""
+      );
+      setCouponCodes(
+        (initialData as StaffMember).couponCodes?.join(", ") ?? ""
       );
     }
   }, [initialData]);
@@ -124,6 +134,14 @@ export function StaffEditForm({
           departmentId: departmentId || null,
           designationId: designationId || null,
           appointmentDate: appointmentDate || undefined,
+          shopifyUserIds: shopifyUserIds
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          couponCodes: couponCodes
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
         }),
       });
 
@@ -345,6 +363,42 @@ export function StaffEditForm({
           onChange={(e) => setAppointmentDate(e.target.value)}
           disabled={!canEdit || isBusy}
         />
+      </div>
+
+      <div className="border-t pt-4">
+        <p className="text-muted-foreground mb-3 text-sm font-medium">
+          Merchant (order assignment)
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-shopifyUserIds" className="text-sm font-medium">
+          Shopify User IDs
+        </label>
+        <Input
+          id="staff-shopifyUserIds"
+          value={shopifyUserIds}
+          onChange={(e) => setShopifyUserIds(e.target.value)}
+          disabled={!canEdit || isBusy}
+          placeholder="e.g. 115650822432, 115650822433"
+        />
+        <p className="text-muted-foreground text-xs">
+          Comma-separated. POS orders from these staff members will be assigned to this user.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-couponCodes" className="text-sm font-medium">
+          Coupon codes
+        </label>
+        <Input
+          id="staff-couponCodes"
+          value={couponCodes}
+          onChange={(e) => setCouponCodes(e.target.value)}
+          disabled={!canEdit || isBusy}
+          placeholder="e.g. MERCHANT10, SAVE20"
+        />
+        <p className="text-muted-foreground text-xs">
+          Comma-separated. Web orders with these coupon codes will be assigned to this user.
+        </p>
       </div>
 
       {canEdit && (

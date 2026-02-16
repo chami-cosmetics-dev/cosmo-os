@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  AlertCircle,
   LayoutDashboard,
   Mail,
   Package,
   Settings,
+  ShoppingCart,
   Tags,
   Users,
   UserCircle,
@@ -82,6 +84,32 @@ export function AppSidebar({ user }: AppSidebarProps) {
               label="Email Templates"
               isActive={pathname === "/dashboard/settings/email-templates"}
             />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Order Management</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/orders"}>
+                  <Link href="/dashboard/orders">
+                    <ShoppingCart className="size-4" />
+                    <span>Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/orders/failed-webhooks"}
+                >
+                  <Link href="/dashboard/orders/failed-webhooks">
+                    <AlertCircle className="size-4" />
+                    <span>Failed Webhooks</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>

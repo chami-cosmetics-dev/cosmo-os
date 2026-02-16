@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { emailSchema, LIMITS, trimmedString } from "@/lib/validation";
+import { cuidSchema, emailSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const createLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
@@ -19,6 +19,7 @@ const createLocationSchema = z.object({
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
   shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
   shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
+  defaultMerchantUserId: cuidSchema.nullable().optional(),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -43,27 +44,35 @@ export async function GET() {
     );
   }
 
-  const locations = await prisma.companyLocation.findMany({
-    where: { companyId },
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      address: true,
-      shortName: true,
-      invoiceHeader: true,
-      invoiceSubHeader: true,
-      invoiceFooter: true,
-      invoicePhone: true,
-      invoiceEmail: true,
-      shopifyLocationId: true,
-      shopifyShopName: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const [locations, merchants] = await Promise.all([
+    prisma.companyLocation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        shortName: true,
+        invoiceHeader: true,
+        invoiceSubHeader: true,
+        invoiceFooter: true,
+        invoicePhone: true,
+        invoiceEmail: true,
+        shopifyLocationId: true,
+        shopifyShopName: true,
+        defaultMerchantUserId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.user.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
 
-  return NextResponse.json(locations);
+  return NextResponse.json({ locations, merchants });
 }
 
 export async function POST(request: NextRequest) {
@@ -90,6 +99,20 @@ export async function POST(request: NextRequest) {
   }
 
   const d = parsed.data;
+  if (d.defaultMerchantUserId) {
+    const merchant = await prisma.user.findFirst({
+      where: {
+        id: d.defaultMerchantUserId,
+        companyId,
+      },
+    });
+    if (!merchant) {
+      return NextResponse.json(
+        { error: "Default merchant must be a user in your company" },
+        { status: 400 }
+      );
+    }
+  }
   const location = await prisma.companyLocation.create({
     data: {
       companyId,
@@ -103,6 +126,7 @@ export async function POST(request: NextRequest) {
       invoiceEmail: d.invoiceEmail ?? null,
       shopifyLocationId: d.shopifyLocationId?.trim() || null,
       shopifyShopName: d.shopifyShopName?.trim() || null,
+      defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
       id: true,
@@ -116,6 +140,7 @@ export async function POST(request: NextRequest) {
       invoiceEmail: true,
       shopifyLocationId: true,
       shopifyShopName: true,
+      defaultMerchantUserId: true,
       createdAt: true,
       updatedAt: true,
     },

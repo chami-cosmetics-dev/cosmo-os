@@ -31,9 +31,11 @@ export type SettingsPageData = {
     invoiceEmail: string | null;
     shopifyLocationId: string | null;
     shopifyShopName: string | null;
+    defaultMerchantUserId: string | null;
     createdAt?: string;
     updatedAt?: string;
   }>;
+  merchants: Array<{ id: string; name: string | null; email: string | null }>;
   departments: Array<{ id: string; name: string }>;
   designations: Array<{ id: string; name: string }>;
   shopifyWebhookSecrets: Array<{
@@ -103,6 +105,7 @@ export function SettingsPageData({ canEdit }: SettingsPageDataProps) {
       <LocationsSettingsForm
         canEdit={canEdit}
         initialLocations={data.locations}
+        merchants={data.merchants}
       />
       <ShopifyWebhookSecretsForm
         canEdit={canEdit}

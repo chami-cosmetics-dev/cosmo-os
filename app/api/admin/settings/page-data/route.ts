@@ -29,7 +29,7 @@ export async function GET() {
 
   const companyId = user.companyId;
 
-  const [company, locations, departments, designations, secrets] =
+  const [company, locations, merchants, departments, designations, secrets] =
     await Promise.all([
       prisma.company.findUnique({
         where: { id: companyId },
@@ -57,9 +57,15 @@ export async function GET() {
           invoiceEmail: true,
           shopifyLocationId: true,
           shopifyShopName: true,
+          defaultMerchantUserId: true,
           createdAt: true,
           updatedAt: true,
         },
+      }),
+      prisma.user.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, email: true },
       }),
       prisma.department.findMany({
         where: { companyId },
@@ -81,6 +87,7 @@ export async function GET() {
   return NextResponse.json({
     company: company ?? null,
     locations,
+    merchants: merchants ?? [],
     departments,
     designations,
     shopifyWebhookSecrets: secrets.map((s) => ({

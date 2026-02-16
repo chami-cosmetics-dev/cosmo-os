@@ -118,6 +118,8 @@ export async function GET(request: NextRequest) {
       dateOfBirth: u.dateOfBirth,
       mobile: u.mobile,
       knownName: u.knownName,
+      shopifyUserIds: u.shopifyUserIds,
+      couponCodes: u.couponCodes,
       userRoles: u.userRoles.map((ur) => ur.role),
       employeeProfile: u.employeeProfile
         ? {

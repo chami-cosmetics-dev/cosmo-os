@@ -48,6 +48,8 @@ export const LIMITS = {
   categoryFullName: { max: 1000 },
   shopifyWebhookSecret: { min: 32, max: 128 },
   shopifyWebhookSecretName: { max: 100 },
+  shopifyUserId: { max: 32 },
+  couponCode: { max: 64 },
   pagination: { pageMin: 1, pageMax: 10000, limitMin: 1, limitMax: 100 },
 } as const;
 

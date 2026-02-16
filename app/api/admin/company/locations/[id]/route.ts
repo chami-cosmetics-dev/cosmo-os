@@ -19,6 +19,7 @@ const updateLocationSchema = z.object({
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
   shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
   shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
+  defaultMerchantUserId: cuidSchema.nullable().optional(),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -70,6 +71,20 @@ export async function PATCH(
   }
 
   const d = parsed.data;
+  if (d.defaultMerchantUserId) {
+    const merchant = await prisma.user.findFirst({
+      where: {
+        id: d.defaultMerchantUserId,
+        companyId,
+      },
+    });
+    if (!merchant) {
+      return NextResponse.json(
+        { error: "Default merchant must be a user in your company" },
+        { status: 400 }
+      );
+    }
+  }
   const toOpt = (v: string | undefined) =>
     v === undefined ? undefined : (v.trim() || null);
   const updated = await prisma.companyLocation.update({
@@ -85,6 +100,7 @@ export async function PATCH(
       invoiceEmail: d.invoiceEmail === undefined ? undefined : (d.invoiceEmail ?? null),
       shopifyLocationId: toOpt(d.shopifyLocationId),
       shopifyShopName: toOpt(d.shopifyShopName),
+      defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
       id: true,
@@ -98,6 +114,7 @@ export async function PATCH(
       invoiceEmail: true,
       shopifyLocationId: true,
       shopifyShopName: true,
+      defaultMerchantUserId: true,
       createdAt: true,
       updatedAt: true,
     },

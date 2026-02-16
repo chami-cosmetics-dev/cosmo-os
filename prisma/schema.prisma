@@ -34,6 +34,25 @@ model Company {
   categories            Category[]
   productItems          ProductItem[]
   shopifyWebhookSecrets ShopifyWebhookSecret[]
+  customers             Customer[]
+  orders                Order[]
+  failedOrderWebhooks   FailedOrderWebhook[]
+}
+
+model FailedOrderWebhook {
+  id                 String   @id @default(cuid())
+  companyId          String
+  companyLocationId  String
+  shopifyOrderId     String
+  shopifyTopic       String?  // orders/create or orders/updated
+  errorMessage       String   @db.Text
+  errorStack         String?  @db.Text
+  rawPayload         Json
+  resolvedAt         DateTime? // Set when retry succeeds
+  createdAt          DateTime @default(now())
+
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
 }
 
 model ShopifyWebhookSecret {
@@ -97,10 +116,11 @@ model ProductItem {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-  vendor        Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  category      Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  vendor         Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  category       Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  orderLineItems OrderLineItem[]
 
   @@unique([companyLocationId, shopifyVariantId])
 }
@@ -145,12 +165,19 @@ model User {
   companyId   String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-  userRoles       UserRole[]
-  company         Company?         @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull)
-  invitesSent     Invite[]         @relation("InvitedBy")
-  createdCompany  Company?         @relation("CompanyCreator")
-  employeeProfile EmployeeProfile?
-  smsLogs         SmsLog[]
+
+  // Merchant mapping (for order assignment)
+  shopifyUserIds String[] @default([]) // Shopify staff user IDs for POS orders
+  couponCodes   String[] @default([])  // Coupon codes owned by this merchant for web orders
+
+  userRoles              UserRole[]
+  company                Company?         @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull)
+  invitesSent            Invite[]         @relation("InvitedBy")
+  createdCompany         Company?         @relation("CompanyCreator")
+  employeeProfile        EmployeeProfile?
+  smsLogs                SmsLog[]
+  defaultMerchantLocations CompanyLocation[] @relation("LocationDefaultMerchant")
+  assignedOrders         Order[]          @relation("OrderAssignedMerchant")
 }
 
 model CompanyLocation {
@@ -175,10 +202,95 @@ model CompanyLocation {
   shopifyLocationId String?
   shopifyShopName   String?
 
+  // Default merchant for web orders (when no coupon match)
+  defaultMerchantUserId String?
+  defaultMerchant       User?    @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id], onDelete: SetNull)
+
   company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   profiles       EmployeeProfile[]
   invites        Invite[]
-  productItems   ProductItem[]
+  productItems        ProductItem[]
+  orders              Order[]
+  failedOrderWebhooks  FailedOrderWebhook[]
+}
+
+model Customer {
+  id                String    @id @default(cuid())
+  companyId         String
+  shopifyCustomerId String
+
+  email       String?
+  firstName   String?
+  lastName    String?
+  phone       String?
+  defaultAddress Json?
+
+  lastPurchaseAt DateTime?
+  orderCount    Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders  Order[]
+
+  @@unique([companyId, shopifyCustomerId])
+}
+
+model Order {
+  id                 String   @id @default(cuid())
+  companyId          String
+  companyLocationId  String
+  assignedMerchantId String?
+  customerId         String?
+
+  shopifyOrderId String  @unique
+  sourceName     String
+  shopifyUserId  String?
+
+  orderNumber        String?
+  name               String?
+  totalPrice         Decimal  @db.Decimal(12, 2)
+  subtotalPrice      Decimal? @db.Decimal(12, 2)
+  totalDiscounts     Decimal? @db.Decimal(12, 2)
+  totalTax           Decimal? @db.Decimal(12, 2)
+  totalShipping      Decimal? @db.Decimal(12, 2)
+  currency           String?
+  financialStatus    String?
+  fulfillmentStatus  String?
+  customerEmail      String?
+  customerPhone      String?
+
+  shippingAddress     Json?
+  billingAddress      Json?
+  discountCodes       Json?
+  discountApplications Json?
+  shippingLines       Json?
+
+  rawPayload Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation  CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  assignedMerchant User?           @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id], onDelete: SetNull)
+  customer         Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lineItems        OrderLineItem[]
+}
+
+model OrderLineItem {
+  id               String   @id @default(cuid())
+  orderId          String
+  productItemId   String
+  shopifyLineItemId String
+  quantity        Int       @default(1)
+  price           Decimal   @db.Decimal(12, 2)
+
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productItem ProductItem @relation(fields: [productItemId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, shopifyLineItemId])
 }
 
 model Department {

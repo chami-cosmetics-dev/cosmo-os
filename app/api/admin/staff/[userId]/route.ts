@@ -13,6 +13,18 @@ async function getCompanyId(userId: string): Promise<string | null> {
   return user?.companyId ?? null;
 }
 
+const shopifyUserIdSchema = z
+  .string()
+  .trim()
+  .max(LIMITS.shopifyUserId.max)
+  .refine((s) => s.length > 0, "Shopify User ID cannot be empty");
+
+const couponCodeSchema = z
+  .string()
+  .trim()
+  .max(LIMITS.couponCode.max)
+  .refine((s) => s.length > 0, "Coupon code cannot be empty");
+
 const updateStaffSchema = z.object({
   name: z.string().max(LIMITS.name.max).optional(),
   knownName: z.string().max(LIMITS.knownName.max).optional(),
@@ -26,6 +38,16 @@ const updateStaffSchema = z.object({
   departmentId: cuidSchema.nullable().optional(),
   designationId: cuidSchema.nullable().optional(),
   appointmentDate: z.string().optional(),
+  shopifyUserIds: z
+    .array(shopifyUserIdSchema)
+    .max(20)
+    .optional()
+    .transform((v) => v ?? []),
+  couponCodes: z
+    .array(couponCodeSchema)
+    .max(20)
+    .optional()
+    .transform((v) => v ?? []),
 });
 
 export async function GET(
@@ -102,6 +124,8 @@ export async function GET(
     dateOfBirth: user.dateOfBirth,
     mobile: user.mobile,
     knownName: user.knownName,
+    shopifyUserIds: user.shopifyUserIds,
+    couponCodes: user.couponCodes,
     companyId: user.companyId,
     userRoles: user.userRoles.map((ur) => ur.role),
     employeeProfile: user.employeeProfile,
@@ -183,6 +207,8 @@ export async function PATCH(
         ...(data.gender !== undefined && { gender: data.gender?.trim() || null }),
         ...(data.dateOfBirth !== undefined && { dateOfBirth: validDob ?? null }),
         ...(data.mobile !== undefined && { mobile: data.mobile?.trim() || null }),
+        ...(data.shopifyUserIds !== undefined && { shopifyUserIds: data.shopifyUserIds }),
+        ...(data.couponCodes !== undefined && { couponCodes: data.couponCodes }),
       },
     });
 

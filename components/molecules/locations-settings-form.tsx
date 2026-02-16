@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/sheet";
 import { notify } from "@/lib/notify";
 
+type Merchant = { id: string; name: string | null; email: string | null };
+
 type Location = {
   id: string;
   name: string;
@@ -28,6 +30,7 @@ type Location = {
   invoiceEmail: string | null;
   shopifyLocationId: string | null;
   shopifyShopName: string | null;
+  defaultMerchantUserId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -43,15 +46,18 @@ const emptyForm = (): Partial<Location> => ({
   invoiceEmail: "",
   shopifyLocationId: "",
   shopifyShopName: "",
+  defaultMerchantUserId: null,
 });
 
 interface LocationsSettingsFormProps {
   canEdit: boolean;
   initialLocations?: Location[];
+  merchants?: Merchant[];
 }
 
-export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSettingsFormProps) {
+export function LocationsSettingsForm({ canEdit, initialLocations, merchants: initialMerchants = [] }: LocationsSettingsFormProps) {
   const [locations, setLocations] = useState<Location[]>(initialLocations ?? []);
+  const [merchants, setMerchants] = useState<Merchant[]>(initialMerchants);
   const [loading, setLoading] = useState(initialLocations === undefined);
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
@@ -70,13 +76,15 @@ export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSe
       notify.error(data.error ?? "Failed to load locations");
       return;
     }
-    const data = (await res.json()) as Location[];
-    setLocations(data);
+    const data = (await res.json()) as { locations: Location[]; merchants: Merchant[] };
+    setLocations(data.locations);
+    setMerchants(data.merchants ?? []);
   }
 
   useEffect(() => {
     if (initialLocations !== undefined) {
       setLoading(false);
+      setMerchants(initialMerchants);
       return;
     }
     async function load() {
@@ -89,7 +97,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSe
       }
     }
     load();
-  }, [initialLocations]);
+  }, [initialLocations, initialMerchants]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -147,6 +155,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSe
       invoiceEmail: loc.invoiceEmail ?? "",
       shopifyLocationId: loc.shopifyLocationId ?? "",
       shopifyShopName: loc.shopifyShopName ?? "",
+      defaultMerchantUserId: loc.defaultMerchantUserId ?? null,
     });
     setSheetOpen(true);
   }
@@ -174,6 +183,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSe
       invoiceEmail: form.invoiceEmail?.trim() || undefined,
       shopifyLocationId: form.shopifyLocationId?.trim() || undefined,
       shopifyShopName: form.shopifyShopName?.trim() || undefined,
+      defaultMerchantUserId: form.defaultMerchantUserId || null,
     };
 
     if (sheetMode === "add") {
@@ -502,6 +512,39 @@ export function LocationsSettingsForm({ canEdit, initialLocations }: LocationsSe
                 maxLength={200}
               />
             </div>
+
+            {merchants.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Order Assignment</h4>
+                <div className="space-y-2">
+                  <label htmlFor="location-defaultMerchant" className="text-sm">
+                    Default merchant (web orders)
+                  </label>
+                  <select
+                    id="location-defaultMerchant"
+                    value={form.defaultMerchantUserId ?? ""}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        defaultMerchantUserId: e.target.value || null,
+                      }))
+                    }
+                    disabled={isBusy}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+                  >
+                    <option value="">None</option>
+                    {merchants.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name || m.email || m.id}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-muted-foreground text-xs">
+                    Web orders without a coupon match will be assigned to this merchant.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           <SheetFooter>

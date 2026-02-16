@@ -47,6 +47,14 @@ const DEFAULT_PERMISSIONS = [
     key: "products.manage",
     description: "Manage vendors and categories",
   },
+  {
+    key: "orders.read",
+    description: "View received orders from Shopify",
+  },
+  {
+    key: "orders.manage",
+    description: "Retry failed order webhooks",
+  },
 ] as const;
 
 const DEFAULT_ROLES = [
@@ -74,12 +82,14 @@ const DEFAULT_ROLES = [
       "settings.sms_portal",
       "products.read",
       "products.manage",
+      "orders.read",
+      "orders.manage",
     ],
   },
   {
     name: "viewer",
     description: "Read-only access to user directory, staff, and roles",
-    permissionKeys: ["users.read", "staff.read", "roles.read", "products.read"],
+    permissionKeys: ["users.read", "staff.read", "roles.read", "products.read", "orders.read"],
   },
 ] as const;
 
