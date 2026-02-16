@@ -61,19 +61,26 @@ export default async function UserManagementPage() {
       return { locations, departments, designations };
     })(),
     canManageUsers
-      ? prisma.invite.findMany({
-          where: {
-            usedAt: null,
-            expiresAt: { gt: new Date() },
-            ...(isSuperAdmin ? {} : { companyId: userCompanyId }),
-          },
-          include: {
-            role: { select: { id: true, name: true } },
-            invitedBy: { select: { id: true, name: true, email: true } },
-            location: { select: { id: true, name: true } },
-          },
-          orderBy: { createdAt: "desc" },
-        })
+      ? (async () => {
+          const invites = await prisma.invite.findMany({
+            where: {
+              usedAt: null,
+              expiresAt: { gt: new Date() },
+              ...(isSuperAdmin ? {} : { companyId: userCompanyId }),
+            },
+            include: {
+              role: { select: { id: true, name: true } },
+              invitedBy: { select: { id: true, name: true, email: true } },
+              location: { select: { id: true, name: true } },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          return invites.map((inv) => ({
+            ...inv,
+            expiresAt: inv.expiresAt.toISOString(),
+            createdAt: inv.createdAt.toISOString(),
+          }));
+        })()
       : [],
   ]);
 
