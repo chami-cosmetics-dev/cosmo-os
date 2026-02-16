@@ -1,11 +1,20 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { Loader2, Mail, Copy, XCircle } from "lucide-react";
+import { Loader2, Mail, Copy, XCircle, UserPlus, ShieldPlus, Pencil, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string };
@@ -105,6 +114,14 @@ export function UserManagementPanel({
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
     initialPendingInvites ?? []
   );
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersLimit, setUsersLimit] = useState(10);
+  const [rolesPage, setRolesPage] = useState(1);
+  const [rolesLimit, setRolesLimit] = useState(10);
+  const [activeTab, setActiveTab] = useState<"users" | "roles">("users");
+  const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
+  const [createRoleSheetOpen, setCreateRoleSheetOpen] = useState(false);
+  const [editingUserRolesId, setEditingUserRolesId] = useState<string | null>(null);
 
   const fetchInvites = useCallback(async () => {
     const res = await fetch("/api/admin/invites", { cache: "no-store" });
@@ -116,6 +133,21 @@ export function UserManagementPanel({
   const sortedRoles = useMemo(
     () => [...roles].sort((a, b) => a.name.localeCompare(b.name)),
     [roles]
+  );
+
+  const paginatedUsers = useMemo(() => {
+    const start = (usersPage - 1) * usersLimit;
+    return users.slice(start, start + usersLimit);
+  }, [users, usersPage, usersLimit]);
+
+  const paginatedRoles = useMemo(() => {
+    const start = (rolesPage - 1) * rolesLimit;
+    return sortedRoles.slice(start, start + rolesLimit);
+  }, [sortedRoles, rolesPage, rolesLimit]);
+
+  const permissionsByGroup = useMemo(
+    () => groupPermissionsByPrefix(permissions),
+    [permissions]
   );
 
   const assignableRoles = useMemo(
@@ -147,6 +179,16 @@ export function UserManagementPanel({
   useEffect(() => {
     if (canManageUsers && initialPendingInvites === undefined) fetchInvites();
   }, [canManageUsers, initialPendingInvites, fetchInvites]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(users.length / usersLimit));
+    if (usersPage > maxPage) setUsersPage(maxPage);
+  }, [users.length, usersLimit, usersPage]);
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(sortedRoles.length / rolesLimit));
+    if (rolesPage > maxPage) setRolesPage(maxPage);
+  }, [sortedRoles.length, rolesLimit, rolesPage]);
 
   function togglePermission(key: string) {
     setSelectedPermissionKeys((current) =>
@@ -229,10 +271,10 @@ export function UserManagementPanel({
     }
   }
 
-  async function createRole() {
+  async function createRole(): Promise<boolean> {
     if (!draftRoleName.trim()) {
       notify.error("Role name is required.");
-      return;
+      return false;
     }
 
     try {
@@ -257,17 +299,19 @@ export function UserManagementPanel({
       setSelectedPermissionKeys([]);
       await refreshData();
       notify.success("Role created.");
+      return true;
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to create role.");
+      return false;
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function inviteUser() {
+  async function inviteUser(): Promise<boolean> {
     if (!inviteEmail.trim() || !inviteRoleId) {
       notify.error("Email and role are required.");
-      return;
+      return false;
     }
 
     try {
@@ -303,8 +347,10 @@ export function UserManagementPanel({
       setInviteAppointmentDate("");
       await fetchInvites();
       notify.success("Invitation sent. Check your email for the activation link.");
+      return true;
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to send invite.");
+      return false;
     } finally {
       setBusyKey(null);
     }
@@ -466,83 +512,401 @@ export function UserManagementPanel({
     }
   }
 
+  const editingUser = editingUserRolesId
+    ? users.find((u) => u.id === editingUserRolesId)
+    : null;
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Users</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {canManageUsers && (
-            <div className="space-y-3 rounded-lg border p-4">
-              <p className="text-sm font-medium">Invite User</p>
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[200px] flex-1 space-y-1">
-                  <label htmlFor="invite-email" className="sr-only">
-                    Email
-                  </label>
-                  <Input
-                    id="invite-email"
-                    type="email"
-                    placeholder="email@example.com"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    disabled={isBusy}
-                  />
-                </div>
-                <div className="min-w-[140px] space-y-1">
-                  <label htmlFor="invite-role" className="sr-only">
-                    Role
-                  </label>
-                  <select
-                    id="invite-role"
-                    value={inviteRoleId}
-                    onChange={(e) => setInviteRoleId(e.target.value)}
-                    disabled={isBusy}
-                    className="border-input bg-transparent h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs disabled:opacity-50 disabled:pointer-events-none"
-                  >
-                    <option value="">Select role</option>
-                    {sortedRoles
-                      .filter((r) => r.name !== "super_admin")
-                      .map((role) => (
-                        <option key={role.id} value={role.id}>
-                          {role.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                <Button
-                  size="sm"
-                  onClick={inviteUser}
-                  disabled={isBusy}
-                >
-                  {busyKey === "invite-user" ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden />
-                      Sending...
-                    </>
-                  ) : (
-                    "Send Invite"
-                  )}
+    <div className="space-y-4">
+      <div className="flex gap-1 border-b">
+        <button
+          type="button"
+          onClick={() => setActiveTab("users")}
+          className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            activeTab === "users"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Users
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("roles")}
+          className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+            activeTab === "roles"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Roles
+        </button>
+      </div>
+
+      {activeTab === "users" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-lg">Users</CardTitle>
+                <p className="text-muted-foreground mt-0.5 text-sm">
+                  Manage users and their role assignments.
+                </p>
+              </div>
+              {canManageUsers && (
+                <Button size="sm" onClick={() => setInviteSheetOpen(true)}>
+                  <UserPlus className="mr-1.5 size-4" aria-hidden />
+                  Invite user
                 </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {canManageUsers && pendingInvites.length > 0 && (
+              <div className="rounded-lg border border-dashed p-3">
+                <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
+                  Pending ({pendingInvites.length})
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {pendingInvites.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm"
+                    >
+                      <span className="font-medium">{inv.email}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {inv.role.name} · {formatExpiry(inv.expiresAt)}
+                      </span>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => resendInvite(inv.id)}
+                          disabled={isBusy}
+                          aria-label="Resend invite"
+                        >
+                          {busyKey === `resend-invite-${inv.id}` ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                          ) : (
+                            <Mail className="size-3.5" aria-hidden />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => copyInviteLink(inv.id)}
+                          disabled={isBusy}
+                          aria-label="Copy link"
+                        >
+                          <Copy className="size-3.5" aria-hidden />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-destructive hover:text-destructive"
+                          onClick={() => cancelInvite(inv.id, inv.email)}
+                          disabled={isBusy}
+                          aria-label="Cancel invite"
+                        >
+                          <XCircle className="size-3.5" aria-hidden />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowInviteEmployeeDetails((v) => !v)}
-                  className="text-muted-foreground hover:text-foreground text-xs underline"
-                >
-                  {showInviteEmployeeDetails ? "Hide" : "Add"} employee details (optional)
-                </button>
+            )}
+
+            {paginatedUsers.length === 0 ? (
+              <p className="text-muted-foreground py-8 text-center text-sm">No users yet.</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="px-4 py-2.5 text-left font-medium">Name</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Email</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Roles</th>
+                        {canManageUsers && (
+                          <th className="w-24 px-4 py-2.5 text-right font-medium">Actions</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedUsers.map((user) => {
+                        const assignedRoles = draftAssignments[user.id] ?? [];
+                        const isSuperAdmin = user.userRoles.some(
+                          (ur) => ur.role.name === "super_admin"
+                        );
+                        const roleNames = isSuperAdmin
+                          ? ["super_admin"]
+                          : assignedRoles
+                              .map((rid) => sortedRoles.find((r) => r.id === rid)?.name)
+                              .filter(Boolean) as string[];
+                        return (
+                          <tr key={user.id} className="border-b last:border-0">
+                            <td className="px-4 py-2.5 font-medium">
+                              {user.name ?? "Unnamed"}
+                            </td>
+                            <td className="text-muted-foreground px-4 py-2.5">
+                              {user.email ?? user.auth0Id}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex flex-wrap gap-1">
+                                {roleNames.map((name) => (
+                                  <span
+                                    key={name}
+                                    className="bg-muted rounded px-1.5 py-0.5 text-xs"
+                                  >
+                                    {name}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                            {canManageUsers && (
+                              <td className="px-4 py-2.5 text-right">
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-8"
+                                    onClick={() => setEditingUserRolesId(user.id)}
+                                    disabled={isBusy}
+                                    aria-label="Edit roles"
+                                  >
+                                    <Pencil className="size-4" aria-hidden />
+                                  </Button>
+                                  {!isSuperAdmin && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="size-8 text-destructive hover:text-destructive"
+                                      onClick={() =>
+                                        removeUser(
+                                          user.id,
+                                          user.name ?? user.email ?? "this user"
+                                        )
+                                      }
+                                      disabled={isBusy}
+                                      aria-label="Remove user"
+                                    >
+                                      <Trash2 className="size-4" aria-hidden />
+                                    </Button>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination
+                  page={usersPage}
+                  limit={usersLimit}
+                  total={users.length}
+                  onPageChange={setUsersPage}
+                  onLimitChange={(l) => {
+                    setUsersLimit(l);
+                    setUsersPage(1);
+                  }}
+                  limitOptions={[10, 25, 50, 100]}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === "roles" && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="text-lg">Roles</CardTitle>
+                <p className="text-muted-foreground mt-0.5 text-sm">
+                  Manage roles and their permissions.
+                </p>
               </div>
-              {showInviteEmployeeDetails && (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {canManageRoles && (
+                <Button size="sm" onClick={() => setCreateRoleSheetOpen(true)}>
+                  <ShieldPlus className="mr-1.5 size-4" aria-hidden />
+                  Create role
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {paginatedRoles.length === 0 ? (
+              <p className="text-muted-foreground py-8 text-center text-sm">No roles yet.</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/50">
+                        <th className="px-4 py-2.5 text-left font-medium">Name</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Description</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Permissions</th>
+                        <th className="px-4 py-2.5 text-right font-medium">Users</th>
+                        {canManageRoles && (
+                          <th className="w-24 px-4 py-2.5 text-right font-medium">Actions</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedRoles.map((role) => {
+                        const canEdit =
+                          canManageRoles &&
+                          role.name !== "admin" &&
+                          role.name !== "super_admin";
+                        const permKeys = role.rolePermissions.map(
+                          (rp) => rp.permission.key
+                        );
+                        return (
+                          <tr
+                            key={role.id}
+                            className="border-b last:border-0"
+                          >
+                            <td className="px-4 py-2.5 font-medium">{role.name}</td>
+                            <td className="text-muted-foreground max-w-[200px] truncate px-4 py-2.5 text-xs">
+                              {role.description ?? "—"}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex max-w-[280px] flex-wrap gap-1">
+                                {permKeys.slice(0, 5).map((k) => (
+                                  <span
+                                    key={k}
+                                    className="bg-muted rounded px-1.5 py-0.5 text-xs"
+                                  >
+                                    {k}
+                                  </span>
+                                ))}
+                                {permKeys.length > 5 && (
+                                  <span className="text-muted-foreground text-xs">
+                                    +{permKeys.length - 5}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-muted-foreground">
+                              {role._count.userRoles}
+                            </td>
+                            {canManageRoles && (
+                              <td className="px-4 py-2.5 text-right">
+                                <div className="flex justify-end gap-1">
+                                  {canEdit && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8"
+                                        onClick={() => startEditingRole(role)}
+                                        disabled={isBusy}
+                                        aria-label="Edit role"
+                                      >
+                                        <Pencil className="size-4" aria-hidden />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8 text-destructive hover:text-destructive"
+                                        onClick={() => deleteRole(role.id, role.name)}
+                                        disabled={isBusy}
+                                        aria-label="Delete role"
+                                      >
+                                        <Trash2 className="size-4" aria-hidden />
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination
+                  page={rolesPage}
+                  limit={rolesLimit}
+                  total={sortedRoles.length}
+                  onPageChange={setRolesPage}
+                  onLimitChange={(l) => {
+                    setRolesLimit(l);
+                    setRolesPage(1);
+                  }}
+                  limitOptions={[10, 25, 50]}
+                  className="mt-4"
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Invite user sheet */}
+      <Sheet open={inviteSheetOpen} onOpenChange={setInviteSheetOpen}>
+        <SheetContent className="overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Invite user</SheetTitle>
+            <SheetDescription>
+              Send an invitation email. The recipient will set their password via the link.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label htmlFor="invite-email" className="text-sm font-medium">
+                Email
+              </label>
+              <Input
+                id="invite-email"
+                type="email"
+                placeholder="email@example.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                disabled={isBusy}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="invite-role" className="text-sm font-medium">
+                Role
+              </label>
+              <select
+                id="invite-role"
+                value={inviteRoleId}
+                onChange={(e) => setInviteRoleId(e.target.value)}
+                disabled={isBusy}
+                className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
+              >
+                <option value="">Select role</option>
+                {sortedRoles
+                  .filter((r) => r.name !== "super_admin")
+                  .map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowInviteEmployeeDetails((v) => !v)}
+              className="text-muted-foreground hover:text-foreground text-xs underline"
+            >
+              {showInviteEmployeeDetails ? "Hide" : "Add"} employee details (optional)
+            </button>
+            {showInviteEmployeeDetails && (
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <label htmlFor="invite-employeeNumber" className="text-xs">
-                      Employee number
-                    </label>
+                    <label className="text-xs">Employee #</label>
                     <Input
-                      id="invite-employeeNumber"
                       value={inviteEmployeeNumber}
                       onChange={(e) => setInviteEmployeeNumber(e.target.value)}
                       disabled={isBusy}
@@ -550,443 +914,330 @@ export function UserManagementPanel({
                     />
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="invite-epfNumber" className="text-xs">
-                      EPF number
-                    </label>
+                    <label className="text-xs">EPF #</label>
                     <Input
-                      id="invite-epfNumber"
                       value={inviteEpfNumber}
                       onChange={(e) => setInviteEpfNumber(e.target.value)}
                       disabled={isBusy}
                       placeholder="Optional"
                     />
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs">Location</label>
+                  <select
+                    value={inviteLocationId}
+                    onChange={(e) => setInviteLocationId(e.target.value)}
+                    disabled={isBusy}
+                    className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
+                  >
+                    <option value="">Select</option>
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <label htmlFor="invite-location" className="text-xs">
-                      Location
-                    </label>
+                    <label className="text-xs">Department</label>
                     <select
-                      id="invite-location"
-                      value={inviteLocationId}
-                      onChange={(e) => setInviteLocationId(e.target.value)}
-                      disabled={isBusy}
-                      className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
-                    >
-                      <option value="">Select location</option>
-                      {locations.map((loc) => (
-                        <option key={loc.id} value={loc.id}>
-                          {loc.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label htmlFor="invite-department" className="text-xs">
-                      Department
-                    </label>
-                    <select
-                      id="invite-department"
                       value={inviteDepartmentId}
                       onChange={(e) => setInviteDepartmentId(e.target.value)}
                       disabled={isBusy}
                       className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
                     >
-                      <option value="">Select department</option>
+                      <option value="">Select</option>
                       {departments.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}
-                        </option>
+                        <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label htmlFor="invite-designation" className="text-xs">
-                      Designation
-                    </label>
+                    <label className="text-xs">Designation</label>
                     <select
-                      id="invite-designation"
                       value={inviteDesignationId}
                       onChange={(e) => setInviteDesignationId(e.target.value)}
                       disabled={isBusy}
                       className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
                     >
-                      <option value="">Select designation</option>
+                      <option value="">Select</option>
                       {designations.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}
-                        </option>
+                        <option key={d.id} value={d.id}>{d.name}</option>
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-1">
-                    <label htmlFor="invite-appointmentDate" className="text-xs">
-                      Appointment date
-                    </label>
-                    <Input
-                      id="invite-appointmentDate"
-                      type="date"
-                      value={inviteAppointmentDate}
-                      onChange={(e) => setInviteAppointmentDate(e.target.value)}
-                      disabled={isBusy}
-                    />
-                  </div>
                 </div>
+                <div className="space-y-1">
+                  <label className="text-xs">Appointment date</label>
+                  <Input
+                    type="date"
+                    value={inviteAppointmentDate}
+                    onChange={(e) => setInviteAppointmentDate(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setInviteSheetOpen(false)} disabled={isBusy}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const ok = await inviteUser();
+                if (ok) setInviteSheetOpen(false);
+              }}
+              disabled={isBusy}
+            >
+              {busyKey === "invite-user" ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                  Sending...
+                </>
+              ) : (
+                "Send invite"
               )}
-            </div>
-          )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
-          {canManageUsers && pendingInvites.length > 0 && (
-            <div className="space-y-3 rounded-lg border p-4">
-              <p className="text-sm font-medium">Pending invitations</p>
-              <div className="space-y-2">
-                {pendingInvites.map((inv) => (
-                  <div
-                    key={inv.id}
-                    className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <p className="font-medium">{inv.email}</p>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>Role: {inv.role.name}</span>
-                        {inv.location && (
-                          <span>Location: {inv.location.name}</span>
-                        )}
-                        {inv.invitedBy?.name && (
-                          <span>Invited by: {inv.invitedBy.name}</span>
-                        )}
-                        <span>{formatExpiry(inv.expiresAt)}</span>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => resendInvite(inv.id)}
-                        disabled={isBusy}
-                      >
-                        {busyKey === `resend-invite-${inv.id}` ? (
-                          <Loader2 className="size-4 animate-spin" aria-hidden />
-                        ) : (
-                          <>
-                            <Mail className="mr-1 size-4" aria-hidden />
-                            Resend
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => copyInviteLink(inv.id)}
-                        disabled={isBusy}
-                      >
-                        {busyKey === `copy-link-${inv.id}` ? (
-                          <Loader2 className="size-4 animate-spin" aria-hidden />
-                        ) : (
-                          <>
-                            <Copy className="mr-1 size-4" aria-hidden />
-                            Copy link
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => cancelInvite(inv.id, inv.email)}
-                        disabled={isBusy}
-                      >
-                        {busyKey === `cancel-invite-${inv.id}` ? (
-                          <Loader2 className="size-4 animate-spin" aria-hidden />
-                        ) : (
-                          <>
-                            <XCircle className="mr-1 size-4" aria-hidden />
-                            Cancel
-                          </>
-                        )}
-                      </Button>
+      {/* Create role sheet */}
+      <Sheet open={createRoleSheetOpen} onOpenChange={setCreateRoleSheetOpen}>
+        <SheetContent className="overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Create role</SheetTitle>
+            <SheetDescription>
+              Define a new role and assign permissions.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <Input
+                placeholder="e.g. support-manager"
+                value={draftRoleName}
+                onChange={(e) => setDraftRoleName(e.target.value)}
+                disabled={isBusy}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Description (optional)</label>
+              <Input
+                placeholder="Brief description"
+                value={draftRoleDescription}
+                onChange={(e) => setDraftRoleDescription(e.target.value)}
+                disabled={isBusy}
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Permissions</p>
+              <div className="space-y-3">
+                {permissionsByGroup.map(({ group, permissions: perms }) => (
+                  <div key={group}>
+                    <p className="text-muted-foreground mb-1.5 text-xs font-medium uppercase tracking-wide">
+                      {group}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {perms.map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedPermissionKeys.includes(p.key)}
+                            onChange={() => togglePermission(p.key)}
+                            disabled={isBusy}
+                            className="rounded"
+                          />
+                          {p.key}
+                        </label>
+                      ))}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setCreateRoleSheetOpen(false)} disabled={isBusy}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const ok = await createRole();
+                if (ok) setCreateRoleSheetOpen(false);
+              }}
+              disabled={isBusy}
+            >
+              {busyKey === "create-role" ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                  Creating...
+                </>
+              ) : (
+                "Create role"
+              )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
-          {users.map((user) => {
-            const assignedRoles = draftAssignments[user.id] ?? [];
-            const isSuperAdmin = user.userRoles.some(
-              (ur) => ur.role.name === "super_admin"
-            );
-            return (
-              <div
-                key={user.id}
-                className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-start md:justify-between"
-              >
-                <div className="flex-1 space-y-3">
-                  <div className="space-y-1">
-                    <p className="font-medium">{user.name ?? "Unnamed user"}</p>
-                    <p className="text-muted-foreground text-sm">
-                      {user.email ?? user.auth0Id}
-                      {isSuperAdmin && (
-                        <span className="ml-2 text-xs">(Super Admin)</span>
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {assignableRoles.map((role) => (
-                      <label
-                        key={`${user.id}-${role.id}`}
-                        className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={assignedRoles.includes(role.id)}
-                          onChange={() => toggleUserRole(user.id, role.id)}
-                          disabled={!canManageUsers || isBusy}
-                        />
-                        <span>{role.name}</span>
-                      </label>
-                    ))}
-                    {isSuperAdmin && (
-                      <span className="bg-muted rounded-md px-2 py-1 text-sm">
-                        super_admin
-                      </span>
-                    )}
-                  </div>
-
-                  {canManageUsers && (
-                    <Button
-                      size="sm"
-                      onClick={() => saveUserRoles(user.id)}
-                      disabled={isBusy}
-                    >
-                      {busyKey === `user-${user.id}` ? (
-                        <>
-                          <Loader2 className="animate-spin" aria-hidden />
-                          Saving...
-                        </>
-                      ) : (
-                        "Save Roles"
-                      )}
-                    </Button>
-                  )}
-                </div>
-
-                {canManageUsers && !isSuperAdmin && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() =>
-                      removeUser(user.id, user.name ?? user.email ?? "this user")
-                    }
-                    disabled={isBusy}
-                  >
-                    {busyKey === `remove-user-${user.id}` ? (
-                      <>
-                        <Loader2 className="animate-spin" aria-hidden />
-                        Removing...
-                      </>
-                    ) : (
-                      "Remove"
-                    )}
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Roles</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {canManageRoles && (
-            <div className="space-y-3 rounded-lg border p-4">
-              <p className="text-sm font-medium">Create Role</p>
-              <Input
-                placeholder="Role name (e.g. support-manager)"
-                value={draftRoleName}
-                onChange={(event) => setDraftRoleName(event.target.value)}
-                disabled={isBusy}
-              />
-              <Input
-                placeholder="Description (optional)"
-                value={draftRoleDescription}
-                onChange={(event) => setDraftRoleDescription(event.target.value)}
-                disabled={isBusy}
-              />
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Permissions</p>
-                <div className="flex flex-wrap gap-2">
-                  {permissions.map((permission) => (
+      {/* Edit user roles sheet */}
+      <Sheet
+        open={!!editingUserRolesId}
+        onOpenChange={(open) => !open && setEditingUserRolesId(null)}
+      >
+        <SheetContent className="overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Edit roles</SheetTitle>
+            <SheetDescription>
+              {editingUser && (
+                <>Assign roles for {editingUser.name ?? editingUser.email ?? "this user"}.</>
+              )}
+            </SheetDescription>
+          </SheetHeader>
+          {editingUser && (
+            <div className="space-y-4 py-4">
+              <div className="flex flex-wrap gap-2">
+                {assignableRoles.map((role) => {
+                  const assignedRoles = draftAssignments[editingUser.id] ?? [];
+                  const checked = assignedRoles.includes(role.id);
+                  return (
                     <label
-                      key={permission.id}
-                      className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm"
+                      key={role.id}
+                      className="flex cursor-pointer items-center gap-2 rounded border px-3 py-2 text-sm hover:bg-muted/50"
                     >
                       <input
                         type="checkbox"
-                        checked={selectedPermissionKeys.includes(permission.key)}
-                        onChange={() => togglePermission(permission.key)}
+                        checked={checked}
+                        onChange={() => toggleUserRole(editingUser.id, role.id)}
                         disabled={isBusy}
+                        className="rounded"
                       />
-                      <span>{permission.key}</span>
+                      {role.name}
                     </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <SheetFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditingUserRolesId(null)}
+              disabled={isBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (editingUserRolesId) {
+                  await saveUserRoles(editingUserRolesId);
+                  setEditingUserRolesId(null);
+                }
+              }}
+              disabled={isBusy}
+            >
+              {busyKey === `user-${editingUserRolesId}` ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Save roles"
+              )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* Edit role sheet */}
+      <Sheet
+        open={!!editingRoleId}
+        onOpenChange={(open) => !open && cancelEditingRole()}
+      >
+          <SheetContent className="overflow-y-auto sm:max-w-md">
+            <SheetHeader>
+              <SheetTitle>Edit role</SheetTitle>
+              <SheetDescription>
+                Update role name, description, and permissions.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Name</label>
+                <Input
+                  value={editRoleName}
+                  onChange={(e) => setEditRoleName(e.target.value)}
+                  disabled={isBusy}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description (optional)</label>
+                <Input
+                  value={editRoleDescription}
+                  onChange={(e) => setEditRoleDescription(e.target.value)}
+                  disabled={isBusy}
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Permissions</p>
+                <div className="space-y-3">
+                  {permissionsByGroup.map(({ group, permissions: perms }) => (
+                    <div key={group}>
+                      <p className="text-muted-foreground mb-1.5 text-xs font-medium uppercase tracking-wide">
+                        {group}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {perms.map((p) => (
+                          <label
+                            key={p.id}
+                            className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={editRolePermissionKeys.includes(p.key)}
+                              onChange={() => toggleEditRolePermission(p.key)}
+                              disabled={isBusy}
+                              className="rounded"
+                            />
+                            {p.key}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-              <Button onClick={createRole} disabled={isBusy}>
-                {busyKey === "create-role" ? (
+            </div>
+            <SheetFooter>
+              <Button variant="outline" onClick={cancelEditingRole} disabled={isBusy}>
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (editingRoleId) {
+                    await updateRole(editingRoleId);
+                    cancelEditingRole();
+                  }
+                }}
+                disabled={isBusy}
+              >
+                {editingRoleId && busyKey === `update-role-${editingRoleId}` ? (
                   <>
-                    <Loader2 className="animate-spin" aria-hidden />
-                    Creating...
+                    <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                    Saving...
                   </>
                 ) : (
-                  "Create Role"
+                  "Save"
                 )}
               </Button>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            {sortedRoles.map((role) => {
-              const isEditing = editingRoleId === role.id;
-              const canEdit =
-                canManageRoles &&
-                role.name !== "admin" &&
-                role.name !== "super_admin";
-
-              return (
-                <div
-                  key={role.id}
-                  className="flex flex-col gap-3 rounded-lg border p-4"
-                >
-                  {isEditing ? (
-                    <div className="space-y-3">
-                      <Input
-                        placeholder="Role name"
-                        value={editRoleName}
-                        onChange={(e) => setEditRoleName(e.target.value)}
-                        disabled={isBusy}
-                      />
-                      <Input
-                        placeholder="Description (optional)"
-                        value={editRoleDescription}
-                        onChange={(e) => setEditRoleDescription(e.target.value)}
-                        disabled={isBusy}
-                      />
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">Permissions</p>
-                        <div className="flex flex-wrap gap-2">
-                          {permissions.map((permission) => (
-                            <label
-                              key={permission.id}
-                              className="flex items-center gap-2 rounded-md border px-2 py-1 text-sm"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={editRolePermissionKeys.includes(
-                                  permission.key
-                                )}
-                                onChange={() =>
-                                  toggleEditRolePermission(permission.key)
-                                }
-                                disabled={isBusy}
-                              />
-                              <span>{permission.key}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => updateRole(role.id)}
-                          disabled={isBusy}
-                        >
-                          {busyKey === `update-role-${role.id}` ? (
-                            <>
-                              <Loader2
-                                className="animate-spin"
-                                aria-hidden
-                              />
-                              Saving...
-                            </>
-                          ) : (
-                            "Save"
-                          )}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={cancelEditingRole}
-                          disabled={isBusy}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                      <div className="space-y-1">
-                        <p className="font-medium">{role.name}</p>
-                        {role.description && (
-                          <p className="text-muted-foreground text-sm">
-                            {role.description}
-                          </p>
-                        )}
-                        <p className="text-muted-foreground text-xs">
-                          {role._count.userRoles} users
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {role.rolePermissions.map((rp) => (
-                            <span
-                              key={`${role.id}-${rp.permission.id}`}
-                              className="bg-muted rounded-md px-2 py-1 text-xs"
-                            >
-                              {rp.permission.key}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      {canEdit && (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => startEditingRole(role)}
-                            disabled={isBusy}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => deleteRole(role.id, role.name)}
-                            disabled={isBusy}
-                          >
-                            {busyKey === `delete-role-${role.id}` ? (
-                              <>
-                                <Loader2
-                                  className="animate-spin"
-                                  aria-hidden
-                                />
-                                Deleting...
-                              </>
-                            ) : (
-                              "Delete"
-                            )}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
     </div>
   );
 }
@@ -996,4 +1247,27 @@ function mapAssignments(users: User[]) {
     acc[user.id] = user.userRoles.map((userRole) => userRole.role.id);
     return acc;
   }, {});
+}
+
+/** Group permissions by prefix (e.g. users.read → "Users") for better UX */
+function groupPermissionsByPrefix(
+  permissions: Permission[]
+): Array<{ group: string; permissions: Permission[] }> {
+  const map = new Map<string, Permission[]>();
+  for (const p of permissions) {
+    const prefix = p.key.split(".")[0] ?? "other";
+    const group =
+      prefix.charAt(0).toUpperCase() + prefix.slice(1).replace(/_/g, " ");
+    if (!map.has(group)) map.set(group, []);
+    map.get(group)!.push(p);
+  }
+  const order = ["Users", "Staff", "Roles", "Settings", "Products"];
+  return order
+    .filter((g) => map.has(g))
+    .map((group) => ({ group, permissions: map.get(group)! }))
+    .concat(
+      [...map.entries()]
+        .filter(([g]) => !order.includes(g))
+        .map(([group, permissions]) => ({ group, permissions }))
+    );
 }
