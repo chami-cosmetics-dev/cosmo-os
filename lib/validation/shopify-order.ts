@@ -23,7 +23,7 @@ const shopifyAddressSchema = z
 const shopifyCustomerSchema = z
   .object({
     id: z.number(),
-    email: z.string().email().optional().nullable(),
+    email: z.string().optional().nullable(),
     first_name: z.string().optional().nullable(),
     last_name: z.string().optional().nullable(),
     phone: z.string().optional().nullable(),
@@ -34,7 +34,7 @@ const shopifyCustomerSchema = z
   .nullable();
 
 const shopifyDiscountCodeSchema = z.object({
-  code: z.string().max(LIMITS.couponCode.max),
+  code: z.string().transform((s) => s.slice(0, LIMITS.couponCode.max)),
   amount: z.string().optional(),
   type: z.string().optional(),
 });
@@ -52,7 +52,7 @@ const shopifyShippingLineSchema = z.object({
 const shopifyLineItemSchema = z.object({
   id: z.union([z.number(), z.string()]),
   variant_id: z.number(),
-  product_id: z.number(),
+  product_id: z.union([z.number(), z.string()]).optional().nullable(),
   sku: z.string().optional().nullable(),
   title: z.string().optional().nullable(),
   vendor: z.string().max(LIMITS.vendorName.max).optional().nullable(),
@@ -64,7 +64,7 @@ export const shopifyOrderWebhookSchema = z.object({
   id: z.number(),
   source_name: z.string().optional().nullable(),
   user_id: z.number().optional().nullable(),
-  location_id: z.union([z.string(), z.number()]),
+  location_id: z.union([z.string(), z.number()]).optional().nullable(),
   created_at: z.string().optional().nullable(),
 
   order_number: z.number().optional().nullable(),

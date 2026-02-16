@@ -15,7 +15,7 @@ export async function ensureProductItemAndCreateLineItem(
 ): Promise<void> {
   const companyId = location.companyId;
   const shopifyVariantId = String(lineItem.variant_id);
-  const shopifyProductId = String(lineItem.product_id);
+  const shopifyProductId = String(lineItem.product_id ?? 0);
 
   let productItem = await prisma.productItem.findUnique({
     where: {

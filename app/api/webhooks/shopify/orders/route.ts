@@ -67,6 +67,19 @@ export async function POST(request: NextRequest) {
 
   const parsed = shopifyOrderWebhookSchema.safeParse(rawPayload);
   if (!parsed.success) {
+    const payload = rawPayload as { id?: number | string };
+    const shopifyOrderId = payload?.id != null ? String(payload.id) : "unknown";
+    await prisma.failedOrderWebhook.create({
+      data: {
+        companyId: location.companyId,
+        companyLocationId: location.id,
+        shopifyOrderId,
+        shopifyTopic: shopifyTopic?.slice(0, 100) ?? null,
+        errorMessage: `Validation failed: ${parsed.error.message}`,
+        errorStack: JSON.stringify(parsed.error.flatten(), null, 2),
+        rawPayload: rawPayload as object,
+      },
+    });
     return NextResponse.json(
       { error: "Invalid payload", details: parsed.error.flatten() },
       { status: 400 }
