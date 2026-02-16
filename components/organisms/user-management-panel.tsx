@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { Loader2, Mail, Copy, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,16 @@ type User = {
   }>;
 };
 
+type PendingInvite = {
+  id: string;
+  email: string;
+  expiresAt: string;
+  createdAt: string;
+  role: { id: string; name: string };
+  invitedBy: { id: string; name: string | null; email: string | null } | null;
+  location: { id: string; name: string } | null;
+};
+
 interface UserManagementPanelProps {
   initialUsers: User[];
   initialRoles: Role[];
@@ -48,6 +58,7 @@ interface UserManagementPanelProps {
   initialLocations?: Location[];
   initialDepartments?: Department[];
   initialDesignations?: Designation[];
+  initialPendingInvites?: PendingInvite[];
   canManageUsers: boolean;
   canManageRoles: boolean;
 }
@@ -59,6 +70,7 @@ export function UserManagementPanel({
   initialLocations,
   initialDepartments,
   initialDesignations,
+  initialPendingInvites,
   canManageUsers,
   canManageRoles,
 }: UserManagementPanelProps) {
@@ -90,6 +102,16 @@ export function UserManagementPanel({
   const [editRolePermissionKeys, setEditRolePermissionKeys] = useState<string[]>(
     []
   );
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
+    initialPendingInvites ?? []
+  );
+
+  const fetchInvites = useCallback(async () => {
+    const res = await fetch("/api/admin/invites", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { invites: PendingInvite[] };
+    setPendingInvites(data.invites ?? []);
+  }, []);
 
   const sortedRoles = useMemo(
     () => [...roles].sort((a, b) => a.name.localeCompare(b.name)),
@@ -121,6 +143,10 @@ export function UserManagementPanel({
       if (desRes.ok) desRes.json().then((d: Designation[]) => setDesignations(d));
     });
   }, [initialLocations, initialDepartments, initialDesignations]);
+
+  useEffect(() => {
+    if (canManageUsers && initialPendingInvites === undefined) fetchInvites();
+  }, [canManageUsers, initialPendingInvites, fetchInvites]);
 
   function togglePermission(key: string) {
     setSelectedPermissionKeys((current) =>
@@ -176,6 +202,7 @@ export function UserManagementPanel({
     setUsers(data.users);
     setRoles(data.roles);
     setDraftAssignments(mapAssignments(data.users));
+    if (canManageUsers) await fetchInvites();
   }
 
   async function saveUserRoles(userId: string) {
@@ -274,12 +301,84 @@ export function UserManagementPanel({
       setInviteDepartmentId("");
       setInviteDesignationId("");
       setInviteAppointmentDate("");
+      await fetchInvites();
       notify.success("Invitation sent. Check your email for the activation link.");
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to send invite.");
     } finally {
       setBusyKey(null);
     }
+  }
+
+  async function resendInvite(inviteId: string) {
+    try {
+      setBusyKey(`resend-invite-${inviteId}`);
+      const res = await fetch(`/api/admin/invites/${inviteId}/resend`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Failed to resend invite");
+      }
+      await fetchInvites();
+      notify.success("Invitation resent.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Unable to resend invite.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function copyInviteLink(inviteId: string) {
+    try {
+      setBusyKey(`copy-link-${inviteId}`);
+      const res = await fetch(`/api/admin/invites/${inviteId}/link`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Failed to get link");
+      }
+      const data = (await res.json()) as { activationUrl: string };
+      await navigator.clipboard.writeText(data.activationUrl);
+      notify.success("Invite link copied to clipboard.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Unable to copy link.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function cancelInvite(inviteId: string, email: string) {
+    const confirmed = window.confirm(
+      `Cancel the invitation for ${email}? They will no longer be able to use the invite link.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setBusyKey(`cancel-invite-${inviteId}`);
+      const res = await fetch(`/api/admin/invites/${inviteId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error ?? "Failed to cancel invite");
+      }
+      await fetchInvites();
+      notify.success("Invitation cancelled.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Unable to cancel invite.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function formatExpiry(expiresAt: string): string {
+    const diff = new Date(expiresAt).getTime() - Date.now();
+    if (diff <= 0) return "Expired";
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 60) return `Expires in ${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const remainder = mins % 60;
+    return remainder > 0 ? `Expires in ${hours}h ${remainder}m` : `Expires in ${hours}h`;
   }
 
   async function removeUser(userId: string, userName: string) {
@@ -533,6 +632,81 @@ export function UserManagementPanel({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {canManageUsers && pendingInvites.length > 0 && (
+            <div className="space-y-3 rounded-lg border p-4">
+              <p className="text-sm font-medium">Pending invitations</p>
+              <div className="space-y-2">
+                {pendingInvites.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <p className="font-medium">{inv.email}</p>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span>Role: {inv.role.name}</span>
+                        {inv.location && (
+                          <span>Location: {inv.location.name}</span>
+                        )}
+                        {inv.invitedBy?.name && (
+                          <span>Invited by: {inv.invitedBy.name}</span>
+                        )}
+                        <span>{formatExpiry(inv.expiresAt)}</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => resendInvite(inv.id)}
+                        disabled={isBusy}
+                      >
+                        {busyKey === `resend-invite-${inv.id}` ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <>
+                            <Mail className="mr-1 size-4" aria-hidden />
+                            Resend
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyInviteLink(inv.id)}
+                        disabled={isBusy}
+                      >
+                        {busyKey === `copy-link-${inv.id}` ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <>
+                            <Copy className="mr-1 size-4" aria-hidden />
+                            Copy link
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => cancelInvite(inv.id, inv.email)}
+                        disabled={isBusy}
+                      >
+                        {busyKey === `cancel-invite-${inv.id}` ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <>
+                            <XCircle className="mr-1 size-4" aria-hidden />
+                            Cancel
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
