@@ -24,21 +24,26 @@ type EmailTemplatesResponse = {
 
 interface EmailTemplatesSettingsFormProps {
   canEdit: boolean;
+  initialTemplates?: EmailTemplatesResponse | null;
 }
 
 const PLACEHOLDER_HINT = "Placeholders: {{staffName}}, {{resignationDate}}, {{reason}}, {{employeeNumber}}, {{department}}, {{designation}}, {{location}}";
 
-export function EmailTemplatesSettingsForm({ canEdit }: EmailTemplatesSettingsFormProps) {
-  const [loading, setLoading] = useState(true);
-  const [noCompany, setNoCompany] = useState(false);
-  const [subject, setSubject] = useState("");
-  const [bodyHtml, setBodyHtml] = useState("");
-  const [recipients, setRecipients] = useState("");
+export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailTemplatesSettingsFormProps) {
+  const [loading, setLoading] = useState(initialTemplates === undefined);
+  const [noCompany, setNoCompany] = useState(initialTemplates === null);
+  const [subject, setSubject] = useState(initialTemplates?.resignation_notice?.subject ?? "");
+  const [bodyHtml, setBodyHtml] = useState(initialTemplates?.resignation_notice?.bodyHtml ?? "");
+  const [recipients, setRecipients] = useState(initialTemplates?.resignation_notice?.recipients ?? "");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
 
   useEffect(() => {
+    if (initialTemplates !== undefined) {
+      setLoading(false);
+      return;
+    }
     async function fetchTemplates() {
       try {
         const res = await fetch("/api/admin/company/email-templates");
@@ -65,7 +70,7 @@ export function EmailTemplatesSettingsForm({ canEdit }: EmailTemplatesSettingsFo
       }
     }
     fetchTemplates();
-  }, []);
+  }, [initialTemplates]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProfileForm } from "@/components/molecules/profile-form";
+import { PasswordChangeModal } from "@/components/molecules/password-change-modal";
 import { getCurrentUserContext } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 
@@ -27,45 +28,15 @@ export default async function ProfilePage() {
     );
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: context.user.id },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      picture: true,
-      nicNo: true,
-      gender: true,
-      dateOfBirth: true,
-      mobile: true,
-      knownName: true,
-      userRoles: {
-        include: {
-          role: { select: { id: true, name: true } },
-        },
-      },
-      employeeProfile: {
-        include: {
-          location: { select: { id: true, name: true } },
-          department: { select: { id: true, name: true } },
-          designation: { select: { id: true, name: true } },
-        },
-      },
+  const { user } = context;
+  const employeeProfile = await prisma.employeeProfile.findFirst({
+    where: { userId: user.id },
+    include: {
+      location: { select: { id: true, name: true } },
+      department: { select: { id: true, name: true } },
+      designation: { select: { id: true, name: true } },
     },
   });
-
-  if (!user) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground text-sm">User not found.</p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   const profileData = {
     id: user.id,
@@ -78,14 +49,14 @@ export default async function ProfilePage() {
     mobile: user.mobile,
     knownName: user.knownName,
     roles: user.userRoles.map((ur) => ur.role),
-    employeeProfile: user.employeeProfile
+    employeeProfile: employeeProfile
       ? {
-          employeeNumber: user.employeeProfile.employeeNumber,
-          epfNumber: user.employeeProfile.epfNumber,
-          location: user.employeeProfile.location,
-          department: user.employeeProfile.department,
-          designation: user.employeeProfile.designation,
-          appointmentDate: user.employeeProfile.appointmentDate,
+          employeeNumber: employeeProfile.employeeNumber,
+          epfNumber: employeeProfile.epfNumber,
+          location: employeeProfile.location,
+          department: employeeProfile.department,
+          designation: employeeProfile.designation,
+          appointmentDate: employeeProfile.appointmentDate,
         }
       : null,
   };
@@ -101,6 +72,19 @@ export default async function ProfilePage() {
         </CardHeader>
         <CardContent>
           <ProfileForm initialData={profileData} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Update your account password. Use a strong password with at least 8
+            characters, including uppercase, lowercase, and a number.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <PasswordChangeModal />
         </CardContent>
       </Card>
     </div>

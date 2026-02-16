@@ -15,11 +15,12 @@ type Department = {
 
 interface DepartmentsSettingsFormProps {
   canEdit: boolean;
+  initialDepartments?: Department[];
 }
 
-export function DepartmentsSettingsForm({ canEdit }: DepartmentsSettingsFormProps) {
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [loading, setLoading] = useState(true);
+export function DepartmentsSettingsForm({ canEdit, initialDepartments }: DepartmentsSettingsFormProps) {
+  const [departments, setDepartments] = useState<Department[]>(initialDepartments ?? []);
+  const [loading, setLoading] = useState(initialDepartments === undefined);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -39,6 +40,10 @@ export function DepartmentsSettingsForm({ canEdit }: DepartmentsSettingsFormProp
   }
 
   useEffect(() => {
+    if (initialDepartments !== undefined) {
+      setLoading(false);
+      return;
+    }
     async function load() {
       try {
         await fetchDepartments();
@@ -49,7 +54,7 @@ export function DepartmentsSettingsForm({ canEdit }: DepartmentsSettingsFormProp
       }
     }
     load();
-  }, []);
+  }, [initialDepartments]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();

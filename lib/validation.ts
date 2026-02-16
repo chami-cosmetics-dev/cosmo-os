@@ -48,7 +48,40 @@ export const LIMITS = {
   categoryFullName: { max: 1000 },
   shopifyWebhookSecret: { min: 32, max: 128 },
   shopifyWebhookSecretName: { max: 100 },
+  pagination: { pageMin: 1, pageMax: 10000, limitMin: 1, limitMax: 100 },
 } as const;
+
+/** Parse and validate page number from query string */
+export const pageSchema = z
+  .string()
+  .optional()
+  .transform((s) => (s ? parseInt(s, 10) : 1))
+  .pipe(
+    z
+      .number()
+      .int()
+      .min(LIMITS.pagination.pageMin)
+      .max(LIMITS.pagination.pageMax)
+  );
+
+/** Parse and validate sort order - asc or desc */
+export const sortOrderSchema = z
+  .enum(["asc", "desc"])
+  .optional()
+  .transform((s) => s ?? "asc");
+
+/** Parse and validate limit (page size) from query string */
+export const limitSchema = z
+  .string()
+  .optional()
+  .transform((s) => (s ? parseInt(s, 10) : 10))
+  .pipe(
+    z
+      .number()
+      .int()
+      .min(LIMITS.pagination.limitMin)
+      .max(LIMITS.pagination.limitMax)
+  );
 
 /** CUID format - Prisma default ID format (c + 24 alphanumeric) */
 const cuidRegex = /^c[a-z0-9]{24,30}$/;
@@ -84,6 +117,22 @@ export function isReservedRoleName(name: string): boolean {
   const normalized = name.toLowerCase().trim();
   return RESERVED_ROLE_NAMES.includes(normalized as (typeof RESERVED_ROLE_NAMES)[number]);
 }
+
+/** Password change - current password + new password with confirmation */
+export const passwordChangeSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: passwordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    message: "New password must be different from current password",
+    path: ["newPassword"],
+  });
 
 /** Profile update - only user-editable fields from invite form */
 export const profileUpdateSchema = z.object({

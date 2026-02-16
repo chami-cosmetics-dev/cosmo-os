@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import NextTopLoader from "nextjs-toploader";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/providers/theme-provider";
@@ -31,6 +32,11 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <NextTopLoader
+          color="#E5E4E2"
+          height={1}
+          showSpinner={false}
+        />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

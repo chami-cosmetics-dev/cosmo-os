@@ -26,19 +26,24 @@ type Company = {
 
 interface CompanySettingsFormProps {
   canEdit: boolean;
+  initialCompany?: Company | null;
 }
 
-export function CompanySettingsForm({ canEdit }: CompanySettingsFormProps) {
-  const [company, setCompany] = useState<Company | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [name, setName] = useState("");
-  const [employeeSize, setEmployeeSize] = useState("");
-  const [address, setAddress] = useState("");
+export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettingsFormProps) {
+  const [company, setCompany] = useState<Company | null>(initialCompany ?? null);
+  const [loading, setLoading] = useState(initialCompany === undefined);
+  const [name, setName] = useState(initialCompany?.name ?? "");
+  const [employeeSize, setEmployeeSize] = useState(initialCompany?.employeeSize ?? "");
+  const [address, setAddress] = useState(initialCompany?.address ?? "");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
 
   useEffect(() => {
+    if (initialCompany !== undefined) {
+      setLoading(false);
+      return;
+    }
     async function fetchCompany() {
       try {
         const res = await fetch("/api/admin/company");
@@ -63,7 +68,7 @@ export function CompanySettingsForm({ canEdit }: CompanySettingsFormProps) {
       }
     }
     fetchCompany();
-  }, []);
+  }, [initialCompany]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

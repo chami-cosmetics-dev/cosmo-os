@@ -1,10 +1,6 @@
 import Link from "next/link";
 
-import { CompanySettingsForm } from "@/components/molecules/company-settings-form";
-import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
-import { DesignationsSettingsForm } from "@/components/molecules/designations-settings-form";
-import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
-import { ShopifyWebhookSecretsForm } from "@/components/molecules/shopify-webhook-secrets-form";
+import { SettingsPageData } from "@/components/organisms/settings-page-data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -28,11 +24,7 @@ export default async function SettingsPage() {
     <div className="space-y-6">
       {canManageCompany ? (
         <>
-          <CompanySettingsForm canEdit={true} />
-          <LocationsSettingsForm canEdit={true} />
-          <ShopifyWebhookSecretsForm canEdit={true} />
-          <DepartmentsSettingsForm canEdit={true} />
-          <DesignationsSettingsForm canEdit={true} />
+          <SettingsPageData canEdit={true} />
           {canManageEmailTemplates && (
             <Card>
               <CardHeader>

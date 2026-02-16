@@ -1,0 +1,84 @@
+---
+description: Performance optimization patterns for page load and API calls
+alwaysApply: true
+---
+
+# Performance Optimization Patterns
+
+Apply these patterns when building new pages or APIs to keep the app fast.
+
+## 1. Aggregated Page-Data Endpoints
+
+**Problem:** Multiple parallel client API calls = multiple auth chains + multiple DB round-trips.
+
+**Solution:** Create a single `/page-data` endpoint that returns all data the page needs in one response.
+
+```
+/api/admin/{resource}/page-data  →  { items, locations, vendors, categories, ... }
+```
+
+- One auth check (`requirePermission`)
+- One DB round-trip using `Promise.all([...])` for parallel queries
+- Client makes one `fetch()` instead of 2–5 parallel fetches
+
+**Examples:** `product-items/page-data`, `vendors-categories/page-data`, `settings/page-data`, `staff/page-data`
+
+## 2. Server-Side Data Fetching
+
+**Problem:** Client fetches data on mount that the server could provide.
+
+**Solution:** Fetch on the server (page component) and pass as `initialData` / `initial*` props to client components.
+
+```tsx
+// Page (server)
+const locations = await prisma.companyLocation.findMany({ ... });
+return <MyPanel initialLocations={locations} />;
+
+// Panel (client) - skip fetch when initialData provided
+useEffect(() => {
+  if (initialLocations) { setLocations(initialLocations); return; }
+  fetch("/api/...").then(...);
+}, [initialLocations]);
+```
+
+**Examples:** Users page, Email templates page
+
+## 3. Avoid Duplicate Fetches
+
+**Problem:** Same data fetched twice (e.g. user from auth context, then again for profile).
+
+**Solution:** Reuse data from `getCurrentUserContext()` or other shared sources. Only fetch what’s missing.
+
+```tsx
+// ❌ BAD: Re-fetch full user when context already has it
+const context = await getCurrentUserContext();
+const user = await prisma.user.findUnique({ where: { id: context.user.id }, ... });
+
+// ✅ GOOD: Use context user, fetch only the extra relation
+const { user } = context;
+const employeeProfile = await prisma.employeeProfile.findFirst({ where: { userId: user.id }, ... });
+```
+
+**Example:** Profile page
+
+## 4. Client Component Pattern for Initial Data
+
+When a client component needs data:
+
+- Accept optional `initialData` / `initialItems` / `initialLocations` etc.
+- If provided, use it and skip the client fetch
+- If not provided, fetch on mount (for standalone usage)
+
+## 5. RBAC / Auth Optimizations (Already in lib/rbac.ts)
+
+- `ensureDefaultRbacSetupIfNeeded()` – skip setup if Permission count ≥ 11
+- User context TTL cache (2s) for parallel requests
+- React `cache()` for request deduplication
+- Skip `user.count` when user already has roles
+
+## Checklist for New Pages
+
+- [ ] Does the page need multiple API calls? → Consider a single `page-data` endpoint
+- [ ] Can any data be fetched server-side? → Pass as `initial*` props
+- [ ] Am I re-fetching data already available from context? → Reuse it
+- [ ] Are forms/panels receiving optional initial data? → Skip fetch when provided

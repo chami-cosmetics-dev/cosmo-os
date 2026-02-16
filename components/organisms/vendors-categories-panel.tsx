@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
 
 type Vendor = {
@@ -38,6 +42,16 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"vendors" | "categories">("vendors");
+  const [vendorsPage, setVendorsPage] = useState(1);
+  const [vendorsLimit, setVendorsLimit] = useState(10);
+  const [vendorsTotal, setVendorsTotal] = useState(0);
+  const [vendorsSortBy, setVendorsSortBy] = useState<string>("");
+  const [vendorsSortOrder, setVendorsSortOrder] = useState<"asc" | "desc">("asc");
+  const [categoriesPage, setCategoriesPage] = useState(1);
+  const [categoriesLimit, setCategoriesLimit] = useState(10);
+  const [categoriesTotal, setCategoriesTotal] = useState(0);
+  const [categoriesSortBy, setCategoriesSortBy] = useState<string>("");
+  const [categoriesSortOrder, setCategoriesSortOrder] = useState<"asc" | "desc">("asc");
 
   const [vendorSheetOpen, setVendorSheetOpen] = useState(false);
   const [vendorMode, setVendorMode] = useState<"add" | "edit">("add");
@@ -52,14 +66,42 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
   const [categoryFullName, setCategoryFullName] = useState("");
   const [categoryBusy, setCategoryBusy] = useState(false);
 
-  async function fetchData() {
-    const [vRes, cRes] = await Promise.all([
-      fetch("/api/admin/vendors"),
-      fetch("/api/admin/categories"),
-    ]);
-    if (vRes.ok) setVendors((await vRes.json()) as Vendor[]);
-    if (cRes.ok) setCategories((await cRes.json()) as Category[]);
-  }
+  const fetchData = useCallback(async () => {
+    const params = new URLSearchParams();
+    params.set("vendors_page", String(vendorsPage));
+    params.set("vendors_limit", String(vendorsLimit));
+    if (vendorsSortBy) {
+      params.set("vendors_sort_by", vendorsSortBy);
+      params.set("vendors_sort_order", vendorsSortOrder);
+    }
+    params.set("categories_page", String(categoriesPage));
+    params.set("categories_limit", String(categoriesLimit));
+    if (categoriesSortBy) {
+      params.set("categories_sort_by", categoriesSortBy);
+      params.set("categories_sort_order", categoriesSortOrder);
+    }
+    const res = await fetch(`/api/admin/vendors-categories/page-data?${params}`);
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      vendors: Vendor[];
+      vendorsTotal: number;
+      categories: Category[];
+      categoriesTotal: number;
+    };
+    setVendors(data.vendors ?? []);
+    setVendorsTotal(data.vendorsTotal ?? 0);
+    setCategories(data.categories ?? []);
+    setCategoriesTotal(data.categoriesTotal ?? 0);
+  }, [
+    vendorsPage,
+    vendorsLimit,
+    vendorsSortBy,
+    vendorsSortOrder,
+    categoriesPage,
+    categoriesLimit,
+    categoriesSortBy,
+    categoriesSortOrder,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,7 +119,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchData]);
 
   function openAddVendor() {
     setVendorMode("add");
@@ -118,6 +160,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       }
       if (vendorMode === "add") {
         setVendors((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setVendorsTotal((prev) => prev + 1);
       } else {
         setVendors((prev) =>
           prev.map((v) => (v.id === vendorEditId ? { ...v, ...data } : v))
@@ -146,6 +189,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       return;
     }
     setVendors((prev) => prev.filter((x) => x.id !== v.id));
+    setVendorsTotal((prev) => Math.max(0, prev - 1));
     notify.success("Vendor deleted.");
   }
 
@@ -193,6 +237,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       }
       if (categoryMode === "add") {
         setCategories((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        setCategoriesTotal((prev) => prev + 1);
       } else {
         setCategories((prev) =>
           prev.map((c) => (c.id === categoryEditId ? { ...c, ...data } : c))
@@ -221,6 +266,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       return;
     }
     setCategories((prev) => prev.filter((x) => x.id !== c.id));
+    setCategoriesTotal((prev) => Math.max(0, prev - 1));
     notify.success("Category deleted.");
   }
 
@@ -252,9 +298,15 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="size-8 animate-spin text-muted-foreground" aria-hidden />
-        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-4 w-80" />
+          </CardHeader>
+          <CardContent>
+            <TableSkeleton columns={3} rows={8} />
+          </CardContent>
+        </Card>
       ) : activeTab === "vendors" ? (
         <Card>
           <CardHeader>
@@ -278,44 +330,87 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
             {vendors.length === 0 ? (
               <p className="text-muted-foreground py-4 text-sm">No vendors yet.</p>
             ) : (
-              <ul className="space-y-2">
-                {vendors.map((v) => (
-                  <li
-                    key={v.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div>
-                      <span className="font-medium">{v.name}</span>
-                      {v._count !== undefined && (
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          ({v._count.productItems} items)
-                        </span>
-                      )}
-                    </div>
-                    {canManage && (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditVendor(v)}
-                          aria-label="Edit vendor"
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteVendor(v)}
-                          disabled={v._count && v._count.productItems > 0}
-                          aria-label="Delete vendor"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <SortableColumnHeader
+                        label="Name"
+                        sortKey="name"
+                        currentSort={vendorsSortBy || undefined}
+                        currentOrder={vendorsSortOrder}
+                        onSort={(k, o) => {
+                          setVendorsSortBy(k);
+                          setVendorsSortOrder(o);
+                          setVendorsPage(1);
+                        }}
+                      />
+                      <SortableColumnHeader
+                        label="Items"
+                        sortKey="items"
+                        currentSort={vendorsSortBy || undefined}
+                        currentOrder={vendorsSortOrder}
+                        onSort={(k, o) => {
+                          setVendorsSortBy(k);
+                          setVendorsSortOrder(o);
+                          setVendorsPage(1);
+                        }}
+                        align="right"
+                      />
+                      {canManage && <th className="w-24 px-4 py-2 text-right font-medium">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendors.map((v) => (
+                      <tr key={v.id} className="border-b last:border-0">
+                        <td className="px-4 py-3 font-medium">{v.name}</td>
+                        <td className="px-4 py-3 text-right text-muted-foreground">
+                          {v._count !== undefined ? `${v._count.productItems} items` : "—"}
+                        </td>
+                        {canManage && (
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditVendor(v)}
+                                aria-label="Edit vendor"
+                              >
+                                <Pencil className="size-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => deleteVendor(v)}
+                                disabled={v._count && v._count.productItems > 0}
+                                aria-label="Delete vendor"
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {vendorsTotal > 0 && (
+                <Pagination
+                  page={vendorsPage}
+                  limit={vendorsLimit}
+                  total={vendorsTotal}
+                  onPageChange={setVendorsPage}
+                  onLimitChange={(l) => {
+                    setVendorsLimit(l);
+                    setVendorsPage(1);
+                  }}
+                  limitOptions={[10, 25, 50, 100]}
+                  className="mt-4"
+                />
+              )}
+            </>
             )}
           </CardContent>
         </Card>
@@ -342,47 +437,101 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
             {categories.length === 0 ? (
               <p className="text-muted-foreground py-4 text-sm">No categories yet.</p>
             ) : (
-              <ul className="space-y-2">
-                {categories.map((c) => (
-                  <li
-                    key={c.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div>
-                      <span className="font-medium">{c.name}</span>
-                      {c.fullName && (
-                        <span className="text-muted-foreground block text-xs">{c.fullName}</span>
-                      )}
-                      {c._count !== undefined && (
-                        <span className="text-muted-foreground ml-2 text-xs">
-                          ({c._count.productItems} items)
-                        </span>
-                      )}
-                    </div>
-                    {canManage && (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditCategory(c)}
-                          aria-label="Edit category"
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteCategory(c)}
-                          disabled={c._count && c._count.productItems > 0}
-                          aria-label="Delete category"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+              <>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <SortableColumnHeader
+                        label="Name"
+                        sortKey="name"
+                        currentSort={categoriesSortBy || undefined}
+                        currentOrder={categoriesSortOrder}
+                        onSort={(k, o) => {
+                          setCategoriesSortBy(k);
+                          setCategoriesSortOrder(o);
+                          setCategoriesPage(1);
+                        }}
+                      />
+                      <SortableColumnHeader
+                        label="Full name"
+                        sortKey="full_name"
+                        currentSort={categoriesSortBy || undefined}
+                        currentOrder={categoriesSortOrder}
+                        onSort={(k, o) => {
+                          setCategoriesSortBy(k);
+                          setCategoriesSortOrder(o);
+                          setCategoriesPage(1);
+                        }}
+                      />
+                      <SortableColumnHeader
+                        label="Items"
+                        sortKey="items"
+                        currentSort={categoriesSortBy || undefined}
+                        currentOrder={categoriesSortOrder}
+                        onSort={(k, o) => {
+                          setCategoriesSortBy(k);
+                          setCategoriesSortOrder(o);
+                          setCategoriesPage(1);
+                        }}
+                        align="right"
+                      />
+                      {canManage && <th className="w-24 px-4 py-2 text-right font-medium">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categories.map((c) => (
+                      <tr key={c.id} className="border-b last:border-0">
+                        <td className="px-4 py-3 font-medium">{c.name}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {c.fullName ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-muted-foreground">
+                          {c._count !== undefined ? `${c._count.productItems} items` : "—"}
+                        </td>
+                        {canManage && (
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditCategory(c)}
+                                aria-label="Edit category"
+                              >
+                                <Pencil className="size-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => deleteCategory(c)}
+                                disabled={c._count && c._count.productItems > 0}
+                                aria-label="Delete category"
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {categoriesTotal > 0 && (
+                <Pagination
+                  page={categoriesPage}
+                  limit={categoriesLimit}
+                  total={categoriesTotal}
+                  onPageChange={setCategoriesPage}
+                  onLimitChange={(l) => {
+                    setCategoriesLimit(l);
+                    setCategoriesPage(1);
+                  }}
+                  limitOptions={[10, 25, 50, 100]}
+                  className="mt-4"
+                />
+              )}
+            </>
             )}
           </CardContent>
         </Card>

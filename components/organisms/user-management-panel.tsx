@@ -45,6 +45,9 @@ interface UserManagementPanelProps {
   initialUsers: User[];
   initialRoles: Role[];
   initialPermissions: Permission[];
+  initialLocations?: Location[];
+  initialDepartments?: Department[];
+  initialDesignations?: Designation[];
   canManageUsers: boolean;
   canManageRoles: boolean;
 }
@@ -53,6 +56,9 @@ export function UserManagementPanel({
   initialUsers,
   initialRoles,
   initialPermissions,
+  initialLocations,
+  initialDepartments,
+  initialDesignations,
   canManageUsers,
   canManageRoles,
 }: UserManagementPanelProps) {
@@ -75,9 +81,9 @@ export function UserManagementPanel({
   const [inviteDesignationId, setInviteDesignationId] = useState("");
   const [inviteAppointmentDate, setInviteAppointmentDate] = useState("");
   const [showInviteEmployeeDetails, setShowInviteEmployeeDetails] = useState(false);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [locations, setLocations] = useState<Location[]>(initialLocations ?? []);
+  const [departments, setDepartments] = useState<Department[]>(initialDepartments ?? []);
+  const [designations, setDesignations] = useState<Designation[]>(initialDesignations ?? []);
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editRoleName, setEditRoleName] = useState("");
   const [editRoleDescription, setEditRoleDescription] = useState("");
@@ -98,6 +104,13 @@ export function UserManagementPanel({
   const isBusy = busyKey !== null;
 
   useEffect(() => {
+    if (
+      initialLocations !== undefined ||
+      initialDepartments !== undefined ||
+      initialDesignations !== undefined
+    ) {
+      return;
+    }
     Promise.all([
       fetch("/api/admin/company/locations"),
       fetch("/api/admin/company/departments"),
@@ -107,7 +120,7 @@ export function UserManagementPanel({
       if (deptRes.ok) deptRes.json().then((d: Department[]) => setDepartments(d));
       if (desRes.ok) desRes.json().then((d: Designation[]) => setDesignations(d));
     });
-  }, []);
+  }, [initialLocations, initialDepartments, initialDesignations]);
 
   function togglePermission(key: string) {
     setSelectedPermissionKeys((current) =>
