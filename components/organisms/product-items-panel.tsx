@@ -5,6 +5,8 @@ import { Search } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
 
@@ -34,11 +36,20 @@ export function ProductItemsPanel() {
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [vendorFilter, setVendorFilter] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [sortBy, setSortBy] = useState<string>("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -46,6 +57,12 @@ export function ProductItemsPanel() {
     if (locationFilter) params.set("location_id", locationFilter);
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
+    params.set("page", String(page));
+    params.set("limit", String(limit));
+    if (sortBy) {
+      params.set("sort_by", sortBy);
+      params.set("sort_order", sortOrder);
+    }
     const res = await fetch(`/api/admin/product-items/page-data?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
@@ -54,15 +71,19 @@ export function ProductItemsPanel() {
     }
     const data = (await res.json()) as {
       items: ProductItem[];
+      total: number;
+      page: number;
+      limit: number;
       locations: Array<{ id: string; name: string }>;
       vendors: Array<{ id: string; name: string }>;
       categories: Array<{ id: string; name: string }>;
     };
     setItems(data.items);
+    setTotal(data.total);
     setLocations(data.locations ?? []);
     setVendors(data.vendors ?? []);
     setCategories(data.categories ?? []);
-  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter]);
+  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter, page, limit, sortBy, sortOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,6 +102,21 @@ export function ProductItemsPanel() {
       cancelled = true;
     };
   }, [fetchPageData]);
+
+  function handlePageChange(newPage: number) {
+    setPage(newPage);
+  }
+
+  function handleLimitChange(newLimit: number) {
+    setLimit(newLimit);
+    setPage(1);
+  }
+
+  function handleSort(key: string, order: "asc" | "desc") {
+    setSortBy(key);
+    setSortOrder(order);
+    setPage(1);
+  }
 
   function formatPrice(val: string | null): string {
     if (!val) return "—";
@@ -153,18 +189,70 @@ export function ProductItemsPanel() {
               No product items yet. Items will appear here when synced from Shopify webhooks.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-sm">
+            <>
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-2 text-left font-medium">Product</th>
-                    <th className="px-4 py-2 text-left font-medium">SKU</th>
-                    <th className="px-4 py-2 text-right font-medium">Price</th>
-                    <th className="px-4 py-2 text-right font-medium">Compare At</th>
-                    <th className="px-4 py-2 text-left font-medium">Vendor</th>
-                    <th className="px-4 py-2 text-left font-medium">Category</th>
-                    <th className="px-4 py-2 text-center font-medium">Stock</th>
-                    <th className="px-4 py-2 text-left font-medium">Location</th>
+                    <SortableColumnHeader
+                      label="Product"
+                      sortKey="product"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label="SKU"
+                      sortKey="sku"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label="Price"
+                      sortKey="price"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                      align="right"
+                    />
+                    <SortableColumnHeader
+                      label="Compare At"
+                      sortKey="compare_at"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                      align="right"
+                    />
+                    <SortableColumnHeader
+                      label="Vendor"
+                      sortKey="vendor"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label="Category"
+                      sortKey="category"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                    <SortableColumnHeader
+                      label="Stock"
+                      sortKey="stock"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                      align="center"
+                    />
+                    <SortableColumnHeader
+                      label="Location"
+                      sortKey="location"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={handleSort}
+                    />
                   </tr>
                 </thead>
                 <tbody>
@@ -203,6 +291,17 @@ export function ProductItemsPanel() {
                 </tbody>
               </table>
             </div>
+              {total > 0 && (
+                <Pagination
+                  page={page}
+                  limit={limit}
+                  total={total}
+                  onPageChange={handlePageChange}
+                  onLimitChange={handleLimitChange}
+                  limitOptions={[10, 25, 50, 100]}
+                />
+              )}
+            </>
           )}
         </CardContent>
       </Card>

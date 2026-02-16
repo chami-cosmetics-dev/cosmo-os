@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { limitSchema, pageSchema, sortOrderSchema } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("staff.read");
@@ -32,24 +34,65 @@ export async function GET(request: NextRequest) {
   const statusFilter = searchParams.get("status");
   const search = searchParams.get("search")?.trim() ?? "";
 
-  const staffPromise = (async () => {
-    const users = await prisma.user.findMany({
-      where: {
-        ...(companyId ? { companyId } : {}),
-        ...(search
-          ? {
-              OR: [
-                { name: { contains: search, mode: "insensitive" } },
-                { email: { contains: search, mode: "insensitive" } },
-                {
-                  employeeProfile: {
-                    employeeNumber: { contains: search, mode: "insensitive" },
-                  },
-                },
-              ],
-            }
-          : {}),
-      },
+  const pageResult = pageSchema.safeParse(searchParams.get("page"));
+  const limitResult = limitSchema.safeParse(searchParams.get("limit"));
+  const sortBy = searchParams.get("sort_by")?.trim();
+  const sortOrderResult = sortOrderSchema.safeParse(searchParams.get("sort_order"));
+  const page = pageResult.success ? pageResult.data : 1;
+  const limit = limitResult.success ? limitResult.data : 10;
+  const sortOrder = sortOrderResult.success ? sortOrderResult.data : "asc";
+  const skip = (page - 1) * limit;
+
+  const SORT_FIELDS: Record<string, Prisma.UserOrderByWithRelationInput> = {
+    name: { name: sortOrder },
+    email: { email: sortOrder },
+    employee_number: { employeeProfile: { employeeNumber: sortOrder } },
+    department: { employeeProfile: { department: { name: sortOrder } } },
+    designation: { employeeProfile: { designation: { name: sortOrder } } },
+    location: { employeeProfile: { location: { name: sortOrder } } },
+    appointment: { employeeProfile: { appointmentDate: sortOrder } },
+    status: { employeeProfile: { status: sortOrder } },
+  };
+  const orderBy: Prisma.UserOrderByWithRelationInput =
+    sortBy && sortBy in SORT_FIELDS ? SORT_FIELDS[sortBy]! : { name: "asc" };
+
+  const andConditions: Prisma.UserWhereInput[] = [];
+  if (companyId) andConditions.push({ companyId });
+  if (search) {
+    andConditions.push({
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        {
+          employeeProfile: {
+            employeeNumber: { contains: search, mode: "insensitive" },
+          },
+        },
+      ],
+    });
+  }
+  if (statusFilter === "active") {
+    andConditions.push({
+      OR: [
+        { employeeProfile: null },
+        { employeeProfile: { status: "active" } },
+      ],
+    });
+  } else if (statusFilter === "resigned") {
+    andConditions.push({ employeeProfile: { status: "resigned" } });
+  }
+
+  const where: Prisma.UserWhereInput =
+    andConditions.length === 0
+      ? {}
+      : andConditions.length === 1
+        ? andConditions[0]!
+        : { AND: andConditions };
+
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
       include: {
         userRoles: { include: { role: true } },
         employeeProfile: {
@@ -60,19 +103,13 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: { name: "asc" },
-    });
+      orderBy,
+      skip,
+      take: limit,
+    }),
+  ]);
 
-    let filtered = users;
-    if (statusFilter === "active" || statusFilter === "resigned") {
-      filtered = users.filter((u) => {
-        const profile = u.employeeProfile;
-        if (!profile) return statusFilter === "active";
-        return profile.status === statusFilter;
-      });
-    }
-
-    return filtered.map((u) => ({
+  const staff = users.map((u) => ({
       id: u.id,
       name: u.name,
       email: u.email,
@@ -98,8 +135,7 @@ export async function GET(request: NextRequest) {
             resignedAt: u.employeeProfile.resignedAt,
           }
         : null,
-    }));
-  })();
+  }));
 
   const lookupsPromise = companyId
     ? Promise.all([
@@ -121,13 +157,13 @@ export async function GET(request: NextRequest) {
         ])
       : Promise.resolve([[], [], []] as const);
 
-  const [staff, [locations, departments, designations]] = await Promise.all([
-    staffPromise,
-    lookupsPromise,
-  ]);
+  const [locations, departments, designations] = await lookupsPromise;
 
   return NextResponse.json({
     staff,
+    total,
+    page,
+    limit,
     locations,
     departments,
     designations,

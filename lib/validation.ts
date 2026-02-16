@@ -48,7 +48,40 @@ export const LIMITS = {
   categoryFullName: { max: 1000 },
   shopifyWebhookSecret: { min: 32, max: 128 },
   shopifyWebhookSecretName: { max: 100 },
+  pagination: { pageMin: 1, pageMax: 10000, limitMin: 1, limitMax: 100 },
 } as const;
+
+/** Parse and validate page number from query string */
+export const pageSchema = z
+  .string()
+  .optional()
+  .transform((s) => (s ? parseInt(s, 10) : 1))
+  .pipe(
+    z
+      .number()
+      .int()
+      .min(LIMITS.pagination.pageMin)
+      .max(LIMITS.pagination.pageMax)
+  );
+
+/** Parse and validate sort order - asc or desc */
+export const sortOrderSchema = z
+  .enum(["asc", "desc"])
+  .optional()
+  .transform((s) => s ?? "asc");
+
+/** Parse and validate limit (page size) from query string */
+export const limitSchema = z
+  .string()
+  .optional()
+  .transform((s) => (s ? parseInt(s, 10) : 10))
+  .pipe(
+    z
+      .number()
+      .int()
+      .min(LIMITS.pagination.limitMin)
+      .max(LIMITS.pagination.limitMax)
+  );
 
 /** CUID format - Prisma default ID format (c + 24 alphanumeric) */
 const cuidRegex = /^c[a-z0-9]{24,30}$/;

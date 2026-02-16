@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/sheet";
 import { ResignationForm } from "@/components/molecules/resignation-form";
 import { StaffEditForm } from "@/components/molecules/staff-edit-form";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
@@ -69,6 +71,11 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "resigned">("active");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [sortBy, setSortBy] = useState<string>("");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editData, setEditData] = useState<StaffMember | null>(null);
   const [resigningMember, setResigningMember] = useState<StaffMember | null>(null);
@@ -82,24 +89,16 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
     return () => clearTimeout(t);
   }, [search]);
 
-  const fetchStaff = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
-    const res = await fetch(`/api/admin/staff?${params}`);
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      notify.error(data.error ?? "Failed to load staff");
-      return;
-    }
-    const data = (await res.json()) as StaffMember[];
-    setStaff(data);
-  }, [statusFilter, debouncedSearch]);
-
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    params.set("page", String(page));
+    params.set("limit", String(limit));
+    if (sortBy) {
+      params.set("sort_by", sortBy);
+      params.set("sort_order", sortOrder);
+    }
     const res = await fetch(`/api/admin/staff/page-data?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
@@ -108,15 +107,19 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
     }
     const data = (await res.json()) as {
       staff: StaffMember[];
+      total: number;
+      page: number;
+      limit: number;
       locations: Location[];
       departments: Department[];
       designations: Designation[];
     };
     setStaff(data.staff);
+    setTotal(data.total);
     setLocations(data.locations);
     setDepartments(data.departments);
     setDesignations(data.designations);
-  }, [statusFilter, debouncedSearch]);
+  }, [statusFilter, debouncedSearch, page, limit, sortBy, sortOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +138,10 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
       cancelled = true;
     };
   }, [fetchPageData]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, debouncedSearch, sortBy, sortOrder]);
 
   async function openEdit(id: string) {
     setEditingId(id);
@@ -169,7 +176,7 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
 
   async function handleResignSuccess() {
     closeResignForm();
-    await fetchStaff();
+    await fetchPageData();
   }
 
   const filteredStaff = staff;
@@ -226,18 +233,98 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b">
-                  <th className="text-left p-2 font-medium">Name</th>
-                  <th className="text-left p-2 font-medium">Email</th>
-                  <th className="text-left p-2 font-medium">Employee #</th>
-                  <th className="text-left p-2 font-medium">Department</th>
-                  <th className="text-left p-2 font-medium">Designation</th>
-                  <th className="text-left p-2 font-medium">Location</th>
-                  <th className="text-left p-2 font-medium">Appointment</th>
-                  <th className="text-left p-2 font-medium">Status</th>
+                <tr className="border-b bg-muted/50">
+                  <SortableColumnHeader
+                    label="Name"
+                    sortKey="name"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Email"
+                    sortKey="email"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Employee #"
+                    sortKey="employee_number"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Department"
+                    sortKey="department"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Designation"
+                    sortKey="designation"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Location"
+                    sortKey="location"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Appointment"
+                    sortKey="appointment"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
+                  <SortableColumnHeader
+                    label="Status"
+                    sortKey="status"
+                    currentSort={sortBy || undefined}
+                    currentOrder={sortOrder}
+                    onSort={(k, o) => {
+                      setSortBy(k);
+                      setSortOrder(o);
+                      setPage(1);
+                    }}
+                  />
                   {canManageStaff && <th className="text-right p-2 font-medium">Actions</th>}
                 </tr>
               </thead>
@@ -315,7 +402,21 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
             </table>
           </div>
 
-          {filteredStaff.length === 0 && (
+          {total > 0 && (
+            <Pagination
+              page={page}
+              limit={limit}
+              total={total}
+              onPageChange={setPage}
+              onLimitChange={(l) => {
+                setLimit(l);
+                setPage(1);
+              }}
+              limitOptions={[10, 25, 50, 100]}
+            />
+          )}
+
+          {filteredStaff.length === 0 && !loading && (
             <p className="text-muted-foreground py-8 text-center text-sm">
               No staff members found.
             </p>
@@ -336,7 +437,7 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
               departments={editData?.departments ?? departments}
               designations={editData?.designations ?? designations}
               canEdit={canManageStaff}
-              onSaved={fetchStaff}
+              onSaved={fetchPageData}
               onClose={closeEdit}
             />
           )}

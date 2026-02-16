@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { cuidSchema } from "@/lib/validation";
+import { cuidSchema, limitSchema, pageSchema, sortOrderSchema } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("products.read");
@@ -29,6 +29,34 @@ export async function GET(request: NextRequest) {
   const vendorId = request.nextUrl.searchParams.get("vendor_id");
   const categoryId = request.nextUrl.searchParams.get("category_id");
   const search = request.nextUrl.searchParams.get("search")?.trim();
+
+  const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
+  const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
+  const sortBy = request.nextUrl.searchParams.get("sort_by")?.trim();
+  const sortOrderResult = sortOrderSchema.safeParse(request.nextUrl.searchParams.get("sort_order"));
+  const page = pageResult.success ? pageResult.data : 1;
+  const limit = limitResult.success ? limitResult.data : 10;
+  const sortOrder = sortOrderResult.success ? sortOrderResult.data : "asc";
+  const skip = (page - 1) * limit;
+
+  const SORT_FIELDS: Record<string, Prisma.ProductItemOrderByWithRelationInput | Prisma.ProductItemOrderByWithRelationInput[]> = {
+    product: [{ productTitle: sortOrder }, { variantTitle: sortOrder }],
+    sku: { sku: sortOrder },
+    price: { price: sortOrder },
+    compare_at: { compareAtPrice: sortOrder },
+    vendor: { vendor: { name: sortOrder } },
+    category: { category: { name: sortOrder } },
+    stock: { inventoryQuantity: sortOrder },
+    location: { companyLocation: { name: sortOrder } },
+  };
+  const defaultOrderBy: Prisma.ProductItemOrderByWithRelationInput[] = [
+    { productTitle: "asc" },
+    { variantTitle: "asc" },
+  ];
+  const orderBy =
+    sortBy && sortBy in SORT_FIELDS
+      ? (SORT_FIELDS[sortBy] as Prisma.ProductItemOrderByWithRelationInput | Prisma.ProductItemOrderByWithRelationInput[])
+      : defaultOrderBy;
 
   const where: Prisma.ProductItemWhereInput = {
     companyId,
@@ -63,16 +91,21 @@ export async function GET(request: NextRequest) {
     ];
   }
 
-  const [items, locations, vendors, categories] = await Promise.all([
-    prisma.productItem.findMany({
-      where,
-      orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }],
-      include: {
-        vendor: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true, fullName: true } },
-        companyLocation: { select: { id: true, name: true, shopifyLocationId: true } },
-      },
-    }),
+  const [itemsResult, locations, vendors, categories] = await Promise.all([
+    Promise.all([
+      prisma.productItem.count({ where }),
+      prisma.productItem.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: {
+          vendor: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true, fullName: true } },
+          companyLocation: { select: { id: true, name: true, shopifyLocationId: true } },
+        },
+      }),
+    ]),
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
@@ -90,8 +123,13 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
+  const [total, items] = itemsResult;
+
   return NextResponse.json({
     items,
+    total,
+    page,
+    limit,
     locations,
     vendors,
     categories,
