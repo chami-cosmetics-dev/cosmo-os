@@ -17,7 +17,7 @@ function parseDecimal(value: string | null | undefined): Decimal | null {
 
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
-  location: CompanyLocation & { defaultMerchant?: { id: string } | null },
+  location: CompanyLocation,
   rawPayload: unknown
 ): Promise<void> {
   const companyId = location.companyId;

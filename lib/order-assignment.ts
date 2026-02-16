@@ -1,10 +1,10 @@
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
-import type { CompanyLocation, User } from "@prisma/client";
+import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export async function resolveAssignedMerchant(
   order: ShopifyOrderWebhookPayload,
-  companyLocation: CompanyLocation & { defaultMerchant?: User | null }
+  companyLocation: CompanyLocation
 ): Promise<string | null> {
   const sourceName = (order.source_name ?? "web").toLowerCase();
   const companyId = companyLocation.companyId;
