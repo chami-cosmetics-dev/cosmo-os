@@ -22,12 +22,23 @@ type Order = {
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  fulfillmentStage?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   lineItemCount: number;
+};
+
+const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
+  order_received: "Order Received",
+  sample_free_issue: "Sample/Free Issue",
+  print: "Print",
+  ready_to_dispatch: "Ready to Dispatch",
+  dispatched: "Dispatched",
+  invoice_complete: "Invoice Complete",
+  delivery_complete: "Delivery Complete",
 };
 
 type OrderDetail = {
@@ -334,14 +345,15 @@ export function OrdersPanel() {
                       />
                       <th className="px-4 py-2 text-left font-medium">Customer</th>
                       <SortableColumnHeader
-                        label="Total"
+                        label="Total (LKR)"
                         sortKey="total"
                         currentSort={sortBy || undefined}
                         currentOrder={sortOrder}
                         onSort={handleSort}
                         align="right"
                       />
-                      <th className="px-4 py-2 text-left font-medium">Status</th>
+                      <th className="px-4 py-2 text-left font-medium">Shopify Status</th>
+                      <th className="px-4 py-2 text-left font-medium">Fulfillment Stage</th>
                       <SortableColumnHeader
                         label="Location"
                         sortKey="location"
@@ -386,10 +398,17 @@ export function OrdersPanel() {
                             {order.customerEmail ?? order.customerPhone ?? "—"}
                           </div>
                         </td>
-                        <td className="px-4 py-2 text-right">{formatPrice(order.totalPrice, order.currency)}</td>
+                        <td className="px-4 py-2 text-right">{formatPrice(order.totalPrice)}</td>
                         <td className="px-4 py-2">
                           <span className="text-muted-foreground text-xs">
                             {order.financialStatus ?? "—"} / {order.fulfillmentStatus ?? "—"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">
+                          <span className="text-muted-foreground text-xs">
+                            {order.fulfillmentStage
+                              ? FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage
+                              : "—"}
                           </span>
                         </td>
                         <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
