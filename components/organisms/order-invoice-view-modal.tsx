@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  Braces,
   Check,
   Loader2,
   MessageSquare,
@@ -212,7 +213,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     label: "Dispatched",
     date: orderDetail.dispatchedAt ?? null,
     who: dispatched
-      ? `${userName(orderDetail.dispatchedBy)} → ${riderOrCourier}`
+      ? `${userName(orderDetail.dispatchedBy ?? null)} → ${riderOrCourier}`
       : "—",
     done: dispatched,
     icon: <Truck className="size-4" />,
@@ -253,6 +254,7 @@ export function OrderInvoiceViewModal({
   getAddressPhone,
 }: OrderInvoiceViewModalProps) {
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
+  const [showJsonModal, setShowJsonModal] = useState(false);
 
   const stage = orderDetail?.fulfillmentStage ?? "order_received";
   const isDispatchedWithRider =
@@ -288,7 +290,8 @@ export function OrderInvoiceViewModal({
   if (!orderDetail && !loading) return null;
 
   return (
-    <Dialog open={!!orderId} onOpenChange={(open) => !open && onClose()}>
+    <>
+    <Dialog open={!!orderId} onOpenChange={(open) => { if (!open) { setShowJsonModal(false); onClose(); } }}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -306,6 +309,10 @@ export function OrderInvoiceViewModal({
           <div className="space-y-6">
             {/* Actions */}
             <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setShowJsonModal(true)}>
+                <Braces className="size-4" />
+                View JSON
+              </Button>
               {(orderDetail.printCount ?? 0) > 0 && (
                 <Button variant="outline" onClick={handlePrint}>
                   <Printer className="size-4" />
@@ -479,5 +486,22 @@ export function OrderInvoiceViewModal({
         ) : null}
       </DialogContent>
     </Dialog>
+
+    <Dialog open={showJsonModal} onOpenChange={setShowJsonModal}>
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Order JSON</DialogTitle>
+          <DialogDescription>
+            Raw order data for {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "order"}
+          </DialogDescription>
+        </DialogHeader>
+        {orderDetail && (
+          <pre className="flex-1 overflow-auto rounded-lg border bg-muted/30 p-4 text-xs">
+            <code>{JSON.stringify(orderDetail, null, 2)}</code>
+          </pre>
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

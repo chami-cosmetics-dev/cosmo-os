@@ -3,19 +3,13 @@
 import { useState, useCallback } from "react";
 
 import { FulfillmentDispatchPanel } from "@/components/organisms/fulfillment-dispatch-panel";
-import { FulfillmentOrderSelector } from "@/components/organisms/fulfillment-order-selector";
+import {
+  FulfillmentOrder,
+  FulfillmentOrderSelector,
+} from "@/components/organisms/fulfillment-order-selector";
 
 export function DispatchFulfillmentPage() {
-  const [selectedOrder, setSelectedOrder] = useState<{
-    id: string;
-    orderNumber: string | null;
-    name: string | null;
-    sourceName: string;
-    totalPrice: string;
-    currency: string | null;
-    createdAt: string;
-    companyLocation: { id: string; name: string } | null;
-  } | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleRefresh = useCallback((clearSelection?: boolean) => {

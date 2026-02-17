@@ -2,20 +2,14 @@
 
 import { useState, useCallback } from "react";
 
-import { FulfillmentOrderSelector } from "@/components/organisms/fulfillment-order-selector";
+import {
+  FulfillmentOrder,
+  FulfillmentOrderSelector,
+} from "@/components/organisms/fulfillment-order-selector";
 import { FulfillmentPrintPanel } from "@/components/organisms/fulfillment-print-panel";
 
 export function PrintFulfillmentPage() {
-  const [selectedOrder, setSelectedOrder] = useState<{
-    id: string;
-    orderNumber: string | null;
-    name: string | null;
-    sourceName: string;
-    totalPrice: string;
-    currency: string | null;
-    createdAt: string;
-    companyLocation: { id: string; name: string } | null;
-  } | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleRefresh = useCallback(() => {

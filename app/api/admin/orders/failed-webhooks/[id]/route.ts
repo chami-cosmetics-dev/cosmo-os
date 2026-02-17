@@ -58,4 +58,5 @@ export async function GET(
         ? `https://admin.shopify.com/store/${handle}/orders/${failed.shopifyOrderId}`
         : null;
     })(),
+  });
 }

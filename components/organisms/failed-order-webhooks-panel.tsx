@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, Copy, ExternalLink, FileJson, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,7 @@ export function FailedOrderWebhooksPanel() {
     shopifyAdminOrderUrl: string | null;
   } | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [showJsonModal, setShowJsonModal] = useState(false);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -131,6 +132,13 @@ export function FailedOrderWebhooksPanel() {
   function formatDate(val: string): string {
     const d = new Date(val);
     return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+  }
+
+  async function handleCopyJson() {
+    if (!detail?.rawPayload) return;
+    const json = JSON.stringify(detail.rawPayload, null, 2);
+    await navigator.clipboard.writeText(json);
+    notify.success("JSON copied to clipboard");
   }
 
   return (
@@ -229,7 +237,15 @@ export function FailedOrderWebhooksPanel() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedId} onOpenChange={(open) => !open && setSelectedId(null)}>
+      <Dialog
+        open={!!selectedId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedId(null);
+            setShowJsonModal(false);
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Failed Webhook Details</DialogTitle>
@@ -272,10 +288,19 @@ export function FailedOrderWebhooksPanel() {
                 </div>
               )}
               <div>
-                <h4 className="mb-1 text-sm font-medium">Raw payload (from Shopify)</h4>
-                <pre className="max-h-60 overflow-auto rounded bg-muted p-3 text-xs">
-                  {JSON.stringify(detail.rawPayload, null, 2)}
-                </pre>
+                <h4 className="mb-1 text-sm font-medium">Webhook payload</h4>
+                <p className="mb-2 text-muted-foreground text-xs">
+                  Raw JSON received from Shopify when this webhook was triggered.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setShowJsonModal(true)}
+                >
+                  <FileJson className="size-4" />
+                  View JSON Payload
+                </Button>
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setSelectedId(null)}>
@@ -301,6 +326,35 @@ export function FailedOrderWebhooksPanel() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showJsonModal} onOpenChange={setShowJsonModal}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileJson className="size-5" />
+              Webhook JSON Payload
+            </DialogTitle>
+            <DialogDescription>
+              Raw payload received from Shopify for order {detail?.shopifyOrderId ?? ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 flex flex-col gap-3">
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyJson}>
+                <Copy className="size-4" />
+                Copy to clipboard
+              </Button>
+            </div>
+            <pre className="flex-1 overflow-auto rounded-lg border bg-muted/50 p-4 text-xs font-mono">
+              <code>
+                {detail?.rawPayload != null
+                  ? JSON.stringify(detail.rawPayload, null, 2)
+                  : "No payload"}
+              </code>
+            </pre>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

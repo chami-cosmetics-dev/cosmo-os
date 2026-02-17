@@ -18,7 +18,7 @@ function createPrisma() {
 let instance = globalForPrisma.prisma;
 if (instance && process.env.NODE_ENV !== "production") {
   if (!("smsNotificationConfig" in instance)) {
-    void instance.$disconnect();
+    void (instance as PrismaClient).$disconnect();
     globalForPrisma.prisma = undefined;
     instance = undefined;
   }

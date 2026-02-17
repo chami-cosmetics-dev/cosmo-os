@@ -2,20 +2,14 @@
 
 import { useState, useCallback } from "react";
 
-import { FulfillmentOrderSelector } from "@/components/organisms/fulfillment-order-selector";
+import {
+  FulfillmentOrder,
+  FulfillmentOrderSelector,
+} from "@/components/organisms/fulfillment-order-selector";
 import { FulfillmentSampleFreeIssuePanel } from "@/components/organisms/fulfillment-sample-free-issue-panel";
 
 export function SampleFreeIssueFulfillmentPage() {
-  const [selectedOrder, setSelectedOrder] = useState<{
-    id: string;
-    orderNumber: string | null;
-    name: string | null;
-    sourceName: string;
-    totalPrice: string;
-    currency: string | null;
-    createdAt: string;
-    companyLocation: { id: string; name: string } | null;
-  } | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [orderListRefreshTrigger, setOrderListRefreshTrigger] = useState(0);
   const [invoiceRefreshTrigger, setInvoiceRefreshTrigger] = useState(0);
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import type { Prisma } from "@prisma/client";
+import type { FulfillmentStage, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, limitSchema, pageSchema, sortOrderSchema } from "@/lib/validation";
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
       .map((s) => s.trim())
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
-      where.fulfillmentStage = { in: stages };
+      where.fulfillmentStage = { in: stages as FulfillmentStage[] };
       where.sourceName = "web"; // Exclude POS for stage-specific fulfillment pages
     }
   }
