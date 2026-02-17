@@ -22,6 +22,7 @@ export async function GET(_request: NextRequest) {
       name: true,
       email: true,
       picture: true,
+      profilePhotoUrl: true,
       nicNo: true,
       gender: true,
       dateOfBirth: true,
@@ -51,6 +52,7 @@ export async function GET(_request: NextRequest) {
     name: user.name,
     email: user.email,
     picture: user.picture,
+    profilePhotoUrl: user.profilePhotoUrl,
     nicNo: user.nicNo,
     gender: user.gender,
     dateOfBirth: user.dateOfBirth,
@@ -89,7 +91,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  const { name, knownName, nicNo, gender, dateOfBirth, mobile } = parsed.data;
+  const { name, knownName, nicNo, gender, dateOfBirth, mobile, profilePhotoUrl } =
+    parsed.data;
 
   const parsedDob = dateOfBirth?.trim()
     ? new Date(dateOfBirth)
@@ -97,16 +100,18 @@ export async function PATCH(request: NextRequest) {
   const validDob =
     parsedDob && !Number.isNaN(parsedDob.getTime()) ? parsedDob : null;
 
+  const updateData: Parameters<typeof prisma.user.update>[0]["data"] = {};
+  if (name !== undefined) updateData.name = name.trim();
+  if (knownName !== undefined) updateData.knownName = knownName?.trim() || null;
+  if (nicNo !== undefined) updateData.nicNo = nicNo?.trim() || null;
+  if (gender !== undefined) updateData.gender = gender?.trim() || null;
+  if (dateOfBirth !== undefined) updateData.dateOfBirth = validDob;
+  if (mobile !== undefined) updateData.mobile = mobile?.trim() || null;
+  if (profilePhotoUrl !== undefined) updateData.profilePhotoUrl = profilePhotoUrl;
+
   await prisma.user.update({
     where: { id: context.user.id },
-    data: {
-      name: name.trim(),
-      knownName: knownName?.trim() || null,
-      nicNo: nicNo?.trim() || null,
-      gender: gender?.trim() || null,
-      dateOfBirth: validDob,
-      mobile: mobile?.trim() || null,
-    },
+    data: updateData,
   });
 
   return NextResponse.json({ success: true });

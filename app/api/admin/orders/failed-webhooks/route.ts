@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       take: limit,
       include: {
         companyLocation: {
-          select: { id: true, name: true, shopifyLocationId: true, shopifyShopName: true },
+          select: { id: true, name: true, shopifyLocationId: true, shopifyShopName: true, shopifyAdminStoreHandle: true },
         },
       },
     }),

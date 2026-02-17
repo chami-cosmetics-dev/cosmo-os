@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Auth0ProviderWrapper } from "./auth0-provider";
+import { FaviconUpdater } from "@/components/providers/favicon-updater";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,6 +21,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Cosmo OS",
   description: "Cosmo OS Application",
+  icons: {
+    icon: "/api/favicon",
+  },
 };
 
 export default function RootLayout({
@@ -43,6 +47,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <FaviconUpdater />
           <TooltipProvider>
             <Auth0ProviderWrapper>{children}</Auth0ProviderWrapper>
             <Toaster richColors position="top-right" closeButton />

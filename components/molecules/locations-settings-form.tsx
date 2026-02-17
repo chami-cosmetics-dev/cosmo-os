@@ -6,6 +6,8 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
+import { LogoUpload } from "@/components/molecules/logo-upload";
 import {
   Sheet,
   SheetContent,
@@ -21,6 +23,7 @@ type Merchant = { id: string; name: string | null; email: string | null };
 type Location = {
   id: string;
   name: string;
+  logoUrl: string | null;
   address: string | null;
   shortName: string | null;
   invoiceHeader: string | null;
@@ -30,6 +33,7 @@ type Location = {
   invoiceEmail: string | null;
   shopifyLocationId: string | null;
   shopifyShopName: string | null;
+  shopifyAdminStoreHandle: string | null;
   defaultMerchantUserId?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -37,6 +41,7 @@ type Location = {
 
 const emptyForm = (): Partial<Location> => ({
   name: "",
+  logoUrl: null,
   address: "",
   shortName: "",
   invoiceHeader: "",
@@ -46,6 +51,7 @@ const emptyForm = (): Partial<Location> => ({
   invoiceEmail: "",
   shopifyLocationId: "",
   shopifyShopName: "",
+  shopifyAdminStoreHandle: "",
   defaultMerchantUserId: null,
 });
 
@@ -146,6 +152,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
     setEditingId(loc.id);
     setForm({
       name: loc.name,
+      logoUrl: loc.logoUrl ?? null,
       address: loc.address ?? "",
       shortName: loc.shortName ?? "",
       invoiceHeader: loc.invoiceHeader ?? "",
@@ -155,6 +162,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       invoiceEmail: loc.invoiceEmail ?? "",
       shopifyLocationId: loc.shopifyLocationId ?? "",
       shopifyShopName: loc.shopifyShopName ?? "",
+      shopifyAdminStoreHandle: loc.shopifyAdminStoreHandle ?? "",
       defaultMerchantUserId: loc.defaultMerchantUserId ?? null,
     });
     setSheetOpen(true);
@@ -166,6 +174,69 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
     setForm(emptyForm());
   }
 
+  const editingLocation = editingId ? locations.find((l) => l.id === editingId) : null;
+  const sheetHasChanges =
+    sheetMode === "add"
+      ? (form.name?.trim() ?? "") !== "" // Add: at least name required
+      : editingLocation
+        ? (form.name?.trim() ?? "") !== (editingLocation.name ?? "").trim() ||
+          (form.logoUrl ?? null) !== (editingLocation.logoUrl ?? null) ||
+          (form.address?.trim() ?? "") !== (editingLocation.address ?? "").trim() ||
+          (form.shortName?.trim() ?? "") !== (editingLocation.shortName ?? "").trim() ||
+          (form.invoiceHeader?.trim() ?? "") !== (editingLocation.invoiceHeader ?? "").trim() ||
+          (form.invoiceSubHeader?.trim() ?? "") !== (editingLocation.invoiceSubHeader ?? "").trim() ||
+          (form.invoiceFooter?.trim() ?? "") !== (editingLocation.invoiceFooter ?? "").trim() ||
+          (form.invoicePhone?.trim() ?? "") !== (editingLocation.invoicePhone ?? "").trim() ||
+          (form.invoiceEmail?.trim() ?? "") !== (editingLocation.invoiceEmail ?? "").trim() ||
+          (form.shopifyLocationId?.trim() ?? "") !== (editingLocation.shopifyLocationId ?? "").trim() ||
+          (form.shopifyShopName?.trim() ?? "") !== (editingLocation.shopifyShopName ?? "").trim() ||
+          (form.shopifyAdminStoreHandle?.trim() ?? "") !== (editingLocation.shopifyAdminStoreHandle ?? "").trim() ||
+          (form.defaultMerchantUserId ?? null) !== (editingLocation.defaultMerchantUserId ?? null)
+        : false;
+
+  async function handleLocationLogoChange(url: string | null) {
+    setForm((f) => ({ ...f, logoUrl: url }));
+    if (!editingId || !form.name?.trim()) return;
+
+    setBusyKey(`save-logo-${editingId}`);
+    try {
+      const payload = {
+        name: form.name.trim(),
+        logoUrl: url,
+        address: form.address?.trim() || undefined,
+        shortName: form.shortName?.trim() || undefined,
+        invoiceHeader: form.invoiceHeader?.trim() || undefined,
+        invoiceSubHeader: form.invoiceSubHeader?.trim() || undefined,
+        invoiceFooter: form.invoiceFooter?.trim() || undefined,
+        invoicePhone: form.invoicePhone?.trim() || undefined,
+        invoiceEmail: form.invoiceEmail?.trim() || undefined,
+        shopifyLocationId: form.shopifyLocationId?.trim() || undefined,
+        shopifyShopName: form.shopifyShopName?.trim() || undefined,
+        shopifyAdminStoreHandle: form.shopifyAdminStoreHandle?.trim() || undefined,
+        defaultMerchantUserId: form.defaultMerchantUserId || null,
+      };
+      const res = await fetch(`/api/admin/company/locations/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as Location & { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to save logo");
+        return;
+      }
+      setLocations((prev) =>
+        prev
+          .map((l) => (l.id === editingId ? data : l))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      );
+    } catch {
+      notify.error("Failed to save logo");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function handleSheetSubmit() {
     if (!form.name?.trim()) {
       notify.error("Location name is required");
@@ -174,6 +245,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
 
     const payload = {
       name: form.name.trim(),
+      logoUrl: form.logoUrl,
       address: form.address?.trim() || undefined,
       shortName: form.shortName?.trim() || undefined,
       invoiceHeader: form.invoiceHeader?.trim() || undefined,
@@ -183,6 +255,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       invoiceEmail: form.invoiceEmail?.trim() || undefined,
       shopifyLocationId: form.shopifyLocationId?.trim() || undefined,
       shopifyShopName: form.shopifyShopName?.trim() || undefined,
+      shopifyAdminStoreHandle: form.shopifyAdminStoreHandle?.trim() || undefined,
       defaultMerchantUserId: form.defaultMerchantUserId || null,
     };
 
@@ -343,8 +416,16 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                 key={loc.id}
                 className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
-                  <p className="font-medium">{loc.name}</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
+                    {loc.logoUrl ? (
+                      <CloudinaryLogo src={loc.logoUrl} alt="" width={40} height={40} className="size-full object-contain" />
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium">{loc.name}</p>
                   {loc.shortName && (
                     <p className="text-muted-foreground text-xs">
                       Short name: {loc.shortName} (for SMS)
@@ -355,12 +436,13 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                       {loc.address}
                     </p>
                   )}
-                  {(loc.shopifyLocationId || loc.shopifyShopName) && (
+                  {(loc.shopifyLocationId || loc.shopifyShopName || loc.shopifyAdminStoreHandle) && (
                     <p className="text-muted-foreground text-xs">
-                      Shopify: {loc.shopifyShopName ?? "—"} (
+                      Shopify: {loc.shopifyAdminStoreHandle ?? loc.shopifyShopName ?? "—"} (
                       {loc.shopifyLocationId ?? "—"})
                     </p>
                   )}
+                  </div>
                 </div>
                 {canEdit && (
                   <div className="flex gap-2">
@@ -414,6 +496,29 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
           </SheetHeader>
 
           <div className="flex flex-1 flex-col gap-6 py-4">
+            {canEdit && editingId && (
+              <LogoUpload
+                value={form.logoUrl ?? null}
+                onChange={handleLocationLogoChange}
+                uploadType="location"
+                locationId={editingId}
+                disabled={isBusy}
+                label="Location logo"
+              />
+            )}
+            {canEdit && sheetMode === "add" && (
+              <p className="text-muted-foreground text-sm">
+                Add a logo after creating the location.
+              </p>
+            )}
+            {!canEdit && form.logoUrl && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Location logo</label>
+                <div className="flex size-20 overflow-hidden rounded-lg border bg-muted">
+                  <CloudinaryLogo src={form.logoUrl} alt="Location logo" className="size-full object-contain" />
+                </div>
+              </div>
+            )}
             <div className="space-y-3">
               <h4 className="text-sm font-medium">Basic</h4>
               <Input
@@ -503,7 +608,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                 maxLength={100}
               />
               <Input
-                placeholder="Shop name"
+                placeholder="Shop name (myshopify.com domain)"
                 value={form.shopifyShopName ?? ""}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, shopifyShopName: e.target.value }))
@@ -511,6 +616,19 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                 disabled={isBusy}
                 maxLength={200}
               />
+              <Input
+                placeholder="Admin store handle (e.g. u71ajc-11) *"
+                value={form.shopifyAdminStoreHandle ?? ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, shopifyAdminStoreHandle: e.target.value }))
+                }
+                disabled={isBusy}
+                maxLength={100}
+              />
+              <p className="text-muted-foreground text-xs">
+                Use the store handle from your Shopify admin URL. Example: admin.shopify.com/store/
+                <strong>u71ajc-11</strong>/orders
+              </p>
             </div>
 
             {merchants.length > 0 && (
@@ -553,7 +671,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
             </Button>
             <Button
               onClick={handleSheetSubmit}
-              disabled={isBusy || !form.name?.trim()}
+              disabled={isBusy || !form.name?.trim() || (sheetMode === "edit" && !sheetHasChanges)}
             >
               {busyKey?.startsWith("add")
                 ? "Adding..."

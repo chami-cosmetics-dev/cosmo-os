@@ -13,8 +13,19 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
+  const avatarUrl =
+    (context.user as { profilePhotoUrl?: string | null } | null)?.profilePhotoUrl ??
+    context.sessionUser.picture ??
+    null;
+
   return (
-    <DashboardTemplate user={context.sessionUser}>
+    <DashboardTemplate
+      user={{
+        name: context.sessionUser.name,
+        email: context.sessionUser.email,
+        picture: avatarUrl,
+      }}
+    >
       {children}
     </DashboardTemplate>
   );

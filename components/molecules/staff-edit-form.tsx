@@ -38,6 +38,7 @@ type StaffMember = {
     designationId: string | null;
     appointmentDate: string | null;
     status: string;
+    isRider: boolean;
   } | null;
 };
 
@@ -83,6 +84,7 @@ export function StaffEditForm({
   const [appointmentDate, setAppointmentDate] = useState("");
   const [shopifyUserIds, setShopifyUserIds] = useState("");
   const [couponCodes, setCouponCodes] = useState("");
+  const [isRider, setIsRider] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
@@ -109,6 +111,7 @@ export function StaffEditForm({
       setCouponCodes(
         (initialData as StaffMember).couponCodes?.join(", ") ?? ""
       );
+      setIsRider(initialData.employeeProfile?.isRider ?? false);
     }
   }, [initialData]);
 
@@ -142,6 +145,7 @@ export function StaffEditForm({
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean),
+          isRider,
         }),
       });
 
@@ -400,6 +404,28 @@ export function StaffEditForm({
           Comma-separated. Web orders with these coupon codes will be assigned to this user.
         </p>
       </div>
+
+      <div className="border-t pt-4">
+        <p className="text-muted-foreground mb-3 text-sm font-medium">
+          Order fulfillment
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          id="staff-isRider"
+          type="checkbox"
+          checked={isRider}
+          onChange={(e) => setIsRider(e.target.checked)}
+          disabled={!canEdit || isBusy}
+          className="size-4 rounded border-input"
+        />
+        <label htmlFor="staff-isRider" className="text-sm font-medium">
+          Is Rider
+        </label>
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Riders can be assigned to dispatch orders and receive delivery confirmation via SMS.
+      </p>
 
       {canEdit && (
         <div className="flex gap-2">

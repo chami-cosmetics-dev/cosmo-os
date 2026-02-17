@@ -23,7 +23,7 @@ export async function GET(
     where: { id: idResult.data },
     include: {
       companyLocation: {
-        select: { id: true, name: true, shopifyLocationId: true, shopifyShopName: true },
+        select: { id: true, name: true, shopifyLocationId: true, shopifyShopName: true, shopifyAdminStoreHandle: true },
       },
     },
   });
@@ -52,9 +52,10 @@ export async function GET(
     createdAt: failed.createdAt.toISOString(),
     resolvedAt: failed.resolvedAt?.toISOString() ?? null,
     companyLocation: failed.companyLocation,
-    shopifyAdminOrderUrl:
-      failed.companyLocation.shopifyShopName
-        ? `https://admin.shopify.com/store/${failed.companyLocation.shopifyShopName}/orders/${failed.shopifyOrderId}`
-        : null,
-  });
+    shopifyAdminOrderUrl: (() => {
+      const handle = failed.companyLocation.shopifyAdminStoreHandle ?? failed.companyLocation.shopifyShopName;
+      return handle
+        ? `https://admin.shopify.com/store/${handle}/orders/${failed.shopifyOrderId}`
+        : null;
+    })(),
 }

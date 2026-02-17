@@ -36,6 +36,8 @@ export async function GET() {
         select: {
           id: true,
           name: true,
+          logoUrl: true,
+          faviconUrl: true,
           employeeSize: true,
           address: true,
           createdAt: true,
@@ -48,6 +50,7 @@ export async function GET() {
         select: {
           id: true,
           name: true,
+          logoUrl: true,
           address: true,
           shortName: true,
           invoiceHeader: true,
@@ -57,6 +60,7 @@ export async function GET() {
           invoiceEmail: true,
           shopifyLocationId: true,
           shopifyShopName: true,
+          shopifyAdminStoreHandle: true,
           defaultMerchantUserId: true,
           createdAt: true,
           updatedAt: true,

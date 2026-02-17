@@ -36,12 +36,25 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
   const [bodyHtml, setBodyHtml] = useState(initialTemplates?.resignation_notice?.bodyHtml ?? "");
   const [recipients, setRecipients] = useState(initialTemplates?.resignation_notice?.recipients ?? "");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState({
+    subject: initialTemplates?.resignation_notice?.subject ?? "",
+    bodyHtml: initialTemplates?.resignation_notice?.bodyHtml ?? "",
+    recipients: initialTemplates?.resignation_notice?.recipients ?? "",
+  });
 
   const isBusy = busyKey !== null;
+  const hasChanges =
+    subject.trim() !== lastSaved.subject.trim() ||
+    bodyHtml.trim() !== lastSaved.bodyHtml.trim() ||
+    recipients.trim() !== lastSaved.recipients.trim();
 
   useEffect(() => {
-    if (initialTemplates !== undefined) {
+    if (initialTemplates !== undefined && initialTemplates !== null) {
       setLoading(false);
+      const t = initialTemplates.resignation_notice;
+      if (t) {
+        setLastSaved({ subject: t.subject, bodyHtml: t.bodyHtml, recipients: t.recipients });
+      }
       return;
     }
     async function fetchTemplates() {
@@ -63,6 +76,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
         setSubject(t.subject);
         setBodyHtml(t.bodyHtml);
         setRecipients(t.recipients);
+        setLastSaved({ subject: t.subject, bodyHtml: t.bodyHtml, recipients: t.recipients });
       } catch {
         notify.error("Failed to load email templates");
       } finally {
@@ -97,6 +111,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
       }
 
       notify.success("Email templates updated.");
+      setLastSaved({ subject: subject.trim(), bodyHtml: bodyHtml.trim(), recipients: recipients.trim() });
     } catch {
       notify.error("Failed to update email templates");
     } finally {
@@ -198,7 +213,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
           </div>
 
           {canEdit && (
-            <Button type="submit" disabled={isBusy}>
+            <Button type="submit" disabled={isBusy || !hasChanges}>
               {busyKey === "save" ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />

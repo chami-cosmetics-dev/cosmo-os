@@ -34,8 +34,22 @@ export function SmsPortalSettingsForm({ canEdit }: SmsPortalSettingsFormProps) {
   const [campaignName, setCampaignName] = useState("");
   const [testPhoneNumber, setTestPhoneNumber] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState({
+    username: "",
+    authUrl: "",
+    smsUrl: "",
+    smsMask: "",
+    campaignName: "",
+  });
 
   const isBusy = busyKey !== null;
+  const hasChanges =
+    username.trim() !== lastSaved.username.trim() ||
+    authUrl.trim() !== lastSaved.authUrl.trim() ||
+    smsUrl.trim() !== lastSaved.smsUrl.trim() ||
+    smsMask.trim() !== lastSaved.smsMask.trim() ||
+    campaignName.trim() !== lastSaved.campaignName.trim() ||
+    password.trim() !== "";
 
   useEffect(() => {
     async function fetchConfig() {
@@ -58,6 +72,13 @@ export function SmsPortalSettingsForm({ canEdit }: SmsPortalSettingsFormProps) {
         setSmsUrl(data.smsUrl);
         setSmsMask(data.smsMask);
         setCampaignName(data.campaignName);
+        setLastSaved({
+          username: data.username,
+          authUrl: data.authUrl,
+          smsUrl: data.smsUrl,
+          smsMask: data.smsMask,
+          campaignName: data.campaignName,
+        });
       } catch {
         notify.error("Failed to load SMS portal config");
       } finally {
@@ -99,6 +120,13 @@ export function SmsPortalSettingsForm({ canEdit }: SmsPortalSettingsFormProps) {
 
       notify.success("SMS portal config updated.");
       setPassword("");
+      setLastSaved({
+        username: username.trim(),
+        authUrl: authUrl.trim(),
+        smsUrl: smsUrl.trim(),
+        smsMask: smsMask.trim(),
+        campaignName: campaignName.trim(),
+      });
     } catch {
       notify.error("Failed to update SMS portal config");
     } finally {
@@ -314,7 +342,7 @@ export function SmsPortalSettingsForm({ canEdit }: SmsPortalSettingsFormProps) {
           </div>
 
           {canEdit && (
-            <Button type="submit" disabled={isBusy}>
+            <Button type="submit" disabled={isBusy || !hasChanges}>
               {busyKey === "save" ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />

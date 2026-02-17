@@ -7,6 +7,7 @@ import { cuidSchema, emailSchema, LIMITS, trimmedString } from "@/lib/validation
 
 const createLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
+  logoUrl: z.string().url().max(LIMITS.logoUrl.max).optional().nullable(),
   address: z.string().max(LIMITS.address.max).optional(),
   shortName: z.string().max(LIMITS.locationShortName.max).optional(),
   invoiceHeader: z.string().max(LIMITS.invoiceHeader.max).optional(),
@@ -19,6 +20,7 @@ const createLocationSchema = z.object({
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
   shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
   shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
+  shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
 });
 
@@ -51,6 +53,7 @@ export async function GET() {
       select: {
         id: true,
         name: true,
+        logoUrl: true,
         address: true,
         shortName: true,
         invoiceHeader: true,
@@ -60,6 +63,7 @@ export async function GET() {
         invoiceEmail: true,
         shopifyLocationId: true,
         shopifyShopName: true,
+        shopifyAdminStoreHandle: true,
         defaultMerchantUserId: true,
         createdAt: true,
         updatedAt: true,
@@ -117,6 +121,7 @@ export async function POST(request: NextRequest) {
     data: {
       companyId,
       name: d.name,
+      logoUrl: d.logoUrl ?? null,
       address: d.address?.trim() || null,
       shortName: d.shortName?.trim() || null,
       invoiceHeader: d.invoiceHeader?.trim() || null,
@@ -126,11 +131,13 @@ export async function POST(request: NextRequest) {
       invoiceEmail: d.invoiceEmail ?? null,
       shopifyLocationId: d.shopifyLocationId?.trim() || null,
       shopifyShopName: d.shopifyShopName?.trim() || null,
+      shopifyAdminStoreHandle: d.shopifyAdminStoreHandle?.trim() || null,
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
       id: true,
       name: true,
+      logoUrl: true,
       address: true,
       shortName: true,
       invoiceHeader: true,
@@ -140,6 +147,7 @@ export async function POST(request: NextRequest) {
       invoiceEmail: true,
       shopifyLocationId: true,
       shopifyShopName: true,
+      shopifyAdminStoreHandle: true,
       defaultMerchantUserId: true,
       createdAt: true,
       updatedAt: true,

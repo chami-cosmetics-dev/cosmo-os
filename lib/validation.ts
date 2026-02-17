@@ -30,6 +30,7 @@ export const LIMITS = {
   invoiceFooter: { max: 500 },
   shopifyLocationId: { max: 100 },
   shopifyShopName: { max: 200 },
+  shopifyAdminStoreHandle: { max: 100 },
   departmentName: { max: 100 },
   designationName: { max: 100 },
   resignationReason: { max: 500 },
@@ -51,6 +52,11 @@ export const LIMITS = {
   shopifyUserId: { max: 32 },
   couponCode: { max: 64 },
   pagination: { pageMin: 1, pageMax: 10000, limitMin: 1, limitMax: 100 },
+  sampleFreeIssueItemName: { max: 200 },
+  packageHoldReasonName: { max: 200 },
+  courierServiceName: { max: 200 },
+  orderRemarkContent: { max: 2000 },
+  logoUrl: { max: 2048 },
 } as const;
 
 /** Parse and validate page number from query string */
@@ -136,14 +142,15 @@ export const passwordChangeSchema = z
     path: ["newPassword"],
   });
 
-/** Profile update - only user-editable fields from invite form */
+/** Profile update - only user-editable fields from invite form. All fields optional for partial updates. */
 export const profileUpdateSchema = z.object({
-  name: trimmedString(1, LIMITS.name.max),
+  name: trimmedString(1, LIMITS.name.max).optional(),
   knownName: z.string().max(LIMITS.knownName.max).optional(),
   nicNo: z.string().max(LIMITS.nicNo.max).optional(),
   gender: z.string().max(LIMITS.gender.max).optional(),
   dateOfBirth: z.string().optional(),
   mobile: z.string().max(LIMITS.mobile.max).optional(),
+  profilePhotoUrl: z.string().url().max(2000).nullable().optional(),
 });
 
 /** SMS portal config update - password optional (omit to keep current) */

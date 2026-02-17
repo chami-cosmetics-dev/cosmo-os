@@ -53,7 +53,11 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "orders.manage",
-    description: "Retry failed order webhooks",
+    description: "Retry failed order webhooks and manage order fulfillment",
+  },
+  {
+    key: "settings.fulfillment",
+    description: "Manage samples, free issues, hold reasons, and courier services",
   },
 ] as const;
 
@@ -80,6 +84,7 @@ const DEFAULT_ROLES = [
       "settings.company",
       "settings.email_templates",
       "settings.sms_portal",
+      "settings.fulfillment",
       "products.read",
       "products.manage",
       "orders.read",

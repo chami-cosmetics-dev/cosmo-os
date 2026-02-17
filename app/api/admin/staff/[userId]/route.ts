@@ -38,6 +38,7 @@ const updateStaffSchema = z.object({
   departmentId: cuidSchema.nullable().optional(),
   designationId: cuidSchema.nullable().optional(),
   appointmentDate: z.string().optional(),
+  isRider: z.boolean().optional(),
   shopifyUserIds: z
     .array(shopifyUserIdSchema)
     .max(20)
@@ -219,6 +220,7 @@ export async function PATCH(
       departmentId: data.departmentId ?? undefined,
       designationId: data.designationId ?? undefined,
       appointmentDate: validAppointment ?? undefined,
+      ...(data.isRider !== undefined && { isRider: data.isRider }),
     };
 
     if (targetUser.employeeProfile) {

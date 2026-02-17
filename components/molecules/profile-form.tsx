@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ProfilePhotoUpload } from "@/components/molecules/profile-photo-upload";
 import { notify } from "@/lib/notify";
 
 const GENDER_OPTIONS = [
@@ -21,6 +22,7 @@ type ProfileData = {
   name: string | null;
   email: string | null;
   picture: string | null;
+  profilePhotoUrl: string | null;
   nicNo: string | null;
   gender: string | null;
   dateOfBirth: string | Date | null;
@@ -63,9 +65,19 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   const [gender, setGender] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [mobile, setMobile] = useState("");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
+
+  const hasChanges =
+    initialData &&
+    (name.trim() !== (initialData.name ?? "").trim() ||
+      knownName.trim() !== (initialData.knownName ?? "").trim() ||
+      nicNo.trim() !== (initialData.nicNo ?? "").trim() ||
+      gender !== (initialData.gender ?? "") ||
+      dateOfBirth !== formatDateForInput(initialData.dateOfBirth) ||
+      mobile.trim() !== (initialData.mobile ?? "").trim());
 
   useEffect(() => {
     if (initialData) {
@@ -75,6 +87,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       setGender(initialData.gender ?? "");
       setDateOfBirth(formatDateForInput(initialData.dateOfBirth));
       setMobile(initialData.mobile ?? "");
+      setProfilePhotoUrl(initialData.profilePhotoUrl ?? null);
     }
   }, [initialData]);
 
@@ -123,6 +136,13 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      <div className="space-y-4">
+        <ProfilePhotoUpload
+          value={profilePhotoUrl}
+          onChange={setProfilePhotoUrl}
+          disabled={isBusy}
+        />
+      </div>
       <div className="space-y-4">
         <h3 className="text-sm font-medium">Personal information</h3>
         <p className="text-muted-foreground text-sm">
@@ -272,7 +292,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
       </div>
 
       <div className="flex gap-2">
-        <Button type="submit" disabled={isBusy}>
+        <Button type="submit" disabled={isBusy || !hasChanges}>
           {busyKey === "save" ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />

@@ -7,6 +7,7 @@ import { cuidSchema, emailSchema, LIMITS, trimmedString } from "@/lib/validation
 
 const updateLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
+  logoUrl: z.string().url().max(LIMITS.logoUrl.max).optional().nullable(),
   address: z.string().max(LIMITS.address.max).optional(),
   shortName: z.string().max(LIMITS.locationShortName.max).optional(),
   invoiceHeader: z.string().max(LIMITS.invoiceHeader.max).optional(),
@@ -19,6 +20,7 @@ const updateLocationSchema = z.object({
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
   shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
   shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
+  shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
 });
 
@@ -91,6 +93,7 @@ export async function PATCH(
     where: { id: idResult.data },
     data: {
       name: d.name,
+      ...(d.logoUrl !== undefined && { logoUrl: d.logoUrl }),
       address: d.address === undefined ? undefined : (d.address?.trim() || null),
       shortName: toOpt(d.shortName),
       invoiceHeader: toOpt(d.invoiceHeader),
@@ -100,11 +103,13 @@ export async function PATCH(
       invoiceEmail: d.invoiceEmail === undefined ? undefined : (d.invoiceEmail ?? null),
       shopifyLocationId: toOpt(d.shopifyLocationId),
       shopifyShopName: toOpt(d.shopifyShopName),
+      shopifyAdminStoreHandle: toOpt(d.shopifyAdminStoreHandle),
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
       id: true,
       name: true,
+      logoUrl: true,
       address: true,
       shortName: true,
       invoiceHeader: true,
@@ -114,6 +119,7 @@ export async function PATCH(
       invoiceEmail: true,
       shopifyLocationId: true,
       shopifyShopName: true,
+      shopifyAdminStoreHandle: true,
       defaultMerchantUserId: true,
       createdAt: true,
       updatedAt: true,

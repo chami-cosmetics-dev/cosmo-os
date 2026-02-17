@@ -43,6 +43,7 @@ export default async function ProfilePage() {
     name: user.name,
     email: user.email,
     picture: user.picture,
+    profilePhotoUrl: user.profilePhotoUrl ?? null,
     nicNo: user.nicNo,
     gender: user.gender,
     dateOfBirth: user.dateOfBirth,

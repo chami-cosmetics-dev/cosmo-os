@@ -135,6 +135,7 @@ export async function GET(request: NextRequest) {
             appointmentDate: u.employeeProfile.appointmentDate,
             status: u.employeeProfile.status,
             resignedAt: u.employeeProfile.resignedAt,
+            isRider: u.employeeProfile.isRider,
           }
         : null,
   }));

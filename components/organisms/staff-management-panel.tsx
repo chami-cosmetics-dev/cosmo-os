@@ -50,6 +50,7 @@ type StaffMember = {
     appointmentDate: string | null;
     status: string;
     resignedAt: string | null;
+    isRider: boolean;
   } | null;
 };
 

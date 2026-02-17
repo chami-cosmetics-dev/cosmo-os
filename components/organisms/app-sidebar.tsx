@@ -5,7 +5,9 @@ import {
   AlertCircle,
   LayoutDashboard,
   Mail,
+  MessageSquare,
   Package,
+  PackageCheck,
   Settings,
   ShoppingCart,
   Tags,
@@ -61,6 +63,11 @@ export function AppSidebar({ user }: AppSidebarProps) {
               label="Dashboard"
               isActive={pathname === "/dashboard"}
             />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>People</SidebarGroupLabel>
+          <SidebarGroupContent>
             <NavItem
               href="/dashboard/users"
               icon={Users}
@@ -73,18 +80,54 @@ export function AppSidebar({ user }: AppSidebarProps) {
               label="Staff"
               isActive={pathname === "/dashboard/staff"}
             />
-            <NavItem
-              href="/dashboard/settings"
-              icon={Settings}
-              label="Settings"
-              isActive={pathname === "/dashboard/settings"}
-            />
-            <NavItem
-              href="/dashboard/settings/email-templates"
-              icon={Mail}
-              label="Email Templates"
-              isActive={pathname === "/dashboard/settings/email-templates"}
-            />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>General Settings</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={pathname === "/dashboard/settings"}>
+                  <Link href="/dashboard/settings">
+                    <Settings className="size-4" />
+                    <span>Settings</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/settings/email-templates"}
+                >
+                  <Link href="/dashboard/settings/email-templates">
+                    <Mail className="size-4" />
+                    <span>Email Templates</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/settings/sms-notifications"}
+                >
+                  <Link href="/dashboard/settings/sms-notifications">
+                    <MessageSquare className="size-4" />
+                    <span>SMS Notifications</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/settings/fulfillment"}
+                >
+                  <Link href="/dashboard/settings/fulfillment">
+                    <PackageCheck className="size-4" />
+                    <span>Fulfillment Data</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
@@ -96,6 +139,17 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   <Link href="/dashboard/orders">
                     <ShoppingCart className="size-4" />
                     <span>Orders</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith("/dashboard/fulfillment")}
+                >
+                  <Link href="/dashboard/fulfillment/sample-free-issue">
+                    <PackageCheck className="size-4" />
+                    <span>Fulfillment</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

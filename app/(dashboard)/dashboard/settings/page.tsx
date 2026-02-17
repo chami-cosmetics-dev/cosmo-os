@@ -4,7 +4,7 @@ import { SettingsPageData } from "@/components/organisms/settings-page-data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { ChevronRight, Mail, MessageSquare } from "lucide-react";
+import { ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,9 @@ export default async function SettingsPage() {
     : false;
   const canManageSmsPortal = context
     ? hasPermission(context, "settings.sms_portal")
+    : false;
+  const canManageFulfillment = context
+    ? hasPermission(context, "settings.fulfillment")
     : false;
 
   return (
@@ -63,9 +66,47 @@ export default async function SettingsPage() {
               </CardContent>
             </Card>
           )}
+          {canManageSmsPortal && (
+            <Card>
+              <CardHeader>
+                <CardTitle>SMS Notifications</CardTitle>
+                <p className="text-muted-foreground text-sm">
+                  Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/settings/sms-notifications">
+                    <MessageSquare className="size-4" aria-hidden />
+                    Order SMS notifications
+                    <ChevronRight className="size-4" aria-hidden />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {canManageFulfillment && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Order Fulfillment</CardTitle>
+                <p className="text-muted-foreground text-sm">
+                  Manage samples, free issues, package hold reasons, and courier services.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" asChild>
+                  <Link href="/dashboard/settings/fulfillment">
+                    <Package className="size-4" aria-hidden />
+                    Fulfillment settings
+                    <ChevronRight className="size-4" aria-hidden />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </>
       ) : null}
-      {(canManageEmailTemplates || canManageSmsPortal) && !canManageCompany && (
+      {(canManageEmailTemplates || canManageSmsPortal || canManageFulfillment) && !canManageCompany && (
         <>
           {canManageEmailTemplates && (
             <Card>
@@ -87,18 +128,56 @@ export default async function SettingsPage() {
             </Card>
           )}
           {canManageSmsPortal && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>SMS Portal</CardTitle>
+                  <p className="text-muted-foreground text-sm">
+                    Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" asChild>
+                    <Link href="/dashboard/settings/sms-portal">
+                      <MessageSquare className="size-4" aria-hidden />
+                      Configure SMS portal
+                      <ChevronRight className="size-4" aria-hidden />
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>SMS Notifications</CardTitle>
+                  <p className="text-muted-foreground text-sm">
+                    Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" asChild>
+                    <Link href="/dashboard/settings/sms-notifications">
+                      <MessageSquare className="size-4" aria-hidden />
+                      Order SMS notifications
+                      <ChevronRight className="size-4" aria-hidden />
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            </>
+          )}
+          {canManageFulfillment && (
             <Card>
               <CardHeader>
-                <CardTitle>SMS Portal</CardTitle>
+                <CardTitle>Order Fulfillment</CardTitle>
                 <p className="text-muted-foreground text-sm">
-                  Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.
+                  Manage samples, free issues, package hold reasons, and courier services.
                 </p>
               </CardHeader>
               <CardContent>
                 <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/sms-portal">
-                    <MessageSquare className="size-4" aria-hidden />
-                    Configure SMS portal
+                  <Link href="/dashboard/settings/fulfillment">
+                    <Package className="size-4" aria-hidden />
+                    Fulfillment settings
                     <ChevronRight className="size-4" aria-hidden />
                   </Link>
                 </Button>
@@ -107,7 +186,7 @@ export default async function SettingsPage() {
           )}
         </>
       )}
-      {!canManageCompany && !canManageEmailTemplates && !canManageSmsPortal && (
+      {!canManageCompany && !canManageEmailTemplates && !canManageSmsPortal && !canManageFulfillment && (
         <Card>
           <CardHeader>
             <CardTitle>Settings</CardTitle>

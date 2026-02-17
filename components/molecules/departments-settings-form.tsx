@@ -217,7 +217,7 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
                   <Button
                     size="sm"
                     onClick={() => handleUpdate(d.id)}
-                    disabled={isBusy || !editName.trim()}
+                    disabled={isBusy || !editName.trim() || editName.trim() === d.name}
                   >
                     {busyKey === `update-${d.id}` ? (
                       <Loader2 className="size-4 animate-spin" aria-hidden />

@@ -8,6 +8,7 @@ import { LIMITS } from "@/lib/validation";
 import { ensureCustomerAndLink } from "@/lib/order-customers";
 import { resolveAssignedMerchant } from "@/lib/order-assignment";
 import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
+import { sendOrderSms } from "@/lib/order-sms";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -95,11 +96,39 @@ export async function processOrderWebhook(
     rawPayload: rawPayload as Prisma.InputJsonValue,
   };
 
+  const isPaid = data.financial_status?.toLowerCase() === "paid";
+  const now = new Date();
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
-    create: orderData,
+    create: {
+      ...orderData,
+      ...(isPaid && {
+        invoiceCompleteAt: now,
+        fulfillmentStage: "invoice_complete" as const,
+      }),
+    },
     update: orderData,
   });
+
+  if (isPaid && !order.invoiceCompleteAt) {
+    const stagesBeforeInvoice = [
+      "order_received",
+      "sample_free_issue",
+      "print",
+      "ready_to_dispatch",
+      "dispatched",
+    ];
+    if (stagesBeforeInvoice.includes(order.fulfillmentStage)) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          invoiceCompleteAt: now,
+          fulfillmentStage: "invoice_complete",
+        },
+      });
+    }
+  }
 
   await prisma.orderLineItem.deleteMany({
     where: { orderId: order.id },
@@ -107,5 +136,18 @@ export async function processOrderWebhook(
 
   for (const lineItem of data.line_items) {
     await ensureProductItemAndCreateLineItem(order, lineItem, location);
+  }
+
+  if (isNewOrder) {
+    const addr = data.shipping_address as { name?: string; first_name?: string; last_name?: string } | undefined;
+    const parts = [addr?.first_name, addr?.last_name].filter(Boolean).join(" ").trim();
+    const customerName = (addr?.name ?? parts) || undefined;
+    sendOrderSms(companyId, order.id, "order_received", {
+      orderNumber: order.orderNumber ?? order.name ?? order.shopifyOrderId,
+      orderName: order.name ?? undefined,
+      customerName: customerName || undefined,
+      customerPhone: customerPhone ?? undefined,
+      locationName: location.name,
+    }).catch((err) => console.error("[Order SMS] order_received failed:", err));
   }
 }

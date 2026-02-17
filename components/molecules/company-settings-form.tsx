@@ -6,6 +6,8 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
+import { LogoUpload } from "@/components/molecules/logo-upload";
 import { notify } from "@/lib/notify";
 
 const EMPLOYEE_SIZE_OPTIONS = [
@@ -20,6 +22,8 @@ const EMPLOYEE_SIZE_OPTIONS = [
 type Company = {
   id: string;
   name: string;
+  logoUrl: string | null;
+  faviconUrl: string | null;
   employeeSize: string | null;
   address: string | null;
 };
@@ -33,11 +37,21 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
   const [company, setCompany] = useState<Company | null>(initialCompany ?? null);
   const [loading, setLoading] = useState(initialCompany === undefined);
   const [name, setName] = useState(initialCompany?.name ?? "");
+  const [logoUrl, setLogoUrl] = useState<string | null>(initialCompany?.logoUrl ?? null);
+  const [faviconUrl, setFaviconUrl] = useState<string | null>(initialCompany?.faviconUrl ?? null);
   const [employeeSize, setEmployeeSize] = useState(initialCompany?.employeeSize ?? "");
   const [address, setAddress] = useState(initialCompany?.address ?? "");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
+
+  const hasChanges =
+    company &&
+    (name.trim() !== (company.name ?? "").trim() ||
+      employeeSize !== (company.employeeSize ?? "") ||
+      address.trim() !== (company.address ?? "").trim() ||
+      logoUrl !== (company.logoUrl ?? null) ||
+      faviconUrl !== (company.faviconUrl ?? null));
 
   useEffect(() => {
     if (initialCompany !== undefined) {
@@ -59,6 +73,8 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
         const data = (await res.json()) as Company;
         setCompany(data);
         setName(data.name);
+        setLogoUrl(data.logoUrl ?? null);
+        setFaviconUrl(data.faviconUrl ?? null);
         setEmployeeSize(data.employeeSize ?? "");
         setAddress(data.address ?? "");
       } catch {
@@ -69,6 +85,87 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
     }
     fetchCompany();
   }, [initialCompany]);
+
+  async function handleLogoChange(url: string | null) {
+    setLogoUrl(url);
+    if (!canEdit || !company) return;
+
+    setBusyKey("save-logo");
+    try {
+      const res = await fetch("/api/admin/company", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          logoUrl: url,
+          faviconUrl,
+          employeeSize: employeeSize || undefined,
+          address: address.trim() || undefined,
+        }),
+      });
+
+      const data = (await res.json()) as Company & { error?: string };
+
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to save logo");
+        setLogoUrl(company.logoUrl ?? null);
+        return;
+      }
+
+      setCompany(data);
+    } catch {
+      notify.error("Failed to save logo");
+      setLogoUrl(company.logoUrl ?? null);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleFaviconChange(url: string | null) {
+    setFaviconUrl(url);
+    if (!canEdit || !company) return;
+
+    setBusyKey("save-favicon");
+    try {
+      const res = await fetch("/api/admin/company", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          logoUrl,
+          faviconUrl: url,
+          employeeSize: employeeSize || undefined,
+          address: address.trim() || undefined,
+        }),
+      });
+
+      const data = (await res.json()) as Company & { error?: string };
+
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to save favicon");
+        setFaviconUrl(company.faviconUrl ?? null);
+        return;
+      }
+
+      setCompany(data);
+      // Update favicon in browser tab
+      if (url) {
+        const link = document.querySelector("link[rel='icon']") as HTMLLinkElement;
+        if (link) link.href = url;
+        else {
+          const newLink = document.createElement("link");
+          newLink.rel = "icon";
+          newLink.href = url;
+          document.head.appendChild(newLink);
+        }
+      }
+    } catch {
+      notify.error("Failed to save favicon");
+      setFaviconUrl(company.faviconUrl ?? null);
+    } finally {
+      setBusyKey(null);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -81,6 +178,8 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
+          logoUrl,
+          faviconUrl,
           employeeSize: employeeSize || undefined,
           address: address.trim() || undefined,
         }),
@@ -94,6 +193,8 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
       }
 
       setCompany(data);
+      setLogoUrl(data.logoUrl ?? null);
+      setFaviconUrl(data.faviconUrl ?? null);
       notify.success("Company information updated.");
     } catch {
       notify.error("Failed to update company");
@@ -144,6 +245,44 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {canEdit && (
+            <>
+              <LogoUpload
+                value={logoUrl}
+                onChange={handleLogoChange}
+                uploadType="company"
+                disabled={isBusy}
+                label="Company logo"
+              />
+              <LogoUpload
+                value={faviconUrl}
+                onChange={handleFaviconChange}
+                uploadType="favicon"
+                disabled={isBusy}
+                label="Favicon (browser tab icon)"
+              />
+            </>
+          )}
+          {!canEdit && (logoUrl || faviconUrl) && (
+            <div className="flex flex-wrap gap-6">
+              {logoUrl && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Company logo</label>
+                  <div className="flex size-20 overflow-hidden rounded-lg border bg-muted">
+                    <CloudinaryLogo src={logoUrl} alt="Company logo" className="size-full object-contain" />
+                  </div>
+                </div>
+              )}
+              {faviconUrl && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Favicon</label>
+                  <div className="flex size-10 overflow-hidden rounded border bg-muted">
+                    <CloudinaryLogo src={faviconUrl} alt="Favicon" width={32} height={32} className="size-full object-contain" />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <label htmlFor="company-name" className="text-sm font-medium">
               Company name
@@ -190,7 +329,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
             />
           </div>
           {canEdit && (
-            <Button type="submit" disabled={isBusy}>
+            <Button type="submit" disabled={isBusy || !hasChanges}>
               {busyKey === "save" ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />

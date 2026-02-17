@@ -7,6 +7,8 @@ import { LIMITS, trimmedString } from "@/lib/validation";
 
 const updateCompanySchema = z.object({
   name: trimmedString(1, LIMITS.companyName.max),
+  logoUrl: z.string().url().max(LIMITS.logoUrl.max).optional().nullable(),
+  faviconUrl: z.string().url().max(LIMITS.logoUrl.max).optional().nullable(),
   employeeSize: z.string().max(LIMITS.employeeSize.max).optional(),
   address: z.string().max(LIMITS.address.max).optional(),
 });
@@ -35,6 +37,8 @@ export async function GET() {
     select: {
       id: true,
       name: true,
+      logoUrl: true,
+      faviconUrl: true,
       employeeSize: true,
       address: true,
       createdAt: true,
@@ -81,12 +85,16 @@ export async function PATCH(request: NextRequest) {
     where: { id: user.companyId },
     data: {
       name: parsed.data.name,
+      ...(parsed.data.logoUrl !== undefined && { logoUrl: parsed.data.logoUrl }),
+      ...(parsed.data.faviconUrl !== undefined && { faviconUrl: parsed.data.faviconUrl }),
       employeeSize: parsed.data.employeeSize?.trim() || null,
       address: parsed.data.address?.trim() || null,
     },
     select: {
       id: true,
       name: true,
+      logoUrl: true,
+      faviconUrl: true,
       employeeSize: true,
       address: true,
       updatedAt: true,

@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
   const sourceFilter = request.nextUrl.searchParams.get("source");
   const merchantId = request.nextUrl.searchParams.get("merchant_id");
   const search = request.nextUrl.searchParams.get("search")?.trim();
+  const fulfillmentStagesParam = request.nextUrl.searchParams.get("fulfillment_stages")?.trim();
 
   const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
   const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
@@ -80,6 +81,26 @@ export async function GET(request: NextRequest) {
     ];
   }
 
+  const VALID_STAGES = [
+    "order_received",
+    "sample_free_issue",
+    "print",
+    "ready_to_dispatch",
+    "dispatched",
+    "invoice_complete",
+    "delivery_complete",
+  ] as const;
+  if (fulfillmentStagesParam) {
+    const stages = fulfillmentStagesParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
+    if (stages.length > 0) {
+      where.fulfillmentStage = { in: stages };
+      where.sourceName = "web"; // Exclude POS for stage-specific fulfillment pages
+    }
+  }
+
   const [total, orders, locations, merchants] = await Promise.all([
     prisma.order.count({ where }),
     prisma.order.findMany({
@@ -90,6 +111,7 @@ export async function GET(request: NextRequest) {
       include: {
         companyLocation: { select: { id: true, name: true } },
         assignedMerchant: { select: { id: true, name: true, email: true } },
+        packageHoldReason: { select: { id: true, name: true } },
         _count: { select: { lineItems: true } },
       },
     }),
@@ -127,6 +149,10 @@ export async function GET(request: NextRequest) {
     companyLocation: o.companyLocation,
     assignedMerchant: o.assignedMerchant,
     lineItemCount: o._count.lineItems,
+    printCount: o.printCount,
+    packageOnHoldAt: o.packageOnHoldAt?.toISOString() ?? null,
+    packageHoldReason: o.packageHoldReason,
+    fulfillmentStage: o.fulfillmentStage,
   }));
 
   return NextResponse.json({

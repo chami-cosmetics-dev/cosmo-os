@@ -14,6 +14,8 @@ export type SettingsPageData = {
   company: {
     id: string;
     name: string;
+    logoUrl: string | null;
+    faviconUrl: string | null;
     employeeSize: string | null;
     address: string | null;
     createdAt: string;
@@ -22,6 +24,7 @@ export type SettingsPageData = {
   locations: Array<{
     id: string;
     name: string;
+    logoUrl: string | null;
     address: string | null;
     shortName: string | null;
     invoiceHeader: string | null;
@@ -31,6 +34,7 @@ export type SettingsPageData = {
     invoiceEmail: string | null;
     shopifyLocationId: string | null;
     shopifyShopName: string | null;
+    shopifyAdminStoreHandle: string | null;
     defaultMerchantUserId: string | null;
     createdAt?: string;
     updatedAt?: string;
