@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Loader2, Truck } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { notify } from "@/lib/notify";
@@ -25,6 +26,7 @@ export function FulfillmentDispatchPanel({
   order,
   onRefresh,
 }: FulfillmentDispatchPanelProps) {
+  const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<{
     packageHoldReasons: Array<{ id: string; name: string }>;
     courierServices: Array<{ id: string; name: string }>;
@@ -134,67 +136,75 @@ export function FulfillmentDispatchPanel({
         )}
         {lookups && packageStatus !== null && (
           <>
-            {!isPackageReady && (
+            {!isPackageReady && (perms.canPutOnHold || perms.canRevertHold || perms.canMarkReady) && (
               <div className="flex flex-wrap items-center gap-2">
                 {isOnHold ? (
                 <>
                   <p className="text-muted-foreground text-sm">
                     On hold: {packageStatus.packageHoldReason?.name ?? "—"}
                   </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => doAction("revert_hold", { action: "revert_hold" })}
-                    disabled={isBusy}
-                  >
-                    {busyKey === "revert_hold" ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      "Revert Hold"
-                    )}
-                  </Button>
+                  {perms.canRevertHold && (
+                    <Button
+                      variant="outline"
+                      onClick={() => doAction("revert_hold", { action: "revert_hold" })}
+                      disabled={isBusy}
+                    >
+                      {busyKey === "revert_hold" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        "Revert Hold"
+                      )}
+                    </Button>
+                  )}
                 </>
               ) : (
                 <>
-                  <select
-                    value={holdReasonId}
-                    onChange={(e) => setHoldReasonId(e.target.value)}
-                    className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Put on hold...</option>
-                    {lookups.packageHoldReasons.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      doAction("put_on_hold", {
-                        action: "put_on_hold",
-                        holdReasonId,
-                      })
-                    }
-                    disabled={isBusy || !holdReasonId}
-                  >
-                    Put on Hold
-                  </Button>
-                  <Button
-                    onClick={() => doAction("mark_ready")}
-                    disabled={isBusy}
-                  >
-                    {busyKey === "mark_ready" ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      "Package is Ready"
-                    )}
-                  </Button>
+                  {perms.canPutOnHold && (
+                    <>
+                      <select
+                        value={holdReasonId}
+                        onChange={(e) => setHoldReasonId(e.target.value)}
+                        className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">Put on hold...</option>
+                        {lookups.packageHoldReasons.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          doAction("put_on_hold", {
+                            action: "put_on_hold",
+                            holdReasonId,
+                          })
+                        }
+                        disabled={isBusy || !holdReasonId}
+                      >
+                        Put on Hold
+                      </Button>
+                    </>
+                  )}
+                  {perms.canMarkReady && (
+                    <Button
+                      onClick={() => doAction("mark_ready")}
+                      disabled={isBusy}
+                    >
+                      {busyKey === "mark_ready" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        "Package is Ready"
+                      )}
+                    </Button>
+                  )}
                 </>
               )}
               </div>
             )}
             <div className={!isPackageReady ? "border-t pt-4" : ""}>
-              {isPackageReady ? (
+              {isPackageReady && perms.canDispatch ? (
                 <div className="flex flex-wrap gap-2">
                   <select
                     value={dispatchRiderId}
@@ -244,6 +254,10 @@ export function FulfillmentDispatchPanel({
                     Dispatch
                   </Button>
                 </div>
+              ) : isPackageReady && !perms.canDispatch ? (
+                <p className="text-muted-foreground text-sm">
+                  You do not have permission to dispatch orders.
+                </p>
               ) : (
                 <p className="text-muted-foreground text-sm">
                   To dispatch you need to mark the package readiness.

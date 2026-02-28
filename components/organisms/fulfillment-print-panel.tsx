@@ -2,6 +2,7 @@
 
 import { Printer } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -16,6 +17,8 @@ export function FulfillmentPrintPanel({
   orderId,
   order,
 }: FulfillmentPrintPanelProps) {
+  const perms = useFulfillmentPermissions();
+
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
@@ -35,10 +38,16 @@ export function FulfillmentPrintPanel({
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Button onClick={handlePrint} className="gap-2">
-          <Printer className="size-4" />
-          Print Invoice
-        </Button>
+        {perms.canPrint ? (
+          <Button onClick={handlePrint} className="gap-2">
+            <Printer className="size-4" />
+            Print Invoice
+          </Button>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            You do not have permission to print invoices.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

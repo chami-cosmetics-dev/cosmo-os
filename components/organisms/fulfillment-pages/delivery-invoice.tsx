@@ -2,13 +2,19 @@
 
 import { useState, useCallback } from "react";
 
+import { FulfillmentPermissionsProvider } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentDeliveryInvoicePanel } from "@/components/organisms/fulfillment-delivery-invoice-panel";
 import {
   FulfillmentOrder,
   FulfillmentOrderSelector,
 } from "@/components/organisms/fulfillment-order-selector";
+import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 
-export function DeliveryInvoiceFulfillmentPage() {
+export function DeliveryInvoiceFulfillmentPage({
+  permissions,
+}: {
+  permissions: FulfillmentPermissions;
+}) {
   const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -18,8 +24,9 @@ export function DeliveryInvoiceFulfillmentPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <FulfillmentOrderSelector
+    <FulfillmentPermissionsProvider permissions={permissions}>
+      <div className="space-y-6">
+        <FulfillmentOrderSelector
         title="Delivery Complete & Invoice Complete"
         description="Select an order. First mark delivery complete when delivered, then mark invoice complete."
         stages="dispatched,delivery_complete"
@@ -35,5 +42,6 @@ export function DeliveryInvoiceFulfillmentPage() {
         />
       </FulfillmentOrderSelector>
     </div>
+    </FulfillmentPermissionsProvider>
   );
 }

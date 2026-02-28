@@ -1293,7 +1293,7 @@ function groupPermissionsByPrefix(
     if (!map.has(group)) map.set(group, []);
     map.get(group)!.push(p);
   }
-  const order = ["Users", "Staff", "Roles", "Settings", "Products"];
+  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Orders", "Fulfillment"];
   return order
     .filter((g) => map.has(g))
     .map((group) => ({ group, permissions: map.get(group)! }))

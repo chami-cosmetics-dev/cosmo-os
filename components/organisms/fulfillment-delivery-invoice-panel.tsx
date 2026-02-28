@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { notify } from "@/lib/notify";
@@ -19,6 +20,7 @@ export function FulfillmentDeliveryInvoicePanel({
   order,
   onRefresh,
 }: FulfillmentDeliveryInvoicePanelProps) {
+  const perms = useFulfillmentPermissions();
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
@@ -63,29 +65,39 @@ export function FulfillmentDeliveryInvoicePanel({
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={() => doAction("mark_delivered")}
-            disabled={isBusy || !canMarkDelivered}
-          >
-            {busyKey === "mark_delivered" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Check className="size-4" />
+        {(perms.canMarkDelivered || perms.canMarkInvoiceComplete) ? (
+          <div className="flex flex-wrap gap-2">
+            {perms.canMarkDelivered && (
+              <Button
+                onClick={() => doAction("mark_delivered")}
+                disabled={isBusy || !canMarkDelivered}
+              >
+                {busyKey === "mark_delivered" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Check className="size-4" />
+                )}
+                Mark Delivered
+              </Button>
             )}
-            Mark Delivered
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => doAction("mark_invoice_complete")}
-            disabled={isBusy || !canMarkInvoiceComplete}
-          >
-            {busyKey === "mark_invoice_complete" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : null}
-            Mark Invoice Complete
-          </Button>
-        </div>
+            {perms.canMarkInvoiceComplete && (
+              <Button
+                variant="outline"
+                onClick={() => doAction("mark_invoice_complete")}
+                disabled={isBusy || !canMarkInvoiceComplete}
+              >
+                {busyKey === "mark_invoice_complete" ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : null}
+                Mark Invoice Complete
+              </Button>
+            )}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            You do not have permission to mark delivery or invoice complete.
+          </p>
+        )}
       </CardContent>
     </Card>
   );

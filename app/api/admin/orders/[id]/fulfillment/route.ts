@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
 import type { FulfillmentStage } from "@prisma/client";
@@ -55,11 +55,44 @@ async function getCompanyId(userId: string): Promise<string | null> {
   return user?.companyId ?? null;
 }
 
+function getRequiredPermissionsForAction(action: string): string[] {
+  switch (action) {
+    case "add_samples":
+    case "advance_to_print":
+      return ["orders.manage", "fulfillment.sample_free_issue.manage"];
+    case "put_on_hold":
+      return ["orders.manage", "fulfillment.ready_dispatch.put_on_hold"];
+    case "mark_ready":
+      return ["orders.manage", "fulfillment.ready_dispatch.package_ready"];
+    case "revert_hold":
+      return ["orders.manage", "fulfillment.ready_dispatch.revert_hold"];
+    case "dispatch":
+      return ["orders.manage", "fulfillment.ready_dispatch.dispatch"];
+    case "mark_delivered":
+      return ["orders.manage", "fulfillment.delivery_invoice.mark_delivered"];
+    case "mark_invoice_complete":
+      return ["orders.manage", "fulfillment.delivery_invoice.mark_complete"];
+    case "complete_pos":
+    default:
+      return ["orders.manage"];
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.manage");
+  const body = await request.json().catch(() => ({}));
+  const parsed = fulfillmentActionSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const requiredPermissions = getRequiredPermissionsForAction(parsed.data.action);
+  const auth = await requireAnyPermission(requiredPermissions);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -88,15 +121,6 @@ export async function PATCH(
 
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
-  const parsed = fulfillmentActionSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten() },
-      { status: 400 }
-    );
   }
 
   const data = parsed.data;

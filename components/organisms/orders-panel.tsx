@@ -109,7 +109,15 @@ type OrderDetail = {
   }>;
 };
 
-export function OrdersPanel() {
+interface OrdersPanelProps {
+  canPrint?: boolean;
+  canResendRiderSms?: boolean;
+}
+
+export function OrdersPanel({
+  canPrint = false,
+  canResendRiderSms = false,
+}: OrdersPanelProps = {}) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [merchants, setMerchants] = useState<Array<{ id: string; name: string | null; email: string | null }>>([]);
@@ -462,6 +470,8 @@ export function OrdersPanel() {
         formatAddress={formatAddress}
         getCustomerName={getCustomerName}
         getAddressPhone={getAddressPhone}
+        canPrint={canPrint}
+        canResendRiderSms={canResendRiderSms}
       />
     </div>
   );

@@ -116,6 +116,8 @@ interface OrderInvoiceViewModalProps {
   formatAddress: (addr: unknown) => string;
   getCustomerName: (addr: unknown) => string | null;
   getAddressPhone: (addr: unknown) => string | null;
+  canPrint?: boolean;
+  canResendRiderSms?: boolean;
 }
 
 function userName(u: UserRef): string {
@@ -275,6 +277,8 @@ export function OrderInvoiceViewModal({
   formatAddress,
   getCustomerName,
   getAddressPhone,
+  canPrint = false,
+  canResendRiderSms = false,
 }: OrderInvoiceViewModalProps) {
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
   const [showJsonModal, setShowJsonModal] = useState(false);
@@ -336,13 +340,13 @@ export function OrderInvoiceViewModal({
                 <Braces className="size-4" />
                 View JSON
               </Button>
-              {(orderDetail.printCount ?? 0) > 0 && (
+              {canPrint && (orderDetail.printCount ?? 0) > 0 && (
                 <Button variant="outline" onClick={handlePrint}>
                   <Printer className="size-4" />
                   Print Invoice
                 </Button>
               )}
-              {isDispatchedWithRider && (
+              {canResendRiderSms && isDispatchedWithRider && (
                 <Button
                   variant="outline"
                   onClick={handleResendRiderSms}

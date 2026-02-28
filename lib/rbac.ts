@@ -56,8 +56,77 @@ const DEFAULT_PERMISSIONS = [
     description: "Retry failed order webhooks and manage order fulfillment",
   },
   {
+    key: "orders.view_timeline",
+    description: "View order fulfillment timeline in modal",
+  },
+  {
     key: "settings.fulfillment",
     description: "Manage samples, free issues, hold reasons, and courier services",
+  },
+  // Fulfillment - Sample/Free Issue
+  {
+    key: "fulfillment.sample_free_issue.read",
+    description: "View sample-free-issue page and add sample UI",
+  },
+  {
+    key: "fulfillment.sample_free_issue.manage",
+    description: "Add samples and advance to print",
+  },
+  {
+    key: "fulfillment.sample_free_issue.manage_remarks",
+    description: "Add/edit/delete remarks at sample stage",
+  },
+  // Fulfillment - Order Print
+  {
+    key: "fulfillment.order_print.read",
+    description: "View print page and print count",
+  },
+  {
+    key: "fulfillment.order_print.print",
+    description: "Print invoice (increments print count)",
+  },
+  // Fulfillment - Ready & Dispatch
+  {
+    key: "fulfillment.ready_dispatch.read",
+    description: "View ready & dispatch page",
+  },
+  {
+    key: "fulfillment.ready_dispatch.put_on_hold",
+    description: "Put package on hold",
+  },
+  {
+    key: "fulfillment.ready_dispatch.package_ready",
+    description: "Mark package ready",
+  },
+  {
+    key: "fulfillment.ready_dispatch.revert_hold",
+    description: "Revert hold",
+  },
+  {
+    key: "fulfillment.ready_dispatch.dispatch",
+    description: "Dispatch order (rider/courier)",
+  },
+  {
+    key: "fulfillment.ready_dispatch.manage_remarks",
+    description: "Add/edit/delete remarks at dispatch stage",
+  },
+  // Fulfillment - Delivery & Invoice
+  {
+    key: "fulfillment.delivery_invoice.read",
+    description: "View delivery & invoice page",
+  },
+  {
+    key: "fulfillment.delivery_invoice.mark_delivered",
+    description: "Mark delivery complete",
+  },
+  {
+    key: "fulfillment.delivery_invoice.mark_complete",
+    description: "Mark invoice complete",
+  },
+  // Fulfillment - Remarks (all stages)
+  {
+    key: "fulfillment.remarks.manage",
+    description: "Add/edit/delete order remarks",
   },
 ] as const;
 
@@ -89,12 +158,39 @@ const DEFAULT_ROLES = [
       "products.manage",
       "orders.read",
       "orders.manage",
+      "orders.view_timeline",
+      "fulfillment.sample_free_issue.read",
+      "fulfillment.sample_free_issue.manage",
+      "fulfillment.sample_free_issue.manage_remarks",
+      "fulfillment.order_print.read",
+      "fulfillment.order_print.print",
+      "fulfillment.ready_dispatch.read",
+      "fulfillment.ready_dispatch.put_on_hold",
+      "fulfillment.ready_dispatch.package_ready",
+      "fulfillment.ready_dispatch.revert_hold",
+      "fulfillment.ready_dispatch.dispatch",
+      "fulfillment.ready_dispatch.manage_remarks",
+      "fulfillment.delivery_invoice.read",
+      "fulfillment.delivery_invoice.mark_delivered",
+      "fulfillment.delivery_invoice.mark_complete",
+      "fulfillment.remarks.manage",
     ],
   },
   {
     name: "viewer",
     description: "Read-only access to user directory, staff, and roles",
-    permissionKeys: ["users.read", "staff.read", "roles.read", "products.read", "orders.read"],
+    permissionKeys: [
+      "users.read",
+      "staff.read",
+      "roles.read",
+      "products.read",
+      "orders.read",
+      "orders.view_timeline",
+      "fulfillment.sample_free_issue.read",
+      "fulfillment.order_print.read",
+      "fulfillment.ready_dispatch.read",
+      "fulfillment.delivery_invoice.read",
+    ],
   },
 ] as const;
 
@@ -416,6 +512,13 @@ export function hasPermission(
   return (context.permissionKeys as string[]).includes(permissionKey);
 }
 
+export function hasAnyPermission(
+  context: Awaited<ReturnType<typeof getCurrentUserContext>>,
+  permissionKeys: string[]
+) {
+  return permissionKeys.some((key) => hasPermission(context, key));
+}
+
 export async function requirePermission(permissionKey: string) {
   const context = await getCurrentUserContext();
   if (!context) {
@@ -430,6 +533,28 @@ export async function requirePermission(permissionKey: string) {
   }
 
   if (!hasPermission(context, permissionKey)) {
+    return { ok: false as const, status: 403, error: "Permission denied" };
+  }
+
+  return { ok: true as const, context };
+}
+
+/** Requires user to have at least one of the given permissions. */
+export async function requireAnyPermission(permissionKeys: string[]) {
+  const context = await getCurrentUserContext();
+  if (!context) {
+    return { ok: false as const, status: 401, error: "Not authenticated" };
+  }
+  if (!context.user) {
+    return {
+      ok: false as const,
+      status: 503,
+      error: "RBAC database is not initialized",
+    };
+  }
+
+  const hasAny = permissionKeys.some((key) => hasPermission(context, key));
+  if (!hasAny) {
     return { ok: false as const, status: 403, error: "Permission denied" };
   }
 
