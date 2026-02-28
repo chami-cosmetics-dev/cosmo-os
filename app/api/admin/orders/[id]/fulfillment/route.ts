@@ -461,6 +461,11 @@ export async function PATCH(
         updateData.sampleFreeIssueCompleteAt = null;
         updateData.sampleFreeIssueCompleteById = null;
       }
+      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("print")) {
+        updateData.printCount = 0;
+        updateData.lastPrintedAt = null;
+        updateData.lastPrintedById = null;
+      }
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("ready_to_dispatch")) {
         updateData.packageReadyAt = null;
         updateData.packageReadyById = null;
