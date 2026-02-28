@@ -26,6 +26,7 @@ export function DeliveryInvoiceFulfillmentPage() {
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
         refreshTrigger={refreshTrigger}
+        currentStage="delivery_complete"
       >
         <FulfillmentDeliveryInvoicePanel
           orderId={selectedOrder?.id ?? null}

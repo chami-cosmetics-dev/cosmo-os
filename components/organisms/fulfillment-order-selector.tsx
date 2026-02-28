@@ -36,6 +36,7 @@ interface FulfillmentOrderSelectorProps {
   onSelectOrder: (order: FulfillmentOrder | null) => void;
   refreshTrigger?: number;
   invoiceRefreshTrigger?: number;
+  currentStage?: string;
   showPrintStatus?: boolean;
   showHoldStatus?: boolean;
   children?: React.ReactNode;
@@ -49,6 +50,7 @@ export function FulfillmentOrderSelector({
   onSelectOrder,
   refreshTrigger = 0,
   invoiceRefreshTrigger = 0,
+  currentStage,
   showPrintStatus = false,
   showHoldStatus = false,
   children,
@@ -239,6 +241,7 @@ export function FulfillmentOrderSelector({
           <FulfillmentOrderInvoiceDetails
             orderId={selectedOrderId}
             refreshTrigger={invoiceRefreshTrigger}
+            currentStage={currentStage}
           />
           {children}
         </>

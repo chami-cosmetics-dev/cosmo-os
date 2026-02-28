@@ -46,13 +46,17 @@ export async function GET(
       invoiceCompleteBy: { select: { id: true, name: true, email: true } },
       deliveryCompleteBy: { select: { id: true, name: true, email: true } },
       lastPrintedBy: { select: { id: true, name: true, email: true } },
+      sampleFreeIssueCompleteBy: { select: { id: true, name: true, email: true } },
       sampleFreeIssues: {
         include: {
           sampleFreeIssueItem: { select: { id: true, name: true, type: true } },
           addedBy: { select: { id: true, name: true, email: true } },
         },
       },
-      remarks: { orderBy: { createdAt: "desc" } },
+      remarks: {
+        orderBy: { createdAt: "desc" },
+        include: { addedBy: { select: { id: true, name: true, email: true } } },
+      },
       lineItems: {
         include: {
           productItem: {
@@ -127,6 +131,8 @@ export async function GET(
     deliveryCompleteBy: order.deliveryCompleteBy ? { id: order.deliveryCompleteBy.id, name: order.deliveryCompleteBy.name, email: order.deliveryCompleteBy.email } : null,
     lastPrintedAt: order.lastPrintedAt?.toISOString() ?? null,
     lastPrintedBy: order.lastPrintedBy ? { id: order.lastPrintedBy.id, name: order.lastPrintedBy.name, email: order.lastPrintedBy.email } : null,
+    sampleFreeIssueCompleteAt: order.sampleFreeIssueCompleteAt?.toISOString() ?? null,
+    sampleFreeIssueCompleteBy: order.sampleFreeIssueCompleteBy ? { id: order.sampleFreeIssueCompleteBy.id, name: order.sampleFreeIssueCompleteBy.name, email: order.sampleFreeIssueCompleteBy.email } : null,
     sampleFreeIssues: order.sampleFreeIssues.map((s) => ({
       id: s.id,
       sampleFreeIssueItem: s.sampleFreeIssueItem,
@@ -139,7 +145,9 @@ export async function GET(
       stage: r.stage,
       type: r.type,
       content: r.content,
+      showOnInvoice: r.showOnInvoice,
       createdAt: r.createdAt.toISOString(),
+      addedBy: r.addedBy ? { id: r.addedBy.id, name: r.addedBy.name, email: r.addedBy.email } : null,
     })),
   });
 }

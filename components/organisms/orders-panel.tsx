@@ -89,6 +89,8 @@ type OrderDetail = {
   deliveryCompleteBy?: { id: string; name: string | null; email: string | null } | null;
   lastPrintedAt?: string | null;
   lastPrintedBy?: { id: string; name: string | null; email: string | null } | null;
+  sampleFreeIssueCompleteAt?: string | null;
+  sampleFreeIssueCompleteBy?: { id: string; name: string | null; email: string | null } | null;
   sampleFreeIssues?: Array<{
     id: string;
     sampleFreeIssueItem: { id: string; name: string; type: string };
@@ -102,6 +104,8 @@ type OrderDetail = {
     type: string;
     content: string;
     createdAt: string;
+    showOnInvoice?: boolean;
+    addedBy?: { id: string; name: string | null; email: string | null } | null;
   }>;
 };
 

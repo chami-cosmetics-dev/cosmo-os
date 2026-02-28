@@ -97,6 +97,8 @@ type OrderDetail = {
     type: string;
     content: string;
     createdAt: string;
+    showOnInvoice?: boolean;
+    addedBy?: { id: string; name: string | null; email: string | null } | null;
   }>;
 };
 
@@ -566,13 +568,20 @@ export function OrderFulfillmentDetail({
                 Remarks
               </h4>
               {orderDetail.remarks && orderDetail.remarks.length > 0 && (
-                <ul className="mb-3 space-y-1 text-sm">
+                <ul className="mb-3 space-y-2 text-sm">
                   {orderDetail.remarks.map((r) => (
-                    <li key={r.id} className="flex gap-2">
-                      <span className="text-muted-foreground text-xs">
-                        [{STAGE_LABELS[r.stage] ?? r.stage}] {r.type}:
-                      </span>
-                      {r.content}
+                    <li key={r.id} className="rounded border border-dashed p-2">
+                      <p className="text-foreground">{r.content}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        <span className="font-medium">
+                          [{STAGE_LABELS[r.stage] ?? r.stage}] {r.type}
+                        </span>
+                        {" • "}
+                        Added by {r.addedBy ? (r.addedBy.name ?? r.addedBy.email ?? "—") : "—"} on {formatDate(r.createdAt)}
+                        {r.showOnInvoice && (
+                          <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]">On invoice</span>
+                        )}
+                      </p>
                     </li>
                   ))}
                 </ul>

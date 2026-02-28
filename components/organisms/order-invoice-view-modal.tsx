@@ -85,6 +85,8 @@ type OrderDetail = {
   deliveryCompleteBy?: UserRef;
   lastPrintedAt?: string | null;
   lastPrintedBy?: UserRef;
+  sampleFreeIssueCompleteAt?: string | null;
+  sampleFreeIssueCompleteBy?: UserRef;
   sampleFreeIssues?: Array<{
     id: string;
     sampleFreeIssueItem: { id: string; name: string; type: string };
@@ -98,6 +100,8 @@ type OrderDetail = {
     type: string;
     content: string;
     createdAt: string;
+    showOnInvoice?: boolean;
+    addedBy?: UserRef;
   }>;
 };
 
@@ -157,6 +161,15 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       .map((s) => (s.addedBy ? userName(s.addedBy) : null))
       .filter(Boolean)
       .join(", ");
+    const addedByLine =
+      whoStr && earliest
+        ? `Added by ${whoStr} on ${formatDate(earliest)}`
+        : whoStr
+          ? `Added by ${whoStr}`
+          : earliest
+            ? `Added on ${formatDate(earliest)}`
+            : "";
+    const itemsList = samples.map((s) => `${s.sampleFreeIssueItem.name} × ${s.quantity}`).join("; ");
     items.push({
       id: "sample_free_issue",
       label: "Sample / Free Issue",
@@ -164,7 +177,17 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       who: whoStr || "—",
       done: true,
       icon: <Package className="size-4" />,
-      detail: samples.map((s) => `${s.sampleFreeIssueItem.name} × ${s.quantity}`).join("; "),
+      detail: [itemsList, addedByLine].filter(Boolean).join(" • "),
+    });
+  } else if (orderDetail.sampleFreeIssueCompleteAt || orderDetail.sampleFreeIssueCompleteBy) {
+    // Stage completed without adding samples (Finish Samples & Extras clicked)
+    items.push({
+      id: "sample_free_issue",
+      label: "Sample / Free Issue",
+      date: orderDetail.sampleFreeIssueCompleteAt ?? null,
+      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "—",
+      done: true,
+      icon: <Package className="size-4" />,
     });
   } else {
     items.push({
@@ -458,13 +481,23 @@ export function OrderInvoiceViewModal({
                   <MessageSquare className="size-4" />
                   Remarks
                 </h4>
-                <ul className="space-y-1 text-sm">
+                <ul className="space-y-2 text-sm">
                   {orderDetail.remarks.map((r) => (
-                    <li key={r.id} className="flex gap-2">
-                      <span className="text-muted-foreground text-xs">
-                        [{STAGE_LABELS[r.stage] ?? r.stage}] {r.type}:
-                      </span>
-                      {r.content}
+                    <li key={r.id} className="rounded border border-dashed p-3">
+                      <p className="text-foreground">{r.content}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        <span className="font-medium">
+                          [{STAGE_LABELS[r.stage] ?? r.stage}] {r.type}
+                        </span>
+                        <span className="mx-2">•</span>
+                        <span>
+                          Added by {r.addedBy ? (r.addedBy.name ?? r.addedBy.email ?? "—") : "—"}
+                          {r.createdAt ? ` on ${formatDate(r.createdAt)}` : ""}
+                        </span>
+                        {r.showOnInvoice && (
+                          <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]">On invoice</span>
+                        )}
+                      </p>
                     </li>
                   ))}
                 </ul>

@@ -26,6 +26,7 @@ export function PrintFulfillmentPage() {
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
         refreshTrigger={refreshTrigger}
+        currentStage="print"
         showPrintStatus
       >
         <FulfillmentPrintPanel

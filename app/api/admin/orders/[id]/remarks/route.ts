@@ -18,6 +18,7 @@ const createRemarkSchema = z.object({
   ]),
   type: z.enum(["internal", "external"]),
   content: trimmedString(1, LIMITS.orderRemarkContent.max),
+  showOnInvoice: z.boolean().optional().default(false),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -74,6 +75,7 @@ export async function POST(
       stage: parsed.data.stage as FulfillmentStage,
       type: parsed.data.type as "internal" | "external",
       content: parsed.data.content,
+      showOnInvoice: parsed.data.showOnInvoice,
       addedById: auth.context!.user!.id,
     },
     select: {
@@ -81,6 +83,7 @@ export async function POST(
       stage: true,
       type: true,
       content: true,
+      showOnInvoice: true,
       createdAt: true,
     },
   });

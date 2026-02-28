@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,37 +9,511 @@ datasource db {
 }
 
 model Company {
-  id           String   @id @default(cuid())
+  id                     String                  @id @default(cuid())
+  name                   String
+  employeeSize           String?
+  address                String?
+  createdById            String                  @unique
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  logoUrl                String?
+  faviconUrl             String?
+  categories             Category[]
+  createdBy              User                    @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  locations              CompanyLocation[]
+  courierServices        CourierService[]
+  customers              Customer[]
+  departments            Department[]
+  designations           Designation[]
+  emailTemplates         EmailTemplate[]
+  employeeProfiles       EmployeeProfile[]
+  failedOrderWebhooks    FailedOrderWebhook[]
+  invites                Invite[]
+  orders                 Order[]
+  packageHoldReasons     PackageHoldReason[]
+  productItems           ProductItem[]
+  sampleFreeIssueItems   SampleFreeIssueItem[]
+  shopifyWebhookSecrets  ShopifyWebhookSecret[]
+  smsLogs                SmsLog[]
+  smsNotificationConfigs SmsNotificationConfig[]
+  smsPortalConfig        SmsPortalConfig?
+  users                  User[]                  @relation("CompanyMembers")
+  vendors                Vendor[]
+}
+
+model FailedOrderWebhook {
+  id                String          @id @default(cuid())
+  companyId         String
+  companyLocationId String
+  shopifyOrderId    String
+  shopifyTopic      String?
+  errorMessage      String
+  errorStack        String?
+  rawPayload        Json
+  resolvedAt        DateTime?
+  createdAt         DateTime        @default(now())
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+}
+
+model ShopifyWebhookSecret {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String?
+  secret    String
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Vendor {
+  id           String        @id @default(cuid())
+  companyId    String
   name         String
-  logoUrl      String?
-  faviconUrl   String?
-  employeeSize String?
-  address      String?
-  createdById  String   @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  productItems ProductItem[]
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+}
+
+model Category {
+  id           String        @id @default(cuid())
+  companyId    String
+  name         String
+  fullName     String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productItems ProductItem[]
+
+  @@unique([companyId, name])
+}
+
+model ProductItem {
+  id                   String                @id @default(cuid())
+  companyId            String
+  companyLocationId    String
+  shopifyLocationId    String
+  shopifyProductId     String
+  shopifyVariantId     String
+  productTitle         String
+  variantTitle         String?
+  sku                  String?
+  price                Decimal               @db.Decimal(12, 2)
+  compareAtPrice       Decimal?              @db.Decimal(12, 2)
+  vendorId             String?
+  categoryId           String?
+  status               String?
+  productType          String?
+  handle               String?
+  imageUrl             String?
+  tags                 String?
+  barcode              String?
+  inventoryQuantity    Int                   @default(0)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  orderLineItems       OrderLineItem[]
+  category             Category?             @relation(fields: [categoryId], references: [id])
+  company              Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation      CompanyLocation       @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  vendor               Vendor?               @relation(fields: [vendorId], references: [id])
+  sampleFreeIssueItems SampleFreeIssueItem[]
+
+  @@unique([companyLocationId, shopifyVariantId])
+}
+
+model Invite {
+  id              String           @id @default(cuid())
+  email           String
+  token           String           @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  invitedById     String?
+  roleId          String
+  isSuperAdmin    Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  companyId       String?
+  appointmentDate DateTime?
+  departmentId    String?
+  designationId   String?
+  employeeNumber  String?
+  epfNumber       String?
+  locationId      String?
+  company         Company?         @relation(fields: [companyId], references: [id])
+  department      Department?      @relation(fields: [departmentId], references: [id])
+  designation     Designation?     @relation(fields: [designationId], references: [id])
+  invitedBy       User?            @relation("InvitedBy", fields: [invitedById], references: [id])
+  location        CompanyLocation? @relation(fields: [locationId], references: [id])
+  role            Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id                         String                 @id @default(cuid())
+  auth0Id                    String                 @unique
+  email                      String?                @unique
+  name                       String?
+  picture                    String?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  companyId                  String?
+  dateOfBirth                DateTime?
+  gender                     String?
+  knownName                  String?
+  mobile                     String?
+  nicNo                      String?
+  couponCodes                String[]               @default([])
+  shopifyUserIds             String[]               @default([])
+  profilePhotoUrl            String?
+  createdCompany             Company?               @relation("CompanyCreator")
+  defaultMerchantLocations   CompanyLocation[]      @relation("LocationDefaultMerchant")
+  employeeProfile            EmployeeProfile?
+  invitesSent                Invite[]               @relation("InvitedBy")
+  assignedOrders             Order[]                @relation("OrderAssignedMerchant")
+  ordersDeliveryCompleteBy   Order[]                @relation("OrderDeliveryCompleteBy")
+  ordersDispatchedBy         Order[]                @relation("OrderDispatchedBy")
+  dispatchedOrders           Order[]                @relation("OrderDispatchedByRider")
+  ordersInvoiceCompleteBy    Order[]                @relation("OrderInvoiceCompleteBy")
+  ordersLastPrintedBy        Order[]                @relation("OrderLastPrintedBy")
+  ordersPackageReadyBy       Order[]                @relation("OrderPackageReadyBy")
+  ordersSampleFreeIssueCompleteBy Order[]           @relation("OrderSampleFreeIssueCompleteBy")
+  orderRemarksAdded          OrderRemark[]
+  orderSampleFreeIssuesAdded OrderSampleFreeIssue[]
+  smsLogs                    SmsLog[]
+  company                    Company?               @relation("CompanyMembers", fields: [companyId], references: [id])
+  userRoles                  UserRole[]
+}
+
+model CompanyLocation {
+  id                      String                  @id @default(cuid())
+  companyId               String
+  name                    String
+  address                 String?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  invoiceEmail            String?
+  invoiceFooter           String?
+  invoiceHeader           String?
+  invoicePhone            String?
+  invoiceSubHeader        String?
+  shopifyLocationId       String?
+  shopifyShopName         String?
+  shortName               String?
+  defaultMerchantUserId   String?
+  logoUrl                 String?
+  shopifyAdminStoreHandle String?
+  company                 Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultMerchant         User?                   @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
+  profiles                EmployeeProfile[]
+  failedOrderWebhooks     FailedOrderWebhook[]
+  invites                 Invite[]
+  orders                  Order[]
+  productItems            ProductItem[]
+  smsNotificationConfigs  SmsNotificationConfig[]
+}
+
+model Customer {
+  id                String    @id @default(cuid())
+  companyId         String
+  shopifyCustomerId String
+  email             String?
+  firstName         String?
+  lastName          String?
+  phone             String?
+  defaultAddress    Json?
+  lastPurchaseAt    DateTime?
+  orderCount        Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders            Order[]
+
+  @@unique([companyId, shopifyCustomerId])
+}
+
+model Order {
+  id                           String                 @id @default(cuid())
+  companyId                    String
+  companyLocationId            String
+  assignedMerchantId           String?
+  customerId                   String?
+  shopifyOrderId               String                 @unique
+  sourceName                   String
+  shopifyUserId                String?
+  orderNumber                  String?
+  name                         String?
+  totalPrice                   Decimal                @db.Decimal(12, 2)
+  subtotalPrice                Decimal?               @db.Decimal(12, 2)
+  totalDiscounts               Decimal?               @db.Decimal(12, 2)
+  totalTax                     Decimal?               @db.Decimal(12, 2)
+  totalShipping                Decimal?               @db.Decimal(12, 2)
+  currency                     String?
+  financialStatus              String?
+  fulfillmentStatus            String?
+  customerEmail                String?
+  customerPhone                String?
+  shippingAddress              Json?
+  billingAddress               Json?
+  discountCodes                Json?
+  discountApplications         Json?
+  shippingLines                Json?
+  rawPayload                   Json?
+  createdAt                    DateTime               @default(now())
+  updatedAt                    DateTime               @updatedAt
+  deliveryCompleteAt           DateTime?
+  dispatchedAt                 DateTime?
+  dispatchedByCourierServiceId String?
+  dispatchedByRiderId          String?
+  fulfillmentStage             FulfillmentStage       @default(order_received)
+  invoiceCompleteAt            DateTime?
+  packageHoldReasonId          String?
+  packageOnHoldAt              DateTime?
+  packageReadyAt               DateTime?
+  printCount                   Int                    @default(0)
+  riderDeliveryToken           String?                @unique
+  sampleFreeIssueCompleteAt    DateTime?
+  sampleFreeIssueCompleteById  String?
+  deliveryCompleteById         String?
+  dispatchedById               String?
+  invoiceCompleteById          String?
+  lastPrintedAt                DateTime?
+  lastPrintedById              String?
+  packageReadyById             String?
+  assignedMerchant             User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
+  company                      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation              CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  customer                     Customer?              @relation(fields: [customerId], references: [id])
+  deliveryCompleteBy           User?                  @relation("OrderDeliveryCompleteBy", fields: [deliveryCompleteById], references: [id])
+  dispatchedByCourierService   CourierService?        @relation(fields: [dispatchedByCourierServiceId], references: [id])
+  dispatchedBy                 User?                  @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id])
+  dispatchedByRider            User?                  @relation("OrderDispatchedByRider", fields: [dispatchedByRiderId], references: [id])
+  invoiceCompleteBy            User?                  @relation("OrderInvoiceCompleteBy", fields: [invoiceCompleteById], references: [id])
+  lastPrintedBy                User?                  @relation("OrderLastPrintedBy", fields: [lastPrintedById], references: [id])
+  packageHoldReason            PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
+  packageReadyBy               User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
+  sampleFreeIssueCompleteBy    User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
+  lineItems                    OrderLineItem[]
+  remarks                      OrderRemark[]
+  sampleFreeIssues             OrderSampleFreeIssue[]
+}
+
+model OrderLineItem {
+  id                String      @id @default(cuid())
+  orderId           String
+  productItemId     String
+  shopifyLineItemId String
+  quantity          Int         @default(1)
+  price             Decimal     @db.Decimal(12, 2)
+  order             Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productItem       ProductItem @relation(fields: [productItemId], references: [id])
+
+  @@unique([orderId, shopifyLineItemId])
+}
+
+model Department {
+  id        String            @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profiles  EmployeeProfile[]
+  invites   Invite[]
+}
+
+model Designation {
+  id        String            @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  profiles  EmployeeProfile[]
+  invites   Invite[]
+}
+
+model EmployeeProfile {
+  id                        String           @id @default(cuid())
+  userId                    String           @unique
+  companyId                 String
+  employeeNumber            String?
+  epfNumber                 String?
+  locationId                String?
+  departmentId              String?
+  designationId             String?
+  appointmentDate           DateTime?
+  status                    EmployeeStatus   @default(active)
+  resignedAt                DateTime?
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+  offboardingAcknowledgedAt DateTime?
+  resignationReason         String?
+  isRider                   Boolean          @default(false)
+  company                   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department                Department?      @relation(fields: [departmentId], references: [id])
+  designation               Designation?     @relation(fields: [designationId], references: [id])
+  location                  CompanyLocation? @relation(fields: [locationId], references: [id])
+  user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SampleFreeIssueItem {
+  id            String                 @id @default(cuid())
+  companyId     String
+  name          String
+  productItemId String?
+  type          SampleFreeIssueType
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  orderSamples  OrderSampleFreeIssue[]
+  company       Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productItem   ProductItem?           @relation(fields: [productItemId], references: [id])
+}
+
+model OrderSampleFreeIssue {
+  id                    String              @id @default(cuid())
+  orderId               String
+  sampleFreeIssueItemId String
+  quantity              Int                 @default(1)
+  addedById             String?
+  createdAt             DateTime            @default(now())
+  addedBy               User?               @relation(fields: [addedById], references: [id])
+  order                 Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sampleFreeIssueItem   SampleFreeIssueItem @relation(fields: [sampleFreeIssueItemId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, sampleFreeIssueItemId])
+}
+
+model PackageHoldReason {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model CourierService {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders    Order[]
+}
+
+model OrderRemark {
+  id            String           @id @default(cuid())
+  orderId       String
+  stage         FulfillmentStage
+  type          OrderRemarkType
+  content       String
+  addedById     String?
+  createdAt     DateTime         @default(now())
+  showOnInvoice Boolean          @default(false)
+  addedBy       User?            @relation(fields: [addedById], references: [id])
+  order         Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model SmsNotificationConfig {
+  id                   String                 @id @default(cuid())
+  companyId            String
+  locationId           String?
+  trigger              SmsNotificationTrigger
+  enabled              Boolean                @default(true)
+  template             String
+  additionalRecipients Json                   @default("[]")
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  sendToCustomer       Boolean                @default(true)
+  sendToRider          Boolean                @default(true)
+  company              Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  location             CompanyLocation?       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, trigger])
+}
+
+model EmailTemplate {
+  id         String   @id @default(cuid())
+  companyId  String
+  key        String
+  name       String
+  subject    String
+  bodyHtml   String
+  recipients String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+}
+
+model SmsPortalConfig {
+  id           String   @id @default(cuid())
+  companyId    String   @unique
+  username     String
+  password     String
+  authUrl      String
+  smsUrl       String
+  smsMask      String
+  campaignName String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
 
-  createdBy       User              @relation("CompanyCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  users           User[]            @relation("CompanyMembers")
+model SmsLog {
+  id          String   @id @default(cuid())
+  companyId   String
+  phoneNumber String
+  message     String
+  sentAt      DateTime @default(now())
+  sentById    String?
+  status      String
+  createdAt   DateTime @default(now())
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sentBy      User?    @relation(fields: [sentById], references: [id])
+}
+
+model Role {
+  id              String           @id @default(cuid())
+  name            String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   invites         Invite[]
-  locations       CompanyLocation[]
-  departments     Department[]
-  designations    Designation[]
-  employeeProfiles EmployeeProfile[]
-  emailTemplates  EmailTemplate[]
-  smsPortalConfig SmsPortalConfig?
-  smsLogs         SmsLog[]
-  vendors               Vendor[]
-  categories            Category[]
-  productItems          ProductItem[]
-  shopifyWebhookSecrets ShopifyWebhookSecret[]
-  customers             Customer[]
-  orders                Order[]
-  failedOrderWebhooks   FailedOrderWebhook[]
-  sampleFreeIssueItems  SampleFreeIssueItem[]
-  packageHoldReasons    PackageHoldReason[]
-  courierServices       CourierService[]
-  smsNotificationConfigs SmsNotificationConfig[]
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+}
+
+model Permission {
+  id              String           @id @default(cuid())
+  key             String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  rolePermissions RolePermission[]
+}
+
+model UserRole {
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  assignedAt   DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
 }
 
 enum FulfillmentStage {
@@ -73,522 +544,7 @@ enum SmsNotificationTrigger {
   delivery_complete
 }
 
-model FailedOrderWebhook {
-  id                 String   @id @default(cuid())
-  companyId          String
-  companyLocationId  String
-  shopifyOrderId     String
-  shopifyTopic       String?  // orders/create or orders/updated
-  errorMessage       String   @db.Text
-  errorStack         String?  @db.Text
-  rawPayload         Json
-  resolvedAt         DateTime? // Set when retry succeeds
-  createdAt          DateTime @default(now())
-
-  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-}
-
-model ShopifyWebhookSecret {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String?
-  secret    String
-  createdAt DateTime @default(now())
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-}
-
-model Vendor {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  productItems  ProductItem[]
-
-  @@unique([companyId, name])
-}
-
-model Category {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  fullName  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  productItems  ProductItem[]
-
-  @@unique([companyId, name])
-}
-
-model ProductItem {
-  id                 String   @id @default(cuid())
-  companyId          String
-  companyLocationId  String
-  shopifyLocationId  String
-  shopifyProductId   String
-  shopifyVariantId   String
-  productTitle       String
-  variantTitle       String?
-  sku                String?
-  price              Decimal  @db.Decimal(12, 2)
-  compareAtPrice     Decimal? @db.Decimal(12, 2)
-  vendorId           String?
-  categoryId         String?
-  status             String?
-  productType        String?
-  handle             String?
-  imageUrl           String?
-  tags               String?
-  barcode            String?
-  inventoryQuantity  Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-  vendor         Vendor?          @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  category       Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  orderLineItems OrderLineItem[]
-  sampleFreeIssueItems SampleFreeIssueItem[]
-
-  @@unique([companyLocationId, shopifyVariantId])
-}
-
-model Invite {
-  id               String    @id @default(cuid())
-  email            String
-  token            String    @unique
-  expiresAt        DateTime
-  usedAt           DateTime?
-  invitedById      String?
-  companyId        String?
-  roleId           String
-  isSuperAdmin     Boolean   @default(false)
-  employeeNumber   String?
-  epfNumber        String?
-  locationId       String?
-  departmentId     String?
-  designationId    String?
-  appointmentDate  DateTime?
-  createdAt        DateTime  @default(now())
-
-  invitedBy  User?            @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
-  company    Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  role       Role              @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  location   CompanyLocation?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  department Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  designation Designation?      @relation(fields: [designationId], references: [id], onDelete: SetNull)
-}
-
-model User {
-  id               String     @id @default(cuid())
-  auth0Id          String     @unique
-  email            String?    @unique
-  name             String?
-  picture          String?
-  profilePhotoUrl  String?
-  nicNo       String?
-  gender      String?
-  dateOfBirth DateTime?
-  mobile      String?
-  knownName   String?
-  companyId   String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  // Merchant mapping (for order assignment)
-  shopifyUserIds String[] @default([]) // Shopify staff user IDs for POS orders
-  couponCodes   String[] @default([])  // Coupon codes owned by this merchant for web orders
-
-  userRoles                UserRole[]
-  company                  Company?         @relation("CompanyMembers", fields: [companyId], references: [id], onDelete: SetNull)
-  invitesSent              Invite[]         @relation("InvitedBy")
-  createdCompany           Company?         @relation("CompanyCreator")
-  employeeProfile          EmployeeProfile?
-  smsLogs                  SmsLog[]
-  defaultMerchantLocations CompanyLocation[] @relation("LocationDefaultMerchant")
-  assignedOrders           Order[]          @relation("OrderAssignedMerchant")
-  dispatchedOrders         Order[]          @relation("OrderDispatchedByRider")
-  ordersPackageReadyBy     Order[]          @relation("OrderPackageReadyBy")
-  ordersDispatchedBy       Order[]          @relation("OrderDispatchedBy")
-  ordersInvoiceCompleteBy  Order[]          @relation("OrderInvoiceCompleteBy")
-  ordersDeliveryCompleteBy Order[]          @relation("OrderDeliveryCompleteBy")
-  ordersLastPrintedBy      Order[]          @relation("OrderLastPrintedBy")
-  orderSampleFreeIssuesAdded OrderSampleFreeIssue[]
-  orderRemarksAdded        OrderRemark[]
-}
-
-model CompanyLocation {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  logoUrl   String?
-  address   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Location Short Name - used when sending SMS
-  shortName String?
-
-  // Invoice Details
-  invoiceHeader    String?
-  invoiceSubHeader String?
-  invoiceFooter    String?
-  invoicePhone     String?
-  invoiceEmail     String?
-
-  // Shopify Link Details
-  shopifyLocationId       String?
-  shopifyShopName         String?  // myshopify.com domain (e.g. xmtqrd-za.myshopify.com)
-  shopifyAdminStoreHandle String?  // Admin URL handle (e.g. u71ajc-11) - use this for admin.shopify.com links
-
-  // Default merchant for web orders (when no coupon match)
-  defaultMerchantUserId String?
-  defaultMerchant       User?    @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id], onDelete: SetNull)
-
-  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  profiles       EmployeeProfile[]
-  invites        Invite[]
-  productItems        ProductItem[]
-  orders              Order[]
-  failedOrderWebhooks  FailedOrderWebhook[]
-  smsNotificationConfigs SmsNotificationConfig[]
-}
-
-model Customer {
-  id                String    @id @default(cuid())
-  companyId         String
-  shopifyCustomerId String
-
-  email       String?
-  firstName   String?
-  lastName    String?
-  phone       String?
-  defaultAddress Json?
-
-  lastPurchaseAt DateTime?
-  orderCount    Int       @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orders  Order[]
-
-  @@unique([companyId, shopifyCustomerId])
-}
-
-model Order {
-  id                 String   @id @default(cuid())
-  companyId          String
-  companyLocationId  String
-  assignedMerchantId String?
-  customerId         String?
-
-  shopifyOrderId String  @unique
-  sourceName     String
-  shopifyUserId  String?
-
-  orderNumber        String?
-  name               String?
-  totalPrice         Decimal  @db.Decimal(12, 2)
-  subtotalPrice      Decimal? @db.Decimal(12, 2)
-  totalDiscounts     Decimal? @db.Decimal(12, 2)
-  totalTax           Decimal? @db.Decimal(12, 2)
-  totalShipping      Decimal? @db.Decimal(12, 2)
-  currency           String?
-  financialStatus    String?
-  fulfillmentStatus  String?
-  customerEmail      String?
-  customerPhone      String?
-
-  shippingAddress     Json?
-  billingAddress      Json?
-  discountCodes       Json?
-  discountApplications Json?
-  shippingLines       Json?
-
-  rawPayload Json?
-
-  // Fulfillment workflow
-  fulfillmentStage           FulfillmentStage @default(order_received)
-  printCount                 Int              @default(0)
-  packageReadyAt             DateTime?
-  packageReadyById           String?
-  packageOnHoldAt            DateTime?
-  packageHoldReasonId        String?
-  dispatchedAt               DateTime?
-  dispatchedById             String?   // Staff who performed dispatch action
-  dispatchedByRiderId        String?
-  dispatchedByCourierServiceId String?
-  invoiceCompleteAt          DateTime?
-  invoiceCompleteById        String?
-  deliveryCompleteAt         DateTime?
-  deliveryCompleteById       String?
-  lastPrintedAt             DateTime?
-  lastPrintedById           String?
-  riderDeliveryToken         String?           @unique
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company             Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation      CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-  assignedMerchant     User?           @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id], onDelete: SetNull)
-  customer             Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  lineItems            OrderLineItem[]
-  packageHoldReason    PackageHoldReason? @relation(fields: [packageHoldReasonId], references: [id], onDelete: SetNull)
-  packageReadyBy       User?           @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id], onDelete: SetNull)
-  dispatchedBy         User?           @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
-  dispatchedByRider    User?           @relation("OrderDispatchedByRider", fields: [dispatchedByRiderId], references: [id], onDelete: SetNull)
-  dispatchedByCourierService CourierService? @relation(fields: [dispatchedByCourierServiceId], references: [id], onDelete: SetNull)
-  invoiceCompleteBy    User?           @relation("OrderInvoiceCompleteBy", fields: [invoiceCompleteById], references: [id], onDelete: SetNull)
-  deliveryCompleteBy   User?           @relation("OrderDeliveryCompleteBy", fields: [deliveryCompleteById], references: [id], onDelete: SetNull)
-  lastPrintedBy        User?           @relation("OrderLastPrintedBy", fields: [lastPrintedById], references: [id], onDelete: SetNull)
-  sampleFreeIssues     OrderSampleFreeIssue[]
-  remarks              OrderRemark[]
-}
-
-model OrderLineItem {
-  id               String   @id @default(cuid())
-  orderId          String
-  productItemId   String
-  shopifyLineItemId String
-  quantity        Int       @default(1)
-  price           Decimal   @db.Decimal(12, 2)
-
-  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productItem ProductItem @relation(fields: [productItemId], references: [id], onDelete: Restrict)
-
-  @@unique([orderId, shopifyLineItemId])
-}
-
-model Department {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  profiles EmployeeProfile[]
-  invites  Invite[]
-}
-
-model Designation {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  profiles EmployeeProfile[]
-  invites  Invite[]
-}
-
 enum EmployeeStatus {
   active
   resigned
-}
-
-model EmployeeProfile {
-  id                        String         @id @default(cuid())
-  userId                    String         @unique
-  companyId                 String
-  employeeNumber            String?
-  epfNumber                 String?
-  locationId                String?
-  departmentId              String?
-  designationId             String?
-  appointmentDate           DateTime?
-  status                    EmployeeStatus @default(active)
-  resignedAt                DateTime?
-  resignationReason         String?
-  offboardingAcknowledgedAt DateTime?
-  isRider                   Boolean        @default(false)
-  createdAt                 DateTime       @default(now())
-  updatedAt                 DateTime       @updatedAt
-
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location   CompanyLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  department Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  designation Designation?   @relation(fields: [designationId], references: [id], onDelete: SetNull)
-}
-
-model SampleFreeIssueItem {
-  id             String             @id @default(cuid())
-  companyId      String
-  name           String
-  productItemId  String?
-  type           SampleFreeIssueType
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-
-  company       Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  productItem   ProductItem?        @relation(fields: [productItemId], references: [id], onDelete: SetNull)
-  orderSamples  OrderSampleFreeIssue[]
-}
-
-model OrderSampleFreeIssue {
-  id                    String   @id @default(cuid())
-  orderId               String
-  sampleFreeIssueItemId String
-  quantity              Int      @default(1)
-  addedById             String?
-  createdAt             DateTime @default(now())
-
-  order               Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  sampleFreeIssueItem SampleFreeIssueItem @relation(fields: [sampleFreeIssueItemId], references: [id], onDelete: Cascade)
-  addedBy             User?               @relation(fields: [addedById], references: [id], onDelete: SetNull)
-
-  @@unique([orderId, sampleFreeIssueItemId])
-}
-
-model PackageHoldReason {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orders  Order[]
-}
-
-model CourierService {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orders   Order[]
-}
-
-model OrderRemark {
-  id        String         @id @default(cuid())
-  orderId   String
-  stage     FulfillmentStage
-  type      OrderRemarkType
-  content   String         @db.Text
-  addedById String?
-  createdAt DateTime       @default(now())
-
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  addedBy User?  @relation(fields: [addedById], references: [id], onDelete: SetNull)
-}
-
-model SmsNotificationConfig {
-  id                  String                @id @default(cuid())
-  companyId           String
-  locationId          String?
-  trigger             SmsNotificationTrigger
-  enabled             Boolean               @default(true)
-  sendToCustomer      Boolean               @default(true)
-  sendToRider         Boolean               @default(true) // only used for rider_dispatched
-  template            String                @db.Text
-  additionalRecipients Json                 @default("[]") // array of phone numbers
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-
-  company  Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  location CompanyLocation? @relation(fields: [locationId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, trigger])
-}
-
-model EmailTemplate {
-  id        String   @id @default(cuid())
-  companyId String
-  key       String
-  name      String
-  subject   String
-  bodyHtml  String
-  recipients String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, key])
-}
-
-model SmsPortalConfig {
-  id           String   @id @default(cuid())
-  companyId     String   @unique
-  username     String
-  password     String
-  authUrl      String
-  smsUrl       String
-  smsMask      String
-  campaignName String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-}
-
-model SmsLog {
-  id         String   @id @default(cuid())
-  companyId  String
-  phoneNumber String
-  message    String
-  sentAt     DateTime @default(now())
-  sentById   String?
-  status     String
-  createdAt  DateTime @default(now())
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  sentBy  User?   @relation(fields: [sentById], references: [id], onDelete: SetNull)
-}
-
-model Role {
-  id              String           @id @default(cuid())
-  name            String           @unique
-  description     String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  userRoles       UserRole[]
-  rolePermissions RolePermission[]
-  invites         Invite[]
-}
-
-model Permission {
-  id              String           @id @default(cuid())
-  key             String           @unique
-  description     String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  rolePermissions RolePermission[]
-}
-
-model UserRole {
-  userId     String
-  roleId     String
-  assignedAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
-}
-
-model RolePermission {
-  roleId       String
-  permissionId String
-  assignedAt   DateTime @default(now())
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
 }

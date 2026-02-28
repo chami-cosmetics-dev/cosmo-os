@@ -26,6 +26,7 @@ export function DispatchFulfillmentPage() {
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
         refreshTrigger={refreshTrigger}
+        currentStage="ready_to_dispatch"
         showHoldStatus
       >
         <FulfillmentDispatchPanel

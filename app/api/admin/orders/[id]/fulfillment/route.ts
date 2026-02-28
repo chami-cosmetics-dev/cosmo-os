@@ -160,7 +160,11 @@ export async function PATCH(
       }
       await prisma.order.update({
         where: { id: order.id },
-        data: { fulfillmentStage: "print" },
+        data: {
+          fulfillmentStage: "print",
+          sampleFreeIssueCompleteAt: now,
+          sampleFreeIssueCompleteById: auth.context!.user!.id,
+        },
       });
       return NextResponse.json({ success: true });
     }

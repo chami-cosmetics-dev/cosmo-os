@@ -32,6 +32,7 @@ export function SampleFreeIssueFulfillmentPage() {
         onSelectOrder={setSelectedOrder}
         refreshTrigger={orderListRefreshTrigger}
         invoiceRefreshTrigger={invoiceRefreshTrigger}
+        currentStage="sample_free_issue"
       >
         <FulfillmentSampleFreeIssuePanel
           orderId={selectedOrder?.id ?? null}

@@ -142,8 +142,12 @@ export async function GET(
   const shippingAddr = formatAddress(order.shippingAddress);
   const shippingCity = getCity(order.shippingAddress);
 
-  const externalRemarks = order.remarks.filter((r) => r.type === "external").map((r) => r.content);
-  const internalRemarks = order.remarks.filter((r) => r.type === "internal").map((r) => r.content);
+  const externalRemarks = order.remarks
+    .filter((r) => r.type === "external" && r.showOnInvoice)
+    .map((r) => r.content);
+  const internalRemarks = order.remarks
+    .filter((r) => r.type === "internal" && r.showOnInvoice)
+    .map((r) => r.content);
 
   const discountCodes = order.discountCodes as string[] | null;
   const discountCodeStr = Array.isArray(discountCodes) ? discountCodes.join(", ") : "";
