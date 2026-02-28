@@ -6,7 +6,215 @@ import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
-import type { FulfillmentStage } from "@prisma/client";
+
+const DEVCARTIFY_ADAPT_URL =
+  process.env.DEVCARTIFY_ADAPT_URL ??
+  "https://devcartify-stable.fly.dev/api/updateAdaptDetails";
+const DEVCARTIFY_ADAPT_KEY =
+  process.env.X_ADAPT_KEY ??
+  process.env.DEVCARTIFY_ADAPT_KEY ??
+  process.env.ADAPT_KEY;
+const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
+
+function getInvoiceNo(order: { orderNumber: string | null; name: string | null; shopifyOrderId: string }): string {
+  const normalizedName = order.name?.replace(/^#/, "").trim();
+  if (normalizedName && /^\d+$/.test(normalizedName)) return normalizedName;
+  if (order.orderNumber?.trim()) return order.orderNumber.trim();
+  if (normalizedName) return normalizedName;
+  return order.shopifyOrderId;
+}
+
+function parseErrorText(text: string, fallback: string): string {
+  if (!text) return fallback;
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return parsed.error ?? parsed.message ?? text;
+  } catch {
+    return text;
+  }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  return fallback;
+}
+
+type ShopifyGraphQLError = { message?: string };
+type ShopifyOrderSearchNode = {
+  id: string;
+  fulfillmentOrders?: {
+    edges?: Array<{ node?: { id?: string; status?: string } }>;
+  };
+};
+
+async function fulfillOrderInShopify({
+  shop,
+  invoiceNo,
+}: {
+  shop: string;
+  invoiceNo: string;
+}): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  if (!SHOPIFY_ADMIN_ACCESS_TOKEN) {
+    return {
+      ok: false,
+      error: "SHOPIFY_ADMIN_ACCESS_TOKEN is missing in environment variables",
+      status: 500,
+    };
+  }
+
+  const endpoint = `https://${shop}/admin/api/2025-10/graphql.json`;
+  const searchQuery = invoiceNo.startsWith("#") ? invoiceNo : `#${invoiceNo}`;
+  const orderSearchRes = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
+    },
+    body: JSON.stringify({
+      query: `#graphql
+        query getOrder($query: String!) {
+          orders(first: 1, query: $query) {
+            edges {
+              node {
+                id
+                fulfillmentOrders(first: 10) {
+                  edges {
+                    node {
+                      id
+                      status
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `,
+      variables: { query: `name:${searchQuery}` },
+    }),
+  });
+
+  if (!orderSearchRes.ok) {
+    const errText = await orderSearchRes.text().catch(() => "");
+    return {
+      ok: false,
+      error: parseErrorText(
+        errText,
+        `Shopify order lookup failed with status ${orderSearchRes.status}`
+      ),
+      status: 502,
+    };
+  }
+
+  const orderSearchJson = (await orderSearchRes.json()) as {
+    data?: {
+      orders?: { edges?: Array<{ node?: ShopifyOrderSearchNode }> };
+    };
+    errors?: ShopifyGraphQLError[];
+  };
+  if (orderSearchJson.errors?.length) {
+    return {
+      ok: false,
+      error: orderSearchJson.errors[0]?.message ?? "Shopify order lookup failed",
+      status: 502,
+    };
+  }
+
+  const orderNode = orderSearchJson.data?.orders?.edges?.[0]?.node;
+  if (!orderNode) {
+    return {
+      ok: false,
+      error: `Order #${invoiceNo} not found in Shopify`,
+      status: 404,
+    };
+  }
+
+  const openFulfillmentOrders =
+    orderNode.fulfillmentOrders?.edges
+      ?.map((edge) => edge.node)
+      .filter(
+        (node): node is { id: string; status?: string } =>
+          Boolean(node?.id) && node?.status === "OPEN"
+      )
+      .map((node) => ({ fulfillmentOrderId: node.id })) ?? [];
+
+  if (openFulfillmentOrders.length === 0) {
+    return { ok: true };
+  }
+
+  const fulfillRes = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": SHOPIFY_ADMIN_ACCESS_TOKEN,
+    },
+    body: JSON.stringify({
+      query: `#graphql
+        mutation fulfillmentCreate($fulfillment: FulfillmentInput!) {
+          fulfillmentCreate(fulfillment: $fulfillment) {
+            fulfillment { id }
+            userErrors { message }
+          }
+        }
+      `,
+      variables: {
+        fulfillment: {
+          lineItemsByFulfillmentOrder: openFulfillmentOrders,
+        },
+      },
+    }),
+  });
+
+  if (!fulfillRes.ok) {
+    const errText = await fulfillRes.text().catch(() => "");
+    return {
+      ok: false,
+      error: parseErrorText(
+        errText,
+        `Shopify fulfillment failed with status ${fulfillRes.status}`
+      ),
+      status: 502,
+    };
+  }
+
+  const fulfillJson = (await fulfillRes.json()) as {
+    data?: {
+      fulfillmentCreate?: {
+        fulfillment?: { id?: string | null };
+        userErrors?: Array<{ message?: string }>;
+      };
+    };
+    errors?: ShopifyGraphQLError[];
+  };
+  if (fulfillJson.errors?.length) {
+    return {
+      ok: false,
+      error: fulfillJson.errors[0]?.message ?? "Shopify fulfillment failed",
+      status: 502,
+    };
+  }
+
+  const userErrors = fulfillJson.data?.fulfillmentCreate?.userErrors ?? [];
+  if (userErrors.length > 0) {
+    return {
+      ok: false,
+      error: userErrors[0]?.message ?? "Shopify fulfillment failed",
+      status: 400,
+    };
+  }
+
+  const fulfillmentId = fulfillJson.data?.fulfillmentCreate?.fulfillment?.id;
+  if (!fulfillmentId) {
+    return {
+      ok: false,
+      error: "Shopify fulfillment failed",
+      status: 400,
+    };
+  }
+
+  return { ok: true };
+}
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -157,6 +365,13 @@ export async function PATCH(
     include: {
       packageHoldReason: true,
       sampleFreeIssues: true,
+      companyLocation: {
+        select: {
+          id: true,
+          name: true,
+          shopifyShopName: true,
+        },
+      },
     },
   });
 
@@ -397,10 +612,72 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      const shop = order.companyLocation.shopifyShopName?.trim();
+      if (!shop) {
+        return NextResponse.json(
+          { error: "Shopify shop name is not set for this location" },
+          { status: 400 }
+        );
+      }
+      const orderNumber = getInvoiceNo(order);
+      if (DEVCARTIFY_ADAPT_KEY) {
+        try {
+          const adaptRes = await fetch(DEVCARTIFY_ADAPT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Adapt-Key": DEVCARTIFY_ADAPT_KEY,
+            },
+            body: JSON.stringify({
+              invoiceNo: orderNumber,
+              shop,
+            }),
+          });
+          if (!adaptRes.ok) {
+            const errText = await adaptRes.text().catch(() => "");
+            return NextResponse.json(
+              {
+                error: `Devcartify sync failed (${adaptRes.status}): ${parseErrorText(
+                  errText,
+                  adaptRes.statusText || "Unknown upstream error"
+                )}`,
+              },
+              { status: 502 }
+            );
+          }
+        } catch (adaptErr) {
+          return NextResponse.json(
+            {
+              error: `Devcartify sync request failed: ${getErrorMessage(
+                adaptErr,
+                "unknown error"
+              )}`,
+            },
+            { status: 502 }
+          );
+        }
+      } else if (SHOPIFY_ADMIN_ACCESS_TOKEN) {
+        const directResult = await fulfillOrderInShopify({ shop, invoiceNo: orderNumber });
+        if (!directResult.ok) {
+          return NextResponse.json(
+            { error: directResult.error },
+            { status: directResult.status }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              "Set X_ADAPT_KEY (or ADAPT_KEY) for Devcartify sync or SHOPIFY_ADMIN_ACCESS_TOKEN for direct fulfillment",
+          },
+          { status: 500 }
+        );
+      }
       await prisma.order.update({
         where: { id: order.id },
         data: {
           fulfillmentStage: "invoice_complete",
+          fulfillmentStatus: "fulfilled",
           invoiceCompleteAt: now,
           invoiceCompleteById: auth.context!.user!.id,
         },
@@ -527,8 +804,9 @@ export async function PATCH(
     }
   } catch (err) {
     console.error("Fulfillment update error:", err);
+    const message = getErrorMessage(err, "Failed to update fulfillment");
     return NextResponse.json(
-      { error: "Failed to update fulfillment" },
+      { error: message },
       { status: 500 }
     );
   }
