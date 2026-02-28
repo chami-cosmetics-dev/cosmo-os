@@ -1066,28 +1066,57 @@ export function UserManagementPanel({
             <div className="space-y-2">
               <p className="text-sm font-medium">Permissions</p>
               <div className="space-y-3">
-                {permissionsByGroup.map(({ group, permissions: perms }) => (
-                  <div key={group}>
+                {permissionsByGroup.map((item) => (
+                  <div key={item.group}>
                     <p className="text-muted-foreground mb-1.5 text-xs font-medium uppercase tracking-wide">
-                      {group}
+                      {item.group}
                     </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {perms.map((p) => (
-                        <label
-                          key={p.id}
-                          className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedPermissionKeys.includes(p.key)}
-                            onChange={() => togglePermission(p.key)}
-                            disabled={isBusy}
-                            className="rounded"
-                          />
-                          {p.key}
-                        </label>
-                      ))}
-                    </div>
+                    {"subGroups" in item && item.subGroups ? (
+                      <div className="space-y-2 pl-2 border-l-2 border-muted">
+                        {item.subGroups.map(({ subGroup, permissions: perms }) => (
+                          <div key={subGroup}>
+                            <p className="text-muted-foreground mb-1 text-xs">
+                              {subGroup}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {perms.map((p) => (
+                                <label
+                                  key={p.id}
+                                  className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedPermissionKeys.includes(p.key)}
+                                    onChange={() => togglePermission(p.key)}
+                                    disabled={isBusy}
+                                    className="rounded"
+                                  />
+                                  {p.key}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.permissions.map((p) => (
+                          <label
+                            key={p.id}
+                            className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedPermissionKeys.includes(p.key)}
+                              onChange={() => togglePermission(p.key)}
+                              disabled={isBusy}
+                              className="rounded"
+                            />
+                            {p.key}
+                          </label>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1218,28 +1247,57 @@ export function UserManagementPanel({
               <div className="space-y-2">
                 <p className="text-sm font-medium">Permissions</p>
                 <div className="space-y-3">
-                  {permissionsByGroup.map(({ group, permissions: perms }) => (
-                    <div key={group}>
+                  {permissionsByGroup.map((item) => (
+                    <div key={item.group}>
                       <p className="text-muted-foreground mb-1.5 text-xs font-medium uppercase tracking-wide">
-                        {group}
+                        {item.group}
                       </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {perms.map((p) => (
-                          <label
-                            key={p.id}
-                            className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={editRolePermissionKeys.includes(p.key)}
-                              onChange={() => toggleEditRolePermission(p.key)}
-                              disabled={isBusy}
-                              className="rounded"
-                            />
-                            {p.key}
-                          </label>
-                        ))}
-                      </div>
+                      {"subGroups" in item && item.subGroups ? (
+                        <div className="space-y-2 pl-2 border-l-2 border-muted">
+                          {item.subGroups.map(({ subGroup, permissions: perms }) => (
+                            <div key={subGroup}>
+                              <p className="text-muted-foreground mb-1 text-xs">
+                                {subGroup}
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {perms.map((p) => (
+                                  <label
+                                    key={p.id}
+                                    className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={editRolePermissionKeys.includes(p.key)}
+                                      onChange={() => toggleEditRolePermission(p.key)}
+                                      disabled={isBusy}
+                                      className="rounded"
+                                    />
+                                    {p.key}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.permissions.map((p) => (
+                            <label
+                              key={p.id}
+                              className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editRolePermissionKeys.includes(p.key)}
+                                onChange={() => toggleEditRolePermission(p.key)}
+                                disabled={isBusy}
+                                className="rounded"
+                              />
+                              {p.key}
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1281,13 +1339,30 @@ function mapAssignments(users: User[]) {
   }, {});
 }
 
-/** Group permissions by prefix (e.g. users.read → "Users") for better UX */
-function groupPermissionsByPrefix(
-  permissions: Permission[]
-): Array<{ group: string; permissions: Permission[] }> {
+const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
+  sample_free_issue: "Sample / Free Issue",
+  order_print: "Order Print",
+  ready_dispatch: "Ready & Dispatch",
+  delivery_invoice: "Delivery & Invoice",
+  remarks: "Remarks",
+  revert_to: "Revert to Stage",
+};
+
+type PermissionGroupItem =
+  | { group: string; permissions: Permission[]; subGroups?: undefined }
+  | {
+      group: string;
+      subGroups: Array<{ subGroup: string; permissions: Permission[] }>;
+      permissions?: undefined;
+    };
+
+/** Group permissions by prefix (e.g. users.read → "Users") for better UX.
+ * Fulfillment group is further split into sub-groups for improved UI. */
+function groupPermissionsByPrefix(permissions: Permission[]): PermissionGroupItem[] {
   const map = new Map<string, Permission[]>();
   for (const p of permissions) {
-    const prefix = p.key.split(".")[0] ?? "other";
+    const parts = p.key.split(".");
+    const prefix = parts[0] ?? "other";
     const group =
       prefix.charAt(0).toUpperCase() + prefix.slice(1).replace(/_/g, " ");
     if (!map.has(group)) map.set(group, []);
@@ -1296,7 +1371,32 @@ function groupPermissionsByPrefix(
   const order = ["Users", "Staff", "Roles", "Settings", "Products", "Orders", "Fulfillment"];
   return order
     .filter((g) => map.has(g))
-    .map((group) => ({ group, permissions: map.get(group)! }))
+    .map((group) => {
+      const perms = map.get(group)!;
+      if (group === "Fulfillment") {
+        const subMap = new Map<string, Permission[]>();
+        for (const p of perms) {
+          const parts = p.key.split(".");
+          const subKey = parts[1] ?? "other";
+          const subGroup =
+            FULFILLMENT_SUBGROUP_LABELS[subKey] ??
+            subKey.charAt(0).toUpperCase() + subKey.slice(1).replace(/_/g, " ");
+          if (!subMap.has(subGroup)) subMap.set(subGroup, []);
+          subMap.get(subGroup)!.push(p);
+        }
+        const subOrder = Object.values(FULFILLMENT_SUBGROUP_LABELS);
+        const subGroups = subOrder
+          .filter((sg) => subMap.has(sg))
+          .map((subGroup) => ({ subGroup, permissions: subMap.get(subGroup)! }))
+          .concat(
+            [...subMap.entries()]
+              .filter(([sg]) => !subOrder.includes(sg))
+              .map(([subGroup, permissions]) => ({ subGroup, permissions }))
+          );
+        return { group, subGroups };
+      }
+      return { group, permissions: perms };
+    })
     .concat(
       [...map.entries()]
         .filter(([g]) => !order.includes(g))

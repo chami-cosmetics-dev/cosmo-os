@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, Search, ShoppingCart } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { OrderInvoiceViewModal } from "@/components/organisms/order-invoice-view-modal";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -112,12 +113,18 @@ type OrderDetail = {
 interface OrdersPanelProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
+  revertPermissionKeys?: string[];
 }
 
 export function OrdersPanel({
   canPrint = false,
   canResendRiderSms = false,
+  revertPermissionKeys = [],
 }: OrdersPanelProps = {}) {
+  const canRevertToStage = useMemo(
+    () => createCanRevertToStageFromKeys(revertPermissionKeys),
+    [revertPermissionKeys]
+  );
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [merchants, setMerchants] = useState<Array<{ id: string; name: string | null; email: string | null }>>([]);
@@ -472,6 +479,7 @@ export function OrdersPanel({
         getAddressPhone={getAddressPhone}
         canPrint={canPrint}
         canResendRiderSms={canResendRiderSms}
+        canRevertToStage={canRevertToStage}
       />
     </div>
   );

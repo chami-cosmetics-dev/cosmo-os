@@ -14,6 +14,57 @@ export type FulfillmentPermissions = {
   canResendRiderSms: boolean;
 };
 
+export const FULFILLMENT_STAGE_ORDER = [
+  "order_received",
+  "sample_free_issue",
+  "print",
+  "ready_to_dispatch",
+  "dispatched",
+  "delivery_complete",
+  "invoice_complete",
+] as const;
+
+function stageToPermissionKey(stage: string): string {
+  return stage === "ready_to_dispatch" ? "ready_dispatch" : stage;
+}
+
+/**
+ * Returns revert permission keys the user has (fulfillment.revert_to.*).
+ * Pass this serializable array to client components instead of a function.
+ */
+export function getRevertPermissionKeys(
+  context: Awaited<ReturnType<typeof getCurrentUserContext>>
+): string[] {
+  if (!context) return [];
+  const keys = context.permissionKeys as string[];
+  return keys.filter((k) => k.startsWith("fulfillment.revert_to."));
+}
+
+/**
+ * Client-safe: builds canRevertToStage checker from permission keys.
+ * Cascading: user must have permission for target AND every stage between target and current.
+ */
+export function createCanRevertToStageFromKeys(
+  revertPermissionKeys: string[]
+): (targetStage: string, currentStage: string) => boolean {
+  if (!revertPermissionKeys || revertPermissionKeys.length === 0) {
+    return () => false;
+  }
+  const hasPerm = (stage: string) =>
+    revertPermissionKeys.includes(
+      `fulfillment.revert_to.${stageToPermissionKey(stage)}`
+    );
+  return (target: string, current: string) => {
+    const ti = FULFILLMENT_STAGE_ORDER.indexOf(target as (typeof FULFILLMENT_STAGE_ORDER)[number]);
+    const ci = FULFILLMENT_STAGE_ORDER.indexOf(current as (typeof FULFILLMENT_STAGE_ORDER)[number]);
+    if (ti >= ci || ti < 0 || ci < 0) return false;
+    for (let i = ti; i < ci; i++) {
+      if (!hasPerm(FULFILLMENT_STAGE_ORDER[i])) return false;
+    }
+    return true;
+  };
+}
+
 export function buildFulfillmentPermissions(
   context: Awaited<ReturnType<typeof getCurrentUserContext>>
 ): FulfillmentPermissions {

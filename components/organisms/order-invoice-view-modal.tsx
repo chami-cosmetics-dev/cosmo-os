@@ -10,12 +10,22 @@ import {
   Package,
   PackageCheck,
   Printer,
+  RotateCcw,
   Send,
   ShoppingCart,
   Truck,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -118,7 +128,27 @@ interface OrderInvoiceViewModalProps {
   getAddressPhone: (addr: unknown) => string | null;
   canPrint?: boolean;
   canResendRiderSms?: boolean;
+  canRevertToStage?: (targetStage: string, currentStage: string) => boolean;
 }
+
+const TIMELINE_ID_TO_DB_STAGE: Record<string, string> = {
+  order_received: "order_received",
+  sample_free_issue: "sample_free_issue",
+  print: "print",
+  package_ready: "ready_to_dispatch",
+  dispatched: "dispatched",
+  invoice_delivered: "delivery_complete",
+};
+
+const FULFILLMENT_STAGE_ORDER = [
+  "order_received",
+  "sample_free_issue",
+  "print",
+  "ready_to_dispatch",
+  "dispatched",
+  "delivery_complete",
+  "invoice_complete",
+];
 
 function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "—") : "—";
@@ -272,6 +302,7 @@ export function OrderInvoiceViewModal({
   orderDetail,
   loading,
   onClose,
+  onRefresh,
   formatPrice,
   formatDate,
   formatAddress,
@@ -279,9 +310,12 @@ export function OrderInvoiceViewModal({
   getAddressPhone,
   canPrint = false,
   canResendRiderSms = false,
+  canRevertToStage,
 }: OrderInvoiceViewModalProps) {
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
   const [showJsonModal, setShowJsonModal] = useState(false);
+  const [revertingToStage, setRevertingToStage] = useState<string | null>(null);
+  const [confirmRevertStage, setConfirmRevertStage] = useState<{ targetStage: string; label: string } | null>(null);
 
   const stage = orderDetail?.fulfillmentStage ?? "order_received";
   const isDispatchedWithRider =
@@ -312,6 +346,34 @@ export function OrderInvoiceViewModal({
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
+  }
+
+  function handleRevertClick(targetStage: string, label: string) {
+    setConfirmRevertStage({ targetStage, label });
+  }
+
+  async function handleConfirmRevert() {
+    if (!orderId || !confirmRevertStage) return;
+    setRevertingToStage(confirmRevertStage.targetStage);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revert_to_stage", targetStage: confirmRevertStage.targetStage }),
+      });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to revert stage");
+        return;
+      }
+      notify.success("Order reverted.");
+      setConfirmRevertStage(null);
+      onRefresh?.();
+    } catch {
+      notify.error("Failed to revert stage");
+    } finally {
+      setRevertingToStage(null);
+    }
   }
 
   if (!orderDetail && !loading) return null;
@@ -365,46 +427,74 @@ export function OrderInvoiceViewModal({
             {/* Timeline */}
             <div className="relative">
               <div className="space-y-0">
-                {timelineItems.map((item, i) => (
-                  <div key={item.id} className="relative flex gap-4">
-                    {/* Vertical line */}
-                    {i < timelineItems.length - 1 && (
+                {timelineItems.map((item, i) => {
+                  const targetDbStage = TIMELINE_ID_TO_DB_STAGE[item.id];
+                  const canRevert =
+                    targetDbStage &&
+                    item.done &&
+                    canRevertToStage?.(targetDbStage, stage) &&
+                    stage !== targetDbStage &&
+                    FULFILLMENT_STAGE_ORDER.indexOf(stage) > FULFILLMENT_STAGE_ORDER.indexOf(targetDbStage);
+                  const isReverting = revertingToStage === targetDbStage;
+                  return (
+                    <div key={item.id} className="relative flex gap-4">
+                      {/* Vertical line */}
+                      {i < timelineItems.length - 1 && (
+                        <div
+                          className="absolute left-[11px] top-8 bottom-0 w-px -translate-x-1/2 bg-border"
+                          aria-hidden
+                        />
+                      )}
+                      {/* Icon */}
                       <div
-                        className="absolute left-[11px] top-8 bottom-0 w-px -translate-x-1/2 bg-border"
-                        aria-hidden
-                      />
-                    )}
-                    {/* Icon */}
-                    <div
-                      className={`relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full ${
-                        item.onHold
-                          ? "bg-destructive text-white"
-                          : item.done
-                            ? "bg-primary text-primary-foreground"
-                            : "border-2 border-dashed border-muted-foreground/40 bg-muted/50 text-muted-foreground"
-                      }`}
-                    >
-                      {item.icon}
-                    </div>
-                    {/* Content */}
-                    <div className="flex-1 pb-6">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="font-medium">{item.label}</span>
-                        {item.date && (
-                          <span className="text-muted-foreground text-xs">
-                            {formatDate(item.date)}
-                          </span>
+                        className={`relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full ${
+                          item.onHold
+                            ? "bg-destructive text-white"
+                            : item.done
+                              ? "bg-primary text-primary-foreground"
+                              : "border-2 border-dashed border-muted-foreground/40 bg-muted/50 text-muted-foreground"
+                        }`}
+                      >
+                        {item.icon}
+                      </div>
+                      {/* Content */}
+                      <div className="flex-1 pb-6">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <span className="font-medium">{item.label}</span>
+                          <div className="flex items-center gap-2">
+                            {item.date && (
+                              <span className="text-muted-foreground text-xs">
+                                {formatDate(item.date)}
+                              </span>
+                            )}
+                            {canRevert && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                onClick={() => handleRevertClick(targetDbStage, item.label)}
+                                disabled={revertingToStage !== null}
+                              >
+                                {isReverting ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="size-3" />
+                                )}
+                                Revert here
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-muted-foreground mt-0.5 text-sm">
+                          {item.who !== "—" ? `by ${item.who}` : "—"}
+                        </p>
+                        {item.detail && (
+                          <p className="text-muted-foreground mt-1 text-xs">{item.detail}</p>
                         )}
                       </div>
-                      <p className="text-muted-foreground mt-0.5 text-sm">
-                        {item.who !== "—" ? `by ${item.who}` : "—"}
-                      </p>
-                      {item.detail && (
-                        <p className="text-muted-foreground mt-1 text-xs">{item.detail}</p>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -539,6 +629,37 @@ export function OrderInvoiceViewModal({
         )}
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={!!confirmRevertStage} onOpenChange={(open) => !open && setConfirmRevertStage(null)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Revert to {confirmRevertStage?.label}</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will undo all progress after that stage. The order will return to{" "}
+            {confirmRevertStage?.label}. Rider delivery link will be invalidated if the order was dispatched. This
+            action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={!!revertingToStage}>Cancel</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={!!revertingToStage}
+            onClick={handleConfirmRevert}
+            className="gap-2"
+          >
+            {revertingToStage ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Reverting...
+              </>
+            ) : (
+              "Revert"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }

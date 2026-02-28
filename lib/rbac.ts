@@ -128,6 +128,31 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.remarks.manage",
     description: "Add/edit/delete order remarks",
   },
+  // Fulfillment - Revert to stage (per-stage, cascading)
+  {
+    key: "fulfillment.revert_to.order_received",
+    description: "Revert order to Order Received",
+  },
+  {
+    key: "fulfillment.revert_to.sample_free_issue",
+    description: "Revert order to Sample/Free Issue",
+  },
+  {
+    key: "fulfillment.revert_to.print",
+    description: "Revert order to Print",
+  },
+  {
+    key: "fulfillment.revert_to.ready_dispatch",
+    description: "Revert order to Ready to Dispatch",
+  },
+  {
+    key: "fulfillment.revert_to.dispatched",
+    description: "Revert order to Dispatched",
+  },
+  {
+    key: "fulfillment.revert_to.delivery_complete",
+    description: "Revert order to Delivery Complete",
+  },
 ] as const;
 
 const DEFAULT_ROLES = [
@@ -174,6 +199,12 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.mark_delivered",
       "fulfillment.delivery_invoice.mark_complete",
       "fulfillment.remarks.manage",
+      "fulfillment.revert_to.order_received",
+      "fulfillment.revert_to.sample_free_issue",
+      "fulfillment.revert_to.print",
+      "fulfillment.revert_to.ready_dispatch",
+      "fulfillment.revert_to.dispatched",
+      "fulfillment.revert_to.delivery_complete",
     ],
   },
   {
