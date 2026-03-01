@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { randomBytes } from "crypto";
+import type { FulfillmentStage } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
