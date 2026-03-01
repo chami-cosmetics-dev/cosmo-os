@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 
 import { prisma } from "@/lib/prisma";
-import { hasPermission, requireAnyPermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
 
@@ -253,17 +253,6 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("complete_pos"),
   }),
-  z.object({
-    action: z.literal("revert_to_stage"),
-    targetStage: z.enum([
-      "order_received",
-      "sample_free_issue",
-      "print",
-      "ready_to_dispatch",
-      "dispatched",
-      "delivery_complete",
-    ]),
-  }),
 ]);
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -274,63 +263,15 @@ async function getCompanyId(userId: string): Promise<string | null> {
   return user?.companyId ?? null;
 }
 
-function getRequiredPermissionsForAction(action: string): string[] {
-  switch (action) {
-    case "add_samples":
-    case "advance_to_print":
-      return ["orders.manage", "fulfillment.sample_free_issue.manage"];
-    case "put_on_hold":
-      return ["orders.manage", "fulfillment.ready_dispatch.put_on_hold"];
-    case "mark_ready":
-      return ["orders.manage", "fulfillment.ready_dispatch.package_ready"];
-    case "revert_hold":
-      return ["orders.manage", "fulfillment.ready_dispatch.revert_hold"];
-    case "dispatch":
-      return ["orders.manage", "fulfillment.ready_dispatch.dispatch"];
-    case "mark_delivered":
-      return ["orders.manage", "fulfillment.delivery_invoice.mark_delivered"];
-    case "mark_invoice_complete":
-      return ["orders.manage", "fulfillment.delivery_invoice.mark_complete"];
-    case "complete_pos":
-    case "revert_to_stage":
-      return ["orders.manage"];
-    default:
-      return ["orders.manage"];
-  }
-}
-
-const FULFILLMENT_STAGE_ORDER: FulfillmentStage[] = [
-  "order_received",
-  "sample_free_issue",
-  "print",
-  "ready_to_dispatch",
-  "dispatched",
-  "delivery_complete",
-  "invoice_complete",
-];
-
-function stageToPermissionKey(stage: FulfillmentStage): string {
-  return stage === "ready_to_dispatch" ? "ready_dispatch" : stage;
-}
-
-function getRequiredRevertPermissions(
-  targetStage: FulfillmentStage,
-  currentStage: FulfillmentStage
-): string[] {
-  const targetIdx = FULFILLMENT_STAGE_ORDER.indexOf(targetStage);
-  const currentIdx = FULFILLMENT_STAGE_ORDER.indexOf(currentStage);
-  if (targetIdx >= currentIdx) return [];
-  const perms: string[] = [];
-  for (let i = targetIdx; i < currentIdx; i++) {
-    perms.push(`fulfillment.revert_to.${stageToPermissionKey(FULFILLMENT_STAGE_ORDER[i])}`);
-  }
-  return perms;
-}
-
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requirePermission("orders.manage");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   const body = await request.json().catch(() => ({}));
   const parsed = fulfillmentActionSchema.safeParse(body);
   if (!parsed.success) {
@@ -338,12 +279,6 @@ export async function PATCH(
       { error: "Validation failed", details: parsed.error.flatten() },
       { status: 400 }
     );
-  }
-
-  const requiredPermissions = getRequiredPermissionsForAction(parsed.data.action);
-  const auth = await requireAnyPermission(requiredPermissions);
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   const companyId = await getCompanyId(auth.context!.user!.id);
@@ -442,8 +377,6 @@ export async function PATCH(
         where: { id: order.id },
         data: {
           fulfillmentStage: "print",
-          sampleFreeIssueCompleteAt: now,
-          sampleFreeIssueCompleteById: auth.context!.user!.id,
         },
       });
       return NextResponse.json({ success: true });
@@ -707,67 +640,6 @@ export async function PATCH(
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
-      return NextResponse.json({ success: true });
-    }
-
-    if (data.action === "revert_to_stage") {
-      const targetStage = data.targetStage as FulfillmentStage;
-      const currentStage = order.fulfillmentStage;
-      const targetIdx = FULFILLMENT_STAGE_ORDER.indexOf(targetStage);
-      const currentIdx = FULFILLMENT_STAGE_ORDER.indexOf(currentStage);
-      if (targetIdx >= currentIdx) {
-        return NextResponse.json(
-          { error: "Target stage must be earlier than current stage" },
-          { status: 400 }
-        );
-      }
-      const requiredRevertPerms = getRequiredRevertPermissions(targetStage, currentStage);
-      for (const perm of requiredRevertPerms) {
-        if (!hasPermission(auth.context!, perm)) {
-          return NextResponse.json(
-            { error: "Permission denied: missing revert permission for intermediate stage" },
-            { status: 403 }
-          );
-        }
-      }
-      const clearFromStageIdx = targetIdx + 1;
-      const updateData: Parameters<typeof prisma.order.update>[0]["data"] = {
-        fulfillmentStage: targetStage,
-      };
-      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("sample_free_issue")) {
-        updateData.sampleFreeIssueCompleteAt = null;
-        updateData.sampleFreeIssueCompleteById = null;
-      }
-      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("print")) {
-        updateData.printCount = 0;
-        updateData.lastPrintedAt = null;
-        updateData.lastPrintedById = null;
-      }
-      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("ready_to_dispatch")) {
-        updateData.packageReadyAt = null;
-        updateData.packageReadyById = null;
-        updateData.packageOnHoldAt = null;
-        updateData.packageHoldReasonId = null;
-      }
-      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
-        updateData.dispatchedAt = null;
-        updateData.dispatchedById = null;
-        updateData.dispatchedByRiderId = null;
-        updateData.dispatchedByCourierServiceId = null;
-        updateData.riderDeliveryToken = null;
-      }
-      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("delivery_complete")) {
-        updateData.deliveryCompleteAt = null;
-        updateData.deliveryCompleteById = null;
-      }
-      if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("invoice_complete")) {
-        updateData.invoiceCompleteAt = null;
-        updateData.invoiceCompleteById = null;
-      }
-      await prisma.order.update({
-        where: { id: order.id },
-        data: updateData,
-      });
       return NextResponse.json({ success: true });
     }
 
