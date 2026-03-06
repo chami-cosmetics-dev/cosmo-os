@@ -2,13 +2,19 @@
 
 import { useState, useCallback } from "react";
 
+import { FulfillmentPermissionsProvider } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentDispatchPanel } from "@/components/organisms/fulfillment-dispatch-panel";
 import {
   FulfillmentOrder,
   FulfillmentOrderSelector,
 } from "@/components/organisms/fulfillment-order-selector";
+import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 
-export function DispatchFulfillmentPage() {
+export function DispatchFulfillmentPage({
+  permissions,
+}: {
+  permissions: FulfillmentPermissions;
+}) {
   const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -42,5 +48,6 @@ export function DispatchFulfillmentPage() {
         />
       </FulfillmentOrderSelector>
     </div>
+    </FulfillmentPermissionsProvider>
   );
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { ChevronsUpDown, Loader2, Package } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -33,6 +34,7 @@ export function FulfillmentSampleFreeIssuePanel({
   order,
   onRefresh,
 }: FulfillmentSampleFreeIssuePanelProps) {
+  const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<{
     samplesFreeIssues: Array<{ id: string; name: string; type: string }>;
   } | null>(null);
@@ -212,6 +214,11 @@ export function FulfillmentSampleFreeIssuePanel({
               </Button>
             </div>
           </>
+        )}
+        {lookups && !perms.canManageSampleFreeIssue && (
+          <p className="text-muted-foreground text-sm">
+            You do not have permission to add samples or advance orders.
+          </p>
         )}
       </CardContent>
     </Card>

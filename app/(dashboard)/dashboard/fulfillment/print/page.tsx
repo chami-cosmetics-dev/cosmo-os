@@ -1,16 +1,21 @@
 import { redirect } from "next/navigation";
 
 import { PrintFulfillmentPage } from "@/components/organisms/fulfillment-pages/print";
-import { requirePermission } from "@/lib/rbac";
+import { buildFulfillmentPermissions } from "@/lib/fulfillment-permissions";
+import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function OrderPrintPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission([
+    "orders.read",
+    "fulfillment.order_print.read",
+  ]);
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
     redirect("/dashboard");
   }
 
-  return <PrintFulfillmentPage />;
+  const permissions = buildFulfillmentPermissions(auth.context);
+  return <PrintFulfillmentPage permissions={permissions} />;
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -66,7 +66,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.read");
+  const printParam = request.nextUrl.searchParams.get("print");
+  const shouldIncrementPrint = printParam === "1" || printParam === "true";
+  const auth = await requireAnyPermission(
+    shouldIncrementPrint
+      ? ["orders.read", "fulfillment.order_print.print"]
+      : ["orders.read", "fulfillment.order_print.read"]
+  );
   if (!auth.ok) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
@@ -113,9 +119,6 @@ export async function GET(
   if (!order) {
     return new NextResponse("Order not found", { status: 404 });
   }
-
-  const printParam = request.nextUrl.searchParams.get("print");
-  const shouldIncrementPrint = printParam === "1" || printParam === "true";
 
   const showWatermark = order.printCount > 0;
   const printedAt = new Date();

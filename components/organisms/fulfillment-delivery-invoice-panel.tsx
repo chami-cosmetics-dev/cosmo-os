@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { notify } from "@/lib/notify";
@@ -19,6 +20,7 @@ export function FulfillmentDeliveryInvoicePanel({
   order,
   onRefresh,
 }: FulfillmentDeliveryInvoicePanelProps) {
+  const perms = useFulfillmentPermissions();
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;

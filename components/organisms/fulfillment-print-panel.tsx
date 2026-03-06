@@ -2,6 +2,7 @@
 
 import { Printer } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";

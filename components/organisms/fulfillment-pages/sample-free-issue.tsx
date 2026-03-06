@@ -2,13 +2,19 @@
 
 import { useState, useCallback } from "react";
 
+import { FulfillmentPermissionsProvider } from "@/components/contexts/fulfillment-permissions-context";
 import {
   FulfillmentOrder,
   FulfillmentOrderSelector,
 } from "@/components/organisms/fulfillment-order-selector";
 import { FulfillmentSampleFreeIssuePanel } from "@/components/organisms/fulfillment-sample-free-issue-panel";
+import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 
-export function SampleFreeIssueFulfillmentPage() {
+export function SampleFreeIssueFulfillmentPage({
+  permissions,
+}: {
+  permissions: FulfillmentPermissions;
+}) {
   const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [orderListRefreshTrigger, setOrderListRefreshTrigger] = useState(0);
   const [invoiceRefreshTrigger, setInvoiceRefreshTrigger] = useState(0);
@@ -47,5 +53,6 @@ export function SampleFreeIssueFulfillmentPage() {
         />
       </FulfillmentOrderSelector>
     </div>
+    </FulfillmentPermissionsProvider>
   );
 }

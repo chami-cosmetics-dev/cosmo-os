@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Truck } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -26,6 +27,7 @@ export function FulfillmentDispatchPanel({
   order,
   onRefresh,
 }: FulfillmentDispatchPanelProps) {
+  const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<{
     packageHoldReasons: Array<{ id: string; name: string }>;
     courierServices: Array<{ id: string; name: string }>;

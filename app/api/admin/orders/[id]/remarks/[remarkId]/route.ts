@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const updateRemarkSchema = z.object({
@@ -33,7 +33,10 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; remarkId: string }> }
 ) {
-  const auth = await requirePermission("orders.manage");
+  const auth = await requireAnyPermission([
+    "orders.manage",
+    "fulfillment.remarks.manage",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -93,7 +96,10 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; remarkId: string }> }
 ) {
-  const auth = await requirePermission("orders.manage");
+  const auth = await requireAnyPermission([
+    "orders.manage",
+    "fulfillment.remarks.manage",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

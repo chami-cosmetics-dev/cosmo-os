@@ -1,16 +1,21 @@
 import { redirect } from "next/navigation";
 
 import { DispatchFulfillmentPage } from "@/components/organisms/fulfillment-pages/dispatch";
-import { requirePermission } from "@/lib/rbac";
+import { buildFulfillmentPermissions } from "@/lib/fulfillment-permissions";
+import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function DispatchPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission([
+    "orders.read",
+    "fulfillment.ready_dispatch.read",
+  ]);
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
     redirect("/dashboard");
   }
 
-  return <DispatchFulfillmentPage />;
+  const permissions = buildFulfillmentPermissions(auth.context);
+  return <DispatchFulfillmentPage permissions={permissions} />;
 }

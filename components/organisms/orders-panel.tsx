@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { OrderInvoiceViewModal } from "@/components/organisms/order-invoice-view-modal";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -115,7 +116,21 @@ type OrderDetail = {
   }>;
 };
 
-export function OrdersPanel() {
+interface OrdersPanelProps {
+  canPrint?: boolean;
+  canResendRiderSms?: boolean;
+  revertPermissionKeys?: string[];
+}
+
+export function OrdersPanel({
+  canPrint = false,
+  canResendRiderSms = false,
+  revertPermissionKeys = [],
+}: OrdersPanelProps = {}) {
+  const canRevertToStage = useMemo(
+    () => createCanRevertToStageFromKeys(revertPermissionKeys),
+    [revertPermissionKeys]
+  );
   const [orders, setOrders] = useState<Order[]>([]);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
   const [merchants, setMerchants] = useState<Array<{ id: string; name: string | null; email: string | null }>>([]);
@@ -536,6 +551,9 @@ export function OrdersPanel() {
         formatAddress={formatAddress}
         getCustomerName={getCustomerName}
         getAddressPhone={getAddressPhone}
+        canPrint={canPrint}
+        canResendRiderSms={canResendRiderSms}
+        canRevertToStage={canRevertToStage}
       />
     </div>
   );

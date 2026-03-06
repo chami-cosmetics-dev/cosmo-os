@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, MessageSquare, Pencil, Trash2 } from "lucide-react";
 
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -103,6 +105,7 @@ export function FulfillmentOrderInvoiceDetails({
   refreshTrigger = 0,
   currentStage,
 }: FulfillmentOrderInvoiceDetailsProps) {
+  const perms = useFulfillmentPermissions();
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [remarkRefresh, setRemarkRefresh] = useState(0);
@@ -242,7 +245,7 @@ export function FulfillmentOrderInvoiceDetails({
         <div>
           <div className="mb-2 flex items-center justify-between">
             <h4 className="font-medium text-muted-foreground">Remarks</h4>
-            {currentStage && (
+            {currentStage && perms.canManageRemarks && (
               <Button
                 type="button"
                 variant="outline"
@@ -273,33 +276,35 @@ export function FulfillmentOrderInvoiceDetails({
                       )}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8"
-                      onClick={() => {
-                        setEditingRemarkId(r.id);
-                        setRemarkContent(r.content);
-                        setRemarkShowOnInvoice(r.showOnInvoice ?? false);
-                        setAddRemarkOpen(true);
-                      }}
-                      aria-label="Edit remark"
-                    >
-                      <Pencil className="size-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 text-destructive hover:text-destructive"
-                      onClick={() => setDeleteRemarkId(r.id)}
-                      aria-label="Delete remark"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
+                  {perms.canManageRemarks && (
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => {
+                          setEditingRemarkId(r.id);
+                          setRemarkContent(r.content);
+                          setRemarkShowOnInvoice(r.showOnInvoice ?? false);
+                          setAddRemarkOpen(true);
+                        }}
+                        aria-label="Edit remark"
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive hover:text-destructive"
+                        onClick={() => setDeleteRemarkId(r.id)}
+                        aria-label="Delete remark"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
