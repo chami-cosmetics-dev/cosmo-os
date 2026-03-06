@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -134,8 +140,8 @@ export function ProductItemsPanel() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
-            <div className="relative flex-1">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(420px,1fr)_180px_180px_180px] xl:items-end">
+            <div className="relative md:col-span-2 xl:col-span-1">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
                 placeholder="Search by title, variant, or SKU..."
@@ -144,42 +150,42 @@ export function ProductItemsPanel() {
                 className="pl-9"
               />
             </div>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            <MenuFilterSelect
+              className="w-full"
               value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
-            >
-              <option value="">All locations</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              onChange={setLocationFilter}
+              options={[
+                { value: "", label: "All locations" },
+                ...locations.map((location) => ({
+                  value: location.id,
+                  label: location.name,
+                })),
+              ]}
+            />
+            <MenuFilterSelect
+              className="w-full"
               value={vendorFilter}
-              onChange={(e) => setVendorFilter(e.target.value)}
-            >
-              <option value="">All vendors</option>
-              {vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              onChange={setVendorFilter}
+              options={[
+                { value: "", label: "All vendors" },
+                ...vendors.map((vendor) => ({
+                  value: vendor.id,
+                  label: vendor.name,
+                })),
+              ]}
+            />
+            <MenuFilterSelect
+              className="w-full"
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="">All categories</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={setCategoryFilter}
+              options={[
+                { value: "", label: "All categories" },
+                ...categories.map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                })),
+              ]}
+            />
           </div>
 
           {loading ? (
@@ -306,5 +312,54 @@ export function ProductItemsPanel() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+type MenuFilterOption = {
+  value: string;
+  label: string;
+};
+
+function MenuFilterSelect({
+  value,
+  onChange,
+  options,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: MenuFilterOption[];
+  className?: string;
+}) {
+  const selectedLabel =
+    options.find((option) => option.value === value)?.label ?? options[0]?.label ?? "Select";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={`border-input bg-background/90 hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-11 items-center justify-between rounded-xl border border-border/70 px-4 text-left text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] dark:bg-input/40 ${className ?? ""}`}
+        >
+          <span>{selectedLabel}</span>
+          <ChevronsUpDown className="text-muted-foreground size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-72 overflow-y-auto"
+      >
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value || "empty"}
+            onSelect={() => onChange(option.value)}
+            className="justify-between"
+          >
+            <span>{option.label}</span>
+            {value === option.value ? <Check className="size-4" aria-hidden /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

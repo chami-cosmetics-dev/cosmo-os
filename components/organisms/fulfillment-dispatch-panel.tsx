@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Truck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NativeSelect } from "@/components/ui/native-select";
 import { notify } from "@/lib/notify";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -62,7 +63,7 @@ export function FulfillmentDispatchPanel({
         })
       )
       .catch(() => setPackageStatus(null));
-  }, [orderId]); // Only refetch when orderId changes; local updates for hold/ready avoid refreshTrigger
+  }, [orderId]);
 
   async function doAction(action: string, body?: Record<string, unknown>) {
     if (!orderId || !lookups) return;
@@ -82,10 +83,11 @@ export function FulfillmentDispatchPanel({
       setHoldReasonId("");
       setDispatchRiderId("");
       setDispatchCourierId("");
+
       if (action === "dispatch") {
         onRefresh(true);
       } else {
-        // Optimistic local update — avoid parent re-render and order list refetch
+        // Optimistic local update to keep this panel responsive.
         const now = new Date().toISOString();
         if (action === "put_on_hold" && body?.holdReasonId) {
           const reason = lookups.packageHoldReasons.find((r) => r.id === body.holdReasonId);
@@ -118,91 +120,133 @@ export function FulfillmentDispatchPanel({
   if (!orderId || !order) return null;
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="border-border/70 bg-card/95 shadow-sm">
+      <CardHeader className="space-y-3">
         <CardTitle className="flex items-center gap-2">
           <Truck className="size-5" />
-          Ready to Dispatch & Dispatch — Order {order.name ?? order.orderNumber ?? order.id}
+          Ready to Dispatch & Dispatch - Order {order.name ?? order.orderNumber ?? order.id}
         </CardTitle>
-        <p className="text-muted-foreground text-sm">
-          Put package on hold if needed, or dispatch via rider or courier.
+        <p className="text-sm text-muted-foreground">
+          Put packages on hold when needed, mark readiness, and dispatch via rider or courier.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {packageStatus === null && lookups && (
-          <p className="text-muted-foreground text-sm">Loading package status…</p>
-        )}
-        {lookups && packageStatus !== null && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Hold Status
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              {isOnHold ? `On hold: ${packageStatus?.packageHoldReason?.name ?? "-"}` : "Not on hold"}
+            </p>
+          </div>
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Package Readiness
+            </p>
+            <p className="mt-2 text-sm font-semibold">{isPackageReady ? "Ready to dispatch" : "Not ready"}</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Dispatch Method
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              {dispatchRiderId ? "Rider selected" : dispatchCourierId ? "Courier selected" : "Not selected"}
+            </p>
+          </div>
+        </div>
+
+        {packageStatus === null && lookups ? (
+          <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              Loading package status...
+            </p>
+          </div>
+        ) : null}
+
+        {lookups && packageStatus !== null ? (
           <>
-            {!isPackageReady && (
-              <div className="flex flex-wrap items-center gap-2">
-                {isOnHold ? (
-                <>
-                  <p className="text-muted-foreground text-sm">
-                    On hold: {packageStatus.packageHoldReason?.name ?? "—"}
-                  </p>
-                  <Button
-                    variant="outline"
-                    onClick={() => doAction("revert_hold", { action: "revert_hold" })}
-                    disabled={isBusy}
-                  >
-                    {busyKey === "revert_hold" ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      "Revert Hold"
-                    )}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <select
-                    value={holdReasonId}
-                    onChange={(e) => setHoldReasonId(e.target.value)}
-                    className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Put on hold...</option>
-                    {lookups.packageHoldReasons.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      doAction("put_on_hold", {
-                        action: "put_on_hold",
-                        holdReasonId,
-                      })
-                    }
-                    disabled={isBusy || !holdReasonId}
-                  >
-                    Put on Hold
-                  </Button>
-                  <Button
-                    onClick={() => doAction("mark_ready")}
-                    disabled={isBusy}
-                  >
-                    {busyKey === "mark_ready" ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      "Package is Ready"
-                    )}
-                  </Button>
-                </>
-              )}
+            {!isPackageReady ? (
+              <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
+                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Package Readiness
+                </h3>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Put this order on hold with a reason, or mark it ready to allow dispatch.
+                </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {isOnHold ? (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        On hold: {packageStatus.packageHoldReason?.name ?? "-"}
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => doAction("revert_hold", { action: "revert_hold" })}
+                        disabled={isBusy}
+                      >
+                        {busyKey === "revert_hold" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          "Revert Hold"
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <NativeSelect
+                        value={holdReasonId}
+                        onChange={(e) => setHoldReasonId(e.target.value)}
+                        className="w-[220px] px-3"
+                      >
+                        <option value="">Put on hold...</option>
+                        {lookups.packageHoldReasons.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          doAction("put_on_hold", {
+                            action: "put_on_hold",
+                            holdReasonId,
+                          })
+                        }
+                        disabled={isBusy || !holdReasonId}
+                      >
+                        Put on Hold
+                      </Button>
+                      <Button onClick={() => doAction("mark_ready")} disabled={isBusy}>
+                        {busyKey === "mark_ready" ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          "Package is Ready"
+                        )}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
-            )}
-            <div className={!isPackageReady ? "border-t pt-4" : ""}>
-              {isPackageReady ? (
+            ) : (
+              <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
+                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Dispatch Assignment
+                </h3>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  Select either a rider or courier service to complete dispatch.
+                </p>
+
                 <div className="flex flex-wrap gap-2">
-                  <select
+                  <NativeSelect
                     value={dispatchRiderId}
                     onChange={(e) => {
                       setDispatchRiderId(e.target.value);
                       setDispatchCourierId("");
                     }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="w-[200px] px-3"
                   >
                     <option value="">Select rider</option>
                     {lookups.riders.map((r) => (
@@ -210,14 +254,14 @@ export function FulfillmentDispatchPanel({
                         {r.name ?? r.mobile ?? r.id}
                       </option>
                     ))}
-                  </select>
-                  <select
+                  </NativeSelect>
+                  <NativeSelect
                     value={dispatchCourierId}
                     onChange={(e) => {
                       setDispatchCourierId(e.target.value);
                       setDispatchRiderId("");
                     }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="w-[200px] px-3"
                   >
                     <option value="">Or courier</option>
                     {lookups.courierServices.map((c) => (
@@ -225,7 +269,7 @@ export function FulfillmentDispatchPanel({
                         {c.name}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                   <Button
                     onClick={() =>
                       doAction("dispatch", {
@@ -244,14 +288,10 @@ export function FulfillmentDispatchPanel({
                     Dispatch
                   </Button>
                 </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  To dispatch you need to mark the package readiness.
-                </p>
-              )}
-            </div>
+              </div>
+            )}
           </>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

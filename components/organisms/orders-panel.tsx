@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, Search, ShoppingCart } from "lucide-react";
+import { Check, ChevronsUpDown, Eye, FilterX, Search, ShoppingCart } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { OrderInvoiceViewModal } from "@/components/organisms/order-invoice-view-modal";
 import { Pagination } from "@/components/ui/pagination";
@@ -211,7 +217,7 @@ export function OrdersPanel() {
 
   function formatDate(val: string): string {
     const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return Number.isNaN(d.getTime()) ? "-" : d.toLocaleString("en-LK");
   }
 
   async function handleViewOrder(id: string) {
@@ -237,7 +243,7 @@ export function OrdersPanel() {
   }
 
   function formatAddress(addr: unknown): string {
-    if (!addr || typeof addr !== "object") return "—";
+    if (!addr || typeof addr !== "object") return "-";
     const a = addr as Record<string, unknown>;
     const parts = [
       a.address1,
@@ -246,7 +252,7 @@ export function OrdersPanel() {
       a.country,
       a.zip,
     ].filter(Boolean) as string[];
-    return parts.join(", ") || "—";
+    return parts.join(", ") || "-";
   }
 
   function getAddressPhone(addr: unknown): string | null {
@@ -263,10 +269,20 @@ export function OrdersPanel() {
     return typeof name === "string" && name ? name : null;
   }
 
+  const activeFiltersCount = [locationFilter, sourceFilter, merchantFilter].filter(Boolean).length;
+  const hasFilterChanges = Boolean(search.trim()) || activeFiltersCount > 0;
+
+  function resetFilters() {
+    setSearch("");
+    setLocationFilter("");
+    setSourceFilter("");
+    setMerchantFilter("");
+  }
+
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
+      <Card className="border-border/70 bg-card/95 shadow-sm">
+        <CardHeader className="space-y-4">
           <CardTitle className="flex items-center gap-2">
             <ShoppingCart className="size-5" />
             Orders
@@ -276,59 +292,117 @@ export function OrdersPanel() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
-            <div className="relative flex-1">
-              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input
-                placeholder="Search by order name (e.g. 6008699), #, or customer..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Total Results
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{total}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Orders matching current filters.</p>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Visible On Page
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{orders.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Current page {page} with limit {limit}.
+              </p>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Active Filters
+              </p>
+              <p className="mt-2 text-2xl font-semibold">
+                {activeFiltersCount + (search.trim() ? 1 : 0)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Includes search query and dropdown filters.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Filters
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Narrow down orders by search, location, source channel, and assigned merchant.
+                </p>
+              </div>
+              {hasFilterChanges ? (
+                <Button size="sm" variant="outline" onClick={resetFilters}>
+                  <FilterX className="size-4" aria-hidden />
+                  Reset filters
+                </Button>
+              ) : null}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(420px,1fr)_180px_160px_180px] xl:items-end">
+              <div className="relative md:col-span-2 xl:col-span-1">
+                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                <Input
+                  placeholder="Search by order name (e.g. 6008699), #, or customer..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <MenuFilterSelect
+                className="w-full"
+                value={locationFilter}
+                onChange={setLocationFilter}
+                options={[
+                  { value: "", label: "All locations" },
+                  ...locations.map((location) => ({
+                    value: location.id,
+                    label: location.name,
+                  })),
+                ]}
+              />
+              <MenuFilterSelect
+                className="w-full"
+                value={sourceFilter}
+                onChange={setSourceFilter}
+                options={[
+                  { value: "", label: "All sources" },
+                  { value: "web", label: "Web" },
+                  { value: "pos", label: "POS" },
+                ]}
+              />
+              <MenuFilterSelect
+                className="w-full"
+                value={merchantFilter}
+                onChange={setMerchantFilter}
+                options={[
+                  { value: "", label: "All merchants" },
+                  ...merchants.map((merchant) => ({
+                    value: merchant.id,
+                    label: merchant.name || merchant.email || merchant.id,
+                  })),
+                ]}
               />
             </div>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
-            >
-              <option value="">All locations</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
-            >
-              <option value="">All sources</option>
-              <option value="web">Web</option>
-              <option value="pos">POS</option>
-            </select>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={merchantFilter}
-              onChange={(e) => setMerchantFilter(e.target.value)}
-            >
-              <option value="">All merchants</option>
-              {merchants.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name || m.email || m.id}
-                </option>
-              ))}
-            </select>
           </div>
 
           {loading ? (
             <TableSkeleton columns={9} rows={6} />
           ) : orders.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground text-sm">
-              No orders yet. Orders will appear here when received from Shopify webhooks.
-            </p>
+            <div className="rounded-xl border border-dashed px-4 py-10 text-center">
+              <p className="text-sm font-medium">No orders found</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Try widening your filters or wait for new Shopify orders to sync.
+              </p>
+            </div>
           ) : (
             <>
+              <div>
+                <p className="text-sm font-medium">Order List</p>
+                <p className="text-xs text-muted-foreground">
+                  Click <span className="font-medium">View</span> to inspect invoice details, fulfillment progress, and remarks.
+                </p>
+              </div>
               <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead>
@@ -385,7 +459,7 @@ export function OrdersPanel() {
                   <tbody>
                     {orders.map((order) => (
                       <tr key={order.id} className="border-b last:border-0">
-                        <td className="px-4 py-2 font-medium">{order.name ?? order.orderNumber ?? "—"}</td>
+                        <td className="px-4 py-2 font-medium">{order.name ?? order.orderNumber ?? "-"}</td>
                         <td className="px-4 py-2">
                           <span
                             className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${
@@ -399,24 +473,24 @@ export function OrdersPanel() {
                         </td>
                         <td className="px-4 py-2">
                           <div className="max-w-[180px] truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
-                            {order.customerEmail ?? order.customerPhone ?? "—"}
+                            {order.customerEmail ?? order.customerPhone ?? "-"}
                           </div>
                         </td>
                         <td className="px-4 py-2 text-right">{formatPrice(order.totalPrice)}</td>
                         <td className="px-4 py-2">
                           <span className="text-muted-foreground text-xs">
-                            {order.financialStatus ?? "—"} / {order.fulfillmentStatus ?? "—"}
+                            {order.financialStatus ?? "-"} / {order.fulfillmentStatus ?? "-"}
                           </span>
                         </td>
                         <td className="px-4 py-2">
                           <span className="text-muted-foreground text-xs">
                             {order.fulfillmentStage
                               ? FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage
-                              : "—"}
+                              : "-"}
                           </span>
                         </td>
-                        <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
-                        <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}</td>
+                        <td className="px-4 py-2">{order.companyLocation?.name ?? "-"}</td>
+                        <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "-"}</td>
                         <td className="px-4 py-2 text-muted-foreground">{formatDate(order.createdAt)}</td>
                         <td className="px-4 py-2">
                           <Button
@@ -464,5 +538,54 @@ export function OrdersPanel() {
         getAddressPhone={getAddressPhone}
       />
     </div>
+  );
+}
+
+type MenuFilterOption = {
+  value: string;
+  label: string;
+};
+
+function MenuFilterSelect({
+  value,
+  onChange,
+  options,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: MenuFilterOption[];
+  className?: string;
+}) {
+  const selectedLabel =
+    options.find((option) => option.value === value)?.label ?? options[0]?.label ?? "Select";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={`border-input bg-background/90 hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-11 w-full items-center justify-between rounded-xl border border-border/70 px-4 text-left text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] dark:bg-input/40 ${className ?? ""}`}
+        >
+          <span>{selectedLabel}</span>
+          <ChevronsUpDown className="text-muted-foreground size-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-72 overflow-y-auto"
+      >
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value || "empty"}
+            onSelect={() => onChange(option.value)}
+            className="justify-between"
+          >
+            <span>{option.label}</span>
+            {value === option.value ? <Check className="size-4" aria-hidden /> : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

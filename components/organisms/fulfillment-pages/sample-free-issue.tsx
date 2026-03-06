@@ -24,6 +24,12 @@ export function SampleFreeIssueFulfillmentPage() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border bg-card/95 p-5 shadow-sm sm:p-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Sample / Free Issue</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Select an order, add sample or free issue items, and move the order to the next fulfillment step when done.
+        </p>
+      </div>
       <FulfillmentOrderSelector
         title="Sample / Free Issue"
         description="Select an order to add samples or free issues. No print option here."

@@ -119,7 +119,7 @@ interface OrderInvoiceViewModalProps {
 }
 
 function userName(u: UserRef): string {
-  return u ? (u.name ?? u.email ?? "—") : "—";
+  return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
 type TimelineItem = {
@@ -141,7 +141,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     id: "order_received",
     label: "Order Received",
     date: orderDetail.createdAt,
-    who: "—",
+    who: "-",
     done: true,
     icon: <ShoppingCart className="size-4" />,
   });
@@ -169,15 +169,15 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
           : earliest
             ? `Added on ${formatDate(earliest)}`
             : "";
-    const itemsList = samples.map((s) => `${s.sampleFreeIssueItem.name} × ${s.quantity}`).join("; ");
+    const itemsList = samples.map((s) => `${s.sampleFreeIssueItem.name} x ${s.quantity}`).join("; ");
     items.push({
       id: "sample_free_issue",
       label: "Sample / Free Issue",
       date: earliest ?? null,
-      who: whoStr || "—",
+      who: whoStr || "-",
       done: true,
       icon: <Package className="size-4" />,
-      detail: [itemsList, addedByLine].filter(Boolean).join(" • "),
+      detail: [itemsList, addedByLine].filter(Boolean).join(" | "),
     });
   } else if (orderDetail.sampleFreeIssueCompleteAt || orderDetail.sampleFreeIssueCompleteBy) {
     // Stage completed without adding samples (Finish Samples & Extras clicked)
@@ -185,7 +185,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       id: "sample_free_issue",
       label: "Sample / Free Issue",
       date: orderDetail.sampleFreeIssueCompleteAt ?? null,
-      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "—",
+      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
       done: true,
       icon: <Package className="size-4" />,
     });
@@ -194,7 +194,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       id: "sample_free_issue",
       label: "Sample / Free Issue",
       date: null,
-      who: "—",
+      who: "-",
       done: false,
       icon: <Package className="size-4" />,
     });
@@ -206,7 +206,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     id: "print",
     label: "Print",
     date: orderDetail.lastPrintedAt ?? null,
-    who: orderDetail.lastPrintedBy ? userName(orderDetail.lastPrintedBy) : "—",
+    who: orderDetail.lastPrintedBy ? userName(orderDetail.lastPrintedBy) : "-",
     done: printed,
     icon: <Printer className="size-4" />,
     detail: printed ? `Printed ${orderDetail.printCount} time(s)` : undefined,
@@ -219,10 +219,10 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     id: "package_ready",
     label: "Package Ready",
     date: orderDetail.packageReadyAt ?? orderDetail.packageOnHoldAt ?? null,
-    who: orderDetail.packageReadyBy ? userName(orderDetail.packageReadyBy) : "—",
+    who: orderDetail.packageReadyBy ? userName(orderDetail.packageReadyBy) : "-",
     done: packageReady || onHold,
     icon: onHold ? <AlertTriangle className="size-4" /> : <Package className="size-4" />,
-    detail: onHold ? `On hold: ${orderDetail.packageHoldReason?.name ?? "—"}` : undefined,
+    detail: onHold ? `On hold: ${orderDetail.packageHoldReason?.name ?? "-"}` : undefined,
     onHold,
   });
 
@@ -230,24 +230,24 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
   const dispatched = !!orderDetail.dispatchedAt;
   const riderOrCourier = orderDetail.dispatchedByRider
     ? orderDetail.dispatchedByRider.name ?? orderDetail.dispatchedByRider.mobile ?? "Rider"
-    : orderDetail.dispatchedByCourierService?.name ?? "—";
+    : orderDetail.dispatchedByCourierService?.name ?? "-";
   items.push({
     id: "dispatched",
     label: "Dispatched",
     date: orderDetail.dispatchedAt ?? null,
     who: dispatched
-      ? `${userName(orderDetail.dispatchedBy ?? null)} → ${riderOrCourier}`
-      : "—",
+      ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${riderOrCourier}`
+      : "-",
     done: dispatched,
     icon: <Truck className="size-4" />,
   });
 
-  // 6. Invoice Delivered
+  // 6. Delivery Complete
   items.push({
     id: "invoice_delivered",
-    label: "Invoice Delivered",
+    label: "Delivery Complete",
     date: orderDetail.deliveryCompleteAt ?? null,
-    who: orderDetail.deliveryCompleteBy ? userName(orderDetail.deliveryCompleteBy) : "—",
+    who: orderDetail.deliveryCompleteBy ? userName(orderDetail.deliveryCompleteBy) : "-",
     done: !!orderDetail.deliveryCompleteAt,
     icon: <PackageCheck className="size-4" />,
   });
@@ -257,7 +257,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     id: "invoice_complete",
     label: "Invoice Completed",
     date: orderDetail.invoiceCompleteAt ?? null,
-    who: orderDetail.invoiceCompleteBy ? userName(orderDetail.invoiceCompleteBy) : "—",
+    who: orderDetail.invoiceCompleteBy ? userName(orderDetail.invoiceCompleteBy) : "-",
     done: !!orderDetail.invoiceCompleteAt,
     icon: <Check className="size-4" />,
   });
@@ -321,7 +321,7 @@ export function OrderInvoiceViewModal({
             Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}
           </DialogTitle>
           <DialogDescription>
-            Invoice timeline — view only
+            Invoice timeline - view only
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -393,7 +393,7 @@ export function OrderInvoiceViewModal({
                         )}
                       </div>
                       <p className="text-muted-foreground mt-0.5 text-sm">
-                        {item.who !== "—" ? `by ${item.who}` : "—"}
+                        {item.who !== "-" ? `by ${item.who}` : "-"}
                       </p>
                       {item.detail && (
                         <p className="text-muted-foreground mt-1 text-xs">{item.detail}</p>
@@ -415,14 +415,14 @@ export function OrderInvoiceViewModal({
                   </div>
                   <div>
                     <span className="text-muted-foreground text-xs">Location</span>
-                    <p>{orderDetail.companyLocation?.name ?? "—"}</p>
+                    <p>{orderDetail.companyLocation?.name ?? "-"}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground text-xs">Customer</span>
                     <p>
                       {getCustomerName(orderDetail.shippingAddress) ??
                         getCustomerName(orderDetail.billingAddress) ??
-                        "—"}
+                        "-"}
                     </p>
                   </div>
                   <div>
@@ -431,7 +431,7 @@ export function OrderInvoiceViewModal({
                       {orderDetail.customerEmail ??
                         orderDetail.customerPhone ??
                         getAddressPhone(orderDetail.shippingAddress) ??
-                        "—"}
+                        "-"}
                     </p>
                   </div>
                   <div className="sm:col-span-2">
@@ -489,9 +489,9 @@ export function OrderInvoiceViewModal({
                         <span className="font-medium">
                           [{STAGE_LABELS[r.stage] ?? r.stage}] {r.type}
                         </span>
-                        <span className="mx-2">•</span>
+                        <span className="mx-2">|</span>
                         <span>
-                          Added by {r.addedBy ? (r.addedBy.name ?? r.addedBy.email ?? "—") : "—"}
+                          Added by {r.addedBy ? (r.addedBy.name ?? r.addedBy.email ?? "-") : "-"}
                           {r.createdAt ? ` on ${formatDate(r.createdAt)}` : ""}
                         </span>
                         {r.showOnInvoice && (

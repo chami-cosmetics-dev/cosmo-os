@@ -3,9 +3,10 @@
 import { usePathname } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatsSkeleton } from "./stats-skeleton";
 import { TableSkeleton } from "./table-skeleton";
 import { CardSkeleton } from "./card-skeleton";
+import { DashboardFiltersSkeleton } from "./dashboard-filters-skeleton";
+import { MerchantChartSkeleton } from "./merchant-chart-skeleton";
 
 /**
  * Renders a skeleton that matches the layout of the target page.
@@ -18,7 +19,14 @@ export function PageSkeleton() {
   if (pathname === "/dashboard" || pathname === "/dashboard/") {
     return (
       <div className="space-y-6">
-        <StatsSkeleton count={3} />
+        <DashboardFiltersSkeleton />
+        <div className="space-y-4">
+          <div>
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="mt-2 h-4 w-96 max-w-full" />
+          </div>
+          <MerchantChartSkeleton />
+        </div>
         <Card>
           <CardHeader>
             <Skeleton className="h-5 w-32" />

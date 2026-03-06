@@ -46,7 +46,6 @@ export async function GET(
       invoiceCompleteBy: { select: { id: true, name: true, email: true } },
       deliveryCompleteBy: { select: { id: true, name: true, email: true } },
       lastPrintedBy: { select: { id: true, name: true, email: true } },
-      sampleFreeIssueCompleteBy: { select: { id: true, name: true, email: true } },
       sampleFreeIssues: {
         include: {
           sampleFreeIssueItem: { select: { id: true, name: true, type: true } },
@@ -132,7 +131,7 @@ export async function GET(
     lastPrintedAt: order.lastPrintedAt?.toISOString() ?? null,
     lastPrintedBy: order.lastPrintedBy ? { id: order.lastPrintedBy.id, name: order.lastPrintedBy.name, email: order.lastPrintedBy.email } : null,
     sampleFreeIssueCompleteAt: order.sampleFreeIssueCompleteAt?.toISOString() ?? null,
-    sampleFreeIssueCompleteBy: order.sampleFreeIssueCompleteBy ? { id: order.sampleFreeIssueCompleteBy.id, name: order.sampleFreeIssueCompleteBy.name, email: order.sampleFreeIssueCompleteBy.email } : null,
+    sampleFreeIssueCompleteBy: null,
     sampleFreeIssues: order.sampleFreeIssues.map((s) => ({
       id: s.id,
       sampleFreeIssueItem: s.sampleFreeIssueItem,

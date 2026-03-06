@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { PasswordStrengthIndicator } from "@/components/molecules/password-strength-indicator";
 import { notify } from "@/lib/notify";
 import { isPasswordStrong } from "@/lib/password-strength";
@@ -167,19 +168,18 @@ export function InviteActivateForm({
         <label htmlFor="gender" className="text-sm font-medium">
           Gender
         </label>
-        <select
+        <NativeSelect
           id="gender"
           value={gender}
           onChange={(e) => setGender(e.target.value)}
           disabled={status === "loading"}
-          className="border-input bg-transparent h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs"
         >
           {GENDER_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
       <div className="space-y-2">
         <label htmlFor="dateOfBirth" className="text-sm font-medium">
@@ -266,19 +266,18 @@ export function InviteActivateForm({
             <label htmlFor="employeeSize" className="text-sm font-medium">
               Employee size
             </label>
-            <select
+            <NativeSelect
               id="employeeSize"
               value={employeeSize}
               onChange={(e) => setEmployeeSize(e.target.value)}
               disabled={status === "loading"}
-              className="border-input bg-transparent h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs"
             >
               {EMPLOYEE_SIZE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
           <div className="space-y-2">
             <label htmlFor="address" className="text-sm font-medium">

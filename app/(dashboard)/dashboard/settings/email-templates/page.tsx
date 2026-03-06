@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Mail, Sparkles } from "lucide-react";
 
 import { EmailTemplatesSettingsForm } from "@/components/molecules/email-templates-settings-form";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,29 @@ export default async function EmailTemplatesSettingsPage() {
             Settings
           </Link>
         </Button>
+      </div>
+      <div className="rounded-xl border bg-card/95 p-5 shadow-sm sm:p-6">
+        <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+          <Mail className="size-3.5" aria-hidden />
+          Template Center
+        </div>
+        <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Email Templates</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Configure and maintain staff notification emails with reusable placeholders.
+            </p>
+          </div>
+          <div className="rounded-lg border bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+            <p className="inline-flex items-center gap-2 font-medium text-foreground">
+              <Sparkles className="size-4 text-sky-700" aria-hidden />
+              Resignation notice is currently available
+            </p>
+            <p className="mt-1 text-xs">
+              Add placeholders like <code>{"{{staffName}}"}</code> and <code>{"{{resignationDate}}"}</code>.
+            </p>
+          </div>
+        </div>
       </div>
       <EmailTemplatesSettingsForm
         canEdit={canManageEmailTemplates}
