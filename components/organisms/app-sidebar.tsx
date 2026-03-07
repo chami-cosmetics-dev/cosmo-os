@@ -10,6 +10,7 @@ import {
   PackageCheck,
   Settings,
   ShoppingCart,
+  Sticker,
   Tags,
   Users,
   UserCircle,
@@ -150,6 +151,17 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   <Link href="/dashboard/fulfillment/sample-free-issue">
                     <PackageCheck className="size-4" />
                     <span>Fulfillment</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/sticker-batch"}
+                >
+                  <Link href="/dashboard/sticker-batch">
+                    <Sticker className="size-4" />
+                    <span>Sticker Batch</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

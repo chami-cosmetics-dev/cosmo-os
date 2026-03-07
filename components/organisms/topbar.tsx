@@ -25,10 +25,12 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
         ? "Settings"
         : pathname === "/dashboard/profile"
           ? "Profile"
-          : pathname === "/dashboard/products/items"
-            ? "Product Items"
-            : pathname === "/dashboard/products/vendors-categories"
-              ? "Vendors & Categories"
+      : pathname === "/dashboard/products/items"
+        ? "Product Items"
+        : pathname === "/dashboard/products/vendors-categories"
+          ? "Vendors & Categories"
+          : pathname === "/dashboard/sticker-batch"
+            ? "Sticker Batch"
               : title;
 
   return (
