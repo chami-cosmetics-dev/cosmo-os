@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { notify } from "@/lib/notify";
 
 const STAGES = [
@@ -303,8 +304,8 @@ export function OrderFulfillmentDetail({
                   </ul>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <select
-                    className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
+                  <NativeSelect
+                    className="w-[200px] px-3"
                     onChange={(e) => {
                       const v = e.target.value;
                       if (v && !selectedSamples.some((x) => x.id === v)) {
@@ -319,7 +320,7 @@ export function OrderFulfillmentDetail({
                         {item.name} ({item.type})
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                   {selectedSamples.map((s) => (
                     <div key={s.id} className="flex items-center gap-1">
                       <span className="text-sm">
@@ -426,10 +427,10 @@ export function OrderFulfillmentDetail({
                   <div className="flex gap-2">
                     {lookups && (
                       <>
-                        <select
+                        <NativeSelect
                           value={holdReasonId}
                           onChange={(e) => setHoldReasonId(e.target.value)}
-                          className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
+                          className="w-[200px] px-3"
                         >
                           <option value="">Put on hold...</option>
                           {lookups.packageHoldReasons.map((r) => (
@@ -437,7 +438,7 @@ export function OrderFulfillmentDetail({
                               {r.name}
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                         <Button
                           variant="outline"
                           onClick={() =>
@@ -480,10 +481,10 @@ export function OrderFulfillmentDetail({
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Dispatch</h4>
                 <div className="flex flex-wrap gap-2">
-                  <select
+                  <NativeSelect
                     value={dispatchRiderId}
                     onChange={(e) => { setDispatchRiderId(e.target.value); setDispatchCourierId(""); }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="w-[180px] px-3"
                   >
                     <option value="">Select rider</option>
                     {lookups.riders.map((r) => (
@@ -491,11 +492,11 @@ export function OrderFulfillmentDetail({
                         {r.name ?? r.mobile ?? r.id}
                       </option>
                     ))}
-                  </select>
-                  <select
+                  </NativeSelect>
+                  <NativeSelect
                     value={dispatchCourierId}
                     onChange={(e) => { setDispatchCourierId(e.target.value); setDispatchRiderId(""); }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="w-[180px] px-3"
                   >
                     <option value="">Or courier</option>
                     {lookups.courierServices.map((c) => (
@@ -503,7 +504,7 @@ export function OrderFulfillmentDetail({
                         {c.name}
                       </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                   <Button
                     onClick={() =>
                       doFulfillmentAction("dispatch", {
@@ -587,25 +588,25 @@ export function OrderFulfillmentDetail({
                 </ul>
               )}
               <div className="flex flex-wrap gap-2">
-                <select
+                <NativeSelect
                   value={remarkStage}
                   onChange={(e) => setRemarkStage(e.target.value as FulfillmentStage)}
-                  className="h-9 w-[160px] rounded-md border border-input bg-background px-3 text-sm"
+                  className="w-[160px] px-3"
                 >
                   {STAGES.map((s) => (
                     <option key={s} value={s}>
                       {STAGE_LABELS[s]}
                     </option>
                   ))}
-                </select>
-                <select
+                </NativeSelect>
+                <NativeSelect
                   value={remarkType}
                   onChange={(e) => setRemarkType(e.target.value as "internal" | "external")}
-                  className="h-9 w-[120px] rounded-md border border-input bg-background px-3 text-sm"
+                  className="w-[120px] px-3"
                 >
                   <option value="internal">Internal</option>
                   <option value="external">External</option>
-                </select>
+                </NativeSelect>
                 <Input
                   placeholder="Remark..."
                   value={remarkContent}

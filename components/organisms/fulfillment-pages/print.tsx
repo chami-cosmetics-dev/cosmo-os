@@ -24,9 +24,14 @@ export function PrintFulfillmentPage({
   }, []);
 
   return (
-    <FulfillmentPermissionsProvider permissions={permissions}>
-      <div className="space-y-6">
-        <FulfillmentOrderSelector
+    <div className="space-y-6">
+      <div className="rounded-xl border bg-card/95 p-5 shadow-sm sm:p-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Order Print</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Select an order, print the invoice, and continue fulfillment from the Ready to Dispatch step.
+        </p>
+      </div>
+      <FulfillmentOrderSelector
         title="Order Print"
         description="Select an order to print the invoice. Shows all orders past sample/free issue stage for printing or duplicate copies."
         stages="print,ready_to_dispatch,dispatched,delivery_complete"

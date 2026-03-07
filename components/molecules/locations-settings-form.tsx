@@ -1,10 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Building2,
+  Check,
+  ChevronsUpDown,
+  Link2,
+  Loader2,
+  MapPin,
+  Pencil,
+  Plus,
+  Store,
+  Trash2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
 import { LogoUpload } from "@/components/molecules/logo-upload";
@@ -61,7 +78,11 @@ interface LocationsSettingsFormProps {
   merchants?: Merchant[];
 }
 
-export function LocationsSettingsForm({ canEdit, initialLocations, merchants: initialMerchants = [] }: LocationsSettingsFormProps) {
+export function LocationsSettingsForm({
+  canEdit,
+  initialLocations,
+  merchants: initialMerchants = [],
+}: LocationsSettingsFormProps) {
   const [locations, setLocations] = useState<Location[]>(initialLocations ?? []);
   const [merchants, setMerchants] = useState<Merchant[]>(initialMerchants);
   const [loading, setLoading] = useState(initialLocations === undefined);
@@ -74,6 +95,11 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
+  const linkedShopifyCount = locations.filter(
+    (location) =>
+      location.shopifyLocationId || location.shopifyShopName || location.shopifyAdminStoreHandle
+  ).length;
+  const assignedMerchantCount = locations.filter((location) => location.defaultMerchantUserId).length;
 
   async function fetchLocations() {
     const res = await fetch("/api/admin/company/locations");
@@ -82,6 +108,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       notify.error(data.error ?? "Failed to load locations");
       return;
     }
+
     const data = (await res.json()) as { locations: Location[]; merchants: Merchant[] };
     setLocations(data.locations);
     setMerchants(data.merchants ?? []);
@@ -93,6 +120,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       setMerchants(initialMerchants);
       return;
     }
+
     async function load() {
       try {
         await fetchLocations();
@@ -102,6 +130,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
         setLoading(false);
       }
     }
+
     load();
   }, [initialLocations, initialMerchants]);
 
@@ -121,15 +150,12 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       });
 
       const data = (await res.json()) as Location & { error?: string };
-
       if (!res.ok) {
         notify.error(data.error ?? "Failed to add location");
         return;
       }
 
-      setLocations((prev) =>
-        [...prev, data].sort((a, b) => a.name.localeCompare(b.name))
-      );
+      setLocations((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewName("");
       setNewAddress("");
       notify.success("Location added.");
@@ -174,28 +200,33 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
     setForm(emptyForm());
   }
 
-  const editingLocation = editingId ? locations.find((l) => l.id === editingId) : null;
+  const editingLocation = editingId ? locations.find((location) => location.id === editingId) : null;
   const sheetHasChanges =
     sheetMode === "add"
-      ? (form.name?.trim() ?? "") !== "" // Add: at least name required
+      ? (form.name?.trim() ?? "") !== ""
       : editingLocation
-        ? (form.name?.trim() ?? "") !== (editingLocation.name ?? "").trim() ||
+        ? (form.name?.trim() ?? "") !== editingLocation.name.trim() ||
           (form.logoUrl ?? null) !== (editingLocation.logoUrl ?? null) ||
           (form.address?.trim() ?? "") !== (editingLocation.address ?? "").trim() ||
           (form.shortName?.trim() ?? "") !== (editingLocation.shortName ?? "").trim() ||
           (form.invoiceHeader?.trim() ?? "") !== (editingLocation.invoiceHeader ?? "").trim() ||
-          (form.invoiceSubHeader?.trim() ?? "") !== (editingLocation.invoiceSubHeader ?? "").trim() ||
+          (form.invoiceSubHeader?.trim() ?? "") !==
+            (editingLocation.invoiceSubHeader ?? "").trim() ||
           (form.invoiceFooter?.trim() ?? "") !== (editingLocation.invoiceFooter ?? "").trim() ||
           (form.invoicePhone?.trim() ?? "") !== (editingLocation.invoicePhone ?? "").trim() ||
           (form.invoiceEmail?.trim() ?? "") !== (editingLocation.invoiceEmail ?? "").trim() ||
-          (form.shopifyLocationId?.trim() ?? "") !== (editingLocation.shopifyLocationId ?? "").trim() ||
-          (form.shopifyShopName?.trim() ?? "") !== (editingLocation.shopifyShopName ?? "").trim() ||
-          (form.shopifyAdminStoreHandle?.trim() ?? "") !== (editingLocation.shopifyAdminStoreHandle ?? "").trim() ||
-          (form.defaultMerchantUserId ?? null) !== (editingLocation.defaultMerchantUserId ?? null)
+          (form.shopifyLocationId?.trim() ?? "") !==
+            (editingLocation.shopifyLocationId ?? "").trim() ||
+          (form.shopifyShopName?.trim() ?? "") !==
+            (editingLocation.shopifyShopName ?? "").trim() ||
+          (form.shopifyAdminStoreHandle?.trim() ?? "") !==
+            (editingLocation.shopifyAdminStoreHandle ?? "").trim() ||
+          (form.defaultMerchantUserId ?? null) !==
+            (editingLocation.defaultMerchantUserId ?? null)
         : false;
 
   async function handleLocationLogoChange(url: string | null) {
-    setForm((f) => ({ ...f, logoUrl: url }));
+    setForm((current) => ({ ...current, logoUrl: url }));
     if (!editingId || !form.name?.trim()) return;
 
     setBusyKey(`save-logo-${editingId}`);
@@ -215,20 +246,21 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
         shopifyAdminStoreHandle: form.shopifyAdminStoreHandle?.trim() || undefined,
         defaultMerchantUserId: form.defaultMerchantUserId || null,
       };
+
       const res = await fetch(`/api/admin/company/locations/${editingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
       const data = (await res.json()) as Location & { error?: string };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to save logo");
         return;
       }
+
       setLocations((prev) =>
-        prev
-          .map((l) => (l.id === editingId ? data : l))
-          .sort((a, b) => a.name.localeCompare(b.name))
+        prev.map((location) => (location.id === editingId ? data : location)).sort((a, b) => a.name.localeCompare(b.name))
       );
     } catch {
       notify.error("Failed to save logo");
@@ -267,14 +299,14 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+
         const data = (await res.json()) as Location & { error?: string };
         if (!res.ok) {
           notify.error(data.error ?? "Failed to add location");
           return;
         }
-        setLocations((prev) =>
-          [...prev, data].sort((a, b) => a.name.localeCompare(b.name))
-        );
+
+        setLocations((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
         closeSheet();
         notify.success("Location added.");
       } catch {
@@ -282,31 +314,34 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       } finally {
         setBusyKey(null);
       }
-    } else if (editingId) {
-      setBusyKey(`update-${editingId}`);
-      try {
-        const res = await fetch(`/api/admin/company/locations/${editingId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = (await res.json()) as Location & { error?: string };
-        if (!res.ok) {
-          notify.error(data.error ?? "Failed to update location");
-          return;
-        }
-        setLocations((prev) =>
-          prev
-            .map((l) => (l.id === editingId ? data : l))
-            .sort((a, b) => a.name.localeCompare(b.name))
-        );
-        closeSheet();
-        notify.success("Location updated.");
-      } catch {
-        notify.error("Failed to update location");
-      } finally {
-        setBusyKey(null);
+      return;
+    }
+
+    if (!editingId) return;
+
+    setBusyKey(`update-${editingId}`);
+    try {
+      const res = await fetch(`/api/admin/company/locations/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = (await res.json()) as Location & { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to update location");
+        return;
       }
+
+      setLocations((prev) =>
+        prev.map((location) => (location.id === editingId ? data : location)).sort((a, b) => a.name.localeCompare(b.name))
+      );
+      closeSheet();
+      notify.success("Location updated.");
+    } catch {
+      notify.error("Failed to update location");
+    } finally {
+      setBusyKey(null);
     }
   }
 
@@ -326,7 +361,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
         return;
       }
 
-      setLocations((prev) => prev.filter((l) => l.id !== id));
+      setLocations((prev) => prev.filter((location) => location.id !== id));
       if (editingId === id) closeSheet();
       notify.success("Location deleted.");
     } catch {
@@ -338,14 +373,14 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
 
   if (loading) {
     return (
-      <Card>
+      <Card className="border-border/70 bg-card/95 shadow-sm">
         <CardHeader>
           <CardTitle>Company Locations</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Loading...
+            Loading location settings...
           </div>
         </CardContent>
       </Card>
@@ -354,36 +389,86 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Company Locations</CardTitle>
-          <p className="text-muted-foreground text-sm">
-            Manage office branches, Shopify links, and invoice details per
-            location.
-          </p>
+      <Card className="border-border/70 bg-card/95 shadow-sm">
+        <CardHeader className="space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+            <Store className="size-3.5" aria-hidden />
+            Branch Management
+          </div>
+          <div>
+            <CardTitle>Company Locations</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Manage office branches, Shopify links, and invoice details for each location.
+            </p>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {canEdit && (
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <form
-                onSubmit={handleAdd}
-                className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-end"
-              >
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Total Branches
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{locations.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Offices and stores configured for this company.
+              </p>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Shopify Linked
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{linkedShopifyCount}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Locations with a Shopify connection already saved.
+              </p>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Default Merchants
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{assignedMerchantCount}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Branches with a default web-order assignment.
+              </p>
+            </div>
+          </div>
+
+          {canEdit ? (
+            <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <Plus className="size-4 text-sky-700" aria-hidden />
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Add Location
+                </h3>
+              </div>
+              <form onSubmit={handleAdd} className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div className="flex-1 space-y-2">
-                  <Input
-                    placeholder="Location name"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    disabled={isBusy}
-                    maxLength={200}
-                  />
-                  <Input
-                    placeholder="Address (optional)"
-                    value={newAddress}
-                    onChange={(e) => setNewAddress(e.target.value)}
-                    disabled={isBusy}
-                    maxLength={500}
-                  />
+                  <div className="space-y-1.5">
+                    <label htmlFor="new-location-name" className="text-sm font-medium">
+                      Location name
+                    </label>
+                    <Input
+                      id="new-location-name"
+                      placeholder="Enter branch or office name"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      disabled={isBusy}
+                      maxLength={200}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="new-location-address" className="text-sm font-medium">
+                      Address
+                    </label>
+                    <Input
+                      id="new-location-address"
+                      placeholder="Optional street or office address"
+                      value={newAddress}
+                      onChange={(e) => setNewAddress(e.target.value)}
+                      disabled={isBusy}
+                      maxLength={500}
+                    />
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button type="submit" disabled={isBusy || !newName.trim()}>
@@ -408,48 +493,79 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                 </div>
               </form>
             </div>
-          )}
+          ) : null}
 
-          <ul className="space-y-2">
-            {locations.map((loc) => (
+          <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Configured Locations
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Review each branch, its invoice identity, and linked Shopify store details.
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {locations.length === 0 ? "No saved locations yet" : `${locations.length} locations saved`}
+              </p>
+            </div>
+
+            <ul className="space-y-3">
+            {locations.map((location) => (
               <li
-                key={loc.id}
-                className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                key={location.id}
+                className="flex flex-col gap-4 rounded-xl border bg-background/80 p-4 sm:flex-row sm:items-start sm:justify-between"
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
-                    {loc.logoUrl ? (
-                      <CloudinaryLogo src={loc.logoUrl} alt="" width={40} height={40} className="size-full object-contain" />
+                  <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+                    {location.logoUrl ? (
+                      <CloudinaryLogo
+                        src={location.logoUrl}
+                        alt=""
+                        width={40}
+                        height={40}
+                        className="size-full object-contain"
+                      />
                     ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
+                      <Building2 className="size-5 text-muted-foreground" aria-hidden />
                     )}
                   </div>
-                  <div>
-                    <p className="font-medium">{loc.name}</p>
-                  {loc.shortName && (
-                    <p className="text-muted-foreground text-xs">
-                      Short name: {loc.shortName} (for SMS)
-                    </p>
-                  )}
-                  {loc.address && (
-                    <p className="text-muted-foreground text-sm">
-                      {loc.address}
-                    </p>
-                  )}
-                  {(loc.shopifyLocationId || loc.shopifyShopName || loc.shopifyAdminStoreHandle) && (
-                    <p className="text-muted-foreground text-xs">
-                      Shopify: {loc.shopifyAdminStoreHandle ?? loc.shopifyShopName ?? "—"} (
-                      {loc.shopifyLocationId ?? "—"})
-                    </p>
-                  )}
+                  <div className="space-y-1">
+                    <p className="font-medium">{location.name}</p>
+                    {location.shortName ? (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="rounded-full bg-muted px-2 py-0.5">
+                          SMS: {location.shortName}
+                        </span>
+                      </p>
+                    ) : null}
+                    {location.address ? (
+                      <p className="flex items-start gap-1 text-sm text-muted-foreground">
+                        <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                        <span>{location.address}</span>
+                      </p>
+                    ) : null}
+                    {location.shopifyLocationId ||
+                    location.shopifyShopName ||
+                    location.shopifyAdminStoreHandle ? (
+                      <p className="flex items-start gap-1 text-xs text-muted-foreground">
+                        <Link2 className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                        <span>
+                          Shopify:{" "}
+                          {location.shopifyAdminStoreHandle ?? location.shopifyShopName ?? "-"} (
+                          {location.shopifyLocationId ?? "-"})
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
                 </div>
-                {canEdit && (
+
+                {canEdit ? (
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => openEditSheet(loc)}
+                      onClick={() => openEditSheet(location)}
                       disabled={isBusy}
                     >
                       <Pencil className="size-4" aria-hidden />
@@ -458,36 +574,37 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => handleDelete(loc.id, loc.name)}
+                      onClick={() => handleDelete(location.id, location.name)}
                       disabled={isBusy}
                     >
-                      {busyKey === `delete-${loc.id}` ? (
+                      {busyKey === `delete-${location.id}` ? (
                         <Loader2 className="size-4 animate-spin" aria-hidden />
                       ) : (
                         <Trash2 className="size-4" aria-hidden />
                       )}
                     </Button>
                   </div>
-                )}
+                ) : null}
               </li>
             ))}
-          </ul>
+            </ul>
 
-          {locations.length === 0 && (
-            <p className="text-muted-foreground text-sm">No locations added yet.</p>
-          )}
+            {locations.length === 0 ? (
+              <div className="rounded-xl border border-dashed px-4 py-8 text-center">
+                <p className="text-sm font-medium">No locations added yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Add your first branch to configure invoicing, Shopify links, and merchant assignment.
+                </p>
+              </div>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col overflow-y-auto sm:max-w-lg"
-        >
+        <SheetContent side="right" className="flex w-full flex-col overflow-y-auto sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>
-              {sheetMode === "add" ? "Add Location" : "Edit Location"}
-            </SheetTitle>
+            <SheetTitle>{sheetMode === "add" ? "Add Location" : "Edit Location"}</SheetTitle>
             <SheetDescription>
               {sheetMode === "add"
                 ? "Add a new company location with Shopify and invoice details."
@@ -496,7 +613,19 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
           </SheetHeader>
 
           <div className="flex flex-1 flex-col gap-6 py-4">
-            {canEdit && editingId && (
+            {sheetMode === "edit" && editingLocation ? (
+              <div className="rounded-xl border bg-muted/20 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Editing location
+                </p>
+                <p className="mt-1 text-sm font-medium">{editingLocation.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Update branch identity, invoice presentation, Shopify link, and order assignment.
+                </p>
+              </div>
+            ) : null}
+
+            {canEdit && editingId ? (
               <LogoUpload
                 value={form.logoUrl ?? null}
                 onChange={handleLocationLogoChange}
@@ -505,173 +634,316 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                 disabled={isBusy}
                 label="Location logo"
               />
-            )}
-            {canEdit && sheetMode === "add" && (
-              <p className="text-muted-foreground text-sm">
+            ) : null}
+            {canEdit && sheetMode === "add" ? (
+              <p className="text-sm text-muted-foreground">
                 Add a logo after creating the location.
               </p>
-            )}
-            {!canEdit && form.logoUrl && (
+            ) : null}
+            {!canEdit && form.logoUrl ? (
               <div className="space-y-2">
                 <label className="text-sm font-medium">Location logo</label>
                 <div className="flex size-20 overflow-hidden rounded-lg border bg-muted">
-                  <CloudinaryLogo src={form.logoUrl} alt="Location logo" className="size-full object-contain" />
+                  <CloudinaryLogo
+                    src={form.logoUrl}
+                    alt="Location logo"
+                    width={80}
+                    height={80}
+                    className="size-full object-contain"
+                  />
                 </div>
               </div>
-            )}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Basic</h4>
-              <Input
-                placeholder="Location name *"
-                value={form.name ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                disabled={isBusy}
-                maxLength={200}
-              />
-              <Input
-                placeholder="Address"
-                value={form.address ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                disabled={isBusy}
-                maxLength={500}
-              />
-              <Input
-                placeholder="Short name (for SMS)"
-                value={form.shortName ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, shortName: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={50}
-              />
+            ) : null}
+
+            <div className="space-y-4 rounded-xl border bg-background/70 p-4">
+              <div>
+                <h4 className="text-sm font-semibold">Basic Details</h4>
+                <p className="text-xs text-muted-foreground">
+                  Set the name customers and staff will recognize for this branch.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-name" className="text-sm font-medium">
+                  Location name
+                </label>
+                <Input
+                  id="location-name"
+                  placeholder="Location name"
+                  value={form.name ?? ""}
+                  onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
+                  disabled={isBusy}
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-address" className="text-sm font-medium">
+                  Address
+                </label>
+                <Input
+                  id="location-address"
+                  placeholder="Street, floor, or branch address"
+                  value={form.address ?? ""}
+                  onChange={(e) => setForm((current) => ({ ...current, address: e.target.value }))}
+                  disabled={isBusy}
+                  maxLength={500}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-short-name" className="text-sm font-medium">
+                  Short name for SMS
+                </label>
+                <Input
+                  id="location-short-name"
+                  placeholder="Short name used in SMS messages"
+                  value={form.shortName ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, shortName: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={50}
+                />
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Invoice Details</h4>
-              <Input
-                placeholder="Invoice header"
-                value={form.invoiceHeader ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, invoiceHeader: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={500}
-              />
-              <Input
-                placeholder="Invoice sub header"
-                value={form.invoiceSubHeader ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, invoiceSubHeader: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={500}
-              />
-              <Input
-                placeholder="Invoice footer"
-                value={form.invoiceFooter ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, invoiceFooter: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={500}
-              />
-              <Input
-                placeholder="Phone number"
-                value={form.invoicePhone ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, invoicePhone: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={100}
-              />
-              <Input
-                placeholder="Email"
-                type="email"
-                value={form.invoiceEmail ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, invoiceEmail: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={254}
-              />
+            <div className="space-y-4 rounded-xl border bg-background/70 p-4">
+              <div>
+                <h4 className="text-sm font-semibold">Invoice Details</h4>
+                <p className="text-xs text-muted-foreground">
+                  These details appear on printed invoices for this branch.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-invoice-header" className="text-sm font-medium">
+                  Invoice header
+                </label>
+                <Input
+                  id="location-invoice-header"
+                  placeholder="Main heading printed on invoices"
+                  value={form.invoiceHeader ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, invoiceHeader: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={500}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-invoice-sub-header" className="text-sm font-medium">
+                  Invoice sub header
+                </label>
+                <Input
+                  id="location-invoice-sub-header"
+                  placeholder="Supporting line under invoice header"
+                  value={form.invoiceSubHeader ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, invoiceSubHeader: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={500}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-invoice-footer" className="text-sm font-medium">
+                  Invoice footer
+                </label>
+                <Input
+                  id="location-invoice-footer"
+                  placeholder="Footer text shown at the bottom of invoices"
+                  value={form.invoiceFooter ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, invoiceFooter: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={500}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="location-invoice-phone" className="text-sm font-medium">
+                    Invoice phone
+                  </label>
+                  <Input
+                    id="location-invoice-phone"
+                    placeholder="Phone number shown on invoice"
+                    value={form.invoicePhone ?? ""}
+                    onChange={(e) =>
+                      setForm((current) => ({ ...current, invoicePhone: e.target.value }))
+                    }
+                    disabled={isBusy}
+                    maxLength={100}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="location-invoice-email" className="text-sm font-medium">
+                    Invoice email
+                  </label>
+                  <Input
+                    id="location-invoice-email"
+                    placeholder="Email shown on invoice"
+                    type="email"
+                    value={form.invoiceEmail ?? ""}
+                    onChange={(e) =>
+                      setForm((current) => ({ ...current, invoiceEmail: e.target.value }))
+                    }
+                    disabled={isBusy}
+                    maxLength={254}
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Shopify Link Details</h4>
-              <Input
-                placeholder="Shopify location ID"
-                value={form.shopifyLocationId ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, shopifyLocationId: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={100}
-              />
-              <Input
-                placeholder="Shop name (myshopify.com domain)"
-                value={form.shopifyShopName ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, shopifyShopName: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={200}
-              />
-              <Input
-                placeholder="Admin store handle (e.g. u71ajc-11) *"
-                value={form.shopifyAdminStoreHandle ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, shopifyAdminStoreHandle: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={100}
-              />
-              <p className="text-muted-foreground text-xs">
-                Use the store handle from your Shopify admin URL. Example: admin.shopify.com/store/
-                <strong>u71ajc-11</strong>/orders
+            <div className="space-y-4 rounded-xl border bg-background/70 p-4">
+              <div>
+                <h4 className="text-sm font-semibold">Shopify Link Details</h4>
+                <p className="text-xs text-muted-foreground">
+                  Connect this location to the correct Shopify store and location ID.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-shopify-id" className="text-sm font-medium">
+                  Shopify location ID
+                </label>
+                <Input
+                  id="location-shopify-id"
+                  placeholder="Numeric location ID from Shopify"
+                  value={form.shopifyLocationId ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, shopifyLocationId: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={100}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-shopify-shop-name" className="text-sm font-medium">
+                  Shop domain
+                </label>
+                <Input
+                  id="location-shopify-shop-name"
+                  placeholder="example-store.myshopify.com"
+                  value={form.shopifyShopName ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({ ...current, shopifyShopName: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="location-shopify-handle" className="text-sm font-medium">
+                  Admin store handle
+                </label>
+                <Input
+                  id="location-shopify-handle"
+                  placeholder="e.g. u71ajc-11"
+                  value={form.shopifyAdminStoreHandle ?? ""}
+                  onChange={(e) =>
+                    setForm((current) => ({
+                      ...current,
+                      shopifyAdminStoreHandle: e.target.value,
+                    }))
+                  }
+                  disabled={isBusy}
+                  maxLength={100}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use the store handle from your Shopify admin URL. Example:
+                ` admin.shopify.com/store/u71ajc-11/orders `
               </p>
             </div>
 
-            {merchants.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium">Order Assignment</h4>
+            {merchants.length > 0 ? (
+              <div className="space-y-4 rounded-xl border bg-background/70 p-4">
+                <div>
+                  <h4 className="text-sm font-semibold">Order Assignment</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Choose who receives unmatched web orders for this location.
+                  </p>
+                </div>
                 <div className="space-y-2">
                   <label htmlFor="location-defaultMerchant" className="text-sm">
                     Default merchant (web orders)
                   </label>
-                  <select
-                    id="location-defaultMerchant"
-                    value={form.defaultMerchantUserId ?? ""}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        defaultMerchantUserId: e.target.value || null,
-                      }))
-                    }
-                    disabled={isBusy}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
-                  >
-                    <option value="">None</option>
-                    {merchants.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.email || m.id}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-muted-foreground text-xs">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        id="location-defaultMerchant"
+                        type="button"
+                        disabled={isBusy}
+                        className="border-input bg-background hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-10 w-full items-center justify-between rounded-lg border px-3 text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 dark:bg-input/30"
+                      >
+                        <span>
+                          {(() => {
+                            const selectedMerchant = merchants.find(
+                              (merchant) => merchant.id === form.defaultMerchantUserId,
+                            );
+                            return (
+                              selectedMerchant?.name ||
+                              selectedMerchant?.email ||
+                              selectedMerchant?.id ||
+                              "None"
+                            );
+                          })()}
+                        </span>
+                        <ChevronsUpDown className="text-muted-foreground size-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="start"
+                      className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-72 overflow-y-auto"
+                    >
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          setForm((current) => ({ ...current, defaultMerchantUserId: null }))
+                        }
+                        className="justify-between"
+                      >
+                        <span>None</span>
+                        {!form.defaultMerchantUserId ? (
+                          <Check className="size-4" aria-hidden />
+                        ) : null}
+                      </DropdownMenuItem>
+                      {merchants.map((merchant) => {
+                        const label = merchant.name || merchant.email || merchant.id;
+                        const isSelected = form.defaultMerchantUserId === merchant.id;
+                        return (
+                          <DropdownMenuItem
+                            key={merchant.id}
+                            onSelect={() =>
+                              setForm((current) => ({
+                                ...current,
+                                defaultMerchantUserId: merchant.id,
+                              }))
+                            }
+                            className="justify-between"
+                          >
+                            <span>{label}</span>
+                            {isSelected ? <Check className="size-4" aria-hidden /> : null}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <p className="text-xs text-muted-foreground">
                     Web orders without a coupon match will be assigned to this merchant.
                   </p>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
-          <SheetFooter>
+          <SheetFooter className="sticky bottom-0 z-10 border-t bg-background/95 py-3 backdrop-blur">
             <Button variant="outline" onClick={closeSheet} disabled={isBusy}>
               Cancel
             </Button>
             <Button
               onClick={handleSheetSubmit}
-              disabled={isBusy || !form.name?.trim() || (sheetMode === "edit" && !sheetHasChanges)}
+              disabled={
+                isBusy ||
+                !form.name?.trim() ||
+                (sheetMode === "edit" && !sheetHasChanges)
+              }
             >
               {busyKey?.startsWith("add")
                 ? "Adding..."

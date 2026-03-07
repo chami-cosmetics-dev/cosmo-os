@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Boxes, Loader2, Pencil, Plus, Tag, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -270,35 +270,100 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
     notify.success("Category deleted.");
   }
 
+  const vendorOriginal =
+    vendorMode === "edit" && vendorEditId
+      ? vendors.find((vendor) => vendor.id === vendorEditId)
+      : null;
+  const vendorHasChanges =
+    vendorMode === "add"
+      ? vendorName.trim().length > 0
+      : vendorName.trim() !== (vendorOriginal?.name ?? "").trim();
+
+  const categoryOriginal =
+    categoryMode === "edit" && categoryEditId
+      ? categories.find((category) => category.id === categoryEditId)
+      : null;
+  const categoryHasChanges =
+    categoryMode === "add"
+      ? categoryName.trim().length > 0
+      : categoryName.trim() !== (categoryOriginal?.name ?? "").trim() ||
+        categoryFullName.trim() !== (categoryOriginal?.fullName ?? "").trim();
+
   return (
     <div className="space-y-6">
-      <div className="flex gap-2 border-b">
+      <section className="space-y-4">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+            <Boxes className="size-3.5" aria-hidden />
+            Catalog Controls
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Catalog Metadata</h2>
+            <p className="text-sm text-muted-foreground">
+              Keep product mapping clean by managing vendor and category references in one place.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Vendors
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{vendorsTotal}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Total vendor records available.</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Categories
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{categoriesTotal}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Total category records available.</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Active Tab
+            </p>
+            <p className="mt-2 text-2xl font-semibold">
+              {activeTab === "vendors" ? "Vendors" : "Categories"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Switch tabs to manage data.</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="inline-flex rounded-xl border bg-muted/30 p-1">
         <button
           type="button"
           onClick={() => setActiveTab("vendors")}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
             activeTab === "vendors"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          Vendors
+          <span className="inline-flex items-center gap-2">
+            <Tag className="size-4" aria-hidden />
+            Vendors
+          </span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("categories")}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
             activeTab === "categories"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          Categories
+          <span className="inline-flex items-center gap-2">
+            <Boxes className="size-4" aria-hidden />
+            Categories
+          </span>
         </button>
       </div>
 
       {loading ? (
-        <Card>
+        <Card className="border-border/70 bg-card/95 shadow-sm">
           <CardHeader>
             <Skeleton className="h-6 w-24" />
             <Skeleton className="h-4 w-80" />
@@ -308,9 +373,9 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
           </CardContent>
         </Card>
       ) : activeTab === "vendors" ? (
-        <Card>
+        <Card className="border-border/70 bg-card/95 shadow-sm">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Vendors</CardTitle>
                 <p className="text-muted-foreground text-sm">
@@ -321,20 +386,29 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
               {canManage && (
                 <Button onClick={openAddVendor} size="sm">
                   <Plus className="size-4" aria-hidden />
-                  Add Vendor
+                  Add vendor
                 </Button>
               )}
             </div>
           </CardHeader>
           <CardContent>
             {vendors.length === 0 ? (
-              <p className="text-muted-foreground py-4 text-sm">No vendors yet.</p>
+              <div className="rounded-xl border border-dashed px-4 py-10 text-center">
+                <p className="text-sm font-medium">No vendors found</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Vendor records will appear here after Shopify sync or manual creation.
+                </p>
+              </div>
             ) : (
               <>
-              <div className="overflow-x-auto rounded-md border">
+              <div className="mb-3 flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <span>Showing {vendors.length} vendors on this page</span>
+                <span>Total records: {vendorsTotal}</span>
+              </div>
+              <div className="overflow-x-auto rounded-xl border">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50">
+                    <tr className="border-b bg-muted/40">
                       <SortableColumnHeader
                         label="Name"
                         sortKey="name"
@@ -363,30 +437,33 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                   </thead>
                   <tbody>
                     {vendors.map((v) => (
-                      <tr key={v.id} className="border-b last:border-0">
+                      <tr key={v.id} className="border-b last:border-0 hover:bg-muted/20">
                         <td className="px-4 py-3 font-medium">{v.name}</td>
                         <td className="px-4 py-3 text-right text-muted-foreground">
                           {v._count !== undefined ? `${v._count.productItems} items` : "—"}
                         </td>
                         {canManage && (
                           <td className="px-4 py-3 text-right">
-                            <div className="flex justify-end gap-1">
+                            <div className="flex justify-end gap-2">
                               <Button
-                                variant="ghost"
-                                size="icon"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => openEditVendor(v)}
                                 aria-label="Edit vendor"
                               >
                                 <Pencil className="size-4" />
+                                Edit
                               </Button>
                               <Button
-                                variant="ghost"
-                                size="icon"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => deleteVendor(v)}
                                 disabled={v._count && v._count.productItems > 0}
                                 aria-label="Delete vendor"
+                                className="text-destructive hover:text-destructive"
                               >
                                 <Trash2 className="size-4" />
+                                Delete
                               </Button>
                             </div>
                           </td>
@@ -415,9 +492,9 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
           </CardContent>
         </Card>
       ) : (
-        <Card>
+        <Card className="border-border/70 bg-card/95 shadow-sm">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Categories</CardTitle>
                 <p className="text-muted-foreground text-sm">
@@ -428,20 +505,29 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
               {canManage && (
                 <Button onClick={openAddCategory} size="sm">
                   <Plus className="size-4" aria-hidden />
-                  Add Category
+                  Add category
                 </Button>
               )}
             </div>
           </CardHeader>
           <CardContent>
             {categories.length === 0 ? (
-              <p className="text-muted-foreground py-4 text-sm">No categories yet.</p>
+              <div className="rounded-xl border border-dashed px-4 py-10 text-center">
+                <p className="text-sm font-medium">No categories found</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Category records will appear here after Shopify sync or manual creation.
+                </p>
+              </div>
             ) : (
               <>
-              <div className="overflow-x-auto rounded-md border">
+              <div className="mb-3 flex items-center justify-between rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <span>Showing {categories.length} categories on this page</span>
+                <span>Total records: {categoriesTotal}</span>
+              </div>
+              <div className="overflow-x-auto rounded-xl border">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50">
+                    <tr className="border-b bg-muted/40">
                       <SortableColumnHeader
                         label="Name"
                         sortKey="name"
@@ -481,7 +567,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                   </thead>
                   <tbody>
                     {categories.map((c) => (
-                      <tr key={c.id} className="border-b last:border-0">
+                      <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
                         <td className="px-4 py-3 font-medium">{c.name}</td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {c.fullName ?? "—"}
@@ -491,23 +577,26 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                         </td>
                         {canManage && (
                           <td className="px-4 py-3 text-right">
-                            <div className="flex justify-end gap-1">
+                            <div className="flex justify-end gap-2">
                               <Button
-                                variant="ghost"
-                                size="icon"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => openEditCategory(c)}
                                 aria-label="Edit category"
                               >
                                 <Pencil className="size-4" />
+                                Edit
                               </Button>
                               <Button
-                                variant="ghost"
-                                size="icon"
+                                variant="outline"
+                                size="sm"
                                 onClick={() => deleteCategory(c)}
                                 disabled={c._count && c._count.productItems > 0}
                                 aria-label="Delete category"
+                                className="text-destructive hover:text-destructive"
                               >
                                 <Trash2 className="size-4" />
+                                Delete
                               </Button>
                             </div>
                           </td>
@@ -538,31 +627,58 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       )}
 
       <Sheet open={vendorSheetOpen} onOpenChange={setVendorSheetOpen}>
-        <SheetContent>
+        <SheetContent className="sm:max-w-md">
           <SheetHeader>
             <SheetTitle>{vendorMode === "add" ? "Add Vendor" : "Edit Vendor"}</SheetTitle>
-            <SheetDescription>Enter the vendor name.</SheetDescription>
+            <SheetDescription>
+              {vendorMode === "add"
+                ? "Create a vendor for cleaner product mapping."
+                : "Update the vendor name used by synced products."}
+            </SheetDescription>
           </SheetHeader>
-          <div className="py-4">
-            <Input
-              placeholder="Vendor name"
-              value={vendorName}
-              onChange={(e) => setVendorName(e.target.value)}
-              disabled={vendorBusy}
-            />
+          <div className="space-y-4 py-4">
+            <div className="rounded-xl border bg-muted/20 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {vendorMode === "add" ? "New vendor" : "Editing vendor"}
+              </p>
+              <p className="mt-1 text-sm">
+                {vendorMode === "add"
+                  ? "Add a clear vendor name used by your team and reports."
+                  : `Current: ${vendorOriginal?.name ?? "Unknown vendor"}`}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="vendor-name" className="text-sm font-medium">
+                Vendor name
+              </label>
+              <Input
+                id="vendor-name"
+                placeholder="e.g. L'Oreal, CeraVe, NYX"
+                value={vendorName}
+                onChange={(e) => setVendorName(e.target.value)}
+                disabled={vendorBusy}
+                maxLength={150}
+              />
+              <p className="text-xs text-muted-foreground">
+                Keep names consistent to avoid duplicate vendor records.
+              </p>
+            </div>
           </div>
-          <SheetFooter>
+          <SheetFooter className="sticky bottom-0 border-t bg-background/95 py-3 backdrop-blur">
             <Button variant="outline" onClick={() => setVendorSheetOpen(false)} disabled={vendorBusy}>
               Cancel
             </Button>
-            <Button onClick={saveVendor} disabled={vendorBusy}>
+            <Button
+              onClick={saveVendor}
+              disabled={vendorBusy || !vendorName.trim() || !vendorHasChanges}
+            >
               {vendorBusy ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                   Saving...
                 </>
               ) : (
-                "Save"
+                vendorMode === "add" ? "Add vendor" : "Save changes"
               )}
             </Button>
           </SheetFooter>
@@ -570,32 +686,60 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
       </Sheet>
 
       <Sheet open={categorySheetOpen} onOpenChange={setCategorySheetOpen}>
-        <SheetContent>
+        <SheetContent className="sm:max-w-md">
           <SheetHeader>
             <SheetTitle>{categoryMode === "add" ? "Add Category" : "Edit Category"}</SheetTitle>
-            <SheetDescription>Enter the category name and optional full path.</SheetDescription>
+            <SheetDescription>
+              {categoryMode === "add"
+                ? "Create a category for better product grouping."
+                : "Update the category label and hierarchy path."}
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Name</label>
+            <div className="rounded-xl border bg-muted/20 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {categoryMode === "add" ? "New category" : "Editing category"}
+              </p>
+              <p className="mt-1 text-sm">
+                {categoryMode === "add"
+                  ? "Use a short, recognizable name first."
+                  : `Current: ${categoryOriginal?.name ?? "Unknown category"}`}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="category-name" className="mb-1 block text-sm font-medium">
+                Name
+              </label>
               <Input
+                id="category-name"
                 placeholder="Category name"
                 value={categoryName}
                 onChange={(e) => setCategoryName(e.target.value)}
                 disabled={categoryBusy}
+                maxLength={150}
               />
+              <p className="text-xs text-muted-foreground">
+                This name appears in filters and tables.
+              </p>
             </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">Full name (optional)</label>
+            <div className="space-y-1.5">
+              <label htmlFor="category-full-name" className="mb-1 block text-sm font-medium">
+                Full name (optional)
+              </label>
               <Input
+                id="category-full-name"
                 placeholder="e.g. Health & Beauty > Skin Care > Face Serums"
                 value={categoryFullName}
                 onChange={(e) => setCategoryFullName(e.target.value)}
                 disabled={categoryBusy}
+                maxLength={250}
               />
+              <p className="text-xs text-muted-foreground">
+                Use the full path when you need deeper category hierarchy.
+              </p>
             </div>
           </div>
-          <SheetFooter>
+          <SheetFooter className="sticky bottom-0 border-t bg-background/95 py-3 backdrop-blur">
             <Button
               variant="outline"
               onClick={() => setCategorySheetOpen(false)}
@@ -603,14 +747,17 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
             >
               Cancel
             </Button>
-            <Button onClick={saveCategory} disabled={categoryBusy}>
+            <Button
+              onClick={saveCategory}
+              disabled={categoryBusy || !categoryName.trim() || !categoryHasChanges}
+            >
               {categoryBusy ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                   Saving...
                 </>
               ) : (
-                "Save"
+                categoryMode === "add" ? "Add category" : "Save changes"
               )}
             </Button>
           </SheetFooter>

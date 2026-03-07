@@ -24,9 +24,14 @@ export function DeliveryInvoiceFulfillmentPage({
   }, []);
 
   return (
-    <FulfillmentPermissionsProvider permissions={permissions}>
-      <div className="space-y-6">
-        <FulfillmentOrderSelector
+    <div className="space-y-6">
+      <div className="rounded-xl border bg-card/95 p-5 shadow-sm sm:p-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Delivery & Invoice Completion</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Complete delivery first, then mark invoice completion to finalize the order lifecycle.
+        </p>
+      </div>
+      <FulfillmentOrderSelector
         title="Delivery Complete & Invoice Complete"
         description="Select an order. First mark delivery complete when delivered, then mark invoice complete."
         stages="dispatched,delivery_complete"
