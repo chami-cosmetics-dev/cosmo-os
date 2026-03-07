@@ -1,8 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
-import { Cropper, type CropperRef } from "react-advanced-cropper";
+import type { CropperRef } from "react-advanced-cropper";
 import { ImageIcon, Loader2, RotateCw, FlipHorizontal, FlipVertical, X } from "lucide-react";
+
+const LazyCropper = dynamic(
+  () => import("react-advanced-cropper").then((mod) => ({ default: mod.Cropper })),
+  { ssr: false, loading: () => <div className="flex h-full w-full items-center justify-center"><Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden /></div> }
+);
 
 import { Button } from "@/components/ui/button";
 import {
@@ -195,7 +201,7 @@ export function LogoUpload({
           </DialogHeader>
           <div className="relative h-[400px] w-full shrink-0 overflow-hidden bg-muted">
             {imageToCrop && (
-              <Cropper
+              <LazyCropper
                 ref={cropperRef}
                 src={imageToCrop}
                 className="cropper h-full w-full"

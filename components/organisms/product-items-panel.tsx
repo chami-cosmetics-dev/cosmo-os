@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,20 +25,40 @@ type ProductItem = {
   imageUrl: string | null;
 };
 
-export function ProductItemsPanel() {
-  const [items, setItems] = useState<ProductItem[]>([]);
-  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
-  const [vendors, setVendors] = useState<Array<{ id: string; name: string }>>([]);
-  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
-  const [loading, setLoading] = useState(true);
+export type ProductItemsPanelInitialData = {
+  items: ProductItem[];
+  total: number;
+  page: number;
+  limit: number;
+  locations: Array<{ id: string; name: string }>;
+  vendors: Array<{ id: string; name: string }>;
+  categories: Array<{ id: string; name: string }>;
+};
+
+interface ProductItemsPanelProps {
+  initialData?: ProductItemsPanelInitialData | null;
+}
+
+export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) {
+  const [items, setItems] = useState<ProductItem[]>(initialData?.items ?? []);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>(
+    initialData?.locations ?? []
+  );
+  const [vendors, setVendors] = useState<Array<{ id: string; name: string }>>(
+    initialData?.vendors ?? []
+  );
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>(
+    initialData?.categories ?? []
+  );
+  const [loading, setLoading] = useState(!initialData);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [vendorFilter, setVendorFilter] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(initialData?.page ?? 1);
+  const [limit, setLimit] = useState(initialData?.limit ?? 10);
+  const [total, setTotal] = useState(initialData?.total ?? 0);
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -85,7 +105,13 @@ export function ProductItemsPanel() {
     setCategories(data.categories ?? []);
   }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter, page, limit, sortBy, sortOrder]);
 
+  const skippedInitialFetch = useRef(false);
   useEffect(() => {
+    if (initialData && !skippedInitialFetch.current) {
+      skippedInitialFetch.current = true;
+      return;
+    }
+    skippedInitialFetch.current = true;
     let cancelled = false;
     setLoading(true);
     fetchPageData()
@@ -101,7 +127,7 @@ export function ProductItemsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [fetchPageData]);
+  }, [fetchPageData, initialData]);
 
   function handlePageChange(newPage: number) {
     setPage(newPage);

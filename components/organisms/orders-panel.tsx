@@ -1,17 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, Search, ShoppingCart } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
-import { OrderInvoiceViewModal } from "@/components/organisms/order-invoice-view-modal";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
+
+const OrderInvoiceViewModal = dynamic(
+  () =>
+    import("@/components/organisms/order-invoice-view-modal").then((m) => ({
+      default: m.OrderInvoiceViewModal,
+    })),
+  { ssr: false }
+);
 
 type Order = {
   id: string;
@@ -110,33 +118,48 @@ type OrderDetail = {
   }>;
 };
 
+export type OrdersPanelInitialData = {
+  orders: Order[];
+  total: number;
+  page: number;
+  limit: number;
+  locations: Array<{ id: string; name: string }>;
+  merchants: Array<{ id: string; name: string | null; email: string | null }>;
+};
+
 interface OrdersPanelProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
   revertPermissionKeys?: string[];
+  initialData?: OrdersPanelInitialData | null;
 }
 
 export function OrdersPanel({
   canPrint = false,
   canResendRiderSms = false,
   revertPermissionKeys = [],
+  initialData,
 }: OrdersPanelProps = {}) {
   const canRevertToStage = useMemo(
     () => createCanRevertToStageFromKeys(revertPermissionKeys),
     [revertPermissionKeys]
   );
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
-  const [merchants, setMerchants] = useState<Array<{ id: string; name: string | null; email: string | null }>>([]);
-  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>(initialData?.orders ?? []);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>(
+    initialData?.locations ?? []
+  );
+  const [merchants, setMerchants] = useState<Array<{ id: string; name: string | null; email: string | null }>>(
+    initialData?.merchants ?? []
+  );
+  const [loading, setLoading] = useState(!initialData);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [merchantFilter, setMerchantFilter] = useState<string>("");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(initialData?.page ?? 1);
+  const [limit, setLimit] = useState(initialData?.limit ?? 10);
+  const [total, setTotal] = useState(initialData?.total ?? 0);
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [viewingOrderId, setViewingOrderId] = useState<string | null>(null);
@@ -184,7 +207,13 @@ export function OrdersPanel({
     setMerchants(data.merchants ?? []);
   }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, page, limit, sortBy, sortOrder]);
 
+  const skippedInitialFetch = useRef(false);
   useEffect(() => {
+    if (initialData && !skippedInitialFetch.current) {
+      skippedInitialFetch.current = true;
+      return;
+    }
+    skippedInitialFetch.current = true;
     let cancelled = false;
     setLoading(true);
     fetchPageData()
@@ -200,7 +229,7 @@ export function OrdersPanel({
     return () => {
       cancelled = true;
     };
-  }, [fetchPageData]);
+  }, [fetchPageData, initialData]);
 
   function handlePageChange(newPage: number) {
     setPage(newPage);
