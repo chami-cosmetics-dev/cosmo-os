@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Pencil, UserMinus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -54,8 +54,19 @@ type StaffMember = {
   } | null;
 };
 
+export type StaffManagementPanelInitialData = {
+  staff: StaffMember[];
+  total: number;
+  page: number;
+  limit: number;
+  locations: Location[];
+  departments: Department[];
+  designations: Designation[];
+};
+
 interface StaffManagementPanelProps {
   canManageStaff: boolean;
+  initialData?: StaffManagementPanelInitialData | null;
 }
 
 function formatDate(date: string | null): string {
@@ -64,17 +75,17 @@ function formatDate(date: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
 }
 
-export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelProps) {
-  const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [designations, setDesignations] = useState<Designation[]>([]);
-  const [loading, setLoading] = useState(true);
+export function StaffManagementPanel({ canManageStaff, initialData }: StaffManagementPanelProps) {
+  const [staff, setStaff] = useState<StaffMember[]>(initialData?.staff ?? []);
+  const [locations, setLocations] = useState<Location[]>(initialData?.locations ?? []);
+  const [departments, setDepartments] = useState<Department[]>(initialData?.departments ?? []);
+  const [designations, setDesignations] = useState<Designation[]>(initialData?.designations ?? []);
+  const [loading, setLoading] = useState(!initialData);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "resigned">("active");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
-  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(initialData?.page ?? 1);
+  const [limit, setLimit] = useState(initialData?.limit ?? 10);
+  const [total, setTotal] = useState(initialData?.total ?? 0);
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -122,7 +133,13 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
     setDesignations(data.designations);
   }, [statusFilter, debouncedSearch, page, limit, sortBy, sortOrder]);
 
+  const skippedInitialFetch = useRef(false);
   useEffect(() => {
+    if (initialData && !skippedInitialFetch.current) {
+      skippedInitialFetch.current = true;
+      return;
+    }
+    skippedInitialFetch.current = true;
     let cancelled = false;
     setLoading(true);
     fetchPageData()
@@ -138,7 +155,7 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
     return () => {
       cancelled = true;
     };
-  }, [fetchPageData]);
+  }, [fetchPageData, initialData]);
 
   useEffect(() => {
     setPage(1);

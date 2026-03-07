@@ -32,7 +32,14 @@ export async function GET() {
       return NextResponse.json({ url: null }, { status: 404 });
     }
 
-    return NextResponse.json({ url: company.faviconUrl });
+    return NextResponse.json(
+      { url: company.faviconUrl },
+      {
+        headers: {
+          "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
+        },
+      }
+    );
   } catch {
     return NextResponse.json({ url: null }, { status: 404 });
   }
