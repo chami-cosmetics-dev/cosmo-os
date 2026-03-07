@@ -20,7 +20,7 @@ export function DashboardTemplate({
   user,
 }: DashboardTemplateProps) {
   return (
-    <SidebarProvider defaultOpen={false}>
+    <SidebarProvider>
       <AppSidebar user={user} />
       <SidebarInset>
         <Topbar title={title} user={user} />

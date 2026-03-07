@@ -49,17 +49,8 @@ export function AppSidebar({ user }: AppSidebarProps) {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <span className="font-semibold leading-tight group-data-[collapsible=icon]:hidden">
-            Cosmo OS (Beta) v{packageJson.version}
-          </span>
-          <span
-            className="hidden size-7 items-center justify-center rounded-md border border-sidebar-border text-xs font-semibold group-data-[collapsible=icon]:inline-flex"
-            title={`Cosmo OS (Beta) v${packageJson.version}`}
-            aria-label={`Cosmo OS (Beta) v${packageJson.version}`}
-          >
-            CO
-          </span>
+        <div className="flex items-center gap-2 px-2 py-2">
+          <span className="font-semibold">Cosmo OS (Beta) v{packageJson.version}</span>
         </div>
       </SidebarHeader>
       <SidebarContent>

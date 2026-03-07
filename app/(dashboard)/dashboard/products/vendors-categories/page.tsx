@@ -14,15 +14,5 @@ export default async function VendorsCategoriesPage() {
 
   const canManage = auth.context ? hasPermission(auth.context, "products.manage") : false;
 
-  return (
-    <div className="space-y-6">
-      <section className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Vendors & Categories</h1>
-        <p className="text-sm text-muted-foreground">
-          Organize catalog metadata so filtering, reporting, and assignment stay clean.
-        </p>
-      </section>
-      <VendorsCategoriesPanel canManage={canManage} />
-    </div>
-  );
+  return <VendorsCategoriesPanel canManage={canManage} />;
 }

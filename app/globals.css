@@ -128,17 +128,4 @@
   [role="button"]:not([aria-disabled="true"]) {
     cursor: pointer;
   }
-
-  select[data-slot="native-select"] {
-    color-scheme: light;
-  }
-
-  .dark select[data-slot="native-select"] {
-    color-scheme: dark;
-  }
-
-  select[data-slot="native-select"] option {
-    background-color: var(--popover);
-    color: var(--popover-foreground);
-  }
 }

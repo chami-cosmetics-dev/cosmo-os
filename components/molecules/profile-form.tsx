@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import {
-  BriefcaseBusiness,
-  Loader2,
-  Mail,
-  Save,
-  UserRound,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
 import { ProfilePhotoUpload } from "@/components/molecules/profile-photo-upload";
 import { notify } from "@/lib/notify";
 
@@ -52,16 +45,16 @@ interface ProfileFormProps {
 
 function formatDateForInput(date: string | Date | null | undefined): string {
   if (date == null) return "";
-  const parsedDate = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(parsedDate.getTime())) return "";
-  return parsedDate.toISOString().slice(0, 10);
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
 }
 
 function formatDateDisplay(date: string | Date | null | undefined): string {
-  if (date == null) return "-";
-  const parsedDate = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(parsedDate.getTime())) return "-";
-  return parsedDate.toLocaleDateString();
+  if (date == null) return "—";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString();
 }
 
 export function ProfileForm({ initialData }: ProfileFormProps) {
@@ -76,6 +69,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
+
   const hasChanges =
     initialData &&
     (name.trim() !== (initialData.name ?? "").trim() ||
@@ -133,7 +127,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
 
   if (!initialData) {
     return (
-      <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 p-4 text-muted-foreground text-sm">
         <Loader2 className="size-4 animate-spin" aria-hidden />
         Loading...
       </div>
@@ -142,33 +136,18 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-      <section className="rounded-xl border bg-background/80 p-4 sm:p-5">
-        <div className="mb-4 flex items-center gap-2">
-          <UserRound className="size-4 text-sky-700" aria-hidden />
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Profile Photo
-          </h3>
-        </div>
+      <div className="space-y-4">
         <ProfilePhotoUpload
           value={profilePhotoUrl}
           onChange={setProfilePhotoUrl}
           disabled={isBusy}
         />
-      </section>
-
-      <section className="rounded-xl border bg-background/80 p-4 sm:p-5">
-        <div className="mb-5 flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
-            <UserRound className="size-4" aria-hidden />
-          </div>
-          <div>
-            <h3 className="text-base font-semibold">Personal Information</h3>
-            <p className="text-sm text-muted-foreground">
-              Update the personal details attached to your account.
-            </p>
-          </div>
-        </div>
-
+      </div>
+      <div className="space-y-4">
+        <h3 className="text-sm font-medium">Personal information</h3>
+        <p className="text-muted-foreground text-sm">
+          You can edit the details you provided when activating your account.
+        </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <label htmlFor="profile-name" className="text-sm font-medium">
@@ -213,18 +192,19 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             <label htmlFor="profile-gender" className="text-sm font-medium">
               Gender
             </label>
-            <NativeSelect
+            <select
               id="profile-gender"
               value={gender}
               onChange={(e) => setGender(e.target.value)}
               disabled={isBusy}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
             >
-              {GENDER_OPTIONS.map((option) => (
-                <option key={option.value || "empty"} value={option.value}>
-                  {option.label}
+              {GENDER_OPTIONS.map((opt) => (
+                <option key={opt.value || "empty"} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
-            </NativeSelect>
+            </select>
           </div>
           <div className="space-y-2">
             <label htmlFor="profile-dateOfBirth" className="text-sm font-medium">
@@ -252,97 +232,76 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             />
           </div>
         </div>
-      </section>
+      </div>
 
-      <section className="rounded-xl border bg-muted/20 p-4 sm:p-5">
-        <div className="mb-5 flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-            <BriefcaseBusiness className="size-4" aria-hidden />
+      <div className="border-t pt-6">
+        <h3 className="text-sm font-medium">Account & employment details</h3>
+        <p className="text-muted-foreground mb-4 text-sm">
+          These details are managed by your organization and cannot be edited here.
+        </p>
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-muted-foreground text-xs">Email</dt>
+            <dd className="mt-0.5 text-sm">{initialData.email ?? "—"}</dd>
           </div>
           <div>
-            <h3 className="text-base font-semibold">Work & Account Details</h3>
-            <p className="text-sm text-muted-foreground">
-              These details are managed by your organization and cannot be edited here.
-            </p>
-          </div>
-        </div>
-
-        <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Email</dt>
-            <dd className="mt-1 flex items-center gap-2 text-sm">
-              <Mail className="size-3.5 text-muted-foreground" aria-hidden />
-              <span>{initialData.email ?? "-"}</span>
-            </dd>
-          </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Roles</dt>
-            <dd className="mt-1 text-sm">
+            <dt className="text-muted-foreground text-xs">Roles</dt>
+            <dd className="mt-0.5 text-sm">
               {initialData.roles.length > 0
-                ? initialData.roles.map((role) => role.name).join(", ")
-                : "-"}
+                ? initialData.roles.map((r) => r.name).join(", ")
+                : "—"}
             </dd>
           </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Employee number
-            </dt>
-            <dd className="mt-1 text-sm">
-              {initialData.employeeProfile?.employeeNumber ?? "-"}
+          <div>
+            <dt className="text-muted-foreground text-xs">Employee number</dt>
+            <dd className="mt-0.5 text-sm">
+              {initialData.employeeProfile?.employeeNumber ?? "—"}
             </dd>
           </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">EPF number</dt>
-            <dd className="mt-1 text-sm">
-              {initialData.employeeProfile?.epfNumber ?? "-"}
+          <div>
+            <dt className="text-muted-foreground text-xs">EPF number</dt>
+            <dd className="mt-0.5 text-sm">
+              {initialData.employeeProfile?.epfNumber ?? "—"}
             </dd>
           </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Location</dt>
-            <dd className="mt-1 text-sm">
-              {initialData.employeeProfile?.location?.name ?? "-"}
+          <div>
+            <dt className="text-muted-foreground text-xs">Location</dt>
+            <dd className="mt-0.5 text-sm">
+              {initialData.employeeProfile?.location?.name ?? "—"}
             </dd>
           </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Department</dt>
-            <dd className="mt-1 text-sm">
-              {initialData.employeeProfile?.department?.name ?? "-"}
+          <div>
+            <dt className="text-muted-foreground text-xs">Department</dt>
+            <dd className="mt-0.5 text-sm">
+              {initialData.employeeProfile?.department?.name ?? "—"}
             </dd>
           </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Designation</dt>
-            <dd className="mt-1 text-sm">
-              {initialData.employeeProfile?.designation?.name ?? "-"}
+          <div>
+            <dt className="text-muted-foreground text-xs">Designation</dt>
+            <dd className="mt-0.5 text-sm">
+              {initialData.employeeProfile?.designation?.name ?? "—"}
             </dd>
           </div>
-          <div className="rounded-lg border bg-background px-4 py-3">
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">
-              Appointment date
-            </dt>
-            <dd className="mt-1 text-sm">
+          <div>
+            <dt className="text-muted-foreground text-xs">Appointment date</dt>
+            <dd className="mt-0.5 text-sm">
               {formatDateDisplay(initialData.employeeProfile?.appointmentDate)}
             </dd>
           </div>
         </dl>
-      </section>
+      </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={isBusy || !hasChanges} className="min-w-36">
+      <div className="flex gap-2">
+        <Button type="submit" disabled={isBusy || !hasChanges}>
           {busyKey === "save" ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />
               Saving...
             </>
           ) : (
-            <>
-              <Save className="size-4" aria-hidden />
-              Save changes
-            </>
+            "Save changes"
           )}
         </Button>
-        <p className="text-sm text-muted-foreground">
-          {hasChanges ? "You have unsaved profile changes." : "Your profile is up to date."}
-        </p>
       </div>
     </form>
   );
