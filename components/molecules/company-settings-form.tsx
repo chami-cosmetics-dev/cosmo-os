@@ -1,23 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  Building2,
-  Check,
-  ChevronsUpDown,
-  ImageIcon,
-  Loader2,
-  Save,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
 import { LogoUpload } from "@/components/molecules/logo-upload";
@@ -249,190 +236,110 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
   }
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-sm">
-      <CardHeader className="space-y-3">
-        <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
-          <Building2 className="size-3.5" aria-hidden />
-          Company Profile
-        </div>
-        <div>
-          <CardTitle>Company Information</CardTitle>
-          <p className="text-muted-foreground text-sm">
-            Keep your organization&apos;s identity, branding, and contact details up to date.
-          </p>
-        </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Company Information</CardTitle>
+        <p className="text-muted-foreground text-sm">
+          Update your organization&apos;s details.
+        </p>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="rounded-xl border bg-background/80 p-4 sm:p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <ImageIcon className="size-4 text-sky-700" aria-hidden />
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Brand Assets
-              </h3>
-            </div>
-
-            {canEdit ? (
-              <div className="grid gap-4 xl:grid-cols-2">
-                <LogoUpload
-                  value={logoUrl}
-                  onChange={handleLogoChange}
-                  uploadType="company"
-                  disabled={isBusy}
-                  label="Company logo"
-                />
-                <LogoUpload
-                  value={faviconUrl}
-                  onChange={handleFaviconChange}
-                  uploadType="favicon"
-                  disabled={isBusy}
-                  label="Favicon (browser tab icon)"
-                />
-              </div>
-            ) : null}
-
-            {!canEdit ? (
-              <div className="flex flex-wrap gap-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {canEdit && (
+            <>
+              <LogoUpload
+                value={logoUrl}
+                onChange={handleLogoChange}
+                uploadType="company"
+                disabled={isBusy}
+                label="Company logo"
+              />
+              <LogoUpload
+                value={faviconUrl}
+                onChange={handleFaviconChange}
+                uploadType="favicon"
+                disabled={isBusy}
+                label="Favicon (browser tab icon)"
+              />
+            </>
+          )}
+          {!canEdit && (logoUrl || faviconUrl) && (
+            <div className="flex flex-wrap gap-6">
+              {logoUrl && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Company logo</label>
                   <div className="flex size-20 overflow-hidden rounded-lg border bg-muted">
-                    {logoUrl ? (
-                      <CloudinaryLogo
-                        src={logoUrl}
-                        alt="Company logo"
-                        className="size-full object-contain"
-                      />
-                    ) : (
-                      <div className="flex size-full items-center justify-center">
-                        <ImageIcon className="size-6 text-muted-foreground" aria-hidden />
-                      </div>
-                    )}
+                    <CloudinaryLogo src={logoUrl} alt="Company logo" className="size-full object-contain" />
                   </div>
                 </div>
+              )}
+              {faviconUrl && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Favicon</label>
                   <div className="flex size-10 overflow-hidden rounded border bg-muted">
-                    {faviconUrl ? (
-                      <CloudinaryLogo
-                        src={faviconUrl}
-                        alt="Favicon"
-                        width={32}
-                        height={32}
-                        className="size-full object-contain"
-                      />
-                    ) : (
-                      <div className="flex size-full items-center justify-center">
-                        <ImageIcon className="size-4 text-muted-foreground" aria-hidden />
-                      </div>
-                    )}
+                    <CloudinaryLogo src={faviconUrl} alt="Favicon" width={32} height={32} className="size-full object-contain" />
                   </div>
                 </div>
-              </div>
-            ) : null}
-          </section>
-
-          <section className="rounded-xl border bg-background/80 p-4 sm:p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Building2 className="size-4 text-sky-700" aria-hidden />
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Organization Details
-              </h3>
+              )}
             </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
-                <label htmlFor="company-name" className="text-sm font-medium">
-                  Company name
-                </label>
-                <Input
-                  id="company-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  disabled={!canEdit || isBusy}
-                  maxLength={200}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="employee-size" className="text-sm font-medium">
-                  Employee size
-                </label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      id="employee-size"
-                      type="button"
-                      disabled={!canEdit || isBusy}
-                      className="border-input bg-background hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-10 w-full items-center justify-between rounded-lg border px-3 text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 dark:bg-input/30"
-                    >
-                      <span className={employeeSize ? "text-foreground" : "text-muted-foreground"}>
-                        {EMPLOYEE_SIZE_OPTIONS.find((opt) => opt.value === employeeSize)?.label ??
-                          "Select size"}
-                      </span>
-                      <ChevronsUpDown className="text-muted-foreground size-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                    {EMPLOYEE_SIZE_OPTIONS.map((opt) => (
-                      <DropdownMenuItem
-                        key={opt.value || "empty"}
-                        onSelect={() => setEmployeeSize(opt.value)}
-                        className="justify-between"
-                      >
-                        <span>{opt.label}</span>
-                        {employeeSize === opt.value ? (
-                          <Check className="size-4" aria-hidden />
-                        ) : null}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              <div className="rounded-lg border bg-muted/20 px-4 py-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Save status
-                </p>
-                <p className="mt-1 text-sm">
-                  {hasChanges ? "You have unsaved company changes." : "Company details are up to date."}
-                </p>
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <label htmlFor="address" className="text-sm font-medium">
-                  Address
-                </label>
-                <textarea
-                  id="address"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  disabled={!canEdit || isBusy}
-                  rows={3}
-                  maxLength={500}
-                  className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:text-sm"
-                />
-              </div>
-            </div>
-          </section>
-
-          {canEdit ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button type="submit" disabled={isBusy || !hasChanges} className="min-w-36">
-                {busyKey === "save" ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save className="size-4" aria-hidden />
-                    Save changes
-                  </>
-                )}
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                Logo and favicon changes save immediately after upload.
-              </p>
-            </div>
-          ) : null}
+          )}
+          <div className="space-y-2">
+            <label htmlFor="company-name" className="text-sm font-medium">
+              Company name
+            </label>
+            <Input
+              id="company-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              disabled={!canEdit || isBusy}
+              maxLength={200}
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="employee-size" className="text-sm font-medium">
+              Employee size
+            </label>
+            <select
+              id="employee-size"
+              value={employeeSize}
+              onChange={(e) => setEmployeeSize(e.target.value)}
+              disabled={!canEdit || isBusy}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:text-sm"
+            >
+              {EMPLOYEE_SIZE_OPTIONS.map((opt) => (
+                <option key={opt.value || "empty"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="address" className="text-sm font-medium">
+              Address
+            </label>
+            <textarea
+              id="address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              disabled={!canEdit || isBusy}
+              rows={3}
+              maxLength={500}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:text-sm"
+            />
+          </div>
+          {canEdit && (
+            <Button type="submit" disabled={isBusy || !hasChanges}>
+              {busyKey === "save" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Save changes"
+              )}
+            </Button>
+          )}
         </form>
       </CardContent>
     </Card>

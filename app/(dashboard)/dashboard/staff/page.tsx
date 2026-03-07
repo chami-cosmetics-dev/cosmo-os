@@ -33,18 +33,6 @@ export default async function StaffPage() {
   const canManageStaff = hasPermission(auth.context, "staff.manage");
 
   return (
-    <div className="space-y-6">
-      <Card className="border-border/70 bg-card/95 shadow-sm">
-        <CardHeader>
-          <CardTitle>Staff Workspace</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Manage staff records, employment assignments, and resignation workflows.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <StaffManagementPanel canManageStaff={canManageStaff} />
-        </CardContent>
-      </Card>
-    </div>
+    <StaffManagementPanel canManageStaff={canManageStaff} />
   );
 }

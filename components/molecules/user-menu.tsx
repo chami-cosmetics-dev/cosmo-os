@@ -37,50 +37,44 @@ export function UserMenu({ user }: UserMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="group flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-2 py-1 pr-3 text-foreground shadow-sm outline-none ring-sidebar-ring transition-colors hover:bg-accent/70 focus-visible:ring-2"
+          className="flex items-center gap-2 rounded-md p-1.5 outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2"
           aria-label="User menu"
         >
-          <Avatar className="size-9 border border-border/70">
+          <Avatar className="size-8">
             <AvatarImage src={user.picture ?? undefined} alt={user.name ?? ""} />
             <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
           </Avatar>
-          <span className="max-w-36 truncate text-sm font-semibold">{user.name ?? "User"}</span>
+          <span className="truncate text-sm font-medium">{user.name ?? "User"}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-72 rounded-xl border-border/70 bg-popover/95 p-0 shadow-xl backdrop-blur-sm"
-      >
-        <DropdownMenuLabel className="px-4 py-3">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Signed in as
-            </span>
-            <span className="truncate text-base font-semibold">{user.name ?? "User"}</span>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>
+          <div className="flex flex-col">
+            <span>{user.name ?? "User"}</span>
             {user.email && (
-              <span className="truncate text-sm font-normal text-muted-foreground">
+              <span className="text-muted-foreground text-xs font-normal">
                 {user.email}
               </span>
             )}
           </div>
         </DropdownMenuLabel>
-        <DropdownMenuSeparator className="my-0" />
-        <DropdownMenuGroup className="p-1.5">
-          <DropdownMenuItem asChild className="rounded-lg px-3 py-2 text-base">
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem asChild>
             <Link href="/dashboard" className="flex items-center gap-2">
               <LayoutDashboard className="size-4" />
               Dashboard
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem asChild className="rounded-lg px-3 py-2 text-base">
+          <DropdownMenuItem asChild>
             <Link href="/dashboard/profile" className="flex items-center gap-2">
               <User className="size-4" />
               Profile
             </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
-        <DropdownMenuSeparator className="my-0" />
-        <DropdownMenuItem asChild variant="destructive" className="m-1.5 rounded-lg px-3 py-2 text-base">
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
           <a href="/auth/logout" className="flex items-center gap-2">
             <LogOut className="size-4" />
             Log out
