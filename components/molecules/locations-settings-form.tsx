@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Pagination } from "@/components/ui/pagination";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
@@ -26,6 +27,7 @@ type Location = {
   logoUrl: string | null;
   address: string | null;
   shortName: string | null;
+  locationReference: string | null;
   invoiceHeader: string | null;
   invoiceSubHeader: string | null;
   invoiceFooter: string | null;
@@ -44,6 +46,7 @@ const emptyForm = (): Partial<Location> => ({
   logoUrl: null,
   address: "",
   shortName: "",
+  locationReference: "",
   invoiceHeader: "",
   invoiceSubHeader: "",
   invoiceFooter: "",
@@ -61,10 +64,13 @@ interface LocationsSettingsFormProps {
   merchants?: Merchant[];
 }
 
-export function LocationsSettingsForm({ canEdit, initialLocations, merchants: initialMerchants = [] }: LocationsSettingsFormProps) {
-  const [locations, setLocations] = useState<Location[]>(initialLocations ?? []);
-  const [merchants, setMerchants] = useState<Merchant[]>(initialMerchants);
-  const [loading, setLoading] = useState(initialLocations === undefined);
+export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
   const [newName, setNewName] = useState("");
   const [newAddress, setNewAddress] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -76,24 +82,28 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
   const isBusy = busyKey !== null;
 
   async function fetchLocations() {
-    const res = await fetch("/api/admin/company/locations");
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const res = await fetch(`/api/admin/company/locations?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load locations");
       return;
     }
-    const data = (await res.json()) as { locations: Location[]; merchants: Merchant[] };
+    const data = (await res.json()) as {
+      locations: Location[];
+      merchants: Merchant[];
+      total: number;
+      page: number;
+      limit: number;
+    };
     setLocations(data.locations);
     setMerchants(data.merchants ?? []);
+    setTotal(data.total);
   }
 
   useEffect(() => {
-    if (initialLocations !== undefined) {
-      setLoading(false);
-      setMerchants(initialMerchants);
-      return;
-    }
     async function load() {
+      setLoading(true);
       try {
         await fetchLocations();
       } catch {
@@ -103,7 +113,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       }
     }
     load();
-  }, [initialLocations, initialMerchants]);
+  }, [page, limit]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -127,9 +137,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
         return;
       }
 
-      setLocations((prev) =>
-        [...prev, data].sort((a, b) => a.name.localeCompare(b.name))
-      );
+      await fetchLocations();
       setNewName("");
       setNewAddress("");
       notify.success("Location added.");
@@ -155,6 +163,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       logoUrl: loc.logoUrl ?? null,
       address: loc.address ?? "",
       shortName: loc.shortName ?? "",
+      locationReference: loc.locationReference ?? "",
       invoiceHeader: loc.invoiceHeader ?? "",
       invoiceSubHeader: loc.invoiceSubHeader ?? "",
       invoiceFooter: loc.invoiceFooter ?? "",
@@ -183,6 +192,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
           (form.logoUrl ?? null) !== (editingLocation.logoUrl ?? null) ||
           (form.address?.trim() ?? "") !== (editingLocation.address ?? "").trim() ||
           (form.shortName?.trim() ?? "") !== (editingLocation.shortName ?? "").trim() ||
+          (form.locationReference?.trim() ?? "") !== (editingLocation.locationReference ?? "").trim() ||
           (form.invoiceHeader?.trim() ?? "") !== (editingLocation.invoiceHeader ?? "").trim() ||
           (form.invoiceSubHeader?.trim() ?? "") !== (editingLocation.invoiceSubHeader ?? "").trim() ||
           (form.invoiceFooter?.trim() ?? "") !== (editingLocation.invoiceFooter ?? "").trim() ||
@@ -205,6 +215,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
         logoUrl: url,
         address: form.address?.trim() || undefined,
         shortName: form.shortName?.trim() || undefined,
+        locationReference: form.locationReference?.trim() || undefined,
         invoiceHeader: form.invoiceHeader?.trim() || undefined,
         invoiceSubHeader: form.invoiceSubHeader?.trim() || undefined,
         invoiceFooter: form.invoiceFooter?.trim() || undefined,
@@ -248,6 +259,7 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
       logoUrl: form.logoUrl,
       address: form.address?.trim() || undefined,
       shortName: form.shortName?.trim() || undefined,
+      locationReference: form.locationReference?.trim() || undefined,
       invoiceHeader: form.invoiceHeader?.trim() || undefined,
       invoiceSubHeader: form.invoiceSubHeader?.trim() || undefined,
       invoiceFooter: form.invoiceFooter?.trim() || undefined,
@@ -473,8 +485,21 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
             ))}
           </ul>
 
-          {locations.length === 0 && (
+          {locations.length === 0 && !loading && (
             <p className="text-muted-foreground text-sm">No locations added yet.</p>
+          )}
+
+          {total > 0 && (
+            <Pagination
+              page={page}
+              limit={limit}
+              total={total}
+              onPageChange={setPage}
+              onLimitChange={(l) => {
+                setLimit(l);
+                setPage(1);
+              }}
+            />
           )}
         </CardContent>
       </Card>
@@ -663,6 +688,19 @@ export function LocationsSettingsForm({ canEdit, initialLocations, merchants: in
                 </div>
               </div>
             )}
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium">Sticker Related Details</h4>
+              <Input
+                placeholder="Location reference"
+                value={form.locationReference ?? ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, locationReference: e.target.value }))
+                }
+                disabled={isBusy}
+                maxLength={100}
+              />
+            </div>
           </div>
 
           <SheetFooter>

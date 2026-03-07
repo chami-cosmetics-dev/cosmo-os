@@ -6,6 +6,7 @@ import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { notify } from "@/lib/notify";
 
 type Designation = {
@@ -18,9 +19,12 @@ interface DesignationsSettingsFormProps {
   initialDesignations?: Designation[];
 }
 
-export function DesignationsSettingsForm({ canEdit, initialDesignations }: DesignationsSettingsFormProps) {
-  const [designations, setDesignations] = useState<Designation[]>(initialDesignations ?? []);
-  const [loading, setLoading] = useState(initialDesignations === undefined);
+export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormProps) {
+  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -29,22 +33,21 @@ export function DesignationsSettingsForm({ canEdit, initialDesignations }: Desig
   const isBusy = busyKey !== null;
 
   async function fetchDesignations() {
-    const res = await fetch("/api/admin/company/designations");
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const res = await fetch(`/api/admin/company/designations?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load designations");
       return;
     }
-    const data = (await res.json()) as Designation[];
-    setDesignations(data);
+    const data = (await res.json()) as { items: Designation[]; total: number; page: number; limit: number };
+    setDesignations(data.items);
+    setTotal(data.total);
   }
 
   useEffect(() => {
-    if (initialDesignations !== undefined) {
-      setLoading(false);
-      return;
-    }
     async function load() {
+      setLoading(true);
       try {
         await fetchDesignations();
       } catch {
@@ -54,7 +57,7 @@ export function DesignationsSettingsForm({ canEdit, initialDesignations }: Desig
       }
     }
     load();
-  }, [initialDesignations]);
+  }, [page, limit]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -75,7 +78,7 @@ export function DesignationsSettingsForm({ canEdit, initialDesignations }: Desig
         return;
       }
 
-      setDesignations((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      await fetchDesignations();
       setNewName("");
       notify.success("Designation added.");
     } catch {
@@ -113,9 +116,7 @@ export function DesignationsSettingsForm({ canEdit, initialDesignations }: Desig
         return;
       }
 
-      setDesignations((prev) =>
-        prev.map((d) => (d.id === id ? data : d)).sort((a, b) => a.name.localeCompare(b.name))
-      );
+      await fetchDesignations();
       cancelEdit();
       notify.success("Designation updated.");
     } catch {
@@ -141,7 +142,7 @@ export function DesignationsSettingsForm({ canEdit, initialDesignations }: Desig
         return;
       }
 
-      setDesignations((prev) => prev.filter((d) => d.id !== id));
+      await fetchDesignations();
       if (editingId === id) cancelEdit();
       notify.success("Designation deleted.");
     } catch {
@@ -263,8 +264,21 @@ export function DesignationsSettingsForm({ canEdit, initialDesignations }: Desig
           ))}
         </ul>
 
-        {designations.length === 0 && (
+        {designations.length === 0 && !loading && (
           <p className="text-muted-foreground text-sm">No designations added yet.</p>
+        )}
+
+        {total > 0 && (
+          <Pagination
+            page={page}
+            limit={limit}
+            total={total}
+            onPageChange={setPage}
+            onLimitChange={(l) => {
+              setLimit(l);
+              setPage(1);
+            }}
+          />
         )}
       </CardContent>
     </Card>

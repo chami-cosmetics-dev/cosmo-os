@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { cuidSchema, emailSchema, LIMITS, trimmedString } from "@/lib/validation";
+import { cuidSchema, emailSchema, limitSchema, LIMITS, pageSchema, trimmedString } from "@/lib/validation";
 
 const createLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
@@ -21,6 +21,7 @@ const createLocationSchema = z.object({
   shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
   shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
   shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
+  locationReference: z.string().max(LIMITS.locationReference.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
 });
 
@@ -32,7 +33,7 @@ async function getCompanyId(userId: string): Promise<string | null> {
   return user?.companyId ?? null;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requirePermission("settings.company");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -46,10 +47,19 @@ export async function GET() {
     );
   }
 
-  const [locations, merchants] = await Promise.all([
+  const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
+  const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
+  const page = pageResult.success ? pageResult.data : 1;
+  const limit = limitResult.success ? limitResult.data : 10;
+  const skip = (page - 1) * limit;
+
+  const [total, locations, merchants] = await Promise.all([
+    prisma.companyLocation.count({ where: { companyId } }),
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
+      skip,
+      take: limit,
       select: {
         id: true,
         name: true,
@@ -64,6 +74,7 @@ export async function GET() {
         shopifyLocationId: true,
         shopifyShopName: true,
         shopifyAdminStoreHandle: true,
+        locationReference: true,
         defaultMerchantUserId: true,
         createdAt: true,
         updatedAt: true,
@@ -76,7 +87,7 @@ export async function GET() {
     }),
   ]);
 
-  return NextResponse.json({ locations, merchants });
+  return NextResponse.json({ locations, merchants, total, page, limit });
 }
 
 export async function POST(request: NextRequest) {
@@ -132,6 +143,7 @@ export async function POST(request: NextRequest) {
       shopifyLocationId: d.shopifyLocationId?.trim() || null,
       shopifyShopName: d.shopifyShopName?.trim() || null,
       shopifyAdminStoreHandle: d.shopifyAdminStoreHandle?.trim() || null,
+      locationReference: d.locationReference?.trim() || null,
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
@@ -148,6 +160,7 @@ export async function POST(request: NextRequest) {
       shopifyLocationId: true,
       shopifyShopName: true,
       shopifyAdminStoreHandle: true,
+      locationReference: true,
       defaultMerchantUserId: true,
       createdAt: true,
       updatedAt: true,

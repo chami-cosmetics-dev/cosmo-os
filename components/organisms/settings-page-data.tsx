@@ -2,10 +2,17 @@
 
 import { useState, useEffect } from "react";
 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { CardSkeleton } from "@/components/skeletons/card-skeleton";
 import { CompanySettingsForm } from "@/components/molecules/company-settings-form";
 import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
 import { DesignationsSettingsForm } from "@/components/molecules/designations-settings-form";
+import { SuppliersSettingsForm } from "@/components/molecules/suppliers-settings-form";
 import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
 import { ShopifyWebhookSecretsForm } from "@/components/molecules/shopify-webhook-secrets-form";
 import { notify } from "@/lib/notify";
@@ -21,33 +28,6 @@ export type SettingsPageData = {
     createdAt: string;
     updatedAt: string;
   } | null;
-  locations: Array<{
-    id: string;
-    name: string;
-    logoUrl: string | null;
-    address: string | null;
-    shortName: string | null;
-    invoiceHeader: string | null;
-    invoiceSubHeader: string | null;
-    invoiceFooter: string | null;
-    invoicePhone: string | null;
-    invoiceEmail: string | null;
-    shopifyLocationId: string | null;
-    shopifyShopName: string | null;
-    shopifyAdminStoreHandle: string | null;
-    defaultMerchantUserId: string | null;
-    createdAt?: string;
-    updatedAt?: string;
-  }>;
-  merchants: Array<{ id: string; name: string | null; email: string | null }>;
-  departments: Array<{ id: string; name: string }>;
-  designations: Array<{ id: string; name: string }>;
-  shopifyWebhookSecrets: Array<{
-    id: string;
-    name: string | null;
-    secretMasked: string;
-    createdAt: string;
-  }>;
 };
 
 interface SettingsPageDataProps {
@@ -101,28 +81,47 @@ export function SettingsPageData({ canEdit }: SettingsPageDataProps) {
   if (!data) return null;
 
   return (
-    <>
+    <div className="space-y-6">
       <CompanySettingsForm
         canEdit={canEdit}
         initialCompany={data.company}
       />
-      <LocationsSettingsForm
-        canEdit={canEdit}
-        initialLocations={data.locations}
-        merchants={data.merchants}
-      />
-      <ShopifyWebhookSecretsForm
-        canEdit={canEdit}
-        initialSecrets={data.shopifyWebhookSecrets}
-      />
-      <DepartmentsSettingsForm
-        canEdit={canEdit}
-        initialDepartments={data.departments}
-      />
-      <DesignationsSettingsForm
-        canEdit={canEdit}
-        initialDesignations={data.designations}
-      />
-    </>
+      <Accordion
+        type="multiple"
+        defaultValue={[]}
+        className="rounded-lg border"
+      >
+        <AccordionItem value="locations" className="px-4">
+          <AccordionTrigger>Company Locations</AccordionTrigger>
+          <AccordionContent>
+            <LocationsSettingsForm canEdit={canEdit} />
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="webhooks" className="px-4">
+          <AccordionTrigger>Shopify Webhook Secrets</AccordionTrigger>
+          <AccordionContent>
+            <ShopifyWebhookSecretsForm canEdit={canEdit} />
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="departments" className="px-4">
+          <AccordionTrigger>Departments</AccordionTrigger>
+          <AccordionContent>
+            <DepartmentsSettingsForm canEdit={canEdit} />
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="designations" className="px-4">
+          <AccordionTrigger>Designations</AccordionTrigger>
+          <AccordionContent>
+            <DesignationsSettingsForm canEdit={canEdit} />
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="suppliers" className="px-4">
+          <AccordionTrigger>Suppliers</AccordionTrigger>
+          <AccordionContent>
+            <SuppliersSettingsForm canEdit={canEdit} />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
   );
 }

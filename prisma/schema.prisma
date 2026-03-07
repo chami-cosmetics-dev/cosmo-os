@@ -25,6 +25,7 @@ model Company {
   customers              Customer[]
   departments            Department[]
   designations           Designation[]
+  suppliers              Supplier[]
   emailTemplates         EmailTemplate[]
   employeeProfiles       EmployeeProfile[]
   failedOrderWebhooks    FailedOrderWebhook[]
@@ -199,6 +200,7 @@ model CompanyLocation {
   shopifyLocationId       String?
   shopifyShopName         String?
   shortName               String?
+  locationReference       String?
   defaultMerchantUserId   String?
   logoUrl                 String?
   shopifyAdminStoreHandle String?
@@ -330,6 +332,21 @@ model Designation {
   company   Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   profiles  EmployeeProfile[]
   invites   Invite[]
+}
+
+model Supplier {
+  id             String   @id @default(cuid())
+  companyId      String
+  name           String
+  code           String
+  contactNumber  String?
+  email          String?
+  address        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, code])
 }
 
 model EmployeeProfile {
