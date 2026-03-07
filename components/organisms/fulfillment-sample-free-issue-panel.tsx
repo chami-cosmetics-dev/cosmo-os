@@ -78,38 +78,19 @@ export function FulfillmentSampleFreeIssuePanel({
   if (!orderId || !order) return null;
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-sm">
-      <CardHeader className="space-y-3">
+    <Card>
+      <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Package className="size-5" />
-          Sample / Free Issue - Order {order.name ?? order.orderNumber ?? order.id}
+          Sample / Free Issue — Order {order.name ?? order.orderNumber ?? order.id}
         </CardTitle>
         <p className="text-muted-foreground text-sm">
-          Add sample and free issue items for this order before moving to the next stage.
+          Add samples or free issues. No print option here.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!lookups ? (
-          <div className="rounded-xl border border-dashed px-4 py-8 text-center">
-            <p className="text-sm font-medium">Unable to load sample/free issue items</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Refresh the page and try again.
-            </p>
-          </div>
-        ) : (
+        {lookups && perms.canManageSampleFreeIssue && (
           <>
-            <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
-              <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    Add Extras
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    Pick one or more items, adjust quantity, then save.
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground">{selectedSamples.length} selected</p>
-              </div>
             <div className="flex flex-wrap gap-2">
               <Popover open={addOpen} onOpenChange={setAddOpen}>
                 <PopoverTrigger asChild>
@@ -150,9 +131,9 @@ export function FulfillmentSampleFreeIssuePanel({
                 </PopoverContent>
               </Popover>
               {selectedSamples.map((s) => (
-                <div key={s.id} className="flex items-center gap-1 rounded-md border bg-background px-2 py-1">
+                <div key={s.id} className="flex items-center gap-1">
                   <span className="text-sm">
-                    {lookups.samplesFreeIssues.find((x) => x.id === s.id)?.name} x
+                    {lookups.samplesFreeIssues.find((x) => x.id === s.id)?.name} ×
                   </span>
                   <Input
                     type="number"
@@ -175,7 +156,7 @@ export function FulfillmentSampleFreeIssuePanel({
                       setSelectedSamples((prev) => prev.filter((x) => x.id !== s.id))
                     }
                   >
-                    x
+                    ×
                   </Button>
                 </div>
               ))}
@@ -192,14 +173,13 @@ export function FulfillmentSampleFreeIssuePanel({
                   }
                   disabled={isBusy}
                 >
-                  {busyKey === "add_samples" ? <Loader2 className="size-4 animate-spin" /> : "Add Items"}
+                  {busyKey === "add_samples" ? <Loader2 className="size-4 animate-spin" /> : "Add"}
                 </Button>
               )}
             </div>
-            </div>
-            <div className="flex items-center justify-between rounded-xl border bg-background/80 px-4 py-4">
+            <div className="flex items-center justify-between border-t pt-4">
               <p className="text-muted-foreground text-sm">
-                Done with sample and free issue updates? Move this order to the next stage.
+                Done with samples? Move order to next stage.
               </p>
               <Button
                 variant="outline"

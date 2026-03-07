@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CircleCheck, FileText, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,15 +28,6 @@ interface EmailTemplatesSettingsFormProps {
 }
 
 const PLACEHOLDER_HINT = "Placeholders: {{staffName}}, {{resignationDate}}, {{reason}}, {{employeeNumber}}, {{department}}, {{designation}}, {{location}}";
-const PLACEHOLDERS = [
-  "{{staffName}}",
-  "{{resignationDate}}",
-  "{{reason}}",
-  "{{employeeNumber}}",
-  "{{department}}",
-  "{{designation}}",
-  "{{location}}",
-];
 
 export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailTemplatesSettingsFormProps) {
   const [loading, setLoading] = useState(initialTemplates === undefined);
@@ -130,14 +121,14 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
 
   if (loading) {
     return (
-      <Card className="border-border/70 bg-card/95 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Email Templates</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Loading email template settings...
+            Loading...
           </div>
         </CardContent>
       </Card>
@@ -146,7 +137,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
 
   if (noCompany) {
     return (
-      <Card className="border-border/70 bg-card/95 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Email Templates</CardTitle>
         </CardHeader>
@@ -160,56 +151,21 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
   }
 
   return (
-    <Card className="border-border/70 bg-card/95 shadow-sm">
-      <CardHeader className="space-y-3">
-        <div className="inline-flex items-center gap-2 rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300">
-          <FileText className="size-3.5" aria-hidden />
-          Notification Content
-        </div>
-        <div>
-          <CardTitle>Email Templates</CardTitle>
-          <p className="text-muted-foreground text-sm">
-            Customize template subject, body, and recipients for internal notification emails.
-          </p>
-        </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Email Templates</CardTitle>
+        <p className="text-muted-foreground text-sm">
+          Configure notification emails sent when staff events occur. Use placeholders in subject and body.
+        </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border bg-background/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Template Type
-            </p>
-            <p className="mt-2 text-sm font-semibold">Resignation Notice</p>
-            <p className="mt-1 text-xs text-muted-foreground">HR and leadership notification flow.</p>
-          </div>
-          <div className="rounded-xl border bg-background/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Save Status
-            </p>
-            <p className="mt-2 text-sm font-semibold">
-              {hasChanges ? "Unsaved changes detected" : "Template is up to date"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {hasChanges ? "Review and save before leaving this page." : "No pending edits in this template."}
-            </p>
-          </div>
-          <div className="rounded-xl border bg-background/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Available Placeholders
-            </p>
-            <p className="mt-2 text-sm font-semibold">{PLACEHOLDERS.length} tokens</p>
-            <p className="mt-1 text-xs text-muted-foreground">Use tokens in subject and HTML body.</p>
-          </div>
-        </div>
-
+      <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Resignation Notice
-            </h3>
-            <p className="mb-4 text-sm text-muted-foreground">
-              Sent to management once a staff resignation and offboarding process are completed.
+          <div>
+            <h3 className="text-sm font-medium mb-3">Resignation Notice</h3>
+            <p className="text-muted-foreground text-xs mb-3">
+              Sent to management when a staff member&apos;s resignation and offboarding are completed.
             </p>
+
             <div className="space-y-4">
               <div className="space-y-2">
                 <label htmlFor="resign-subject" className="text-sm font-medium">
@@ -236,7 +192,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
                   placeholder="Email body with placeholders..."
                   maxLength={LIMITS.emailTemplateBody.max}
                   rows={12}
-                  className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                  className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <p className="text-muted-foreground text-xs">{PLACEHOLDER_HINT}</p>
               </div>
@@ -256,44 +212,17 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
             </div>
           </div>
 
-          <div className="rounded-xl border bg-background/80 p-4 sm:p-5">
-            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Quick Tokens
-            </h4>
-            <div className="flex flex-wrap gap-2">
-              {PLACEHOLDERS.map((placeholder) => (
-                <span
-                  key={placeholder}
-                  className="inline-flex items-center rounded-full border bg-muted/40 px-2.5 py-1 text-xs font-mono"
-                >
-                  {placeholder}
-                </span>
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Paste these tokens in subject or body to insert real values when email is sent.
-            </p>
-          </div>
-
           {canEdit && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button type="submit" disabled={isBusy || !hasChanges} className="min-w-36">
-                {busyKey === "save" ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <CircleCheck className="size-4" aria-hidden />
-                    Save changes
-                  </>
-                )}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                {hasChanges ? "You have unsaved changes." : "No unsaved changes."}
-              </p>
-            </div>
+            <Button type="submit" disabled={isBusy || !hasChanges}>
+              {busyKey === "save" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Save changes"
+              )}
+            </Button>
           )}
         </form>
       </CardContent>

@@ -85,28 +85,16 @@ export default async function UserManagementPage() {
   ]);
 
   return (
-    <div className="space-y-6">
-      <Card className="border-border/70 bg-card/95 shadow-sm">
-        <CardHeader>
-          <CardTitle>User Access Control</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Manage users, roles, and pending invitations in one workspace.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <UserManagementPanel
-            initialUsers={data.users}
-            initialRoles={data.roles}
-            initialPermissions={data.permissions}
-            initialLocations={lookups?.locations}
-            initialDepartments={lookups?.departments}
-            initialDesignations={lookups?.designations}
-            initialPendingInvites={pendingInvites}
-            canManageUsers={canManageUsers}
-            canManageRoles={hasPermission(auth.context, "roles.manage")}
-          />
-        </CardContent>
-      </Card>
-    </div>
+    <UserManagementPanel
+      initialUsers={data.users}
+      initialRoles={data.roles}
+      initialPermissions={data.permissions}
+      initialLocations={lookups?.locations}
+      initialDepartments={lookups?.departments}
+      initialDesignations={lookups?.designations}
+      initialPendingInvites={pendingInvites}
+      canManageUsers={canManageUsers}
+      canManageRoles={hasPermission(auth.context, "roles.manage")}
+    />
   );
 }

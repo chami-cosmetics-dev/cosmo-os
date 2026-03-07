@@ -1,15 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronLeft, ChevronRight, ChevronsUpDown } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export interface PaginationProps {
@@ -31,7 +25,6 @@ export function Pagination({
   limitOptions = [10, 25, 50, 100],
   className,
 }: PaginationProps) {
-  const limitControlId = React.useId();
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const start = total === 0 ? 0 : (page - 1) * limit + 1;
   const end = Math.min(page * limit, total);
@@ -49,33 +42,21 @@ export function Pagination({
         </p>
         {onLimitChange && (
           <div className="flex items-center gap-2">
-            <label htmlFor={limitControlId} className="text-muted-foreground text-sm">
+            <label htmlFor="limit" className="text-muted-foreground text-sm">
               Per page
             </label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  id={limitControlId}
-                  type="button"
-                  className="border-input bg-background/90 hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-10 min-w-20 items-center justify-between rounded-xl border border-border/70 px-3 text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] dark:bg-input/40"
-                >
-                  <span>{limit}</span>
-                  <ChevronsUpDown className="text-muted-foreground size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                {limitOptions.map((n) => (
-                  <DropdownMenuItem
-                    key={n}
-                    onSelect={() => onLimitChange(n)}
-                    className="justify-between"
-                  >
-                    <span>{n}</span>
-                    {limit === n ? <Check className="size-4" aria-hidden /> : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <select
+              id="limit"
+              value={limit}
+              onChange={(e) => onLimitChange(Number(e.target.value))}
+              className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
+            >
+              {limitOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
           </div>
         )}
       </div>

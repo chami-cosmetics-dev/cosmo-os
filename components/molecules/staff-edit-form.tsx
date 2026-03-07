@@ -1,15 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 
@@ -24,7 +18,6 @@ const GENDER_OPTIONS = [
 type Location = { id: string; name: string; address: string | null };
 type Department = { id: string; name: string };
 type Designation = { id: string; name: string };
-type SelectOption = { value: string; label: string };
 
 type StaffMember = {
   id: string;
@@ -95,22 +88,6 @@ export function StaffEditForm({
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
-  const genderOptions: SelectOption[] = GENDER_OPTIONS.map((opt) => ({
-    value: opt.value,
-    label: opt.label,
-  }));
-  const locationOptions: SelectOption[] = [
-    { value: "", label: "Select location" },
-    ...locations.map((loc) => ({ value: loc.id, label: loc.name })),
-  ];
-  const departmentOptions: SelectOption[] = [
-    { value: "", label: "Select department" },
-    ...departments.map((d) => ({ value: d.id, label: d.name })),
-  ];
-  const designationOptions: SelectOption[] = [
-    { value: "", label: "Select designation" },
-    ...designations.map((d) => ({ value: d.id, label: d.name })),
-  ];
 
   useEffect(() => {
     if (initialData) {
@@ -199,261 +176,259 @@ export function StaffEditForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5 pb-2">
-      <div className="rounded-xl border bg-muted/20 p-4">
-        <p className="text-sm font-semibold">Edit Staff Member</p>
-        <p className="text-muted-foreground mt-1 text-xs">
-          Update personal details, employment assignment, and fulfillment settings.
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="space-y-2">
+        <label htmlFor="staff-name" className="text-sm font-medium">
+          Full name
+        </label>
+        <Input
+          id="staff-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!canEdit || isBusy}
+          maxLength={100}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-knownName" className="text-sm font-medium">
+          Known name
+        </label>
+        <Input
+          id="staff-knownName"
+          value={knownName}
+          onChange={(e) => setKnownName(e.target.value)}
+          disabled={!canEdit || isBusy}
+          placeholder="Short name"
+          maxLength={100}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-email" className="text-sm font-medium">
+          Email
+        </label>
+        <Input
+          id="staff-email"
+          value={initialData.email ?? ""}
+          readOnly
+          disabled
+          className="bg-muted"
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-nicNo" className="text-sm font-medium">
+          NIC No
+        </label>
+        <Input
+          id="staff-nicNo"
+          value={nicNo}
+          onChange={(e) => setNicNo(e.target.value)}
+          disabled={!canEdit || isBusy}
+          maxLength={15}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-gender" className="text-sm font-medium">
+          Gender
+        </label>
+        <select
+          id="staff-gender"
+          value={gender}
+          onChange={(e) => setGender(e.target.value)}
+          disabled={!canEdit || isBusy}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+        >
+          {GENDER_OPTIONS.map((opt) => (
+            <option key={opt.value || "empty"} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-dateOfBirth" className="text-sm font-medium">
+          Date of birth
+        </label>
+        <Input
+          id="staff-dateOfBirth"
+          type="date"
+          value={dateOfBirth}
+          onChange={(e) => setDateOfBirth(e.target.value)}
+          disabled={!canEdit || isBusy}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-mobile" className="text-sm font-medium">
+          Mobile
+        </label>
+        <Input
+          id="staff-mobile"
+          type="tel"
+          value={mobile}
+          onChange={(e) => setMobile(e.target.value)}
+          disabled={!canEdit || isBusy}
+          maxLength={100}
+        />
+      </div>
+
+      <div className="border-t pt-4">
+        <p className="text-muted-foreground mb-3 text-sm font-medium">
+          Employment details
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-employeeNumber" className="text-sm font-medium">
+          Employee number
+        </label>
+        <Input
+          id="staff-employeeNumber"
+          value={employeeNumber}
+          onChange={(e) => setEmployeeNumber(e.target.value)}
+          disabled={!canEdit || isBusy}
+          maxLength={50}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-epfNumber" className="text-sm font-medium">
+          EPF number
+        </label>
+        <Input
+          id="staff-epfNumber"
+          value={epfNumber}
+          onChange={(e) => setEpfNumber(e.target.value)}
+          disabled={!canEdit || isBusy}
+          maxLength={50}
+        />
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-location" className="text-sm font-medium">
+          Company location
+        </label>
+        <select
+          id="staff-location"
+          value={locationId}
+          onChange={(e) => setLocationId(e.target.value)}
+          disabled={!canEdit || isBusy}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+        >
+          <option value="">Select location</option>
+          {locations.map((loc) => (
+            <option key={loc.id} value={loc.id}>
+              {loc.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-department" className="text-sm font-medium">
+          Department
+        </label>
+        <select
+          id="staff-department"
+          value={departmentId}
+          onChange={(e) => setDepartmentId(e.target.value)}
+          disabled={!canEdit || isBusy}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+        >
+          <option value="">Select department</option>
+          {departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-designation" className="text-sm font-medium">
+          Designation
+        </label>
+        <select
+          id="staff-designation"
+          value={designationId}
+          onChange={(e) => setDesignationId(e.target.value)}
+          disabled={!canEdit || isBusy}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+        >
+          <option value="">Select designation</option>
+          {designations.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-appointmentDate" className="text-sm font-medium">
+          Appointment date
+        </label>
+        <Input
+          id="staff-appointmentDate"
+          type="date"
+          value={appointmentDate}
+          onChange={(e) => setAppointmentDate(e.target.value)}
+          disabled={!canEdit || isBusy}
+        />
+      </div>
+
+      <div className="border-t pt-4">
+        <p className="text-muted-foreground mb-3 text-sm font-medium">
+          Merchant (order assignment)
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-shopifyUserIds" className="text-sm font-medium">
+          Shopify User IDs
+        </label>
+        <Input
+          id="staff-shopifyUserIds"
+          value={shopifyUserIds}
+          onChange={(e) => setShopifyUserIds(e.target.value)}
+          disabled={!canEdit || isBusy}
+          placeholder="e.g. 115650822432, 115650822433"
+        />
+        <p className="text-muted-foreground text-xs">
+          Comma-separated. POS orders from these staff members will be assigned to this user.
+        </p>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="staff-couponCodes" className="text-sm font-medium">
+          Coupon codes
+        </label>
+        <Input
+          id="staff-couponCodes"
+          value={couponCodes}
+          onChange={(e) => setCouponCodes(e.target.value)}
+          disabled={!canEdit || isBusy}
+          placeholder="e.g. MERCHANT10, SAVE20"
+        />
+        <p className="text-muted-foreground text-xs">
+          Comma-separated. Web orders with these coupon codes will be assigned to this user.
         </p>
       </div>
 
-      <section className="space-y-4 rounded-xl border bg-card/70 p-4">
-        <div>
-          <h3 className="text-sm font-semibold">Personal Information</h3>
-          <p className="text-muted-foreground text-xs">
-            Core identity and contact details used across the dashboard.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2 sm:col-span-2">
-            <label htmlFor="staff-email" className="text-sm font-medium">
-              Email (read only)
-            </label>
-            <Input
-              id="staff-email"
-              value={initialData.email ?? ""}
-              readOnly
-              disabled
-              className="bg-muted"
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-name" className="text-sm font-medium">
-              Full name
-            </label>
-            <Input
-              id="staff-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={!canEdit || isBusy}
-              maxLength={100}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-knownName" className="text-sm font-medium">
-              Known name
-            </label>
-            <Input
-              id="staff-knownName"
-              value={knownName}
-              onChange={(e) => setKnownName(e.target.value)}
-              disabled={!canEdit || isBusy}
-              placeholder="Short name"
-              maxLength={100}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-mobile" className="text-sm font-medium">
-              Mobile
-            </label>
-            <Input
-              id="staff-mobile"
-              type="tel"
-              value={mobile}
-              onChange={(e) => setMobile(e.target.value)}
-              disabled={!canEdit || isBusy}
-              maxLength={100}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-nicNo" className="text-sm font-medium">
-              NIC Number
-            </label>
-            <Input
-              id="staff-nicNo"
-              value={nicNo}
-              onChange={(e) => setNicNo(e.target.value)}
-              disabled={!canEdit || isBusy}
-              maxLength={15}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-gender" className="text-sm font-medium">
-              Gender
-            </label>
-            <FormMenuSelect
-              id="staff-gender"
-              value={gender}
-              onChange={setGender}
-              options={genderOptions}
-              disabled={!canEdit || isBusy}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-dateOfBirth" className="text-sm font-medium">
-              Date of birth
-            </label>
-            <Input
-              id="staff-dateOfBirth"
-              type="date"
-              value={dateOfBirth}
-              onChange={(e) => setDateOfBirth(e.target.value)}
-              disabled={!canEdit || isBusy}
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-4 rounded-xl border bg-card/70 p-4">
-        <div>
-          <h3 className="text-sm font-semibold">Employment Details</h3>
-          <p className="text-muted-foreground text-xs">
-            Role alignment and internal identifiers used for HR and reporting.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <label htmlFor="staff-employeeNumber" className="text-sm font-medium">
-              Employee number
-            </label>
-            <Input
-              id="staff-employeeNumber"
-              value={employeeNumber}
-              onChange={(e) => setEmployeeNumber(e.target.value)}
-              disabled={!canEdit || isBusy}
-              maxLength={50}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-epfNumber" className="text-sm font-medium">
-              EPF number
-            </label>
-            <Input
-              id="staff-epfNumber"
-              value={epfNumber}
-              onChange={(e) => setEpfNumber(e.target.value)}
-              disabled={!canEdit || isBusy}
-              maxLength={50}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-location" className="text-sm font-medium">
-              Company location
-            </label>
-            <FormMenuSelect
-              id="staff-location"
-              value={locationId}
-              onChange={setLocationId}
-              options={locationOptions}
-              disabled={!canEdit || isBusy}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-department" className="text-sm font-medium">
-              Department
-            </label>
-            <FormMenuSelect
-              id="staff-department"
-              value={departmentId}
-              onChange={setDepartmentId}
-              options={departmentOptions}
-              disabled={!canEdit || isBusy}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-designation" className="text-sm font-medium">
-              Designation
-            </label>
-            <FormMenuSelect
-              id="staff-designation"
-              value={designationId}
-              onChange={setDesignationId}
-              options={designationOptions}
-              disabled={!canEdit || isBusy}
-            />
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="staff-appointmentDate" className="text-sm font-medium">
-              Appointment date
-            </label>
-            <Input
-              id="staff-appointmentDate"
-              type="date"
-              value={appointmentDate}
-              onChange={(e) => setAppointmentDate(e.target.value)}
-              disabled={!canEdit || isBusy}
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-4 rounded-xl border bg-card/70 p-4">
-        <div>
-          <h3 className="text-sm font-semibold">Merchant Assignment Rules</h3>
-          <p className="text-muted-foreground text-xs">
-            Define auto-assignment rules for POS and web orders.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <label htmlFor="staff-shopifyUserIds" className="text-sm font-medium">
-            Shopify user IDs
-          </label>
-          <Input
-            id="staff-shopifyUserIds"
-            value={shopifyUserIds}
-            onChange={(e) => setShopifyUserIds(e.target.value)}
-            disabled={!canEdit || isBusy}
-            placeholder="e.g. 115650822432, 115650822433"
-          />
-          <p className="text-muted-foreground text-xs">
-            Comma-separated IDs. POS orders from these users will be assigned to this staff member.
-          </p>
-        </div>
-        <div className="space-y-2">
-          <label htmlFor="staff-couponCodes" className="text-sm font-medium">
-            Coupon codes
-          </label>
-          <Input
-            id="staff-couponCodes"
-            value={couponCodes}
-            onChange={(e) => setCouponCodes(e.target.value)}
-            disabled={!canEdit || isBusy}
-            placeholder="e.g. MERCHANT10, SAVE20"
-          />
-          <p className="text-muted-foreground text-xs">
-            Comma-separated codes. Web orders with these codes will be assigned here.
-          </p>
-        </div>
-      </section>
-
-      <section className="space-y-3 rounded-xl border bg-card/70 p-4">
-        <h3 className="text-sm font-semibold">Fulfillment Access</h3>
-        <label
-          htmlFor="staff-isRider"
-          className="flex items-start gap-2 rounded-md border border-border/60 p-3"
-        >
-          <input
-            id="staff-isRider"
-            type="checkbox"
-            checked={isRider}
-            onChange={(e) => setIsRider(e.target.checked)}
-            disabled={!canEdit || isBusy}
-            className="mt-0.5 size-4 rounded border-input"
-          />
-          <span>
-            <span className="block text-sm font-medium">Mark as rider</span>
-            <span className="text-muted-foreground block text-xs">
-              Riders can be assigned to dispatch orders and receive delivery confirmation via SMS.
-            </span>
-          </span>
+      <div className="border-t pt-4">
+        <p className="text-muted-foreground mb-3 text-sm font-medium">
+          Order fulfillment
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          id="staff-isRider"
+          type="checkbox"
+          checked={isRider}
+          onChange={(e) => setIsRider(e.target.checked)}
+          disabled={!canEdit || isBusy}
+          className="size-4 rounded border-input"
+        />
+        <label htmlFor="staff-isRider" className="text-sm font-medium">
+          Is Rider
         </label>
-      </section>
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Riders can be assigned to dispatch orders and receive delivery confirmation via SMS.
+      </p>
 
       {canEdit && (
-        <div className="sticky bottom-0 flex justify-end gap-2 border-t bg-background/95 py-3 backdrop-blur">
-          <Button type="button" variant="outline" onClick={onClose} disabled={isBusy}>
-            Cancel
-          </Button>
+        <div className="flex gap-2">
           <Button type="submit" disabled={isBusy}>
             {busyKey === "save" ? (
               <>
@@ -464,59 +439,11 @@ export function StaffEditForm({
               "Save changes"
             )}
           </Button>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isBusy}>
+            Cancel
+          </Button>
         </div>
       )}
     </form>
-  );
-}
-
-interface FormMenuSelectProps {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: SelectOption[];
-  disabled?: boolean;
-}
-
-function FormMenuSelect({
-  id,
-  value,
-  onChange,
-  options,
-  disabled,
-}: FormMenuSelectProps) {
-  const selectedLabel = options.find((option) => option.value === value)?.label ?? options[0]?.label ?? "Select";
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          id={id}
-          type="button"
-          disabled={disabled}
-          className="border-input bg-background hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-10 w-full items-center justify-between rounded-lg border px-3 text-left text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 dark:bg-input/30"
-        >
-          <span className={value ? "text-foreground" : "text-muted-foreground"}>
-            {selectedLabel}
-          </span>
-          <ChevronsUpDown className="text-muted-foreground size-4" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-72 overflow-y-auto"
-      >
-        {options.map((option) => (
-          <DropdownMenuItem
-            key={option.value || "empty"}
-            onSelect={() => onChange(option.value)}
-            className="justify-between"
-          >
-            <span>{option.label}</span>
-            {value === option.value ? <Check className="size-4" aria-hidden /> : null}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
