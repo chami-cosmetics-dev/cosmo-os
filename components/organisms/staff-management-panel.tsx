@@ -1,11 +1,26 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Pencil, UserMinus } from "lucide-react";
+import {
+  BadgeCheck,
+  Check,
+  ChevronsUpDown,
+  Pencil,
+  Search,
+  UserMinus,
+  UserX,
+  Users,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sheet,
   SheetContent,
@@ -81,6 +96,11 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
   const [editData, setEditData] = useState<StaffMember | null>(null);
   const [resigningMember, setResigningMember] = useState<StaffMember | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const statusOptions = [
+    { value: "all" as const, label: "All" },
+    { value: "active" as const, label: "Active" },
+    { value: "resigned" as const, label: "Resigned" },
+  ];
 
   const isBusy = busyKey !== null;
 
@@ -181,6 +201,12 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
   }
 
   const filteredStaff = staff;
+  const activeCount = staff.filter(
+    (member) => member.employeeProfile?.status !== "resigned"
+  ).length;
+  const resignedCount = staff.filter(
+    (member) => member.employeeProfile?.status === "resigned"
+  ).length;
 
   if (loading && staff.length === 0) {
     return (
@@ -202,7 +228,42 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
 
   return (
     <div className="space-y-6">
-      <Card>
+      <section className="space-y-4">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+            <Users className="size-3.5" aria-hidden />
+            Staff Directory
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Staff Management</h2>
+            <p className="text-sm text-muted-foreground">
+              Review employee records, update assignments, and manage resignations.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl border bg-background/80 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Visible Staff
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{total}</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Active
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{activeCount}</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Resigned
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{resignedCount}</p>
+          </div>
+        </div>
+      </section>
+
+      <Card className="border-border/70 bg-card/95 shadow-sm">
         <CardHeader>
           <CardTitle>Staff</CardTitle>
           <p className="text-muted-foreground text-sm">
@@ -212,25 +273,45 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
-              <Input
-                placeholder="Search by name, email, or employee number"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                disabled={isBusy}
-                className="max-w-xs"
-              />
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as "all" | "active" | "resigned")
-                }
-                disabled={isBusy}
-                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-              >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="resigned">Resigned</option>
-              </select>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, email, or employee number"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  disabled={isBusy}
+                  className="max-w-xs pl-9"
+                />
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    className="border-input bg-background hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-10 min-w-36 items-center justify-between rounded-lg border px-3 text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 dark:bg-input/30"
+                  >
+                    <span>
+                      {statusOptions.find((option) => option.value === statusFilter)?.label ??
+                        "Select status"}
+                    </span>
+                    <ChevronsUpDown className="text-muted-foreground size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-36">
+                  {statusOptions.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onSelect={() => setStatusFilter(option.value)}
+                      className="justify-between"
+                    >
+                      <span>{option.label}</span>
+                      {statusFilter === option.value ? (
+                        <Check className="size-4" aria-hidden />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -362,12 +443,17 @@ export function StaffManagementPanel({ canManageStaff }: StaffManagementPanelPro
                     </td>
                     <td className="p-2">
                       <span
-                        className={
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${
                           member.employeeProfile?.status === "resigned"
-                            ? "text-muted-foreground"
-                            : ""
-                        }
+                            ? "bg-muted text-muted-foreground"
+                            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                        }`}
                       >
+                        {member.employeeProfile?.status === "resigned" ? (
+                          <UserX className="mr-1 size-3" aria-hidden />
+                        ) : (
+                          <BadgeCheck className="mr-1 size-3" aria-hidden />
+                        )}
                         {member.employeeProfile?.status ?? "active"}
                       </span>
                     </td>

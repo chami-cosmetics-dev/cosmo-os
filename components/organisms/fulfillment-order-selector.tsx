@@ -115,17 +115,41 @@ export function FulfillmentOrderSelector({
 
   function formatDate(val: string): string {
     const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return Number.isNaN(d.getTime()) ? "-" : d.toLocaleString("en-LK");
   }
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
+      <Card className="border-border/70 bg-card/95 shadow-sm">
+        <CardHeader className="space-y-4">
           <CardTitle>{title}</CardTitle>
           <p className="text-muted-foreground text-sm">{description}</p>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Matching Orders
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{total}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Orders currently in this stage filter.</p>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Visible on Page
+              </p>
+              <p className="mt-2 text-2xl font-semibold">{orders.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Current page {page} with limit {limit}.</p>
+            </div>
+            <div className="rounded-xl border bg-background/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Selected Order
+              </p>
+              <p className="mt-2 text-base font-semibold">{selectedOrderId ? "1 selected" : "None selected"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Choose an order to open invoice and stage actions.</p>
+            </div>
+          </div>
+
           <div className="relative">
             <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
             <Input
@@ -138,9 +162,12 @@ export function FulfillmentOrderSelector({
           {loading ? (
             <p className="py-4 text-center text-muted-foreground text-sm">Loading orders...</p>
           ) : orders.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground text-sm">
-              No orders at this stage.
-            </p>
+            <div className="rounded-xl border border-dashed px-4 py-10 text-center">
+              <p className="text-sm font-medium">No orders at this stage</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Try a different search term or wait for orders to move into this stage.
+              </p>
+            </div>
           ) : (
             <div className="space-y-6">
               <div className="max-h-[280px] overflow-y-auto rounded-md border">
@@ -151,12 +178,12 @@ export function FulfillmentOrderSelector({
                       <th className="px-4 py-2 text-left font-medium">Location</th>
                       <th className="px-4 py-2 text-left font-medium">Merchant</th>
                       <th className="px-4 py-2 text-left font-medium">Customer</th>
-                      {showPrintStatus && (
+                      {showPrintStatus ? (
                         <th className="px-4 py-2 text-left font-medium">Print Status</th>
-                      )}
-                      {showHoldStatus && (
+                      ) : null}
+                      {showHoldStatus ? (
                         <th className="px-4 py-2 text-left font-medium">Hold Status</th>
-                      )}
+                      ) : null}
                       <th className="px-4 py-2 text-right font-medium">Total</th>
                       <th className="px-4 py-2 text-left font-medium">Date</th>
                       <th className="px-4 py-2 text-left font-medium">Select</th>
@@ -171,33 +198,33 @@ export function FulfillmentOrderSelector({
                         }`}
                       >
                         <td className="px-4 py-2 font-medium">
-                          {order.name ?? order.orderNumber ?? "—"}
+                          {order.name ?? order.orderNumber ?? "-"}
                         </td>
-                        <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
-                        <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}</td>
-                        <td className="px-4 py-2 max-w-[140px] truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
-                          {order.customerEmail ?? order.customerPhone ?? "—"}
+                        <td className="px-4 py-2">{order.companyLocation?.name ?? "-"}</td>
+                        <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "-"}</td>
+                        <td className="max-w-[140px] truncate px-4 py-2" title={order.customerEmail ?? order.customerPhone ?? undefined}>
+                          {order.customerEmail ?? order.customerPhone ?? "-"}
                         </td>
-                        {showPrintStatus && (
+                        {showPrintStatus ? (
                           <td className="px-4 py-2">
                             {(order.printCount ?? 0) === 0
                               ? "Not printed"
                               : order.printCount === 1
                                 ? "Printed once"
-                                : `Printed ${order.printCount}×`}
+                                : `Printed ${order.printCount}x`}
                           </td>
-                        )}
-                        {showHoldStatus && (
+                        ) : null}
+                        {showHoldStatus ? (
                           <td className="px-4 py-2">
                             {order.packageOnHoldAt && order.packageHoldReason ? (
                               <span className="text-amber-600" title={order.packageHoldReason.name}>
                                 On hold: {order.packageHoldReason.name}
                               </span>
                             ) : (
-                              <span className="text-muted-foreground">—</span>
+                              <span className="text-muted-foreground">-</span>
                             )}
                           </td>
-                        )}
+                        ) : null}
                         <td className="px-4 py-2 text-right">
                           {formatPrice(order.totalPrice, order.currency)}
                         </td>
@@ -218,7 +245,7 @@ export function FulfillmentOrderSelector({
                   </tbody>
                 </table>
               </div>
-              {total > 0 && (
+              {total > 0 ? (
                 <Pagination
                   page={page}
                   limit={limit}
@@ -230,13 +257,13 @@ export function FulfillmentOrderSelector({
                   }}
                   limitOptions={[5, 10, 25, 50]}
                 />
-              )}
+              ) : null}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {selectedOrderId && (
+      {selectedOrderId ? (
         <>
           <FulfillmentOrderInvoiceDetails
             orderId={selectedOrderId}
@@ -245,7 +272,7 @@ export function FulfillmentOrderSelector({
           />
           {children}
         </>
-      )}
+      ) : null}
     </div>
   );
 }

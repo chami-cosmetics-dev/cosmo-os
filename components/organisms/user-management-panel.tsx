@@ -1,15 +1,31 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { Loader2, Mail, Copy, XCircle, UserPlus, ShieldPlus, Pencil, Trash2 } from "lucide-react";
+import {
+  Loader2,
+  Mail,
+  Copy,
+  XCircle,
+  UserPlus,
+  ShieldPlus,
+  Pencil,
+  Trash2,
+  Users,
+  Clock3,
+  ShieldCheck,
+  Check,
+  ChevronsUpDown,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Pagination } from "@/components/ui/pagination";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -93,10 +109,12 @@ export function UserManagementPanel({
   const [permissions] = useState(initialPermissions);
   const [draftRoleName, setDraftRoleName] = useState("");
   const [draftRoleDescription, setDraftRoleDescription] = useState("");
-  const [selectedPermissionKeys, setSelectedPermissionKeys] = useState<string[]>([]);
-  const [draftAssignments, setDraftAssignments] = useState<Record<string, string[]>>(() =>
-    mapAssignments(initialUsers)
-  );
+  const [selectedPermissionKeys, setSelectedPermissionKeys] = useState<
+    string[]
+  >([]);
+  const [draftAssignments, setDraftAssignments] = useState<
+    Record<string, string[]>
+  >(() => mapAssignments(initialUsers));
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRoleId, setInviteRoleId] = useState("");
@@ -106,18 +124,25 @@ export function UserManagementPanel({
   const [inviteDepartmentId, setInviteDepartmentId] = useState("");
   const [inviteDesignationId, setInviteDesignationId] = useState("");
   const [inviteAppointmentDate, setInviteAppointmentDate] = useState("");
-  const [showInviteEmployeeDetails, setShowInviteEmployeeDetails] = useState(false);
-  const [locations, setLocations] = useState<Location[]>(initialLocations ?? []);
-  const [departments, setDepartments] = useState<Department[]>(initialDepartments ?? []);
-  const [designations, setDesignations] = useState<Designation[]>(initialDesignations ?? []);
+  const [showInviteEmployeeDetails, setShowInviteEmployeeDetails] =
+    useState(false);
+  const [locations, setLocations] = useState<Location[]>(
+    initialLocations ?? [],
+  );
+  const [departments, setDepartments] = useState<Department[]>(
+    initialDepartments ?? [],
+  );
+  const [designations, setDesignations] = useState<Designation[]>(
+    initialDesignations ?? [],
+  );
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [editRoleName, setEditRoleName] = useState("");
   const [editRoleDescription, setEditRoleDescription] = useState("");
-  const [editRolePermissionKeys, setEditRolePermissionKeys] = useState<string[]>(
-    []
-  );
+  const [editRolePermissionKeys, setEditRolePermissionKeys] = useState<
+    string[]
+  >([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
-    initialPendingInvites ?? []
+    initialPendingInvites ?? [],
   );
   const [usersPage, setUsersPage] = useState(1);
   const [usersLimit, setUsersLimit] = useState(10);
@@ -126,7 +151,9 @@ export function UserManagementPanel({
   const [activeTab, setActiveTab] = useState<"users" | "roles">("users");
   const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
   const [createRoleSheetOpen, setCreateRoleSheetOpen] = useState(false);
-  const [editingUserRolesId, setEditingUserRolesId] = useState<string | null>(null);
+  const [editingUserRolesId, setEditingUserRolesId] = useState<string | null>(
+    null,
+  );
 
   const fetchInvites = useCallback(async () => {
     const res = await fetch("/api/admin/invites", { cache: "no-store" });
@@ -137,7 +164,7 @@ export function UserManagementPanel({
 
   const sortedRoles = useMemo(
     () => [...roles].sort((a, b) => a.name.localeCompare(b.name)),
-    [roles]
+    [roles],
   );
 
   const paginatedUsers = useMemo(() => {
@@ -152,12 +179,12 @@ export function UserManagementPanel({
 
   const permissionsByGroup = useMemo(
     () => groupPermissionsByPrefix(permissions),
-    [permissions]
+    [permissions],
   );
 
   const assignableRoles = useMemo(
     () => sortedRoles.filter((r) => r.name !== "super_admin"),
-    [sortedRoles]
+    [sortedRoles],
   );
 
   const isBusy = busyKey !== null;
@@ -176,8 +203,10 @@ export function UserManagementPanel({
       fetch("/api/admin/company/designations"),
     ]).then(([locRes, deptRes, desRes]) => {
       if (locRes.ok) locRes.json().then((d: Location[]) => setLocations(d));
-      if (deptRes.ok) deptRes.json().then((d: Department[]) => setDepartments(d));
-      if (desRes.ok) desRes.json().then((d: Designation[]) => setDesignations(d));
+      if (deptRes.ok)
+        deptRes.json().then((d: Department[]) => setDepartments(d));
+      if (desRes.ok)
+        desRes.json().then((d: Designation[]) => setDesignations(d));
     });
   }, [initialLocations, initialDepartments, initialDesignations]);
 
@@ -199,7 +228,7 @@ export function UserManagementPanel({
     setSelectedPermissionKeys((current) =>
       current.includes(key)
         ? current.filter((item) => item !== key)
-        : [...current, key]
+        : [...current, key],
     );
   }
 
@@ -207,7 +236,7 @@ export function UserManagementPanel({
     setEditRolePermissionKeys((current) =>
       current.includes(key)
         ? current.filter((item) => item !== key)
-        : [...current, key]
+        : [...current, key],
     );
   }
 
@@ -216,7 +245,7 @@ export function UserManagementPanel({
     setEditRoleName(role.name);
     setEditRoleDescription(role.description ?? "");
     setEditRolePermissionKeys(
-      role.rolePermissions.map((rp) => rp.permission.key)
+      role.rolePermissions.map((rp) => rp.permission.key),
     );
   }
 
@@ -270,7 +299,9 @@ export function UserManagementPanel({
       await refreshData();
       notify.success("User roles updated.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to update roles.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to update roles.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -306,7 +337,9 @@ export function UserManagementPanel({
       notify.success("Role created.");
       return true;
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to create role.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to create role.",
+      );
       return false;
     } finally {
       setBusyKey(null);
@@ -325,12 +358,14 @@ export function UserManagementPanel({
         email: inviteEmail.trim(),
         roleId: inviteRoleId,
       };
-      if (inviteEmployeeNumber.trim()) body.employeeNumber = inviteEmployeeNumber.trim();
+      if (inviteEmployeeNumber.trim())
+        body.employeeNumber = inviteEmployeeNumber.trim();
       if (inviteEpfNumber.trim()) body.epfNumber = inviteEpfNumber.trim();
       if (inviteLocationId) body.locationId = inviteLocationId;
       if (inviteDepartmentId) body.departmentId = inviteDepartmentId;
       if (inviteDesignationId) body.designationId = inviteDesignationId;
-      if (inviteAppointmentDate.trim()) body.appointmentDate = inviteAppointmentDate.trim();
+      if (inviteAppointmentDate.trim())
+        body.appointmentDate = inviteAppointmentDate.trim();
       const response = await fetch("/api/invite/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -351,10 +386,14 @@ export function UserManagementPanel({
       setInviteDesignationId("");
       setInviteAppointmentDate("");
       await fetchInvites();
-      notify.success("Invitation sent. Check your email for the activation link.");
+      notify.success(
+        "Invitation sent. Check your email for the activation link.",
+      );
       return true;
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to send invite.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to send invite.",
+      );
       return false;
     } finally {
       setBusyKey(null);
@@ -374,7 +413,9 @@ export function UserManagementPanel({
       await fetchInvites();
       notify.success("Invitation resent.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to resend invite.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to resend invite.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -392,7 +433,9 @@ export function UserManagementPanel({
       await navigator.clipboard.writeText(data.activationUrl);
       notify.success("Invite link copied to clipboard.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to copy link.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to copy link.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -400,7 +443,7 @@ export function UserManagementPanel({
 
   async function cancelInvite(inviteId: string, email: string) {
     const confirmed = window.confirm(
-      `Cancel the invitation for ${email}? They will no longer be able to use the invite link.`
+      `Cancel the invitation for ${email}? They will no longer be able to use the invite link.`,
     );
     if (!confirmed) return;
 
@@ -416,7 +459,9 @@ export function UserManagementPanel({
       await fetchInvites();
       notify.success("Invitation cancelled.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to cancel invite.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to cancel invite.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -429,12 +474,14 @@ export function UserManagementPanel({
     if (mins < 60) return `Expires in ${mins}m`;
     const hours = Math.floor(mins / 60);
     const remainder = mins % 60;
-    return remainder > 0 ? `Expires in ${hours}h ${remainder}m` : `Expires in ${hours}h`;
+    return remainder > 0
+      ? `Expires in ${hours}h ${remainder}m`
+      : `Expires in ${hours}h`;
   }
 
   async function removeUser(userId: string, userName: string) {
     const confirmed = window.confirm(
-      `Remove user "${userName}"? They will no longer be able to sign in.`
+      `Remove user "${userName}"? They will no longer be able to sign in.`,
     );
     if (!confirmed) return;
 
@@ -452,7 +499,9 @@ export function UserManagementPanel({
       await refreshData();
       notify.success("User removed.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to remove user.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to remove user.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -485,7 +534,9 @@ export function UserManagementPanel({
       await refreshData();
       notify.success("Role updated.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to update role.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to update role.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -511,7 +562,9 @@ export function UserManagementPanel({
       await refreshData();
       notify.success("Role deleted.");
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : "Unable to delete role.");
+      notify.error(
+        error instanceof Error ? error.message : "Unable to delete role.",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -520,17 +573,61 @@ export function UserManagementPanel({
   const editingUser = editingUserRolesId
     ? users.find((u) => u.id === editingUserRolesId)
     : null;
+  const totalAssignedRoles = users.reduce(
+    (sum, user) => sum + user.userRoles.length,
+    0,
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex gap-1 border-b">
+    <div className="space-y-6">
+      <section className="space-y-4">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+            <Users className="size-3.5" aria-hidden />
+            User Access
+          </div>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              User Management
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Manage access, role assignments, and invitation flow from one
+              place.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl border bg-background/80 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Total Users
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{users.length}</p>
+          </div>
+          <div className="rounded-xl border bg-background/80 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Pending Invites
+            </p>
+            <p className="mt-2 text-2xl font-semibold">
+              {pendingInvites.length}
+            </p>
+          </div>
+          <div className="rounded-xl border bg-background/80 px-4 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Active Role Links
+            </p>
+            <p className="mt-2 text-2xl font-semibold">{totalAssignedRoles}</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="inline-flex rounded-xl border bg-muted/30 p-1">
         <button
           type="button"
           onClick={() => setActiveTab("users")}
-          className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
             activeTab === "users"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Users
@@ -538,10 +635,10 @@ export function UserManagementPanel({
         <button
           type="button"
           onClick={() => setActiveTab("roles")}
-          className={`border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
             activeTab === "roles"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Roles
@@ -549,13 +646,14 @@ export function UserManagementPanel({
       </div>
 
       {activeTab === "users" && (
-        <Card>
+        <Card className="border-border/70 bg-card/95 shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <CardTitle className="text-lg">Users</CardTitle>
+                <CardTitle className="text-lg">Users & Invitations</CardTitle>
                 <p className="text-muted-foreground mt-0.5 text-sm">
-                  Manage users and their role assignments.
+                  Review team access, update role assignments, and send new
+                  invites.
                 </p>
               </div>
               {canManageUsers && (
@@ -568,21 +666,33 @@ export function UserManagementPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             {canManageUsers && pendingInvites.length > 0 && (
-              <div className="rounded-lg border border-dashed p-3">
-                <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
-                  Pending ({pendingInvites.length})
-                </p>
-                <div className="flex flex-wrap gap-2">
+              <div className="rounded-xl border border-dashed bg-muted/20 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Clock3
+                    className="size-4 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                    Pending ({pendingInvites.length})
+                  </p>
+                </div>
+                <div className="grid gap-3">
                   {pendingInvites.map((inv) => (
                     <div
                       key={inv.id}
-                      className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm"
+                      className="flex flex-col gap-3 rounded-lg border bg-background px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <span className="font-medium">{inv.email}</span>
-                      <span className="text-muted-foreground text-xs">
-                        {inv.role.name} · {formatExpiry(inv.expiresAt)}
-                      </span>
-                      <div className="flex gap-1">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{inv.email}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          {inv.role.name} · {formatExpiry(inv.expiresAt)}
+                          <span>{formatExpiry(inv.expiresAt)}</span>
+                          {inv.location ? (
+                            <span>{inv.location.name}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex gap-1 self-start sm:self-center">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -592,7 +702,10 @@ export function UserManagementPanel({
                           aria-label="Resend invite"
                         >
                           {busyKey === `resend-invite-${inv.id}` ? (
-                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                            <Loader2
+                              className="size-3.5 animate-spin"
+                              aria-hidden
+                            />
                           ) : (
                             <Mail className="size-3.5" aria-hidden />
                           )}
@@ -625,18 +738,28 @@ export function UserManagementPanel({
             )}
 
             {paginatedUsers.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-sm">No users yet.</p>
+              <p className="text-muted-foreground py-8 text-center text-sm">
+                No users yet.
+              </p>
             ) : (
               <>
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="px-4 py-2.5 text-left font-medium">Name</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Email</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Roles</th>
+                        <th className="px-4 py-2.5 text-left font-medium">
+                          Name
+                        </th>
+                        <th className="px-4 py-2.5 text-left font-medium">
+                          Email
+                        </th>
+                        <th className="px-4 py-2.5 text-left font-medium">
+                          Roles
+                        </th>
                         {canManageUsers && (
-                          <th className="w-24 px-4 py-2.5 text-right font-medium">Actions</th>
+                          <th className="w-24 px-4 py-2.5 text-right font-medium">
+                            Actions
+                          </th>
                         )}
                       </tr>
                     </thead>
@@ -644,13 +767,16 @@ export function UserManagementPanel({
                       {paginatedUsers.map((user) => {
                         const assignedRoles = draftAssignments[user.id] ?? [];
                         const isSuperAdmin = user.userRoles.some(
-                          (ur) => ur.role.name === "super_admin"
+                          (ur) => ur.role.name === "super_admin",
                         );
                         const roleNames = isSuperAdmin
                           ? ["super_admin"]
-                          : assignedRoles
-                              .map((rid) => sortedRoles.find((r) => r.id === rid)?.name)
-                              .filter(Boolean) as string[];
+                          : (assignedRoles
+                              .map(
+                                (rid) =>
+                                  sortedRoles.find((r) => r.id === rid)?.name,
+                              )
+                              .filter(Boolean) as string[]);
                         return (
                           <tr key={user.id} className="border-b last:border-0">
                             <td className="px-4 py-2.5 font-medium">
@@ -678,7 +804,9 @@ export function UserManagementPanel({
                                     variant="ghost"
                                     size="icon"
                                     className="size-8"
-                                    onClick={() => setEditingUserRolesId(user.id)}
+                                    onClick={() =>
+                                      setEditingUserRolesId(user.id)
+                                    }
                                     disabled={isBusy}
                                     aria-label="Edit roles"
                                   >
@@ -692,7 +820,9 @@ export function UserManagementPanel({
                                       onClick={() =>
                                         removeUser(
                                           user.id,
-                                          user.name ?? user.email ?? "this user"
+                                          user.name ??
+                                            user.email ??
+                                            "this user",
                                         )
                                       }
                                       disabled={isBusy}
@@ -747,19 +877,31 @@ export function UserManagementPanel({
           </CardHeader>
           <CardContent>
             {paginatedRoles.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-sm">No roles yet.</p>
+              <p className="text-muted-foreground py-8 text-center text-sm">
+                No roles yet.
+              </p>
             ) : (
               <>
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="px-4 py-2.5 text-left font-medium">Name</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Description</th>
-                        <th className="px-4 py-2.5 text-left font-medium">Permissions</th>
-                        <th className="px-4 py-2.5 text-right font-medium">Users</th>
+                        <th className="px-4 py-2.5 text-left font-medium">
+                          Name
+                        </th>
+                        <th className="px-4 py-2.5 text-left font-medium">
+                          Description
+                        </th>
+                        <th className="px-4 py-2.5 text-left font-medium">
+                          Permissions
+                        </th>
+                        <th className="px-4 py-2.5 text-right font-medium">
+                          Users
+                        </th>
                         {canManageRoles && (
-                          <th className="w-24 px-4 py-2.5 text-right font-medium">Actions</th>
+                          <th className="w-24 px-4 py-2.5 text-right font-medium">
+                            Actions
+                          </th>
                         )}
                       </tr>
                     </thead>
@@ -770,14 +912,13 @@ export function UserManagementPanel({
                           role.name !== "admin" &&
                           role.name !== "super_admin";
                         const permKeys = role.rolePermissions.map(
-                          (rp) => rp.permission.key
+                          (rp) => rp.permission.key,
                         );
                         return (
-                          <tr
-                            key={role.id}
-                            className="border-b last:border-0"
-                          >
-                            <td className="px-4 py-2.5 font-medium">{role.name}</td>
+                          <tr key={role.id} className="border-b last:border-0">
+                            <td className="px-4 py-2.5 font-medium">
+                              {role.name}
+                            </td>
                             <td className="text-muted-foreground max-w-[200px] truncate px-4 py-2.5 text-xs">
                               {role.description ?? "—"}
                             </td>
@@ -841,17 +982,25 @@ export function UserManagementPanel({
                                         disabled={isBusy}
                                         aria-label="Edit role"
                                       >
-                                        <Pencil className="size-4" aria-hidden />
+                                        <Pencil
+                                          className="size-4"
+                                          aria-hidden
+                                        />
                                       </Button>
                                       <Button
                                         variant="ghost"
                                         size="icon"
                                         className="size-8 text-destructive hover:text-destructive"
-                                        onClick={() => deleteRole(role.id, role.name)}
+                                        onClick={() =>
+                                          deleteRole(role.id, role.name)
+                                        }
                                         disabled={isBusy}
                                         aria-label="Delete role"
                                       >
-                                        <Trash2 className="size-4" aria-hidden />
+                                        <Trash2
+                                          className="size-4"
+                                          aria-hidden
+                                        />
                                       </Button>
                                     </>
                                   )}
@@ -888,7 +1037,8 @@ export function UserManagementPanel({
           <SheetHeader>
             <SheetTitle>Invite user</SheetTitle>
             <SheetDescription>
-              Send an invitation email. The recipient will set their password via the link.
+              Send an invitation email. The recipient will set their password
+              via the link.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
@@ -909,29 +1059,62 @@ export function UserManagementPanel({
               <label htmlFor="invite-role" className="text-sm font-medium">
                 Role
               </label>
-              <select
-                id="invite-role"
-                value={inviteRoleId}
-                onChange={(e) => setInviteRoleId(e.target.value)}
-                disabled={isBusy}
-                className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
-              >
-                <option value="">Select role</option>
-                {sortedRoles
-                  .filter((r) => r.name !== "super_admin")
-                  .map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
-              </select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    id="invite-role"
+                    type="button"
+                    disabled={isBusy}
+                    className="border-input bg-background hover:bg-accent/30 focus-visible:border-ring focus-visible:ring-ring/50 flex h-10 w-full items-center justify-between rounded-lg border px-3 text-sm outline-none transition-colors focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 dark:bg-input/30"
+                  >
+                    <span className={inviteRoleId ? "text-foreground" : "text-muted-foreground"}>
+                      {inviteRoleId
+                        ? formatRoleLabel(
+                            sortedRoles.find((role) => role.id === inviteRoleId)?.name ?? "",
+                          )
+                        : "Select role"}
+                    </span>
+                    <ChevronsUpDown className="text-muted-foreground size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-72 overflow-y-auto"
+                >
+                  <DropdownMenuItem
+                    onSelect={() => setInviteRoleId("")}
+                    className="justify-between"
+                  >
+                    <span>Select role</span>
+                    {!inviteRoleId ? <Check className="size-4" aria-hidden /> : null}
+                  </DropdownMenuItem>
+                  {sortedRoles
+                    .filter((r) => r.name !== "super_admin")
+                    .map((role) => (
+                      <DropdownMenuItem
+                        key={role.id}
+                        onSelect={() => setInviteRoleId(role.id)}
+                        className="justify-between"
+                      >
+                        <span>{formatRoleLabel(role.name)}</span>
+                        {inviteRoleId === role.id ? (
+                          <Check className="size-4" aria-hidden />
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <p className="text-xs text-muted-foreground">
+                Choose the access level for this user.
+              </p>
             </div>
             <button
               type="button"
               onClick={() => setShowInviteEmployeeDetails((v) => !v)}
               className="text-muted-foreground hover:text-foreground text-xs underline"
             >
-              {showInviteEmployeeDetails ? "Hide" : "Add"} employee details (optional)
+              {showInviteEmployeeDetails ? "Hide" : "Add"} employee details
+              (optional)
             </button>
             {showInviteEmployeeDetails && (
               <div className="space-y-3 rounded-lg border p-3">
@@ -957,46 +1140,49 @@ export function UserManagementPanel({
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs">Location</label>
-                  <select
+                  <NativeSelect
                     value={inviteLocationId}
                     onChange={(e) => setInviteLocationId(e.target.value)}
                     disabled={isBusy}
-                    className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
                   >
                     <option value="">Select</option>
                     {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-xs">Department</label>
-                    <select
+                    <NativeSelect
                       value={inviteDepartmentId}
                       onChange={(e) => setInviteDepartmentId(e.target.value)}
                       disabled={isBusy}
-                      className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
                     >
                       <option value="">Select</option>
                       {departments.map((d) => (
-                        <option key={d.id} value={d.id}>{d.name}</option>
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs">Designation</label>
-                    <select
+                    <NativeSelect
                       value={inviteDesignationId}
                       onChange={(e) => setInviteDesignationId(e.target.value)}
                       disabled={isBusy}
-                      className="border-input h-9 w-full rounded-md border px-3 py-1 text-sm"
                     >
                       <option value="">Select</option>
                       {designations.map((d) => (
-                        <option key={d.id} value={d.id}>{d.name}</option>
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -1012,7 +1198,11 @@ export function UserManagementPanel({
             )}
           </div>
           <SheetFooter>
-            <Button variant="outline" onClick={() => setInviteSheetOpen(false)} disabled={isBusy}>
+            <Button
+              variant="outline"
+              onClick={() => setInviteSheetOpen(false)}
+              disabled={isBusy}
+            >
               Cancel
             </Button>
             <Button
@@ -1055,7 +1245,9 @@ export function UserManagementPanel({
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Description (optional)</label>
+              <label className="text-sm font-medium">
+                Description (optional)
+              </label>
               <Input
                 placeholder="Brief description"
                 value={draftRoleDescription}
@@ -1123,7 +1315,11 @@ export function UserManagementPanel({
             </div>
           </div>
           <SheetFooter>
-            <Button variant="outline" onClick={() => setCreateRoleSheetOpen(false)} disabled={isBusy}>
+            <Button
+              variant="outline"
+              onClick={() => setCreateRoleSheetOpen(false)}
+              disabled={isBusy}
+            >
               Cancel
             </Button>
             <Button
@@ -1156,7 +1352,10 @@ export function UserManagementPanel({
             <SheetTitle>Edit roles</SheetTitle>
             <SheetDescription>
               {editingUser && (
-                <>Assign roles for {editingUser.name ?? editingUser.email ?? "this user"}.</>
+                <>
+                  Assign roles for{" "}
+                  {editingUser.name ?? editingUser.email ?? "this user"}.
+                </>
               )}
             </SheetDescription>
           </SheetHeader>
@@ -1220,114 +1419,114 @@ export function UserManagementPanel({
         open={!!editingRoleId}
         onOpenChange={(open) => !open && cancelEditingRole()}
       >
-          <SheetContent className="overflow-y-auto sm:max-w-md">
-            <SheetHeader>
-              <SheetTitle>Edit role</SheetTitle>
-              <SheetDescription>
-                Update role name, description, and permissions.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Name</label>
-                <Input
-                  value={editRoleName}
-                  onChange={(e) => setEditRoleName(e.target.value)}
-                  disabled={isBusy}
-                />
+        <SheetContent className="overflow-y-auto sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <ShieldPlus className="size-4 text-sky-700" aria-hidden />
+              Edit Role
+            </SheetTitle>
+            <SheetDescription>
+              Update the role name, explain what it is for, and adjust access
+              permissions.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="space-y-5 py-4">
+            <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">Role Basics</p>
+                <p className="text-xs text-muted-foreground">
+                  Use a short, clear name so admins can quickly understand what
+                  this role is for.
+                </p>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Description (optional)</label>
-                <Input
-                  value={editRoleDescription}
-                  onChange={(e) => setEditRoleDescription(e.target.value)}
-                  disabled={isBusy}
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Permissions</p>
-                <div className="space-y-3">
-                  {permissionsByGroup.map((item) => (
-                    <div key={item.group}>
-                      <p className="text-muted-foreground mb-1.5 text-xs font-medium uppercase tracking-wide">
-                        {item.group}
-                      </p>
-                      {"subGroups" in item && item.subGroups ? (
-                        <div className="space-y-2 pl-2 border-l-2 border-muted">
-                          {item.subGroups.map(({ subGroup, permissions: perms }) => (
-                            <div key={subGroup}>
-                              <p className="text-muted-foreground mb-1 text-xs">
-                                {subGroup}
-                              </p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {perms.map((p) => (
-                                  <label
-                                    key={p.id}
-                                    className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={editRolePermissionKeys.includes(p.key)}
-                                      onChange={() => toggleEditRolePermission(p.key)}
-                                      disabled={isBusy}
-                                      className="rounded"
-                                    />
-                                    {p.key}
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap gap-1.5">
-                          {item.permissions.map((p) => (
-                            <label
-                              key={p.id}
-                              className="flex cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs hover:bg-muted/50"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={editRolePermissionKeys.includes(p.key)}
-                                onChange={() => toggleEditRolePermission(p.key)}
-                                disabled={isBusy}
-                                className="rounded"
-                              />
-                              {p.key}
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+              <div className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Role name</label>
+                  <Input
+                    value={editRoleName}
+                    onChange={(e) => setEditRoleName(e.target.value)}
+                    disabled={isBusy}
+                    placeholder="e.g. sales-manager"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Description (optional)
+                  </label>
+                  <Input
+                    value={editRoleDescription}
+                    onChange={(e) => setEditRoleDescription(e.target.value)}
+                    disabled={isBusy}
+                    placeholder="Briefly describe who should use this role"
+                  />
                 </div>
               </div>
             </div>
-            <SheetFooter>
-              <Button variant="outline" onClick={cancelEditingRole} disabled={isBusy}>
-                Cancel
-              </Button>
-              <Button
-                onClick={async () => {
-                  if (editingRoleId) {
-                    await updateRole(editingRoleId);
-                    cancelEditingRole();
-                  }
-                }}
-                disabled={isBusy}
-              >
-                {editingRoleId && busyKey === `update-role-${editingRoleId}` ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
-                    Saving...
-                  </>
-                ) : (
-                  "Save"
-                )}
-              </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
+
+            <div className="rounded-xl border bg-background p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">Permissions</p>
+                <p className="text-xs text-muted-foreground">
+                  Select what users with this role are allowed to access.
+                </p>
+              </div>
+              <div className="mt-4 space-y-4">
+                {permissionsByGroup.map(({ group, permissions: perms }) => (
+                  <div key={group}>
+                    <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
+                      {group}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {perms.map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex cursor-pointer items-center gap-2 rounded-lg border bg-background px-3 py-2 text-xs hover:bg-muted/50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={editRolePermissionKeys.includes(p.key)}
+                            onChange={() => toggleEditRolePermission(p.key)}
+                            disabled={isBusy}
+                            className="rounded"
+                          />
+                          <span>{p.key}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <SheetFooter>
+            <Button
+              variant="outline"
+              onClick={cancelEditingRole}
+              disabled={isBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (editingRoleId) {
+                  await updateRole(editingRoleId);
+                  cancelEditingRole();
+                }
+              }}
+              disabled={isBusy}
+            >
+              {editingRoleId && busyKey === `update-role-${editingRoleId}` ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
+                  Saving...
+                </>
+              ) : (
+                "Save role changes"
+              )}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -1339,26 +1538,21 @@ function mapAssignments(users: User[]) {
   }, {});
 }
 
-const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
-  sample_free_issue: "Sample / Free Issue",
-  order_print: "Order Print",
-  ready_dispatch: "Ready & Dispatch",
-  delivery_invoice: "Delivery & Invoice",
-  remarks: "Remarks",
-  revert_to: "Revert to Stage",
-};
+/** Group permissions by prefix (e.g. users.read → "Users") for better UX */
+function formatRoleLabel(value: string): string {
+  return value
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((part) => {
+      if (/^[a-z]{2}$/i.test(part)) return part.toUpperCase();
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(" ");
+}
 
-type PermissionGroupItem =
-  | { group: string; permissions: Permission[]; subGroups?: undefined }
-  | {
-      group: string;
-      subGroups: Array<{ subGroup: string; permissions: Permission[] }>;
-      permissions?: undefined;
-    };
-
-/** Group permissions by prefix (e.g. users.read → "Users") for better UX.
- * Fulfillment group is further split into sub-groups for improved UI. */
-function groupPermissionsByPrefix(permissions: Permission[]): PermissionGroupItem[] {
+function groupPermissionsByPrefix(
+  permissions: Permission[],
+): Array<{ group: string; permissions: Permission[] }> {
   const map = new Map<string, Permission[]>();
   for (const p of permissions) {
     const parts = p.key.split(".");
@@ -1400,6 +1594,6 @@ function groupPermissionsByPrefix(permissions: Permission[]): PermissionGroupIte
     .concat(
       [...map.entries()]
         .filter(([g]) => !order.includes(g))
-        .map(([group, permissions]) => ({ group, permissions }))
+        .map(([group, permissions]) => ({ group, permissions })),
     );
 }
