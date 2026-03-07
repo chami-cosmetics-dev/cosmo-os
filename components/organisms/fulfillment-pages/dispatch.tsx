@@ -24,14 +24,9 @@ export function DispatchFulfillmentPage({
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-xl border bg-card/95 p-5 shadow-sm sm:p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Dispatch</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage hold reasons, mark package readiness, and dispatch orders via rider or courier.
-        </p>
-      </div>
-      <FulfillmentOrderSelector
+    <FulfillmentPermissionsProvider permissions={permissions}>
+      <div className="space-y-6">
+        <FulfillmentOrderSelector
         title="Ready to Dispatch & Dispatch"
         description="Select an order to put on hold, mark ready, or dispatch via rider or courier."
         stages="print,ready_to_dispatch"

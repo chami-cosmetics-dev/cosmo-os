@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { BadgeCheck, KeyRound, ShieldCheck, UserCircle2 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ProfileForm } from "@/components/molecules/profile-form";
@@ -65,78 +64,28 @@ export default async function ProfilePage() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-border/70 bg-card/95 shadow-sm">
-        <CardContent className="pt-6">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
-                  <UserCircle2 className="size-3.5" aria-hidden />
-                  Profile Settings
-                </div>
-                <div>
-                  <h1 className="text-2xl font-semibold tracking-tight">My Profile</h1>
-                  <p className="text-sm text-muted-foreground">
-                    Keep your personal details up to date. Organization-managed
-                    employment details are shown below for reference.
-                  </p>
-                </div>
-              </div>
-              <ProfileForm initialData={profileData} />
-            </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>My Profile</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            View and edit your personal information. Employment details are managed by your organization.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ProfileForm initialData={profileData} />
+        </CardContent>
+      </Card>
 
-            <div className="space-y-4">
-              <Card className="border-border/70 bg-background/80 shadow-none">
-                <CardHeader className="space-y-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <ShieldCheck className="size-4 text-sky-700" aria-hidden />
-                    Account Security
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Update your sign-in password anytime. Use a strong password that
-                    is unique to this account.
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <PasswordChangeModal />
-                </CardContent>
-              </Card>
-
-              <Card className="border-border/70 bg-background/80 shadow-none">
-                <CardHeader className="space-y-2">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <BadgeCheck className="size-4 text-sky-700" aria-hidden />
-                    Quick Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="rounded-lg border bg-muted/30 p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Signed in as
-                    </p>
-                    <p className="mt-1 font-medium">{profileData.email ?? "No email"}</p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/30 p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Roles
-                    </p>
-                    <p className="mt-1 text-sm">
-                      {profileData.roles.length > 0
-                        ? profileData.roles.map((role) => role.name).join(", ")
-                        : "No roles assigned"}
-                    </p>
-                  </div>
-                  <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-4">
-                    <KeyRound className="mt-0.5 size-4 text-muted-foreground" aria-hidden />
-                    <p className="text-sm text-muted-foreground">
-                      If you change your password, use the new password the next time
-                      you sign in.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Update your account password. Use a strong password with at least 8
+            characters, including uppercase, lowercase, and a number.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <PasswordChangeModal />
         </CardContent>
       </Card>
     </div>
