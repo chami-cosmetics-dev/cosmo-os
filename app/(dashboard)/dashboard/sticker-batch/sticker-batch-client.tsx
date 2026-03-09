@@ -63,6 +63,19 @@ type BatchOption = {
   batchName: string;
 };
 
+type BatchDetailsResponse = {
+  items?: Array<{
+    itemCode: string;
+    itemName: string;
+    unitPrice: string;
+    quantity: number;
+    manufactureDate: string;
+    expireDate: string;
+    locationId?: string | null;
+  }>;
+  error?: string;
+};
+
 interface StickerBatchClientProps {
   suppliers: SupplierOption[];
   locations: LocationOption[];
@@ -147,6 +160,15 @@ function computeAge(manufactureDate: string, expireDate: string) {
 
 function getInlineChangeClass(value: string) {
   return value.trim() ? inlineChangedClass : "";
+}
+
+function formatDateFromApi(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear());
+  return `${day}/${month}/${year}`;
 }
 
 export function StickerBatchClient({
@@ -425,6 +447,64 @@ export function StickerBatchClient({
       })),
     );
   }
+
+  useEffect(() => {
+    if (!selectedBatchId) {
+      setRows([]);
+      nextRowIdRef.current = 1;
+      return;
+    }
+
+    let active = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/sticker-batches/${selectedBatchId}`);
+        const data = (await res.json()) as BatchDetailsResponse;
+        if (!res.ok) {
+          if (active) {
+            notify.error(data.error ?? "Failed to load sticker batch items");
+          }
+          return;
+        }
+
+        if (!active) return;
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (items.length === 0) {
+          setRows([]);
+          nextRowIdRef.current = 1;
+          return;
+        }
+
+        const locationId = items[0]?.locationId?.trim() ?? "";
+        if (locationId) {
+          setSelectedLocationId(locationId);
+        }
+
+        const nextRows = items.map((item, index) => {
+          const manufactureDate = formatDateFromApi(item.manufactureDate);
+          const expireDate = formatDateFromApi(item.expireDate);
+          return {
+            id: String(index + 1),
+            itemCode: item.itemCode ?? "",
+            itemName: item.itemName ?? "",
+            unitPrice: formatToTwoDecimals(item.unitPrice ?? ""),
+            quantity: String(item.quantity ?? ""),
+            manufactureDate,
+            expireDate,
+            age: computeAge(manufactureDate, expireDate),
+          };
+        });
+        setRows(nextRows);
+        nextRowIdRef.current = nextRows.length + 1;
+      } catch {
+        if (active) notify.error("Failed to load sticker batch items");
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedBatchId]);
 
   // Restore unfinished Sticker Batch Items draft when page is revisited.
   useEffect(() => {

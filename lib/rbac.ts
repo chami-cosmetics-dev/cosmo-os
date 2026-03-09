@@ -269,6 +269,7 @@ function normalizeRoleName(input: string) {
 
 /** Cached promise so setup runs only once per process. */
 let rbacSetupPromise: Promise<void> | null = null;
+let hasVerifiedDefaultRbacSetup = false;
 
 const EXPECTED_PERMISSION_COUNT = DEFAULT_PERMISSIONS.length;
 
@@ -278,13 +279,22 @@ const EXPECTED_PERMISSION_COUNT = DEFAULT_PERMISSIONS.length;
  * dev workers (each has its own process-level cache).
  */
 async function ensureDefaultRbacSetupIfNeeded() {
-  const count = await prisma.permission.count();
-  if (count >= EXPECTED_PERMISSION_COUNT) {
+  if (hasVerifiedDefaultRbacSetup) {
     return;
   }
+
   if (!rbacSetupPromise) {
-    rbacSetupPromise = ensureDefaultRbacSetup();
+    rbacSetupPromise = (async () => {
+      const count = await prisma.permission.count();
+      if (count < EXPECTED_PERMISSION_COUNT) {
+        await ensureDefaultRbacSetup();
+      }
+      hasVerifiedDefaultRbacSetup = true;
+    })().finally(() => {
+      rbacSetupPromise = null;
+    });
   }
+
   await rbacSetupPromise;
 }
 

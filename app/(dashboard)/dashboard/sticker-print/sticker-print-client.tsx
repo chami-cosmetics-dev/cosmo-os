@@ -65,6 +65,12 @@ function formatPrice(price: string) {
   });
 }
 
+function getLocationRefNumber(locationReference: string | null) {
+  if (!locationReference) return "-";
+  const digits = locationReference.replace(/\D/g, "");
+  return digits || "-";
+}
+
 export function StickerPrintClient({ batches }: StickerPrintClientProps) {
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -94,19 +100,81 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
   const stickers = useMemo(() => detail?.items ?? [], [detail]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-print-root="stickers">
       <style jsx global>{`
         @media print {
+          html,
+          body {
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            min-height: 0 !important;
+            background: white !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          [data-print-root="stickers"],
+          [data-print-root="stickers"] * {
+            visibility: visible !important;
+          }
+          [data-print-root="stickers"] {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
           .no-print {
             display: none !important;
           }
-          body {
-            background: white !important;
+          @page {
+            margin: 0;
+          }
+          [data-slot="sidebar"],
+          [data-slot="sidebar-gap"],
+          [data-slot="sidebar-container"] {
+            display: none !important;
+          }
+          [data-slot="sidebar-wrapper"],
+          [data-slot="sidebar-inset"],
+          [data-slot="sidebar-inset"] > div {
+            display: block !important;
+            min-height: auto !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+          }
+          [data-slot="sidebar-inset"] > header {
+            display: none !important;
+          }
+          .sticker-sheet {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            align-content: flex-start !important;
+            gap: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            break-after: auto !important;
+            page-break-after: auto !important;
           }
           .sticker-card {
+            display: inline-block !important;
+            width: 2in !important;
+            height: 1in !important;
             background: #d9f56b !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            break-after: avoid-page !important;
+            page-break-after: avoid !important;
+            margin: 0 !important;
+            padding: 0.08in 0.125in 0.125in !important;
+            overflow: hidden !important;
           }
         }
         .sticker-card {
@@ -155,7 +223,9 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
 
       {loading && (
         <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">Loading preview...</CardContent>
+          <CardContent className="py-6 text-sm text-muted-foreground">
+            Loading preview...
+          </CardContent>
         </Card>
       )}
 
@@ -168,39 +238,48 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
       )}
 
       {!loading && detail && stickers.length > 0 && (
-        <div className="sticker-sheet flex flex-wrap gap-2">
+        <div className="sticker-sheet flex flex-wrap gap-2 top-">
           {stickers.map((item) => (
             <div
               key={item.id}
               className="sticker-card rounded-md border border-black/30 bg-lime-300 p-3 text-black shadow-sm"
             >
               <div className="flex items-start justify-between text-[8px] leading-tight">
-                <div>
-                  <div><span className="font-semibold">MFD:</span> {formatDate(item.manufactureDate)}</div>
-                  <div><span className="font-semibold">EXP:</span> {formatDate(item.expireDate)}</div>
-                  <div><span className="font-semibold">Code:</span> {item.itemCode}</div>
+                <div className="font-bold">
+                  <div>
+                    <span>MFD:</span> {formatDate(item.manufactureDate)}
+                  </div>
+                  <div>
+                    <span>EXP:</span> {formatDate(item.expireDate)}
+                  </div>
+                  <div>
+                    <span>Code:</span> {item.itemCode}
+                  </div>
+                  <div>
+                    <span>Ref:</span>{" "}
+                    {getLocationRefNumber(item.locationReference)}
+                  </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-extrabold">{detail.batchName}</div>
-                  <div className="mt-0.5 text-[14px] font-extrabold leading-none">MRP</div>
+                  <div className="font-extrabold">{detail.supplierName}</div>
+                  <div className="mt-0.5 text-[14px] font-extrabold leading-none">
+                    MRP
+                  </div>
                   <div className="text-[18px] font-extrabold leading-none">
                     {formatPrice(item.unitPrice)}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-1 text-center text-[10px] font-extrabold uppercase leading-none">
+              <div className="mt-0 text-center text-[10px] font-extrabold uppercase leading-none">
                 {detail.companyName || "COMPANY"}
               </div>
 
-              <div className="mt-0.5 text-center text-[8px] font-bold leading-tight uppercase">
+              <div className="mt-0 text-center text-[8px] font-bold leading-tight uppercase">
                 {item.locationAddress || detail.companyAddress || "-"}
               </div>
               <div className="text-center text-[9px] font-bold leading-tight">
                 {item.locationPhone || "-"}
-              </div>
-              <div className="mt-0.5 text-right text-[8px] font-semibold">
-                Qty: {item.quantity}
               </div>
             </div>
           ))}
