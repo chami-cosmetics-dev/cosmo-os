@@ -95,6 +95,7 @@ export async function GET(
           expireDate: true;
           companyLocation: {
             select: {
+              id: true;
               locationReference: true;
               address: true;
               invoicePhone: true;
@@ -112,6 +113,7 @@ export async function GET(
         expireDate: Date;
         companyLocation: {
           locationReference: string | null;
+          id: string;
           address: string | null;
           invoicePhone: string | null;
           name: string;
@@ -131,6 +133,7 @@ export async function GET(
       expireDate: true,
       companyLocation: {
         select: {
+          id: true,
           locationReference: true,
           address: true,
           invoicePhone: true,
@@ -156,6 +159,7 @@ export async function GET(
       quantity: item.quantity,
       manufactureDate: item.manufactureDate,
       expireDate: item.expireDate,
+      locationId: item.companyLocation.id,
       locationReference: item.companyLocation.locationReference,
       locationName: item.companyLocation.name,
       locationAddress: item.companyLocation.address,
