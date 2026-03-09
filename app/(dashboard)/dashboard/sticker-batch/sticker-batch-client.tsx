@@ -164,12 +164,14 @@ export function StickerBatchClient({
   const [batches, setBatches] = useState<BatchOption[]>(initialBatches);
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
-  const [rowsToAdd, setRowsToAdd] = useState("1");
+  const [rowsToAdd, setRowsToAdd] = useState("");
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingItems, setSavingItems] = useState(false);
+  const [itemsResetKey, setItemsResetKey] = useState(0);
   const nextRowIdRef = useRef(1);
   const hasRestoredDraftRef = useRef(false);
+  const skipNextDraftPersistRef = useRef(false);
   const canAddRows = selectedBatchId.trim() !== "" && selectedLocationId.trim() !== "";
   const allRowsComplete = useMemo(
     () =>
@@ -306,6 +308,16 @@ export function StickerBatchClient({
         notify.error(data.error ?? "Failed to save sticker batch items");
         return;
       }
+      skipNextDraftPersistRef.current = true;
+      nextRowIdRef.current = 1;
+      setSelectedBatchId("");
+      setRows([]);
+      setRowsToAdd("");
+      setSelectedLocationId("");
+      setItemsResetKey((prev) => prev + 1);
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(ITEMS_DRAFT_STORAGE_KEY);
+      }
       notify.success("Sticker batch items saved.");
     } catch {
       notify.error("Failed to save sticker batch items");
@@ -332,8 +344,8 @@ export function StickerBatchClient({
   }
 
   function handleRemoveAllRows() {
-    nextRowIdRef.current = 2;
-    setRows([createEmptyRow("1")]);
+    nextRowIdRef.current = 1;
+    setRows([]);
   }
 
   function handleRemoveRow(rowId: string) {
@@ -428,10 +440,7 @@ export function StickerBatchClient({
         rows?: ItemRow[];
         nextRowId?: number;
       };
-      if (draft.selectedBatchId) setSelectedBatchId(draft.selectedBatchId);
-      if (draft.selectedLocationId) setSelectedLocationId(draft.selectedLocationId);
-      if (draft.rowsToAdd) setRowsToAdd(draft.rowsToAdd);
-      if (Array.isArray(draft.rows)) setRows(draft.rows);
+      // Keep selectors empty on load so placeholders ("Select ...") are shown.
       if (typeof draft.nextRowId === "number" && Number.isFinite(draft.nextRowId)) {
         nextRowIdRef.current = Math.max(1, draft.nextRowId);
       }
@@ -443,6 +452,10 @@ export function StickerBatchClient({
   // Persist unfinished Sticker Batch Items draft after each change.
   useEffect(() => {
     if (typeof window === "undefined" || !hasRestoredDraftRef.current) return;
+    if (skipNextDraftPersistRef.current) {
+      skipNextDraftPersistRef.current = false;
+      return;
+    }
     const payload = {
       selectedBatchId,
       selectedLocationId,
@@ -566,6 +579,7 @@ export function StickerBatchClient({
             <div className="min-w-[240px] flex-1 space-y-2">
               <label className="text-sm font-medium">Batch Name</label>
               <Select
+                key={`batch-select-${itemsResetKey}`}
                 value={selectedBatchId || undefined}
                 onValueChange={(value) => setSelectedBatchId(value)}
               >
@@ -588,6 +602,7 @@ export function StickerBatchClient({
             <div className="min-w-[240px] flex-1 space-y-2">
               <label className="text-sm font-medium">Location</label>
               <Select
+                key={`location-select-${itemsResetKey}`}
                 value={selectedLocationId || undefined}
                 onValueChange={(value) => handleLocationChange(value)}
               >
@@ -601,7 +616,7 @@ export function StickerBatchClient({
                 <SelectContent>
                   {locations.map((location) => (
                     <SelectItem key={location.id} value={location.id}>
-                      {location.locationReference}
+                      {location.locationReference?.trim() || location.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

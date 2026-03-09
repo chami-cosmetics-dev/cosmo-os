@@ -31,6 +31,8 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
           ? "Vendors & Categories"
           : pathname === "/dashboard/sticker-batch"
             ? "Sticker Batch"
+            : pathname === "/dashboard/sticker-print"
+              ? "Sticker Print"
               : title;
 
   return (
