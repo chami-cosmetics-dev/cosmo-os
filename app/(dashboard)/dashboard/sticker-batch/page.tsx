@@ -27,7 +27,13 @@ export default async function StickerBatchPage() {
           },
         }),
         prisma.companyLocation.findMany({
-          where: { companyId, locationReference: { not: null } },
+          where: {
+            companyId,
+            AND: [
+              { locationReference: { not: null } },
+              { locationReference: { not: "" } },
+            ],
+          },
           orderBy: { locationReference: "asc" },
           select: {
             id: true,
