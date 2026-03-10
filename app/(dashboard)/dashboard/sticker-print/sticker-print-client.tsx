@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,31 +45,6 @@ type BatchDetail = {
 
 interface StickerPrintClientProps {
   batches: BatchOption[];
-}
-
-function formatDate(dateLike: string) {
-  const d = new Date(dateLike);
-  if (Number.isNaN(d.getTime())) return dateLike;
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(d);
-}
-
-function formatPrice(price: string) {
-  const n = Number(price);
-  if (!Number.isFinite(n)) return price;
-  return n.toLocaleString("en-LK", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function getLocationRefNumber(locationReference: string | null) {
-  if (!locationReference) return "-";
-  const digits = locationReference.replace(/\D/g, "");
-  return digits || "-";
 }
 
 export function StickerPrintClient({ batches }: StickerPrintClientProps) {
@@ -240,48 +216,20 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
       {!loading && detail && stickers.length > 0 && (
         <div className="sticker-sheet flex flex-wrap gap-2 top-">
           {stickers.map((item) => (
-            <div
+            <StickerPreviewCard
               key={item.id}
-              className="sticker-card rounded-md border border-black/30 bg-lime-300 p-3 text-black shadow-sm"
-            >
-              <div className="flex items-start justify-between text-[8px] leading-tight">
-                <div className="font-bold">
-                  <div>
-                    <span>MFD:</span> {formatDate(item.manufactureDate)}
-                  </div>
-                  <div>
-                    <span>EXP:</span> {formatDate(item.expireDate)}
-                  </div>
-                  <div>
-                    <span>Code:</span> {item.itemCode}
-                  </div>
-                  <div>
-                    <span>Ref:</span>{" "}
-                    {getLocationRefNumber(item.locationReference)}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-extrabold">{detail.supplierName}</div>
-                  <div className="mt-0.5 text-[14px] font-extrabold leading-none">
-                    MRP
-                  </div>
-                  <div className="text-[18px] font-extrabold leading-none">
-                    {formatPrice(item.unitPrice)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-0 text-center text-[10px] font-extrabold uppercase leading-none">
-                {detail.companyName || "COMPANY"}
-              </div>
-
-              <div className="mt-0 text-center text-[8px] font-bold leading-tight uppercase">
-                {item.locationAddress || detail.companyAddress || "-"}
-              </div>
-              <div className="text-center text-[9px] font-bold leading-tight">
-                {item.locationPhone || "-"}
-              </div>
-            </div>
+              manufactureDate={item.manufactureDate}
+              expireDate={item.expireDate}
+              itemCode={item.itemCode}
+              itemName={item.itemName}
+              unitPrice={item.unitPrice}
+              locationReference={item.locationReference}
+              supplierName={detail.supplierName}
+              companyName={detail.companyName}
+              locationAddress={item.locationAddress}
+              companyAddress={detail.companyAddress}
+              locationPhone={item.locationPhone}
+            />
           ))}
         </div>
       )}

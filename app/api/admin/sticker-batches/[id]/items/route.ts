@@ -145,34 +145,49 @@ export async function POST(
     });
   }
 
-  await (prisma as unknown as {
-    stickerBatchItem: {
-      createMany: (args: {
-        data: Array<{
-          companyId: string;
-          stickerBatchId: string;
-          companyLocationId: string;
-          itemCode: string;
-          itemName: string;
-          unitPrice: string;
-          quantity: number;
-          manufactureDate: Date;
-          expireDate: Date;
-        }>;
-      }) => Promise<{ count: number }>;
-    };
-  }).stickerBatchItem.createMany({
-    data: items.map((item) => ({
-      companyId,
-      stickerBatchId: batchId,
-      companyLocationId: parsed.data.locationId,
-      itemCode: item.itemCode,
-      itemName: item.itemName,
-      unitPrice: item.unitPrice,
-      quantity: item.quantity,
-      manufactureDate: item.manufactureDate,
-      expireDate: item.expireDate,
-    })),
+  await prisma.$transaction(async (tx) => {
+    await (tx as unknown as {
+      stickerBatchItem: {
+        deleteMany: (args: {
+          where: { companyId: string; stickerBatchId: string };
+        }) => Promise<{ count: number }>;
+      };
+    }).stickerBatchItem.deleteMany({
+      where: {
+        companyId,
+        stickerBatchId: batchId,
+      },
+    });
+
+    await (tx as unknown as {
+      stickerBatchItem: {
+        createMany: (args: {
+          data: Array<{
+            companyId: string;
+            stickerBatchId: string;
+            companyLocationId: string;
+            itemCode: string;
+            itemName: string;
+            unitPrice: string;
+            quantity: number;
+            manufactureDate: Date;
+            expireDate: Date;
+          }>;
+        }) => Promise<{ count: number }>;
+      };
+    }).stickerBatchItem.createMany({
+      data: items.map((item) => ({
+        companyId,
+        stickerBatchId: batchId,
+        companyLocationId: parsed.data.locationId,
+        itemCode: item.itemCode,
+        itemName: item.itemName,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        manufactureDate: item.manufactureDate,
+        expireDate: item.expireDate,
+      })),
+    });
   });
 
   return NextResponse.json({ ok: true, count: items.length });

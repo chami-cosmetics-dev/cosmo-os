@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { notify } from "@/lib/notify";
 
 type SupplierOption = {
@@ -64,6 +65,9 @@ type BatchOption = {
 };
 
 type BatchDetailsResponse = {
+  supplierName?: string;
+  companyName?: string;
+  companyAddress?: string;
   items?: Array<{
     itemCode: string;
     itemName: string;
@@ -72,8 +76,34 @@ type BatchDetailsResponse = {
     manufactureDate: string;
     expireDate: string;
     locationId?: string | null;
+    locationReference?: string | null;
+    locationName?: string | null;
+    locationAddress?: string | null;
+    locationPhone?: string | null;
   }>;
   error?: string;
+};
+
+type BatchPreviewMeta = {
+  supplierName: string;
+  companyName: string;
+  companyAddress: string;
+  locationReference: string;
+  locationAddress: string;
+  locationPhone: string;
+};
+
+type LoadedBatchSnapshot = {
+  batchId: string;
+  locationId: string;
+  rows: Array<{
+    itemCode: string;
+    itemName: string;
+    unitPrice: string;
+    quantity: string;
+    manufactureDate: string;
+    expireDate: string;
+  }>;
 };
 
 interface StickerBatchClientProps {
@@ -88,7 +118,7 @@ const selectClassName = "";
 
 const textareaClassName =
   "flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:text-sm";
-const inlineChangedClass = "bg-amber-500/10";
+const inlineChangedClass = "";
 const ITEMS_DRAFT_STORAGE_KEY = "sticker_batch_items_draft_v1";
 
 function createEmptyRow(id: string): ItemRow {
@@ -188,8 +218,19 @@ export function StickerBatchClient({
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [rowsToAdd, setRowsToAdd] = useState("");
   const [rows, setRows] = useState<ItemRow[]>([]);
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [isPreviewLifted, setIsPreviewLifted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingItems, setSavingItems] = useState(false);
+  const [loadedSnapshot, setLoadedSnapshot] = useState<LoadedBatchSnapshot | null>(null);
+  const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
+    supplierName: "",
+    companyName: "",
+    companyAddress: "",
+    locationReference: "",
+    locationAddress: "",
+    locationPhone: "",
+  });
   const [itemsResetKey, setItemsResetKey] = useState(0);
   const nextRowIdRef = useRef(1);
   const hasRestoredDraftRef = useRef(false);
@@ -230,6 +271,52 @@ export function StickerBatchClient({
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [locationItems]);
+
+  const activeRow = useMemo(
+    () => rows.find((row) => row.id === activeRowId) ?? null,
+    [rows, activeRowId]
+  );
+
+  const selectedLocation = useMemo(
+    () => locations.find((location) => location.id === selectedLocationId) ?? null,
+    [locations, selectedLocationId]
+  );
+
+  const normalizedRowsForCompare = useMemo(
+    () =>
+      rows.map((row) => ({
+        itemCode: row.itemCode.trim(),
+        itemName: row.itemName.trim(),
+        unitPrice: row.unitPrice.trim(),
+        quantity: row.quantity.trim(),
+        manufactureDate: row.manufactureDate.trim(),
+        expireDate: row.expireDate.trim(),
+      })),
+    [rows]
+  );
+
+  const loadedDataUnchanged = useMemo(() => {
+    if (!loadedSnapshot) return false;
+    if (selectedBatchId !== loadedSnapshot.batchId) return false;
+    if ((selectedLocationId || "") !== (loadedSnapshot.locationId || "")) return false;
+    if (normalizedRowsForCompare.length !== loadedSnapshot.rows.length) return false;
+
+    for (let i = 0; i < normalizedRowsForCompare.length; i += 1) {
+      const current = normalizedRowsForCompare[i];
+      const original = loadedSnapshot.rows[i];
+      if (
+        current.itemCode !== original.itemCode ||
+        current.itemName !== original.itemName ||
+        current.unitPrice !== original.unitPrice ||
+        current.quantity !== original.quantity ||
+        current.manufactureDate !== original.manufactureDate ||
+        current.expireDate !== original.expireDate
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }, [loadedSnapshot, normalizedRowsForCompare, selectedBatchId, selectedLocationId]);
 
   function getValidRowsForSave() {
     return rows.filter(
@@ -332,10 +419,21 @@ export function StickerBatchClient({
       }
       skipNextDraftPersistRef.current = true;
       nextRowIdRef.current = 1;
+      setLoadedSnapshot(null);
       setSelectedBatchId("");
       setRows([]);
+      setActiveRowId(null);
+      setIsPreviewLifted(false);
       setRowsToAdd("");
       setSelectedLocationId("");
+      setPreviewMeta({
+        supplierName: "",
+        companyName: "",
+        companyAddress: "",
+        locationReference: "",
+        locationAddress: "",
+        locationPhone: "",
+      });
       setItemsResetKey((prev) => prev + 1);
       if (typeof window !== "undefined") {
         window.localStorage.removeItem(ITEMS_DRAFT_STORAGE_KEY);
@@ -368,10 +466,25 @@ export function StickerBatchClient({
   function handleRemoveAllRows() {
     nextRowIdRef.current = 1;
     setRows([]);
+    setActiveRowId(null);
+    setIsPreviewLifted(false);
   }
 
   function handleRemoveRow(rowId: string) {
-    setRows((prev) => prev.filter((row) => row.id !== rowId));
+    setRows((prev) => {
+      const removedIndex = prev.findIndex((row) => row.id === rowId);
+      const nextRows = prev.filter((row) => row.id !== rowId);
+      if (activeRowId === rowId) {
+        const fallback =
+          nextRows[removedIndex] ?? nextRows[Math.max(removedIndex - 1, 0)] ?? null;
+        setActiveRowId(fallback?.id ?? null);
+      }
+      return nextRows;
+    });
+  }
+
+  function handleRowFocus(rowId: string) {
+    setActiveRowId(rowId);
   }
 
   function matchItem(itemCode: string) {
@@ -439,19 +552,23 @@ export function StickerBatchClient({
 
   function handleLocationChange(locationId: string) {
     setSelectedLocationId(locationId);
-    setRows((prev) =>
-      prev.map((row) => ({
-        ...row,
-        itemName: "",
-        unitPrice: "",
-      })),
-    );
   }
 
   useEffect(() => {
     if (!selectedBatchId) {
       setRows([]);
+      setActiveRowId(null);
+      setIsPreviewLifted(false);
       nextRowIdRef.current = 1;
+      setLoadedSnapshot(null);
+      setPreviewMeta({
+        supplierName: "",
+        companyName: "",
+        companyAddress: "",
+        locationReference: "",
+        locationAddress: "",
+        locationPhone: "",
+      });
       return;
     }
 
@@ -471,14 +588,64 @@ export function StickerBatchClient({
         const items = Array.isArray(data.items) ? data.items : [];
         if (items.length === 0) {
           setRows([]);
+          setActiveRowId(null);
+          setIsPreviewLifted(false);
           nextRowIdRef.current = 1;
+          setPreviewMeta({
+            supplierName: data.supplierName ?? "",
+            companyName: data.companyName ?? "",
+            companyAddress: data.companyAddress ?? "",
+            locationReference: "",
+            locationAddress: "",
+            locationPhone: "",
+          });
+          setLoadedSnapshot({
+            batchId: selectedBatchId,
+            locationId: "",
+            rows: [],
+          });
           return;
         }
 
-        const locationId = items[0]?.locationId?.trim() ?? "";
-        if (locationId) {
-          setSelectedLocationId(locationId);
+        const firstItem = items[0];
+        const locationId = firstItem?.locationId?.trim() ?? "";
+        const locationReference = firstItem?.locationReference?.trim() ?? "";
+        const locationName = firstItem?.locationName?.trim() ?? "";
+        const locationAddress = firstItem?.locationAddress?.trim() ?? "";
+        const locationPhone = firstItem?.locationPhone?.trim() ?? "";
+
+        const matchedLocationById = locationId
+          ? locations.find((location) => location.id === locationId)
+          : null;
+        const matchedLocationByReference =
+          !matchedLocationById && locationReference
+            ? locations.find(
+                (location) =>
+                  (location.locationReference?.trim() ?? "") === locationReference
+              )
+            : null;
+        const matchedLocationByName =
+          !matchedLocationById && !matchedLocationByReference && locationName
+            ? locations.find((location) => location.name.trim() === locationName)
+            : null;
+
+        const resolvedLocationId =
+          matchedLocationById?.id ??
+          matchedLocationByReference?.id ??
+          matchedLocationByName?.id ??
+          "";
+
+        if (resolvedLocationId) {
+          setSelectedLocationId(resolvedLocationId);
         }
+        setPreviewMeta({
+          supplierName: data.supplierName ?? "",
+          companyName: data.companyName ?? "",
+          companyAddress: data.companyAddress ?? "",
+          locationReference,
+          locationAddress,
+          locationPhone,
+        });
 
         const nextRows = items.map((item, index) => {
           const manufactureDate = formatDateFromApi(item.manufactureDate);
@@ -495,7 +662,21 @@ export function StickerBatchClient({
           };
         });
         setRows(nextRows);
+        setActiveRowId(null);
+        setIsPreviewLifted(false);
         nextRowIdRef.current = nextRows.length + 1;
+        setLoadedSnapshot({
+          batchId: selectedBatchId,
+          locationId: resolvedLocationId,
+          rows: nextRows.map((row) => ({
+            itemCode: row.itemCode.trim(),
+            itemName: row.itemName.trim(),
+            unitPrice: row.unitPrice.trim(),
+            quantity: row.quantity.trim(),
+            manufactureDate: row.manufactureDate.trim(),
+            expireDate: row.expireDate.trim(),
+          })),
+        });
       } catch {
         if (active) notify.error("Failed to load sticker batch items");
       }
@@ -747,7 +928,11 @@ export function StickerBatchClient({
               </thead>
               <tbody>
                 {rows.map((row, index) => (
-                  <tr key={row.id} className="border-b last:border-b-0">
+                  <tr
+                    key={row.id}
+                    onClick={() => handleRowFocus(row.id)}
+                    className={`border-b last:border-b-0 ${activeRowId === row.id ? "bg-muted/50" : ""}`}
+                  >
                     <td className="p-3">
                       <Input
                         value={row.itemCode}
@@ -755,6 +940,7 @@ export function StickerBatchClient({
                         onChange={(e) =>
                           handleItemCodeChange(row.id, e.target.value)
                         }
+                        onFocus={() => handleRowFocus(row.id)}
                         placeholder="Type code"
                         className={getInlineChangeClass(row.itemCode)}
                       />
@@ -774,6 +960,7 @@ export function StickerBatchClient({
                         onChange={(e) =>
                           setRow(row.id, { quantity: e.target.value })
                         }
+                        onFocus={() => handleRowFocus(row.id)}
                         className={getInlineChangeClass(row.quantity)}
                       />
                     </td>
@@ -787,6 +974,7 @@ export function StickerBatchClient({
                             formatDateTyping(e.target.value),
                           )
                         }
+                        onFocus={() => handleRowFocus(row.id)}
                         placeholder="DD/MM/YYYY"
                         maxLength={10}
                         className={getInlineChangeClass(row.manufactureDate)}
@@ -802,6 +990,7 @@ export function StickerBatchClient({
                             formatDateTyping(e.target.value),
                           )
                         }
+                        onFocus={() => handleRowFocus(row.id)}
                         placeholder="DD/MM/YYYY"
                         maxLength={10}
                         className={getInlineChangeClass(row.expireDate)}
@@ -831,11 +1020,36 @@ export function StickerBatchClient({
               </tbody>
             </table>
           </div>
+          {activeRow ? (
+            <div
+              onMouseEnter={() => setIsPreviewLifted((prev) => !prev)}
+              className={`fixed right-4 z-50 hidden rounded-lg border bg-background/80 p-3 shadow-md backdrop-blur-sm transition-all duration-200 ease-out md:block ${
+                isPreviewLifted ? "bottom-35" : "bottom-4"
+              }`}
+            >
+              <StickerPreviewCard
+                manufactureDate={activeRow.manufactureDate}
+                expireDate={activeRow.expireDate}
+                itemCode={activeRow.itemCode}
+                itemName={activeRow.itemName}
+                unitPrice={activeRow.unitPrice}
+                locationReference={
+                  selectedLocation?.locationReference?.trim() ||
+                  previewMeta.locationReference
+                }
+                supplierName={previewMeta.supplierName}
+                companyName={previewMeta.companyName}
+                locationAddress={previewMeta.locationAddress}
+                companyAddress={previewMeta.companyAddress}
+                locationPhone={previewMeta.locationPhone}
+              />
+            </div>
+          ) : null}
           <div className="flex justify-end">
-              <Button
+            <Button
               type="button"
               onClick={handleSaveBatchItems}
-              disabled={savingItems || !allRowsComplete || !canAddRows}
+              disabled={savingItems || !allRowsComplete || !canAddRows || loadedDataUnchanged}
             >
               {savingItems ? "Saving Items..." : "Save Items"}
             </Button>
