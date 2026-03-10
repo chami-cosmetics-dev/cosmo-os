@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { auth0 } from "@/lib/auth0";
 import { DashboardStats } from "@/components/organisms/dashboard-stats";
-import { RecentItemsList } from "@/components/organisms/recent-items-list";
 
 export const dynamic = "force-dynamic";
 
@@ -36,22 +35,107 @@ export default async function DashboardPage() {
     }
   }
 
-  const stats = getDummyStats();
+  const stats = getDashboardCards(items.length);
 
   return (
     <div className="space-y-6">
       <DashboardStats stats={stats} />
-      <RecentItemsList
-        items={items}
-      />
     </div>
   );
 }
 
-function getDummyStats() {
+function getDashboardCards(recentItemsCount: number) {
   return [
-    { title: "Total Users", value: "2,350", description: "+180 from last month" },
-    { title: "Revenue", value: "$12,234", description: "+19% from last month" },
-    { title: "Orders", value: "573", description: "+201 since last hour" },
+    {
+      shop: "Chami Trading Web",
+      total: "99,415",
+      agent: "DM - General",
+      agentValue: "46,295",
+      orderDate: "2026-02-26",
+      completedDate: "2026-02-26",
+      segments: [
+        { value: 48, color: "#4f95bf" },
+        { value: 26, color: "#06b06c" },
+        { value: 26, color: "#f06a57" },
+      ],
+      footer: `Synced ${recentItemsCount} recent items`,
+    },
+    {
+      shop: "Cool Planet - Nugegoda",
+      total: "22,450",
+      agent: "Lihini",
+      agentValue: "22,450",
+      orderDate: "2026-02-25",
+      completedDate: "2026-02-26",
+      segments: [{ value: 100, color: "#4f95bf" }],
+    },
+    {
+      shop: "Cosmetics.lk - Maharagama",
+      total: "40,810",
+      agent: "Kavishka",
+      agentValue: "40,810",
+      orderDate: "2026-02-24",
+      completedDate: "2026-02-26",
+      segments: [{ value: 100, color: "#4f95bf" }],
+    },
+    {
+      shop: "Cosmetics.lk New Web",
+      total: "47,205",
+      agent: "DM - General",
+      agentValue: "26,205",
+      orderDate: "2026-02-26",
+      completedDate: "2026-02-27",
+      segments: [
+        { value: 52, color: "#4f95bf" },
+        { value: 28, color: "#06b06c" },
+        { value: 20, color: "#f06a57" },
+      ],
+    },
+    {
+      shop: "Kiribathgoda Showroom",
+      total: "14,800",
+      agent: "Naduni",
+      agentValue: "14,800",
+      orderDate: "2026-02-23",
+      completedDate: "2026-02-24",
+      segments: [{ value: 100, color: "#4f95bf" }],
+    },
+    {
+      shop: "Pepiliyana Shop",
+      total: "55,345",
+      agent: "Pepiliyana Outlet",
+      agentValue: "51,600",
+      orderDate: "2026-02-26",
+      completedDate: "2026-02-28",
+      segments: [
+        { value: 84, color: "#f06a57" },
+        { value: 16, color: "#4f95bf" },
+      ],
+    },
+    {
+      shop: "Pevi Trading Web",
+      total: "114,918",
+      agent: "Maheshi Priyadarshani",
+      agentValue: "42,672.5",
+      orderDate: "2026-02-27",
+      completedDate: "2026-02-28",
+      segments: [
+        { value: 48, color: "#06b06c" },
+        { value: 14, color: "#4f95bf" },
+        { value: 38, color: "#f06a57" },
+      ],
+    },
+    {
+      shop: "SPK Trading Web",
+      total: "18,340",
+      agent: "Ishadi",
+      agentValue: "10,500",
+      orderDate: "2026-02-22",
+      completedDate: "2026-02-25",
+      segments: [
+        { value: 44, color: "#f06a57" },
+        { value: 56, color: "#4f95bf" },
+      ],
+    },
   ];
 }
