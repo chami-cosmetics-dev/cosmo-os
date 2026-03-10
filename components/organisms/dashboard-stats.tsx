@@ -1,11 +1,13 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DashboardSummaryCharts } from "@/components/organisms/dashboard-summary-charts";
+import { DashboardSalesAnalysisChart } from "@/components/organisms/dashboard-sales-analysis-chart";
 
 interface DashboardStatsProps {
   stats: {
@@ -13,6 +15,7 @@ interface DashboardStatsProps {
     total: string;
     agent: string;
     agentValue: string;
+    invoiceCount?: number;
     orderDate: string;
     completedDate: string;
     footer?: string;
@@ -23,27 +26,135 @@ interface DashboardStatsProps {
   }[];
 }
 
+type OrdersPageDataResponse = {
+  orders: Array<{
+    id: string;
+    totalPrice: string;
+    createdAt: string;
+    sourceName: string;
+    fulfillmentStage?: string | null;
+    companyLocation: { id: string; name: string } | null;
+    assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  }>;
+  total: number;
+  page: number;
+  limit: number;
+};
+
+type LiveOrder = {
+  id: string;
+  totalPrice: number;
+  createdAt: string;
+  sourceName: string;
+  fulfillmentStage: string | null;
+  locationName: string;
+  merchantName: string;
+};
+
 export function DashboardStats({ stats }: DashboardStatsProps) {
-  const [fromDate, setFromDate] = useState("2026-02-26");
-  const [toDate, setToDate] = useState("2026-02-26");
+  const initialRange = getInitialRange(stats);
+  const [fromDate, setFromDate] = useState(initialRange.fromDate);
+  const [toDate, setToDate] = useState(initialRange.toDate);
   const [dateType, setDateType] = useState<"order" | "completed">("order");
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">("merchant");
+  const [liveOrders, setLiveOrders] = useState<LiveOrder[]>([]);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasInvalidRange = new Date(fromDate) > new Date(toDate);
 
-  const displayedStats = useMemo(() => {
+  const refreshLiveData = useCallback(async () => {
+    setRefreshing(true);
+    setLiveError(null);
+    try {
+      const pageSize = 100;
+      const maxPages = 12;
+      let page = 1;
+      let total = 0;
+      const collected: LiveOrder[] = [];
+
+      do {
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(pageSize),
+          sort_by: "created",
+          sort_order: "desc",
+        });
+
+        const response = await fetch(`/api/admin/orders/page-data?${params.toString()}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error("Failed to fetch live dashboard data");
+        }
+
+        const data = (await response.json()) as OrdersPageDataResponse;
+        total = data.total ?? 0;
+
+        const normalized = (data.orders ?? []).map((order) => ({
+          id: order.id,
+          totalPrice: Number(order.totalPrice) || 0,
+          createdAt: order.createdAt,
+          sourceName: order.sourceName,
+          fulfillmentStage: order.fulfillmentStage ?? null,
+          locationName: order.companyLocation?.name ?? "Unknown Location",
+          merchantName:
+            order.assignedMerchant?.name ??
+            order.assignedMerchant?.email ??
+            "Unassigned",
+        }));
+        collected.push(...normalized);
+        page += 1;
+
+        if (page > maxPages) break;
+      } while ((page - 1) * pageSize < total);
+
+      if (collected.length > 0) {
+        setLiveOrders(collected);
+      }
+    } catch {
+      setLiveError("Live data unavailable. Showing current snapshot.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const displayedStats = useMemo<DashboardStatsProps["stats"]>(() => {
+    if (hasInvalidRange) return [];
+
+    if (liveOrders.length > 0) {
+      const from = toStartOfDay(fromDate);
+      const to = toEndOfDay(toDate);
+      const filteredOrders = liveOrders.filter((order) => {
+        if (
+          dateType === "completed" &&
+          order.fulfillmentStage !== "delivery_complete" &&
+          order.fulfillmentStage !== "invoice_complete"
+        ) {
+          return false;
+        }
+        const current = new Date(order.createdAt);
+        return current >= from && current <= to;
+      });
+
+      return analysisType === "merchant"
+        ? aggregateMerchantStats(filteredOrders)
+        : aggregateGatewayStats(filteredOrders);
+    }
+
     const normalized = analysisType === "merchant" ? stats : toGatewayStats(stats);
-    const from = new Date(fromDate);
-    const to = new Date(toDate);
+    const from = toStartOfDay(fromDate);
+    const to = toEndOfDay(toDate);
 
     return normalized.filter((stat) => {
       const dateValue = dateType === "order" ? stat.orderDate : stat.completedDate;
       const current = new Date(dateValue);
       return current >= from && current <= to;
     });
-  }, [analysisType, dateType, fromDate, stats, toDate]);
+  }, [analysisType, dateType, fromDate, hasInvalidRange, liveOrders, stats, toDate]);
 
   function resetFilters() {
-    setFromDate("2026-02-26");
-    setToDate("2026-02-26");
+    setFromDate(initialRange.fromDate);
+    setToDate(initialRange.toDate);
     setDateType("order");
     setAnalysisType("merchant");
   }
@@ -123,13 +234,63 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
           <Button
             size="icon"
             className="h-10 w-10 justify-self-start bg-primary text-primary-foreground"
-            onClick={resetFilters}
-            aria-label="Reset filters"
+            onClick={refreshLiveData}
+            aria-label="Refresh live data"
           >
-            <RefreshCw className="size-5" />
+            <RefreshCw className={`size-5 ${refreshing ? "animate-spin" : ""}`} />
           </Button>
         </CardContent>
+        <div className="border-t border-border/60 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <PresetButton
+              label="All Dates"
+              isActive={fromDate === initialRange.fromDate && toDate === initialRange.toDate}
+              onClick={() => {
+                setFromDate(initialRange.fromDate);
+                setToDate(initialRange.toDate);
+              }}
+            />
+            <PresetButton
+              label="Last 3 Days"
+              isActive={
+                fromDate === shiftDate(initialRange.toDate, -2) &&
+                toDate === initialRange.toDate
+              }
+              onClick={() => {
+                setFromDate(shiftDate(initialRange.toDate, -2));
+                setToDate(initialRange.toDate);
+              }}
+            />
+            <PresetButton
+              label="Last 7 Days"
+              isActive={
+                fromDate === shiftDate(initialRange.toDate, -6) &&
+                toDate === initialRange.toDate
+              }
+              onClick={() => {
+                setFromDate(shiftDate(initialRange.toDate, -6));
+                setToDate(initialRange.toDate);
+              }}
+            />
+            <span className="text-muted-foreground ml-auto text-xs">
+              Showing {displayedStats.length} of {stats.length}
+            </span>
+          </div>
+          {hasInvalidRange && (
+            <p className="mt-2 text-xs text-red-500">
+              From date must be earlier than or equal to To date.
+            </p>
+          )}
+          {liveError && <p className="mt-2 text-xs text-amber-600">{liveError}</p>}
+          {liveOrders.length > 0 && (
+            <p className="text-muted-foreground mt-2 text-xs">
+              Live snapshot enabled (manual refresh)
+            </p>
+          )}
+        </div>
       </Card>
+
+     
 
       <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -200,12 +361,32 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
       {displayedStats.length === 0 && (
         <Card className="border-border/70 bg-card">
-          <CardContent className="text-muted-foreground py-8 text-center text-sm">
-            No chart data found for the selected filters.
+          <CardContent className="py-8 text-center text-sm">
+            <p className="text-muted-foreground">
+              No chart data found for the selected filters.
+            </p>
+            <Button
+              variant="outline"
+              className="mt-3"
+              onClick={resetFilters}
+            >
+              Clear Filters
+            </Button>
           </CardContent>
         </Card>
       )}
+
+      <DashboardSummaryCharts
+        analysisType={analysisType}
+        stats={displayedStats}
+      />
+
+      <DashboardSalesAnalysisChart
+        stats={displayedStats}
+        dateType={dateType}
+      />
     </section>
+    
   );
 }
 
@@ -219,6 +400,28 @@ function LegendDot({ color, label }: { color: string; label: string }) {
       />
       <span className="text-muted-foreground">{label}</span>
     </div>
+  );
+}
+
+function PresetButton({
+  label,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  isActive: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={isActive ? "default" : "outline"}
+      size="sm"
+      className="h-7 text-xs"
+      onClick={onClick}
+    >
+      {label}
+    </Button>
   );
 }
 
@@ -297,4 +500,165 @@ function toGatewayStats(
     shop: gateways[index % gateways.length],
     footer: undefined,
   }));
+}
+
+function getInitialRange(stats: DashboardStatsProps["stats"]) {
+  if (stats.length === 0) {
+    return { fromDate: "2026-02-26", toDate: "2026-02-26" };
+  }
+
+  const allDates = stats.flatMap((stat) => [stat.orderDate, stat.completedDate]).sort();
+  return { fromDate: allDates[0], toDate: allDates[allDates.length - 1] };
+}
+
+function shiftDate(dateValue: string, days: number) {
+  const date = new Date(dateValue);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function aggregateMerchantStats(orders: LiveOrder[]): DashboardStatsProps["stats"] {
+  const byLocation = new Map<
+    string,
+    {
+      total: number;
+      merchants: Map<string, number>;
+      count: number;
+      minDate: string;
+      maxDate: string;
+    }
+  >();
+
+  for (const order of orders) {
+    const currentDate = order.createdAt.slice(0, 10);
+    const existing = byLocation.get(order.locationName);
+    if (!existing) {
+      byLocation.set(order.locationName, {
+        total: order.totalPrice,
+        merchants: new Map([[order.merchantName, order.totalPrice]]),
+        count: 1,
+        minDate: currentDate,
+        maxDate: currentDate,
+      });
+      continue;
+    }
+
+    existing.total += order.totalPrice;
+    existing.count += 1;
+    existing.minDate = existing.minDate < currentDate ? existing.minDate : currentDate;
+    existing.maxDate = existing.maxDate > currentDate ? existing.maxDate : currentDate;
+    existing.merchants.set(
+      order.merchantName,
+      (existing.merchants.get(order.merchantName) ?? 0) + order.totalPrice,
+    );
+  }
+
+  return Array.from(byLocation.entries())
+    .map(([location, data]) => {
+      const merchantPairs = Array.from(data.merchants.entries()).sort((a, b) => b[1] - a[1]);
+      const topMerchant = merchantPairs[0] ?? ["Unassigned", 0];
+      return {
+        shop: location,
+        total: formatMoney(data.total),
+        agent: topMerchant[0],
+        agentValue: formatMoney(topMerchant[1]),
+        invoiceCount: data.count,
+        orderDate: data.minDate,
+        completedDate: data.maxDate,
+        segments: buildSegmentsFromPairs(merchantPairs),
+      };
+    })
+    .sort((a, b) => parseNumber(b.total) - parseNumber(a.total));
+}
+
+function aggregateGatewayStats(orders: LiveOrder[]): DashboardStatsProps["stats"] {
+  const bySource = new Map<
+    string,
+    {
+      total: number;
+      locations: Map<string, number>;
+      count: number;
+      minDate: string;
+      maxDate: string;
+    }
+  >();
+
+  for (const order of orders) {
+    const currentDate = order.createdAt.slice(0, 10);
+    const gateway = order.sourceName?.toUpperCase() || "UNKNOWN";
+    const existing = bySource.get(gateway);
+    if (!existing) {
+      bySource.set(gateway, {
+        total: order.totalPrice,
+        locations: new Map([[order.locationName, order.totalPrice]]),
+        count: 1,
+        minDate: currentDate,
+        maxDate: currentDate,
+      });
+      continue;
+    }
+
+    existing.total += order.totalPrice;
+    existing.count += 1;
+    existing.minDate = existing.minDate < currentDate ? existing.minDate : currentDate;
+    existing.maxDate = existing.maxDate > currentDate ? existing.maxDate : currentDate;
+    existing.locations.set(
+      order.locationName,
+      (existing.locations.get(order.locationName) ?? 0) + order.totalPrice,
+    );
+  }
+
+  return Array.from(bySource.entries())
+    .map(([source, data]) => {
+      const locationPairs = Array.from(data.locations.entries()).sort((a, b) => b[1] - a[1]);
+      const topLocation = locationPairs[0] ?? ["Unknown", 0];
+      return {
+        shop: `${source} Gateway`,
+        total: formatMoney(data.total),
+        agent: topLocation[0],
+        agentValue: formatMoney(topLocation[1]),
+        invoiceCount: data.count,
+        orderDate: data.minDate,
+        completedDate: data.maxDate,
+        segments: buildSegmentsFromPairs(locationPairs),
+      };
+    })
+    .sort((a, b) => parseNumber(b.total) - parseNumber(a.total));
+}
+
+function buildSegmentsFromPairs(pairs: Array<[string, number]>) {
+  const total = pairs.reduce((sum, current) => sum + current[1], 0) || 1;
+  const palette = ["#4f95bf", "#06b06c", "#f06a57"];
+  const topThree = pairs.slice(0, 3).map(([, value], index) => ({
+    value: Math.max(1, Math.round((value / total) * 100)),
+    color: palette[index],
+  }));
+
+  if (topThree.length === 1) {
+    return [{ value: 100, color: palette[0] }];
+  }
+  return topThree;
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function parseNumber(value: string) {
+  return Number(value.replace(/,/g, "")) || 0;
+}
+
+function toStartOfDay(dateValue: string) {
+  const date = new Date(dateValue);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function toEndOfDay(dateValue: string) {
+  const date = new Date(dateValue);
+  date.setHours(23, 59, 59, 999);
+  return date;
 }
