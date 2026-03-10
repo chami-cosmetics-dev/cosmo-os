@@ -25,6 +25,7 @@ model Company {
   customers              Customer[]
   departments            Department[]
   designations           Designation[]
+  suppliers              Supplier[]
   emailTemplates         EmailTemplate[]
   employeeProfiles       EmployeeProfile[]
   failedOrderWebhooks    FailedOrderWebhook[]
@@ -34,6 +35,8 @@ model Company {
   productItems           ProductItem[]
   sampleFreeIssueItems   SampleFreeIssueItem[]
   shopifyWebhookSecrets  ShopifyWebhookSecret[]
+  stickerBatches         StickerBatch[]
+  stickerBatchItems      StickerBatchItem[]
   smsLogs                SmsLog[]
   smsNotificationConfigs SmsNotificationConfig[]
   smsPortalConfig        SmsPortalConfig?
@@ -199,6 +202,7 @@ model CompanyLocation {
   shopifyLocationId       String?
   shopifyShopName         String?
   shortName               String?
+  locationReference       String?
   defaultMerchantUserId   String?
   logoUrl                 String?
   shopifyAdminStoreHandle String?
@@ -209,6 +213,7 @@ model CompanyLocation {
   invites                 Invite[]
   orders                  Order[]
   productItems            ProductItem[]
+  stickerBatchItems       StickerBatchItem[]
   smsNotificationConfigs  SmsNotificationConfig[]
 }
 
@@ -332,6 +337,22 @@ model Designation {
   invites   Invite[]
 }
 
+model Supplier {
+  id             String   @id @default(cuid())
+  companyId      String
+  name           String
+  code           String
+  contactNumber  String?
+  email          String?
+  address        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stickerBatches StickerBatch[]
+
+  @@unique([companyId, code])
+}
+
 model EmployeeProfile {
   id                        String           @id @default(cuid())
   userId                    String           @unique
@@ -354,6 +375,44 @@ model EmployeeProfile {
   designation               Designation?     @relation(fields: [designationId], references: [id])
   location                  CompanyLocation? @relation(fields: [locationId], references: [id])
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StickerBatch {
+  id          String            @id @default(cuid())
+  companyId   String
+  supplierId  String
+  batchName   String
+  batchDate   DateTime
+  remark      String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier    Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  items       StickerBatchItem[]
+
+  @@unique([companyId, batchName])
+  @@index([companyId, createdAt])
+}
+
+model StickerBatchItem {
+  id                String         @id @default(cuid())
+  companyId         String
+  stickerBatchId    String
+  companyLocationId String
+  itemCode          String
+  itemName          String
+  unitPrice         Decimal        @db.Decimal(12, 2)
+  quantity          Int
+  manufactureDate   DateTime
+  expireDate        DateTime
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  company           Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stickerBatch      StickerBatch   @relation(fields: [stickerBatchId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Restrict)
+
+  @@index([stickerBatchId])
+  @@index([companyId])
 }
 
 model SampleFreeIssueItem {

@@ -3,11 +3,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
-function maskSecret(secret: string): string {
-  if (secret.length <= 8) return "••••••••";
-  return secret.slice(0, 4) + "••••••••" + secret.slice(-4);
-}
-
 export async function GET() {
   const auth = await requirePermission("settings.company");
   if (!auth.ok) {
@@ -29,76 +24,21 @@ export async function GET() {
 
   const companyId = user.companyId;
 
-  const [company, locations, merchants, departments, designations, secrets] =
-    await Promise.all([
-      prisma.company.findUnique({
-        where: { id: companyId },
-        select: {
-          id: true,
-          name: true,
-          logoUrl: true,
-          faviconUrl: true,
-          employeeSize: true,
-          address: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.companyLocation.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: {
-          id: true,
-          name: true,
-          logoUrl: true,
-          address: true,
-          shortName: true,
-          invoiceHeader: true,
-          invoiceSubHeader: true,
-          invoiceFooter: true,
-          invoicePhone: true,
-          invoiceEmail: true,
-          shopifyLocationId: true,
-          shopifyShopName: true,
-          shopifyAdminStoreHandle: true,
-          defaultMerchantUserId: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.user.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, email: true },
-      }),
-      prisma.department.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, createdAt: true, updatedAt: true },
-      }),
-      prisma.designation.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, createdAt: true, updatedAt: true },
-      }),
-      prisma.shopifyWebhookSecret.findMany({
-        where: { companyId },
-        orderBy: { createdAt: "desc" },
-        select: { id: true, name: true, secret: true, createdAt: true },
-      }),
-    ]);
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: {
+      id: true,
+      name: true,
+      logoUrl: true,
+      faviconUrl: true,
+      employeeSize: true,
+      address: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 
   return NextResponse.json({
     company: company ?? null,
-    locations,
-    merchants: merchants ?? [],
-    departments,
-    designations,
-    shopifyWebhookSecrets: secrets.map((s) => ({
-      id: s.id,
-      name: s.name,
-      secretMasked: maskSecret(s.secret),
-      createdAt: s.createdAt,
-    })),
   });
 }

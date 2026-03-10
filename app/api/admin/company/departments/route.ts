@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { LIMITS, trimmedString } from "@/lib/validation";
+import { limitSchema, LIMITS, pageSchema, trimmedString } from "@/lib/validation";
 
 const createDepartmentSchema = z.object({
   name: trimmedString(1, LIMITS.departmentName.max),
@@ -17,7 +17,7 @@ async function getCompanyId(userId: string): Promise<string | null> {
   return user?.companyId ?? null;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requirePermission("settings.company");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -31,18 +31,29 @@ export async function GET() {
     );
   }
 
-  const departments = await prisma.department.findMany({
-    where: { companyId },
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
+  const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
+  const page = pageResult.success ? pageResult.data : 1;
+  const limit = limitResult.success ? limitResult.data : 10;
+  const skip = (page - 1) * limit;
 
-  return NextResponse.json(departments);
+  const [total, departments] = await Promise.all([
+    prisma.department.count({ where: { companyId } }),
+    prisma.department.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+  ]);
+
+  return NextResponse.json({ items: departments, total, page, limit });
 }
 
 export async function POST(request: NextRequest) {

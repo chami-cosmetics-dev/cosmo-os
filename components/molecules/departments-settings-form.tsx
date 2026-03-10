@@ -6,6 +6,7 @@ import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { notify } from "@/lib/notify";
 
 type Department = {
@@ -18,9 +19,12 @@ interface DepartmentsSettingsFormProps {
   initialDepartments?: Department[];
 }
 
-export function DepartmentsSettingsForm({ canEdit, initialDepartments }: DepartmentsSettingsFormProps) {
-  const [departments, setDepartments] = useState<Department[]>(initialDepartments ?? []);
-  const [loading, setLoading] = useState(initialDepartments === undefined);
+export function DepartmentsSettingsForm({ canEdit }: DepartmentsSettingsFormProps) {
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -29,22 +33,21 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
   const isBusy = busyKey !== null;
 
   async function fetchDepartments() {
-    const res = await fetch("/api/admin/company/departments");
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const res = await fetch(`/api/admin/company/departments?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load departments");
       return;
     }
-    const data = (await res.json()) as Department[];
-    setDepartments(data);
+    const data = (await res.json()) as { items: Department[]; total: number; page: number; limit: number };
+    setDepartments(data.items);
+    setTotal(data.total);
   }
 
   useEffect(() => {
-    if (initialDepartments !== undefined) {
-      setLoading(false);
-      return;
-    }
     async function load() {
+      setLoading(true);
       try {
         await fetchDepartments();
       } catch {
@@ -54,7 +57,7 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
       }
     }
     load();
-  }, [initialDepartments]);
+  }, [page, limit]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -75,7 +78,7 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
         return;
       }
 
-      setDepartments((prev) => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+      await fetchDepartments();
       setNewName("");
       notify.success("Department added.");
     } catch {
@@ -113,9 +116,7 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
         return;
       }
 
-      setDepartments((prev) =>
-        prev.map((d) => (d.id === id ? data : d)).sort((a, b) => a.name.localeCompare(b.name))
-      );
+      await fetchDepartments();
       cancelEdit();
       notify.success("Department updated.");
     } catch {
@@ -141,7 +142,7 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
         return;
       }
 
-      setDepartments((prev) => prev.filter((d) => d.id !== id));
+      await fetchDepartments();
       if (editingId === id) cancelEdit();
       notify.success("Department deleted.");
     } catch {
@@ -263,8 +264,21 @@ export function DepartmentsSettingsForm({ canEdit, initialDepartments }: Departm
           ))}
         </ul>
 
-        {departments.length === 0 && (
+        {departments.length === 0 && !loading && (
           <p className="text-muted-foreground text-sm">No departments added yet.</p>
+        )}
+
+        {total > 0 && (
+          <Pagination
+            page={page}
+            limit={limit}
+            total={total}
+            onPageChange={setPage}
+            onLimitChange={(l) => {
+              setLimit(l);
+              setPage(1);
+            }}
+          />
         )}
       </CardContent>
     </Card>

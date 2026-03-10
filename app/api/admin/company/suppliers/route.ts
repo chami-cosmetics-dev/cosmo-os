@@ -3,14 +3,27 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { limitSchema, LIMITS, pageSchema, trimmedString } from "@/lib/validation";
+import { emailSchema, limitSchema, LIMITS, pageSchema, trimmedString } from "@/lib/validation";
 
-const createSecretSchema = z.object({
-  secret: z
+const createSupplierSchema = z.object({
+  name: trimmedString(1, LIMITS.supplierName.max),
+  code: trimmedString(1, LIMITS.supplierCode.max),
+  contactNumber: z
     .string()
-    .min(LIMITS.shopifyWebhookSecret.min, "Secret must be at least 32 characters")
-    .max(LIMITS.shopifyWebhookSecret.max, "Secret too long"),
-  name: z.string().max(LIMITS.shopifyWebhookSecretName.max).optional(),
+    .max(LIMITS.supplierContactNumber.max)
+    .optional()
+    .or(z.literal(""))
+    .transform((s) => (s && String(s).trim() ? String(s).trim() : null)),
+  email: z
+    .union([emailSchema, z.literal(""), z.null()])
+    .optional()
+    .transform((v) => (v === "" || v === undefined || v === null ? null : v)),
+  address: z
+    .string()
+    .max(LIMITS.supplierAddress.max)
+    .optional()
+    .or(z.literal(""))
+    .transform((s) => (s && String(s).trim() ? String(s).trim() : null)),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -19,11 +32,6 @@ async function getCompanyId(userId: string): Promise<string | null> {
     select: { companyId: true },
   });
   return user?.companyId ?? null;
-}
-
-function maskSecret(secret: string): string {
-  if (secret.length <= 8) return "••••••••";
-  return secret.slice(0, 4) + "••••••••" + secret.slice(-4);
 }
 
 export async function GET(request: NextRequest) {
@@ -46,30 +54,27 @@ export async function GET(request: NextRequest) {
   const limit = limitResult.success ? limitResult.data : 10;
   const skip = (page - 1) * limit;
 
-  const [total, secrets] = await Promise.all([
-    prisma.shopifyWebhookSecret.count({ where: { companyId } }),
-    prisma.shopifyWebhookSecret.findMany({
+  const [total, suppliers] = await Promise.all([
+    prisma.supplier.count({ where: { companyId } }),
+    prisma.supplier.findMany({
       where: { companyId },
-      orderBy: { createdAt: "desc" },
+      orderBy: { name: "asc" },
       skip,
       take: limit,
       select: {
         id: true,
         name: true,
-        secret: true,
+        code: true,
+        contactNumber: true,
+        email: true,
+        address: true,
         createdAt: true,
+        updatedAt: true,
       },
     }),
   ]);
 
-  const items = secrets.map((s) => ({
-    id: s.id,
-    name: s.name,
-    secretMasked: maskSecret(s.secret),
-    createdAt: s.createdAt,
-  }));
-
-  return NextResponse.json({ items, total, page, limit });
+  return NextResponse.json({ items: suppliers, total, page, limit });
 }
 
 export async function POST(request: NextRequest) {
@@ -87,7 +92,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const parsed = createSecretSchema.safeParse(body);
+  const parsed = createSupplierSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Validation failed", details: parsed.error.flatten() },
@@ -95,27 +100,39 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const secret = await prisma.shopifyWebhookSecret.create({
+  const existing = await prisma.supplier.findFirst({
+    where: {
+      companyId,
+      code: parsed.data.code,
+    },
+  });
+  if (existing) {
+    return NextResponse.json(
+      { error: "A supplier with this code already exists" },
+      { status: 409 }
+    );
+  }
+
+  const supplier = await prisma.supplier.create({
     data: {
       companyId,
-      secret: parsed.data.secret.trim(),
-      name: parsed.data.name?.trim() || null,
+      name: parsed.data.name,
+      code: parsed.data.code,
+      contactNumber: parsed.data.contactNumber ?? null,
+      email: parsed.data.email ?? null,
+      address: parsed.data.address ?? null,
     },
     select: {
       id: true,
       name: true,
-      secret: true,
+      code: true,
+      contactNumber: true,
+      email: true,
+      address: true,
       createdAt: true,
+      updatedAt: true,
     },
   });
 
-  return NextResponse.json(
-    {
-      id: secret.id,
-      name: secret.name,
-      secretMasked: maskSecret(secret.secret),
-      createdAt: secret.createdAt,
-    },
-    { status: 201 }
-  );
+  return NextResponse.json(supplier);
 }

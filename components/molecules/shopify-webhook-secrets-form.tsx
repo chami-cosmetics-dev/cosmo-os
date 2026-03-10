@@ -6,6 +6,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import { notify } from "@/lib/notify";
 
 type WebhookSecret = {
@@ -20,9 +21,12 @@ interface ShopifyWebhookSecretsFormProps {
   initialSecrets?: WebhookSecret[];
 }
 
-export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWebhookSecretsFormProps) {
-  const [secrets, setSecrets] = useState<WebhookSecret[]>(initialSecrets ?? []);
-  const [loading, setLoading] = useState(initialSecrets === undefined);
+export function ShopifyWebhookSecretsForm({ canEdit }: ShopifyWebhookSecretsFormProps) {
+  const [secrets, setSecrets] = useState<WebhookSecret[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
   const [newSecret, setNewSecret] = useState("");
   const [newName, setNewName] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -30,22 +34,21 @@ export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWe
   const isBusy = busyKey !== null;
 
   async function fetchSecrets() {
-    const res = await fetch("/api/admin/company/shopify-webhook-secrets");
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    const res = await fetch(`/api/admin/company/shopify-webhook-secrets?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load webhook secrets");
       return;
     }
-    const data = (await res.json()) as WebhookSecret[];
-    setSecrets(data);
+    const data = (await res.json()) as { items: WebhookSecret[]; total: number; page: number; limit: number };
+    setSecrets(data.items);
+    setTotal(data.total);
   }
 
   useEffect(() => {
-    if (initialSecrets !== undefined) {
-      setLoading(false);
-      return;
-    }
     async function load() {
+      setLoading(true);
       try {
         await fetchSecrets();
       } catch {
@@ -55,7 +58,7 @@ export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWe
       }
     }
     load();
-  }, [initialSecrets]);
+  }, [page, limit]);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -83,7 +86,7 @@ export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWe
         return;
       }
 
-      setSecrets((prev) => [data, ...prev]);
+      await fetchSecrets();
       setNewSecret("");
       setNewName("");
       notify.success("Webhook secret added.");
@@ -111,7 +114,7 @@ export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWe
         return;
       }
 
-      setSecrets((prev) => prev.filter((s) => s.id !== id));
+      await fetchSecrets();
       notify.success("Webhook secret deleted.");
     } catch {
       notify.error("Failed to delete secret");
@@ -228,10 +231,23 @@ export function ShopifyWebhookSecretsForm({ canEdit, initialSecrets }: ShopifyWe
           ))}
         </ul>
 
-        {secrets.length === 0 && (
+        {secrets.length === 0 && !loading && (
           <p className="text-muted-foreground text-sm">
             No webhook secrets yet. Add one from your Shopify admin to accept product webhooks.
           </p>
+        )}
+
+        {total > 0 && (
+          <Pagination
+            page={page}
+            limit={limit}
+            total={total}
+            onPageChange={setPage}
+            onLimitChange={(l) => {
+              setLimit(l);
+              setPage(1);
+            }}
+          />
         )}
       </CardContent>
     </Card>

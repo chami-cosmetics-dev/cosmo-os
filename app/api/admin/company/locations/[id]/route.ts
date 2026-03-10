@@ -21,6 +21,7 @@ const updateLocationSchema = z.object({
   shopifyLocationId: z.string().max(LIMITS.shopifyLocationId.max).optional(),
   shopifyShopName: z.string().max(LIMITS.shopifyShopName.max).optional(),
   shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
+  locationReference: z.string().max(LIMITS.locationReference.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
 });
 
@@ -104,6 +105,7 @@ export async function PATCH(
       shopifyLocationId: toOpt(d.shopifyLocationId),
       shopifyShopName: toOpt(d.shopifyShopName),
       shopifyAdminStoreHandle: toOpt(d.shopifyAdminStoreHandle),
+      locationReference: toOpt(d.locationReference),
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
     },
     select: {
@@ -120,6 +122,7 @@ export async function PATCH(
       shopifyLocationId: true,
       shopifyShopName: true,
       shopifyAdminStoreHandle: true,
+      locationReference: true,
       defaultMerchantUserId: true,
       createdAt: true,
       updatedAt: true,

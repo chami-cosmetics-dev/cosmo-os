@@ -8,8 +8,10 @@ import {
   MessageSquare,
   Package,
   PackageCheck,
+  Printer,
   Settings,
   ShoppingCart,
+  Sticker,
   Tags,
   Users,
   UserCircle,
@@ -28,9 +30,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
@@ -150,6 +149,28 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   <Link href="/dashboard/fulfillment/sample-free-issue">
                     <PackageCheck className="size-4" />
                     <span>Fulfillment</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/sticker-batch"}
+                >
+                  <Link href="/dashboard/sticker-batch">
+                    <Sticker className="size-4" />
+                    <span>Sticker Batch</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/sticker-print"}
+                >
+                  <Link href="/dashboard/sticker-print">
+                    <Printer className="size-4" />
+                    <span>Sticker Print</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

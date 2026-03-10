@@ -8,7 +8,7 @@ import { useEffect } from "react";
  */
 export function FaviconUpdater() {
   useEffect(() => {
-    fetch("/api/me/favicon-url", { cache: "no-store" })
+    fetch("/api/me/favicon-url")
       .then((res) => res.json())
       .then((data: { url?: string | null }) => {
         const url = data?.url;
