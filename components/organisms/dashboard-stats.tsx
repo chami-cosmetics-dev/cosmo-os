@@ -1,7 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -60,6 +60,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
   const [liveOrders, setLiveOrders] = useState<LiveOrder[]>([]);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const hasInvalidRange = new Date(fromDate) > new Date(toDate);
 
   const refreshLiveData = useCallback(async () => {
@@ -108,15 +109,18 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
         if (page > maxPages) break;
       } while ((page - 1) * pageSize < total);
 
-      if (collected.length > 0) {
-        setLiveOrders(collected);
-      }
+      setLiveOrders(collected);
+      setLastUpdatedAt(new Date().toISOString());
     } catch {
       setLiveError("Live data unavailable. Showing current snapshot.");
     } finally {
       setRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    void refreshLiveData();
+  }, [refreshLiveData]);
 
   const displayedStats = useMemo<DashboardStatsProps["stats"]>(() => {
     if (hasInvalidRange) return [];
@@ -236,6 +240,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             className="h-10 w-10 justify-self-start bg-primary text-primary-foreground"
             onClick={refreshLiveData}
             aria-label="Refresh live data"
+            disabled={refreshing}
           >
             <RefreshCw className={`size-5 ${refreshing ? "animate-spin" : ""}`} />
           </Button>
@@ -283,8 +288,11 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
           )}
           {liveError && <p className="mt-2 text-xs text-amber-600">{liveError}</p>}
           {liveOrders.length > 0 && (
-            <p className="text-muted-foreground mt-2 text-xs">
-              Live snapshot enabled (manual refresh)
+            <p className="text-muted-foreground mt-2 text-xs">Live snapshot enabled (manual refresh)</p>
+          )}
+          {lastUpdatedAt && (
+            <p className="text-muted-foreground mt-1 text-xs">
+              Last updated: {new Date(lastUpdatedAt).toLocaleTimeString()}
             </p>
           )}
         </div>
