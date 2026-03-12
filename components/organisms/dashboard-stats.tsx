@@ -6,8 +6,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DashboardSalesCharts } from "@/components/organisms/dashboard-sales-charts";
 import { DashboardSummaryCharts } from "@/components/organisms/dashboard-summary-charts";
-import { DashboardSalesAnalysisChart } from "@/components/organisms/dashboard-sales-analysis-chart";
 
 interface DashboardStatsProps {
   stats: {
@@ -58,6 +58,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
   const [dateType, setDateType] = useState<"order" | "completed">("order");
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">("merchant");
   const [liveOrders, setLiveOrders] = useState<LiveOrder[]>([]);
+  const [liveLoaded, setLiveLoaded] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
@@ -111,8 +112,10 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
       setLiveOrders(collected);
       setLastUpdatedAt(new Date().toISOString());
+      setLiveLoaded(true);
     } catch {
-      setLiveError("Live data unavailable. Showing current snapshot.");
+      setLiveError("Live data unavailable.");
+      setLiveLoaded(true);
     } finally {
       setRefreshing(false);
     }
@@ -124,37 +127,27 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
   const displayedStats = useMemo<DashboardStatsProps["stats"]>(() => {
     if (hasInvalidRange) return [];
+    if (!liveLoaded) return [];
+    if (liveOrders.length === 0) return [];
 
-    if (liveOrders.length > 0) {
-      const from = toStartOfDay(fromDate);
-      const to = toEndOfDay(toDate);
-      const filteredOrders = liveOrders.filter((order) => {
-        if (
-          dateType === "completed" &&
-          order.fulfillmentStage !== "delivery_complete" &&
-          order.fulfillmentStage !== "invoice_complete"
-        ) {
-          return false;
-        }
-        const current = new Date(order.createdAt);
-        return current >= from && current <= to;
-      });
-
-      return analysisType === "merchant"
-        ? aggregateMerchantStats(filteredOrders)
-        : aggregateGatewayStats(filteredOrders);
-    }
-
-    const normalized = analysisType === "merchant" ? stats : toGatewayStats(stats);
     const from = toStartOfDay(fromDate);
     const to = toEndOfDay(toDate);
-
-    return normalized.filter((stat) => {
-      const dateValue = dateType === "order" ? stat.orderDate : stat.completedDate;
-      const current = new Date(dateValue);
+    const filteredOrders = liveOrders.filter((order) => {
+      if (
+        dateType === "completed" &&
+        order.fulfillmentStage !== "delivery_complete" &&
+        order.fulfillmentStage !== "invoice_complete"
+      ) {
+        return false;
+      }
+      const current = new Date(order.createdAt);
       return current >= from && current <= to;
     });
-  }, [analysisType, dateType, fromDate, hasInvalidRange, liveOrders, stats, toDate]);
+
+    return analysisType === "merchant"
+      ? aggregateMerchantStats(filteredOrders)
+      : aggregateGatewayStats(filteredOrders);
+  }, [analysisType, dateType, fromDate, hasInvalidRange, liveLoaded, liveOrders, toDate]);
 
   function resetFilters() {
     setFromDate(initialRange.fromDate);
@@ -278,7 +271,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
               }}
             />
             <span className="text-muted-foreground ml-auto text-xs">
-              Showing {displayedStats.length} of {stats.length}
+              {liveLoaded ? `Showing ${displayedStats.length}` : "Loading live data..."}
             </span>
           </div>
           {hasInvalidRange && (
@@ -367,7 +360,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
         ))}
       </div>
 
-      {displayedStats.length === 0 && (
+      {liveLoaded && displayedStats.length === 0 && (
         <Card className="border-border/70 bg-card">
           <CardContent className="py-8 text-center text-sm">
             <p className="text-muted-foreground">
@@ -389,7 +382,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
         stats={displayedStats}
       />
 
-      <DashboardSalesAnalysisChart
+      <DashboardSalesCharts
         stats={displayedStats}
         dateType={dateType}
       />
@@ -487,27 +480,6 @@ function toConicGradient(segments: Array<{ value: number; color: string }>) {
   });
 
   return `conic-gradient(${stops.join(", ")})`;
-}
-
-function toGatewayStats(
-  merchantStats: DashboardStatsProps["stats"],
-): DashboardStatsProps["stats"] {
-  const gateways = [
-    "Card Payments",
-    "Cash On Delivery",
-    "LankaQR",
-    "Bank Transfer",
-    "Koko",
-    "MintPay",
-    "Frimi",
-    "PayHere",
-  ];
-
-  return merchantStats.map((stat, index) => ({
-    ...stat,
-    shop: gateways[index % gateways.length],
-    footer: undefined,
-  }));
 }
 
 function getInitialRange(stats: DashboardStatsProps["stats"]) {
