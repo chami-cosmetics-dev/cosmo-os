@@ -18,22 +18,20 @@ interface TopbarProps {
 
 export function Topbar({ title = "Dashboard", user }: TopbarProps) {
   const pathname = usePathname();
-  const computedTitle =
-    pathname === "/dashboard/users"
-      ? "User Management"
-      : pathname === "/dashboard/settings"
-        ? "Settings"
-        : pathname === "/dashboard/profile"
-          ? "Profile"
-      : pathname === "/dashboard/products/items"
-        ? "Product Items"
-        : pathname === "/dashboard/products/vendors-categories"
-          ? "Vendors & Categories"
-          : pathname === "/dashboard/sticker-batch"
-            ? "Sticker Batch"
-            : pathname === "/dashboard/sticker-print"
-              ? "Sticker Print"
-              : title;
+  const titleByPrefix: Array<{ prefix: string; label: string }> = [
+    { prefix: "/dashboard/users", label: "User Management" },
+    { prefix: "/dashboard/staff", label: "Staff Management" },
+    { prefix: "/dashboard/orders", label: "Orders" },
+    { prefix: "/dashboard/settings", label: "Settings" },
+    { prefix: "/dashboard/profile", label: "Profile" },
+    { prefix: "/dashboard/products/items", label: "Product Items" },
+    { prefix: "/dashboard/products/vendors-categories", label: "Vendors & Categories" },
+    { prefix: "/dashboard/sticker-batch", label: "Sticker Batch" },
+    { prefix: "/dashboard/sticker-print", label: "Sticker Print" },
+    { prefix: "/dashboard/fulfillment", label: "Fulfillment" },
+  ];
+  const matched = titleByPrefix.find((item) => pathname === item.prefix || pathname.startsWith(`${item.prefix}/`));
+  const computedTitle = matched?.label ?? title;
 
   return (
     <header className="bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">

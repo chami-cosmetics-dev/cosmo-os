@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Building2, Hash, Loader2, Mail, MapPin, Pencil, Phone, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import {
@@ -55,6 +55,8 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [quickName, setQuickName] = useState("");
+  const [quickCode, setQuickCode] = useState("");
   const [form, setForm] = useState<Partial<Supplier>>(emptyForm());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -225,6 +227,42 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
     }
   }
 
+  async function handleQuickAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canEdit || !quickName.trim() || !quickCode.trim()) return;
+
+    setBusyKey("add");
+    try {
+      const res = await fetch("/api/admin/company/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: quickName.trim(),
+          code: quickCode.trim(),
+          contactNumber: null,
+          email: null,
+          address: null,
+        }),
+      });
+
+      const data = (await res.json()) as Supplier & { error?: string };
+
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to add supplier");
+        return;
+      }
+
+      await fetchSuppliers();
+      setQuickName("");
+      setQuickCode("");
+      notify.success("Supplier added.");
+    } catch {
+      notify.error("Failed to add supplier");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   if (loading) {
     return (
       <Card>
@@ -246,37 +284,94 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
       <Card>
         <CardHeader>
           <CardTitle>Suppliers</CardTitle>
-          <p className="text-muted-foreground text-sm">
+          <CardDescription>
             Manage suppliers with name, code, contact details, and address.
-          </p>
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {canEdit && (
-            <Button onClick={openAddSheet} disabled={isBusy}>
-              <Plus className="mr-2 size-4" aria-hidden />
-              Add Supplier
-            </Button>
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Quick Add Supplier</p>
+                  <p className="text-muted-foreground text-xs">
+                    Add using name and code, or open full form for contact details.
+                  </p>
+                </div>
+                <Button onClick={openAddSheet} variant="outline" disabled={isBusy}>
+                  <Plus className="mr-2 size-4" aria-hidden />
+                  Full form
+                </Button>
+              </div>
+              <form onSubmit={handleQuickAdd} className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Supplier name</label>
+                  <Input
+                    placeholder="Supplier name"
+                    value={quickName}
+                    onChange={(e) => setQuickName(e.target.value)}
+                    disabled={isBusy}
+                    maxLength={200}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Supplier code</label>
+                  <Input
+                    placeholder="Supplier code"
+                    value={quickCode}
+                    onChange={(e) => setQuickCode(e.target.value)}
+                    disabled={isBusy}
+                    maxLength={100}
+                  />
+                </div>
+                <div>
+                  <Button type="submit" className="w-full md:w-auto" disabled={isBusy || !quickName.trim() || !quickCode.trim()}>
+                    {busyKey === "add" ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Adding...
+                      </>
+                    ) : (
+                      "Add supplier"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </div>
           )}
 
           <ul className="space-y-2">
             {suppliers.map((s) => (
               <li
                 key={s.id}
-                className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-3 rounded-lg border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div>
-                  <p className="font-medium">{s.name}</p>
-                  <p className="text-muted-foreground text-sm">Code: {s.code}</p>
+                <div className="space-y-1">
+                  <p className="flex items-center gap-2 font-medium">
+                    <Building2 className="size-4 text-muted-foreground" aria-hidden />
+                    {s.name}
+                  </p>
+                  <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                    <Hash className="size-3.5" aria-hidden />
+                    Code: {s.code}
+                  </p>
                   {s.contactNumber && (
-                    <p className="text-muted-foreground text-sm">
-                      Contact: {s.contactNumber}
+                    <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                      <Phone className="size-3.5" aria-hidden />
+                      {s.contactNumber}
                     </p>
                   )}
                   {s.email && (
-                    <p className="text-muted-foreground text-sm">Email: {s.email}</p>
+                    <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                      <Mail className="size-3.5" aria-hidden />
+                      {s.email}
+                    </p>
                   )}
                   {s.address && (
-                    <p className="text-muted-foreground text-sm">{s.address}</p>
+                    <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                      <MapPin className="size-3.5" aria-hidden />
+                      {s.address}
+                    </p>
                   )}
                 </div>
                 {canEdit && (
@@ -327,7 +422,13 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
         </CardContent>
       </Card>
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet
+        open={sheetOpen}
+        onOpenChange={(open) => {
+          if (!open) closeSheet();
+          else setSheetOpen(true);
+        }}
+      >
         <SheetContent
           side="right"
           className="flex w-full flex-col overflow-y-auto sm:max-w-lg"
@@ -344,7 +445,8 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
           </SheetHeader>
 
           <div className="flex flex-1 flex-col gap-6 py-4">
-            <div className="space-y-3">
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold">Basic Details</h4>
               <Input
                 placeholder="Supplier Name *"
                 value={form.name ?? ""}
@@ -359,6 +461,9 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
                 disabled={isBusy}
                 maxLength={100}
               />
+            </div>
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold">Contact Details</h4>
               <Input
                 placeholder="Supplier Contact Number"
                 value={form.contactNumber ?? ""}
@@ -392,6 +497,9 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
                   <p className="text-destructive text-sm">{emailError}</p>
                 )}
               </div>
+            </div>
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="text-sm font-semibold">Address</h4>
               <Textarea
                 placeholder="Supplier Address"
                 value={form.address ?? ""}
