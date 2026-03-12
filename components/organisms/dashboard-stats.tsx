@@ -157,8 +157,14 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
       <Card className="border-border/70 bg-card shadow-xs">
+        <CardHeader className="space-y-1 border-b pb-4">
+          <p className="text-sm font-semibold tracking-wide">Filters</p>
+          <p className="text-muted-foreground text-sm">
+            Adjust date range, date source, and analysis mode for dashboard results.
+          </p>
+        </CardHeader>
         <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.4fr_1.4fr_auto]">
           <div className="space-y-2">
             <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
@@ -186,7 +192,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
               Date Type
             </p>
-            <div className="flex h-10 items-center gap-6 rounded-sm border border-border px-3 text-sm">
+            <div className="bg-muted/20 flex h-10 items-center gap-6 rounded-md border border-border px-3 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
@@ -209,7 +215,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
               Analysis Type
             </p>
-            <div className="flex h-10 items-center gap-6 rounded-sm border border-border px-3 text-sm">
+            <div className="bg-muted/20 flex h-10 items-center gap-6 rounded-md border border-border px-3 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
@@ -230,7 +236,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
           </div>
           <Button
             size="icon"
-            className="h-10 w-10 justify-self-start bg-primary text-primary-foreground"
+            className="h-10 w-10 justify-self-start rounded-md bg-primary text-primary-foreground"
             onClick={refreshLiveData}
             aria-label="Refresh live data"
             disabled={refreshing}
@@ -293,9 +299,9 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
      
 
-      <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+      <div className="from-background to-muted/20 flex flex-col gap-3 rounded-xl border border-border/60 bg-gradient-to-r p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">
+          <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
             Merchant Performance
           </h2>
           <p className="text-muted-foreground text-sm">
@@ -316,13 +322,13 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
         {displayedStats.map((stat) => (
           <Card
             key={stat.shop}
-            className="rounded-sm border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="rounded-xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
-            <CardHeader className="space-y-0 py-2 text-center">
+            <CardHeader className="space-y-1 py-3 text-center">
               <p className="text-base leading-6 font-semibold tracking-tight">
                 {stat.shop}
               </p>
-              <p className="text-muted-foreground text-xs uppercase">
+              <p className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
                 Total Orders
               </p>
               <p className="text-2xl font-semibold">{stat.total}</p>
@@ -361,7 +367,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
       </div>
 
       {liveLoaded && displayedStats.length === 0 && (
-        <Card className="border-border/70 bg-card">
+        <Card className="border-border/70 bg-card shadow-xs">
           <CardContent className="py-8 text-center text-sm">
             <p className="text-muted-foreground">
               No chart data found for the selected filters.

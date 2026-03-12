@@ -92,9 +92,9 @@ function SummaryChartCard({
 }) {
   return (
     <Card className="border-border/70 bg-card shadow-xs">
-      <CardHeader className="space-y-0 border-t-2 border-border py-2 text-center">
-        <p className="text-sm leading-5 font-semibold">{title}</p>
-        <p className="text-sm font-semibold">{total}</p>
+      <CardHeader className="space-y-1 border-t-2 border-border py-3 text-center">
+        <p className="text-sm leading-5 font-semibold tracking-wide">{title}</p>
+        <p className="text-2xl font-semibold tracking-tight">{total}</p>
       </CardHeader>
       <CardContent className="pb-5">
         <div className="relative mx-auto mt-1 grid h-56 w-56 place-items-center sm:h-64 sm:w-64">
@@ -127,7 +127,7 @@ function formatMetric(value: number) {
 }
 
 function getCenterLabelClass(label: string) {
-  if (label.length > 20) return "text-2 leading-tight font-semibold";
+  if (label.length > 20) return "text-xs leading-tight font-semibold";
   if (label.length > 14) return "text-lg leading-tight font-semibold";
   return "text-2xl leading-tight font-semibold";
 }

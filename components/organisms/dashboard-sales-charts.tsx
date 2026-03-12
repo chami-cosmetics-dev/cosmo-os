@@ -283,7 +283,7 @@ function DeliverySummaryChart({ rows }: { rows: BaseRow[] }) {
 
         <div className="rounded-sm border border-border/70 bg-background px-4 py-4">
           <h3 className="text-center text-3xl font-semibold tracking-tight">
-            Delivery Summery (Completed / Pending) [Dispatch On Date Only]
+            Delivery Summary (Completed / Pending) [Dispatch On Date Only]
           </h3>
 
           {chartRows.length === 0 ? (
@@ -389,9 +389,9 @@ function SalesPerformanceChart({ rows }: { rows: BaseRow[] }) {
         </div>
 
         <div className="grid gap-2 text-sm md:grid-cols-3">
-          <p>Pending Cancellations: <span className="font-semibold">{formatLkr(pendingCancellations)}</span></p>
-          <p>Pending Processing: <span className="font-semibold">{formatLkr(pendingProcessing)}</span></p>
-          <p>Shipping Charges: <span className="font-semibold">{formatLkr(shippingCharges)}</span></p>
+          <p className="rounded-md border border-border/60 bg-background px-3 py-2">Pending Cancellations: <span className="font-semibold">{formatLkr(pendingCancellations)}</span></p>
+          <p className="rounded-md border border-border/60 bg-background px-3 py-2">Pending Processing: <span className="font-semibold">{formatLkr(pendingProcessing)}</span></p>
+          <p className="rounded-md border border-border/60 bg-background px-3 py-2">Shipping Charges: <span className="font-semibold">{formatLkr(shippingCharges)}</span></p>
         </div>
 
         <div className="rounded-sm border border-border/70 bg-background px-4 py-4">
@@ -427,9 +427,9 @@ function ChartTypeSelector({
   name: string;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-sm">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-sm">
       {CHART_TYPES.map((type) => (
-        <label key={type.key} className="inline-flex cursor-pointer items-center gap-2 font-medium">
+        <label key={type.key} className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-transparent px-2 py-1 font-medium transition-colors hover:border-border/70">
           <input
             type="radio"
             name={name}
