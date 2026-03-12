@@ -1,5 +1,8 @@
 export { AppSidebar } from "./app-sidebar";
 export { DashboardStats } from "./dashboard-stats";
+export { DashboardSalesCharts } from "./dashboard-sales-charts";
+export { DashboardSummaryCharts } from "./dashboard-summary-charts";
+export { DashboardSalesAnalysisChart } from "./dashboard-sales-analysis-chart";
 export { ProductItemsPanel } from "./product-items-panel";
 export { RecentItemsList } from "./recent-items-list";
 export { Topbar } from "./topbar";
