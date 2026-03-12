@@ -2,12 +2,6 @@
 
 import { useState, useEffect } from "react";
 
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { CardSkeleton } from "@/components/skeletons/card-skeleton";
 import { CompanySettingsForm } from "@/components/molecules/company-settings-form";
 import { DepartmentsSettingsForm } from "@/components/molecules/departments-settings-form";
@@ -16,6 +10,7 @@ import { SuppliersSettingsForm } from "@/components/molecules/suppliers-settings
 import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
 import { ShopifyWebhookSecretsForm } from "@/components/molecules/shopify-webhook-secrets-form";
 import { notify } from "@/lib/notify";
+import { Building2 } from "lucide-react";
 
 export type SettingsPageData = {
   company: {
@@ -86,42 +81,21 @@ export function SettingsPageData({ canEdit }: SettingsPageDataProps) {
         canEdit={canEdit}
         initialCompany={data.company}
       />
-      <Accordion
-        type="multiple"
-        defaultValue={[]}
-        className="rounded-lg border"
-      >
-        <AccordionItem value="locations" className="px-4">
-          <AccordionTrigger>Company Locations</AccordionTrigger>
-          <AccordionContent>
-            <LocationsSettingsForm canEdit={canEdit} />
-          </AccordionContent>
-        </AccordionItem>
-        <AccordionItem value="webhooks" className="px-4">
-          <AccordionTrigger>Shopify Webhook Secrets</AccordionTrigger>
-          <AccordionContent>
-            <ShopifyWebhookSecretsForm canEdit={canEdit} />
-          </AccordionContent>
-        </AccordionItem>
-        <AccordionItem value="departments" className="px-4">
-          <AccordionTrigger>Departments</AccordionTrigger>
-          <AccordionContent>
-            <DepartmentsSettingsForm canEdit={canEdit} />
-          </AccordionContent>
-        </AccordionItem>
-        <AccordionItem value="designations" className="px-4">
-          <AccordionTrigger>Designations</AccordionTrigger>
-          <AccordionContent>
-            <DesignationsSettingsForm canEdit={canEdit} />
-          </AccordionContent>
-        </AccordionItem>
-        <AccordionItem value="suppliers" className="px-4">
-          <AccordionTrigger>Suppliers</AccordionTrigger>
-          <AccordionContent>
-            <SuppliersSettingsForm canEdit={canEdit} />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
+      <div className="space-y-2 rounded-xl border bg-muted/10 p-4">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <Building2 className="size-4 text-muted-foreground" aria-hidden />
+          Company Configuration
+        </p>
+        <p className="text-muted-foreground text-xs">
+          Each section is shown as its own card for faster access.
+        </p>
+      </div>
+
+      <LocationsSettingsForm canEdit={canEdit} />
+      <ShopifyWebhookSecretsForm canEdit={canEdit} />
+      <DepartmentsSettingsForm canEdit={canEdit} />
+      <DesignationsSettingsForm canEdit={canEdit} />
+      <SuppliersSettingsForm canEdit={canEdit} />
     </div>
   );
 }
