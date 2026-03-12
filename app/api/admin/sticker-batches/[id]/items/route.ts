@@ -7,10 +7,12 @@ import { requirePermission } from "@/lib/rbac";
 const dateStringSchema = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
 
 const saveItemsSchema = z.object({
-  locationId: z.string().min(1),
+  locationId: z.string().min(1).optional(),
+  mode: z.enum(["single", "multiple"]).optional(),
   items: z
     .array(
       z.object({
+        locationId: z.string().min(1).optional(),
         itemCode: z.string().trim().min(1).max(120),
         itemName: z.string().trim().min(1).max(500),
         unitPrice: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
@@ -20,6 +22,26 @@ const saveItemsSchema = z.object({
       })
     )
     .min(1),
+}).superRefine((data, ctx) => {
+  const resolvedMode =
+    data.mode ?? (data.locationId ? "single" : "multiple");
+  if (resolvedMode === "single" && !data.locationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["locationId"],
+      message: "Location is required in single mode",
+    });
+  }
+  if (resolvedMode === "multiple") {
+    const missingLocationItemIndex = data.items.findIndex((item) => !item.locationId);
+    if (missingLocationItemIndex >= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["items", missingLocationItemIndex, "locationId"],
+        message: "Location is required for each item in multiple mode",
+      });
+    }
+  }
 });
 
 function parseDDMMYYYY(value: string): Date | null {
@@ -103,15 +125,30 @@ export async function POST(
     return NextResponse.json({ error: "Sticker batch not found" }, { status: 404 });
   }
 
-  const location = await prisma.companyLocation.findFirst({
-    where: { id: parsed.data.locationId, companyId },
-    select: { id: true },
+  const resolvedMode = parsed.data.mode ?? (parsed.data.locationId ? "single" : "multiple");
+  const locationIds = Array.from(
+    new Set(
+      parsed.data.items
+        .map((item) =>
+          resolvedMode === "single"
+            ? parsed.data.locationId!
+            : item.locationId!
+        )
+        .filter(Boolean)
+    )
+  );
+  const locationCount = await prisma.companyLocation.count({
+    where: {
+      companyId,
+      id: { in: locationIds },
+    },
   });
-  if (!location) {
-    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  if (locationCount !== locationIds.length) {
+    return NextResponse.json({ error: "One or more locations are invalid" }, { status: 404 });
   }
 
   const items: Array<{
+    locationId: string;
     itemCode: string;
     itemName: string;
     unitPrice: string;
@@ -136,6 +173,7 @@ export async function POST(
       );
     }
     items.push({
+      locationId: resolvedMode === "single" ? parsed.data.locationId! : item.locationId!,
       itemCode: item.itemCode,
       itemName: item.itemName,
       unitPrice: item.unitPrice,
@@ -165,9 +203,9 @@ export async function POST(
           data: Array<{
             companyId: string;
             stickerBatchId: string;
-            companyLocationId: string;
-            itemCode: string;
-            itemName: string;
+        companyLocationId: string;
+        itemCode: string;
+        itemName: string;
             unitPrice: string;
             quantity: number;
             manufactureDate: Date;
@@ -179,7 +217,7 @@ export async function POST(
       data: items.map((item) => ({
         companyId,
         stickerBatchId: batchId,
-        companyLocationId: parsed.data.locationId,
+        companyLocationId: item.locationId,
         itemCode: item.itemCode,
         itemName: item.itemName,
         unitPrice: item.unitPrice,

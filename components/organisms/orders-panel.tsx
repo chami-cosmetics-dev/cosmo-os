@@ -7,6 +7,7 @@ import { Eye, Search, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -49,6 +50,8 @@ const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
   invoice_complete: "Invoice Complete",
   delivery_complete: "Delivery Complete",
 };
+
+const ALL_FILTER_VALUE = "__all";
 
 type OrderDetail = {
   id: string;
@@ -330,39 +333,51 @@ export function OrdersPanel({
                 className="pl-9"
               />
             </div>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={locationFilter}
-              onChange={(e) => setLocationFilter(e.target.value)}
+            <Select
+              value={locationFilter || ALL_FILTER_VALUE}
+              onValueChange={(value) => setLocationFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <option value="">All locations</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value)}
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="All locations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FILTER_VALUE}>All locations</SelectItem>
+                {locations.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={sourceFilter || ALL_FILTER_VALUE}
+              onValueChange={(value) => setSourceFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <option value="">All sources</option>
-              <option value="web">Web</option>
-              <option value="pos">POS</option>
-            </select>
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              value={merchantFilter}
-              onChange={(e) => setMerchantFilter(e.target.value)}
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="All sources" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FILTER_VALUE}>All sources</SelectItem>
+                <SelectItem value="web">Web</SelectItem>
+                <SelectItem value="pos">POS</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={merchantFilter || ALL_FILTER_VALUE}
+              onValueChange={(value) => setMerchantFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <option value="">All merchants</option>
-              {merchants.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name || m.email || m.id}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full sm:w-52">
+                <SelectValue placeholder="All merchants" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FILTER_VALUE}>All merchants</SelectItem>
+                {merchants.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name || m.email || m.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {loading ? (
