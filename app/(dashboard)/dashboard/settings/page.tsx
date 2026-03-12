@@ -37,7 +37,7 @@ export default async function SettingsPage() {
       ? [
           {
             key: "email-templates",
-            group: "Communication",
+            group: "Communication" as const,
             title: "Email Templates",
             description:
               "Configure notification emails for staff events such as resignations.",
@@ -50,7 +50,7 @@ export default async function SettingsPage() {
       ? [
           {
             key: "sms-portal",
-            group: "Communication",
+            group: "Communication" as const,
             title: "SMS Portal",
             description:
               "Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.",
@@ -59,7 +59,7 @@ export default async function SettingsPage() {
           },
           {
             key: "sms-notifications",
-            group: "Communication",
+            group: "Communication" as const,
             title: "SMS Notifications",
             description:
               "Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).",
@@ -72,7 +72,7 @@ export default async function SettingsPage() {
       ? [
           {
             key: "fulfillment",
-            group: "Operations",
+            group: "Operations" as const,
             title: "Order Fulfillment",
             description:
               "Manage samples, free issues, package hold reasons, and courier services.",

@@ -50,6 +50,7 @@ type ItemCatalogRow = {
 
 type ItemRow = {
   id: string;
+  locationId: string;
   itemCode: string;
   itemName: string;
   unitPrice: string;
@@ -62,6 +63,7 @@ type ItemRow = {
 type BatchOption = {
   id: string;
   batchName: string;
+  mode: "single" | "multiple" | "unassigned";
 };
 
 type BatchDetailsResponse = {
@@ -96,7 +98,9 @@ type BatchPreviewMeta = {
 type LoadedBatchSnapshot = {
   batchId: string;
   locationId: string;
+  mode: "multiple";
   rows: Array<{
+    locationId: string;
     itemCode: string;
     itemName: string;
     unitPrice: string;
@@ -124,6 +128,7 @@ const ITEMS_DRAFT_STORAGE_KEY = "sticker_batch_items_draft_v1";
 function createEmptyRow(id: string): ItemRow {
   return {
     id,
+    locationId: "",
     itemCode: "",
     itemName: "",
     unitPrice: "",
@@ -235,7 +240,9 @@ export function StickerBatchClient({
   const nextRowIdRef = useRef(1);
   const hasRestoredDraftRef = useRef(false);
   const skipNextDraftPersistRef = useRef(false);
-  const canAddRows = selectedBatchId.trim() !== "" && selectedLocationId.trim() !== "";
+  const skipNextBatchReloadRef = useRef(false);
+  const canSaveBatch = supplierId.trim() !== "" && batchName.trim() !== "";
+  const canAddRows = selectedBatchId.trim() !== "";
   const allRowsComplete = useMemo(
     () =>
       rows.length > 0 &&
@@ -244,6 +251,7 @@ export function StickerBatchClient({
           const mfg = parseDDMMYYYY(row.manufactureDate.trim());
           const exp = parseDDMMYYYY(row.expireDate.trim());
           return Boolean(
+            row.locationId.trim() &&
             row.itemCode.trim() &&
               row.itemName.trim() &&
               row.unitPrice.trim() &&
@@ -259,18 +267,17 @@ export function StickerBatchClient({
 
   const locationItems = useMemo(() => {
     if (!selectedLocationId) return [];
-    return itemCatalog.filter(
-      (item) => item.companyLocationId === selectedLocationId,
-    );
+    return itemCatalog.filter((item) => item.companyLocationId === selectedLocationId);
   }, [itemCatalog, selectedLocationId]);
 
-  const codeOptions = useMemo(() => {
+  const allCodeOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const item of locationItems) {
+    for (const item of itemCatalog) {
       if (item.sku) set.add(item.sku);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [locationItems]);
+  }, [itemCatalog]);
+  const filteredBatches = useMemo(() => batches, [batches]);
 
   const activeRow = useMemo(
     () => rows.find((row) => row.id === activeRowId) ?? null,
@@ -281,10 +288,15 @@ export function StickerBatchClient({
     () => locations.find((location) => location.id === selectedLocationId) ?? null,
     [locations, selectedLocationId]
   );
+  const activeRowLocation = useMemo(() => {
+    if (!activeRow?.locationId) return null;
+    return locations.find((location) => location.id === activeRow.locationId) ?? null;
+  }, [locations, activeRow]);
 
   const normalizedRowsForCompare = useMemo(
     () =>
       rows.map((row) => ({
+        locationId: row.locationId.trim(),
         itemCode: row.itemCode.trim(),
         itemName: row.itemName.trim(),
         unitPrice: row.unitPrice.trim(),
@@ -305,6 +317,7 @@ export function StickerBatchClient({
       const current = normalizedRowsForCompare[i];
       const original = loadedSnapshot.rows[i];
       if (
+        current.locationId !== original.locationId ||
         current.itemCode !== original.itemCode ||
         current.itemName !== original.itemName ||
         current.unitPrice !== original.unitPrice ||
@@ -321,6 +334,7 @@ export function StickerBatchClient({
   function getValidRowsForSave() {
     return rows.filter(
       (row) =>
+        row.locationId.trim() &&
         row.itemCode.trim() &&
         row.itemName.trim() &&
         row.unitPrice.trim() &&
@@ -367,10 +381,13 @@ export function StickerBatchClient({
         setBatches((prev) =>
           prev.some((b) => b.id === createdId)
             ? prev
-            : [{ id: createdId, batchName: createdBatchName }, ...prev]
+            : [{ id: createdId, batchName: createdBatchName, mode: "unassigned" }, ...prev]
         );
-        setSelectedBatchId(createdId);
       }
+      setSupplierId("");
+      setBatchName("");
+      setBatchDate(today);
+      setRemark("");
       notify.success("Sticker batch saved.");
     } catch {
       notify.error("Failed to save sticker batch");
@@ -384,10 +401,6 @@ export function StickerBatchClient({
       notify.error("Select batch name");
       return;
     }
-    if (!selectedLocationId) {
-      notify.error("Select location");
-      return;
-    }
     const validRows = getValidRowsForSave();
     if (validRows.length === 0) {
       notify.error("Add at least one complete item row");
@@ -396,9 +409,16 @@ export function StickerBatchClient({
 
     setSavingItems(true);
     try {
+      const hasLocationGap = validRows.some((row) => !row.locationId.trim());
+      if (hasLocationGap) {
+        notify.error("Select location for each item row");
+        return;
+      }
+
       const payload = {
-        locationId: selectedLocationId,
+        mode: "multiple" as const,
         items: validRows.map((row) => ({
+          locationId: row.locationId.trim(),
           itemCode: row.itemCode.trim(),
           itemName: row.itemName.trim(),
           unitPrice: row.unitPrice.trim(),
@@ -417,6 +437,16 @@ export function StickerBatchClient({
         notify.error(data.error ?? "Failed to save sticker batch items");
         return;
       }
+      const savedLocationIds = new Set(
+        validRows.map((row) => row.locationId.trim())
+      );
+      const updatedMode: BatchOption["mode"] =
+        savedLocationIds.size > 1 ? "multiple" : "single";
+      setBatches((prev) =>
+        prev.map((batch) =>
+          batch.id === selectedBatchId ? { ...batch, mode: updatedMode } : batch
+        )
+      );
       skipNextDraftPersistRef.current = true;
       nextRowIdRef.current = 1;
       setLoadedSnapshot(null);
@@ -456,9 +486,10 @@ export function StickerBatchClient({
     if (!canAddRows) return;
     const count = getRowsToAddCount();
     const start = nextRowIdRef.current;
-    const newRows = Array.from({ length: count }, (_, index) =>
-      createEmptyRow(String(start + index)),
-    );
+    const newRows = Array.from({ length: count }, (_, index) => ({
+      ...createEmptyRow(String(start + index)),
+      locationId: selectedLocationId,
+    }));
     nextRowIdRef.current = start + count;
     setRows((prev) => [...prev, ...newRows]);
   }
@@ -487,15 +518,18 @@ export function StickerBatchClient({
     setActiveRowId(rowId);
   }
 
-  function matchItem(itemCode: string) {
+  function matchItem(itemCode: string, locationId?: string) {
     const normalized = itemCode.trim().toLowerCase();
     if (!normalized) return null;
-    const exactLocation = locationItems.find(
+    const scopedItems = locationId
+      ? itemCatalog.filter((item) => item.companyLocationId === locationId)
+      : locationItems;
+    const exactLocation = scopedItems.find(
       (item) => item.sku?.trim().toLowerCase() === normalized
     );
     if (exactLocation) return exactLocation;
 
-    const startsWithLocation = locationItems.filter((item) =>
+    const startsWithLocation = scopedItems.filter((item) =>
       item.sku?.trim().toLowerCase().startsWith(normalized)
     );
     if (startsWithLocation.length === 1) return startsWithLocation[0];
@@ -520,7 +554,9 @@ export function StickerBatchClient({
   }
 
   function handleItemCodeChange(rowId: string, itemCode: string) {
-    const item = matchItem(itemCode);
+    const row = rows.find((entry) => entry.id === rowId);
+    const rowLocationId = row?.locationId?.trim() || selectedLocationId;
+    const item = matchItem(itemCode, rowLocationId || undefined);
     if (!item) {
       setRow(rowId, { itemCode, itemName: "", unitPrice: "" });
       return;
@@ -554,6 +590,18 @@ export function StickerBatchClient({
     setSelectedLocationId(locationId);
   }
 
+  function applySelectedLocationToAllRows() {
+    if (!selectedLocationId) {
+      notify.error("Select location first");
+      return;
+    }
+    if (rows.length === 0) {
+      notify.error("Add rows first");
+      return;
+    }
+    setRows((prev) => prev.map((row) => ({ ...row, locationId: selectedLocationId })));
+  }
+
   useEffect(() => {
     if (!selectedBatchId) {
       setRows([]);
@@ -569,6 +617,10 @@ export function StickerBatchClient({
         locationAddress: "",
         locationPhone: "",
       });
+      return;
+    }
+    if (skipNextBatchReloadRef.current) {
+      skipNextBatchReloadRef.current = false;
       return;
     }
 
@@ -602,6 +654,7 @@ export function StickerBatchClient({
           setLoadedSnapshot({
             batchId: selectedBatchId,
             locationId: "",
+            mode: "multiple",
             rows: [],
           });
           return;
@@ -634,10 +687,8 @@ export function StickerBatchClient({
           matchedLocationByReference?.id ??
           matchedLocationByName?.id ??
           "";
-
-        if (resolvedLocationId) {
-          setSelectedLocationId(resolvedLocationId);
-        }
+        const uniqueLocationIds = new Set(items.map((item) => item.locationId?.trim() ?? "").filter(Boolean));
+        setSelectedLocationId(uniqueLocationIds.size === 1 ? resolvedLocationId : "");
         setPreviewMeta({
           supplierName: data.supplierName ?? "",
           companyName: data.companyName ?? "",
@@ -652,6 +703,7 @@ export function StickerBatchClient({
           const expireDate = formatDateFromApi(item.expireDate);
           return {
             id: String(index + 1),
+            locationId: item.locationId ?? "",
             itemCode: item.itemCode ?? "",
             itemName: item.itemName ?? "",
             unitPrice: formatToTwoDecimals(item.unitPrice ?? ""),
@@ -667,8 +719,10 @@ export function StickerBatchClient({
         nextRowIdRef.current = nextRows.length + 1;
         setLoadedSnapshot({
           batchId: selectedBatchId,
-          locationId: resolvedLocationId,
+          locationId: uniqueLocationIds.size === 1 ? resolvedLocationId : "",
+          mode: "multiple",
           rows: nextRows.map((row) => ({
+            locationId: row.locationId.trim(),
             itemCode: row.itemCode.trim(),
             itemName: row.itemName.trim(),
             unitPrice: row.unitPrice.trim(),
@@ -685,7 +739,7 @@ export function StickerBatchClient({
     return () => {
       active = false;
     };
-  }, [selectedBatchId]);
+  }, [selectedBatchId, locations]);
 
   // Restore unfinished Sticker Batch Items draft when page is revisited.
   useEffect(() => {
@@ -701,9 +755,45 @@ export function StickerBatchClient({
         rows?: ItemRow[];
         nextRowId?: number;
       };
-      // Keep selectors empty on load so placeholders ("Select ...") are shown.
+      const restoredRows = Array.isArray(draft.rows)
+        ? draft.rows.map((row, index) => {
+            const manufactureDate = (row.manufactureDate ?? "").trim();
+            const expireDate = (row.expireDate ?? "").trim();
+            return {
+              ...createEmptyRow(String(index + 1)),
+              ...row,
+              id: row.id ? String(row.id) : String(index + 1),
+              locationId: row.locationId ?? "",
+              manufactureDate,
+              expireDate,
+              age: computeAge(manufactureDate, expireDate),
+            };
+          })
+        : [];
+
+      if (typeof draft.selectedBatchId === "string") {
+        setSelectedBatchId(draft.selectedBatchId);
+      }
+      if (typeof draft.selectedLocationId === "string") {
+        setSelectedLocationId(draft.selectedLocationId);
+      }
+      if (typeof draft.rowsToAdd === "string") {
+        setRowsToAdd(draft.rowsToAdd);
+      }
+      if (restoredRows.length > 0) {
+        setRows(restoredRows);
+        setActiveRowId(null);
+        setIsPreviewLifted(false);
+      }
+
       if (typeof draft.nextRowId === "number" && Number.isFinite(draft.nextRowId)) {
         nextRowIdRef.current = Math.max(1, draft.nextRowId);
+      } else if (restoredRows.length > 0) {
+        nextRowIdRef.current = restoredRows.length + 1;
+      }
+      if ((draft.selectedBatchId ?? "").trim() && restoredRows.length > 0) {
+        // Keep unsaved draft rows instead of overwriting them with batch API data on first mount.
+        skipNextBatchReloadRef.current = true;
       }
     } catch {
       // Ignore malformed local draft.
@@ -821,7 +911,7 @@ export function StickerBatchClient({
           </div>
 
           <div className="flex justify-end">
-            <Button type="button" onClick={handleCreateBatch} disabled={saving}>
+            <Button type="button" onClick={handleCreateBatch} disabled={saving || !canSaveBatch}>
               {saving ? "Saving..." : "Save"}
             </Button>
           </div>
@@ -832,7 +922,7 @@ export function StickerBatchClient({
         <CardHeader className="space-y-1">
           <CardTitle>Sticker Batch Items</CardTitle>
           <p className="text-muted-foreground text-sm">
-            Batch item details based on selected batch number and location.
+            Batch item details based on selected batch number and locations.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -852,7 +942,7 @@ export function StickerBatchClient({
                   <SelectValue placeholder="Select batch number" />
                 </SelectTrigger>
                 <SelectContent>
-                  {batches.map((batch) => (
+                  {filteredBatches.map((batch) => (
                     <SelectItem key={batch.id} value={batch.id}>
                       {batch.batchName}
                     </SelectItem>
@@ -861,18 +951,14 @@ export function StickerBatchClient({
               </Select>
             </div>
             <div className="min-w-[240px] flex-1 space-y-2">
-              <label className="text-sm font-medium">Location</label>
+              <label className="text-sm font-medium">Default Location (Optional)</label>
               <Select
-                key={`location-select-${itemsResetKey}`}
+                key={`default-location-select-${itemsResetKey}`}
                 value={selectedLocationId || undefined}
                 onValueChange={(value) => handleLocationChange(value)}
               >
-                <SelectTrigger
-                  className={`${selectClassName} ${getInlineChangeClass(
-                    selectedLocationId,
-                  )}`}
-                >
-                  <SelectValue placeholder="Select location" />
+                <SelectTrigger className={selectClassName}>
+                  <SelectValue placeholder="Select default location" />
                 </SelectTrigger>
                 <SelectContent>
                   {locations.map((location) => (
@@ -903,10 +989,20 @@ export function StickerBatchClient({
               Remove All
               </Button>
             </div>
+            <div className="shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={applySelectedLocationToAllRows}
+                disabled={!selectedLocationId || rows.length === 0}
+              >
+                Apply To All
+              </Button>
+            </div>
           </div>
 
           <datalist id="item-code-options">
-            {codeOptions.map((code) => (
+            {allCodeOptions.map((code) => (
               <option key={code} value={code} />
             ))}
           </datalist>
@@ -915,6 +1011,7 @@ export function StickerBatchClient({
             <table className="w-full min-w-[1100px] text-sm">
               <thead>
                 <tr className="border-b text-left">
+                  <th className="p-3 font-medium">Location</th>
                   <th className="p-3 font-medium">Item Code</th>
                   <th className="p-3 font-medium">Item Name</th>
                   <th className="p-3 font-medium">Unit Price</th>
@@ -933,6 +1030,23 @@ export function StickerBatchClient({
                     onClick={() => handleRowFocus(row.id)}
                     className={`border-b last:border-b-0 ${activeRowId === row.id ? "bg-muted/50" : ""}`}
                   >
+                    <td className="p-3">
+                      <Select
+                        value={row.locationId || undefined}
+                        onValueChange={(value) => setRow(row.id, { locationId: value })}
+                      >
+                        <SelectTrigger className={getInlineChangeClass(row.locationId)}>
+                          <SelectValue placeholder="Select location" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {locations.map((location) => (
+                            <SelectItem key={location.id} value={location.id}>
+                              {location.locationReference?.trim() || location.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
                     <td className="p-3">
                       <Input
                         value={row.itemCode}
@@ -1034,6 +1148,7 @@ export function StickerBatchClient({
                 itemName={activeRow.itemName}
                 unitPrice={activeRow.unitPrice}
                 locationReference={
+                  activeRowLocation?.locationReference?.trim() ||
                   selectedLocation?.locationReference?.trim() ||
                   previewMeta.locationReference
                 }

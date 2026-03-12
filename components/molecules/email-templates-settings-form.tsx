@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Eye, FileText, Loader2, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ interface EmailTemplatesSettingsFormProps {
 }
 
 export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailTemplatesSettingsFormProps) {
+  const formRef = useRef<HTMLFormElement>(null);
   const [loading, setLoading] = useState(initialTemplates === undefined);
   const [noCompany, setNoCompany] = useState(initialTemplates === null);
   const [subject, setSubject] = useState(initialTemplates?.resignation_notice?.subject ?? "");
@@ -117,6 +118,23 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
     }
   }
 
+  function handleFormKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== "Enter" || !canEdit || isBusy) return;
+
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    const isTextarea = target.tagName === "TEXTAREA";
+    const isModifiedEnter = e.ctrlKey || e.metaKey;
+
+    // Inside HTML editor: allow normal Enter, but support Ctrl/Cmd+Enter to save quickly.
+    if (isTextarea && !isModifiedEnter) return;
+
+    // For input fields and Ctrl/Cmd+Enter in textarea: submit directly.
+    e.preventDefault();
+    formRef.current?.requestSubmit();
+  }
+
   if (loading) {
     return (
       <Card>
@@ -162,7 +180,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
             <div className="space-y-4 rounded-xl border bg-muted/15 p-4">
               <h4 className="flex items-center gap-2 text-sm font-semibold">

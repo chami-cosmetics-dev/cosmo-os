@@ -75,6 +75,21 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
 
   const stickers = useMemo(() => detail?.items ?? [], [detail]);
 
+  async function waitForStickerAssets() {
+    if (typeof document === "undefined") return;
+
+    // Ensure web fonts are ready before opening print dialog.
+    if ("fonts" in document) {
+      await (document as Document & { fonts: { ready: Promise<unknown> } }).fonts.ready;
+    }
+
+  }
+
+  async function handlePrint() {
+    await waitForStickerAssets();
+    window.print();
+  }
+
   return (
     <div className="space-y-6" data-print-root="stickers">
       <style jsx global>{`
@@ -189,7 +204,7 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => window.print()}
+            onClick={() => void handlePrint()}
             disabled={!detail || stickers.length === 0}
           >
             Print
