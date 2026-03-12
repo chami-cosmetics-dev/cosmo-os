@@ -56,7 +56,11 @@ export default async function StickerBatchPage() {
       ])
     : [[], [], []];
 
-  let initialBatches: Array<{ id: string; batchName: string }> = [];
+  let initialBatches: Array<{
+    id: string;
+    batchName: string;
+    mode: "single" | "multiple" | "unassigned";
+  }> = [];
   if (companyId) {
     try {
       const batches = await (
@@ -65,16 +69,41 @@ export default async function StickerBatchPage() {
             findMany: (args: {
               where: { companyId: string };
               orderBy: { createdAt: "desc" };
-              select: { id: true; batchName: true };
-            }) => Promise<Array<{ id: string; batchName: string }>>;
+              select: {
+                id: true;
+                batchName: true;
+                items: { select: { companyLocationId: true } };
+              };
+            }) => Promise<
+              Array<{
+                id: string;
+                batchName: string;
+                items: Array<{ companyLocationId: string }>;
+              }>
+            >;
           };
         }
       ).stickerBatch.findMany({
         where: { companyId },
         orderBy: { createdAt: "desc" },
-        select: { id: true, batchName: true },
+        select: {
+          id: true,
+          batchName: true,
+          items: { select: { companyLocationId: true } },
+        },
       });
-      initialBatches = batches;
+      initialBatches = batches.map((batch) => {
+        const uniqueLocationCount = new Set(
+          batch.items.map((item) => item.companyLocationId)
+        ).size;
+        const mode =
+          uniqueLocationCount === 0
+            ? "unassigned"
+            : uniqueLocationCount > 1
+              ? "multiple"
+              : "single";
+        return { id: batch.id, batchName: batch.batchName, mode };
+      });
     } catch {
       initialBatches = [];
     }

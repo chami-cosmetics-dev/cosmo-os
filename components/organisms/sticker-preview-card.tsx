@@ -93,51 +93,54 @@ export function StickerPreviewCard({
 }: StickerPreviewCardProps) {
   return (
     <div
+      style={{ fontFamily: '"Aptos", "Segoe UI", Arial, sans-serif' }}
       className={cn(
-        "sticker-card h-[1in] w-[2in] overflow-hidden rounded-md border border-black/30 bg-lime-300 p-2 text-black shadow-sm",
+        "sticker-card relative h-[1in] w-[2in] overflow-hidden rounded-md border border-black/30 bg-lime-300 p-2 text-black shadow-sm",
         className
       )}
     >
-      <div className="mb-0.5 text-center text-[8px] font-extrabold leading-[1.05] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+      <div className="relative z-[2]">
+      <div className="mb-0.5 text-center text-[8px] font-semibold leading-[1.05] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
         {itemName?.trim() || "-"}
       </div>
       <div className="flex items-start justify-between text-[7px] leading-[1.05]">
-        <div className="font-bold">
+        <div className="font-semibold">
           <div>
             <span>MFD:</span> {formatDateValue(manufactureDate)}
           </div>
           <div>
             <span>EXP:</span> {formatDateValue(expireDate)}
           </div>
-          <div>
-            <span>Code:</span> {itemCode?.trim() || "-"}
-          </div>
-          <div>
+          <div >
             <span>Ref:</span> {getLocationRefNumber(locationReference)}
+          </div>
+          <div className="text-[10px] font-semibold leading-[1.05]">
+            <span>Code:</span> {itemCode?.trim() || "-"}
           </div>
         </div>
         <div className="max-w-[0.72in] text-right">
-          <div className="truncate text-[7px] font-extrabold">
+          <div className="truncate text-[7px] font-semibold">
             {supplierName?.trim() || "-"}
           </div>
-          <div className="mt-0.5 text-[11px] font-extrabold leading-none">
+          <div className="mt-0.5 text-[11px] font-semibold leading-none">
             MRP
           </div>
-          <div className="text-[14px] font-extrabold leading-none">
+          <div className="text-[14px] font-semibold leading-none">
             {formatPriceValue(unitPrice)}
           </div>
         </div>
       </div>
 
-      <div className="mt-0 text-center text-[8px] font-extrabold uppercase leading-none">
+      <div className="mt-0 text-center text-[8px] font-semibold uppercase leading-none">
         {companyName?.trim() || "COMPANY"}
       </div>
 
-      <div className="mt-0 text-center text-[7px] font-bold leading-none uppercase truncate">
+      <div className="mt-0 text-center text-[7px] font-semibold leading-none uppercase truncate">
         {locationAddress?.trim() || companyAddress?.trim() || "-"}
       </div>
-      <div className="mt-0.5 text-center text-[7px] font-bold leading-none">
+      <div className="mt-0.5 text-center text-[7px] font-semibold leading-none">
         TP: {locationPhone?.trim() || "-"}
+      </div>
       </div>
     </div>
   );
