@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { FileText, Loader2, MapPin, Pencil, Plus, Store, Ticket, Trash2, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
 import { LogoUpload } from "@/components/molecules/logo-upload";
 import {
@@ -369,19 +371,37 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
       <Card>
         <CardHeader>
           <CardTitle>Company Locations</CardTitle>
-          <p className="text-muted-foreground text-sm">
+          <CardDescription>
             Manage office branches, Shopify links, and invoice details per
             location.
-          </p>
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {canEdit && (
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Quick Add Location</p>
+                  <p className="text-muted-foreground text-xs">
+                    Add basic location details quickly, or open full form for invoice and Shopify settings.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={openAddSheet}
+                  disabled={isBusy}
+                >
+                  <Plus className="size-4" aria-hidden />
+                  Full form
+                </Button>
+              </div>
               <form
                 onSubmit={handleAdd}
-                className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-end"
+                className="grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end"
               >
-                <div className="flex-1 space-y-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Location name</label>
                   <Input
                     placeholder="Location name"
                     value={newName}
@@ -389,6 +409,9 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
                     disabled={isBusy}
                     maxLength={200}
                   />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Address (optional)</label>
                   <Input
                     placeholder="Address (optional)"
                     value={newAddress}
@@ -397,25 +420,16 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
                     maxLength={500}
                   />
                 </div>
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={isBusy || !newName.trim()}>
+                <div>
+                  <Button type="submit" className="w-full md:w-auto" disabled={isBusy || !newName.trim()}>
                     {busyKey === "add" ? (
                       <>
                         <Loader2 className="size-4 animate-spin" aria-hidden />
                         Adding...
                       </>
                     ) : (
-                      "Add"
+                      "Add location"
                     )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={openAddSheet}
-                    disabled={isBusy}
-                  >
-                    <Plus className="size-4" aria-hidden />
-                    Add with details
                   </Button>
                 </div>
               </form>
@@ -532,9 +546,11 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
               />
             )}
             {canEdit && sheetMode === "add" && (
-              <p className="text-muted-foreground text-sm">
-                Add a logo after creating the location.
-              </p>
+              <div className="rounded-lg border border-dashed bg-muted/20 p-3">
+                <p className="text-muted-foreground text-sm">
+                  Add a logo after creating the location.
+                </p>
+              </div>
             )}
             {!canEdit && form.logoUrl && (
               <div className="space-y-2">
@@ -544,8 +560,11 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
                 </div>
               </div>
             )}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Basic</h4>
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <MapPin className="size-4 text-muted-foreground" aria-hidden />
+                Basic
+              </h4>
               <Input
                 placeholder="Location name *"
                 value={form.name ?? ""}
@@ -553,11 +572,12 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
                 disabled={isBusy}
                 maxLength={200}
               />
-              <Input
+              <Textarea
                 placeholder="Address"
                 value={form.address ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
                 disabled={isBusy}
+                rows={3}
                 maxLength={500}
               />
               <Input
@@ -571,8 +591,11 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
               />
             </div>
 
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Invoice Details</h4>
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <FileText className="size-4 text-muted-foreground" aria-hidden />
+                Invoice Details
+              </h4>
               <Input
                 placeholder="Invoice header"
                 value={form.invoiceHeader ?? ""}
@@ -621,8 +644,11 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
               />
             </div>
 
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Shopify Link Details</h4>
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <Store className="size-4 text-muted-foreground" aria-hidden />
+                Shopify Link Details
+              </h4>
               <Input
                 placeholder="Shopify location ID"
                 value={form.shopifyLocationId ?? ""}
@@ -657,31 +683,37 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
             </div>
 
             {merchants.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium">Order Assignment</h4>
+              <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+                <h4 className="flex items-center gap-2 text-sm font-medium">
+                  <UserRound className="size-4 text-muted-foreground" aria-hidden />
+                  Order Assignment
+                </h4>
                 <div className="space-y-2">
                   <label htmlFor="location-defaultMerchant" className="text-sm">
                     Default merchant (web orders)
                   </label>
-                  <select
-                    id="location-defaultMerchant"
-                    value={form.defaultMerchantUserId ?? ""}
-                    onChange={(e) =>
+                  <Select
+                    value={form.defaultMerchantUserId ?? "__none"}
+                    onValueChange={(value) =>
                       setForm((f) => ({
                         ...f,
-                        defaultMerchantUserId: e.target.value || null,
+                        defaultMerchantUserId: value === "__none" ? null : value,
                       }))
                     }
                     disabled={isBusy}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
                   >
-                    <option value="">None</option>
-                    {merchants.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name || m.email || m.id}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger id="location-defaultMerchant" className="w-full bg-background">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">None</SelectItem>
+                      {merchants.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.name || m.email || m.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-muted-foreground text-xs">
                     Web orders without a coupon match will be assigned to this merchant.
                   </p>
@@ -689,8 +721,11 @@ export function LocationsSettingsForm({ canEdit }: LocationsSettingsFormProps) {
               </div>
             )}
 
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium">Sticker Related Details</h4>
+            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <Ticket className="size-4 text-muted-foreground" aria-hidden />
+                Sticker Related Details
+              </h4>
               <Input
                 placeholder="Location reference"
                 value={form.locationReference ?? ""}

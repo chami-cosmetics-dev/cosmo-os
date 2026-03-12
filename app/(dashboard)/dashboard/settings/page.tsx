@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { ComponentType } from "react";
 
 import { SettingsPageData } from "@/components/organisms/settings-page-data";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { Building2, ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
@@ -11,10 +10,10 @@ export const dynamic = "force-dynamic";
 
 type SettingLink = {
   key: string;
+  group: "Communication" | "Operations";
   title: string;
   description: string;
   href: string;
-  actionLabel: string;
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 };
 
@@ -38,11 +37,11 @@ export default async function SettingsPage() {
       ? [
           {
             key: "email-templates",
+            group: "Communication",
             title: "Email Templates",
             description:
               "Configure notification emails for staff events such as resignations.",
             href: "/dashboard/settings/email-templates",
-            actionLabel: "Manage email templates",
             icon: Mail,
           },
         ]
@@ -51,20 +50,20 @@ export default async function SettingsPage() {
       ? [
           {
             key: "sms-portal",
+            group: "Communication",
             title: "SMS Portal",
             description:
               "Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.",
             href: "/dashboard/settings/sms-portal",
-            actionLabel: "Configure SMS portal",
             icon: MessageSquare,
           },
           {
             key: "sms-notifications",
+            group: "Communication",
             title: "SMS Notifications",
             description:
               "Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).",
             href: "/dashboard/settings/sms-notifications",
-            actionLabel: "Order SMS notifications",
             icon: MessageSquare,
           },
         ]
@@ -73,16 +72,19 @@ export default async function SettingsPage() {
       ? [
           {
             key: "fulfillment",
+            group: "Operations",
             title: "Order Fulfillment",
             description:
               "Manage samples, free issues, package hold reasons, and courier services.",
             href: "/dashboard/settings/fulfillment",
-            actionLabel: "Fulfillment settings",
             icon: Package,
           },
         ]
       : []),
   ];
+
+  const communicationLinks = settingLinks.filter((link) => link.group === "Communication");
+  const operationsLinks = settingLinks.filter((link) => link.group === "Operations");
 
   return (
     <div className="space-y-6">
@@ -101,32 +103,66 @@ export default async function SettingsPage() {
       {canManageCompany && <SettingsPageData canEdit={true} />}
 
       {settingLinks.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {settingLinks.map((link) => {
-            const Icon = link.icon;
-            return (
-              <Card key={link.key} className="transition-colors hover:bg-muted/30">
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Icon className="size-4 text-muted-foreground" aria-hidden />
-                    {link.title}
-                  </CardTitle>
-                  <CardDescription>{link.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" className="w-full justify-between sm:w-auto" asChild>
-                    <Link href={link.href}>
-                      <span className="inline-flex items-center gap-2">
-                        <Icon className="size-4" aria-hidden />
-                        {link.actionLabel}
-                      </span>
+        <div className="space-y-4">
+          {communicationLinks.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Communication</CardTitle>
+                <CardDescription>Email and SMS related settings.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {communicationLinks.map((link) => {
+                  const Icon = link.icon;
+                  return (
+                    <Link
+                      key={link.key}
+                      href={link.href}
+                      className="group flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 text-sm font-medium">
+                          <Icon className="size-4 text-muted-foreground" aria-hidden />
+                          {link.title}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-xs">{link.description}</p>
+                      </div>
                       <ChevronRight className="size-4" aria-hidden />
                     </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          {operationsLinks.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Operations</CardTitle>
+                <CardDescription>Order and fulfillment related settings.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {operationsLinks.map((link) => {
+                  const Icon = link.icon;
+                  return (
+                    <Link
+                      key={link.key}
+                      href={link.href}
+                      className="group flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 text-sm font-medium">
+                          <Icon className="size-4 text-muted-foreground" aria-hidden />
+                          {link.title}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-xs">{link.description}</p>
+                      </div>
+                      <ChevronRight className="size-4" aria-hidden />
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
