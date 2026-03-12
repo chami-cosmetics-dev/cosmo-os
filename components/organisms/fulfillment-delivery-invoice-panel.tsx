@@ -12,7 +12,7 @@ import type { FulfillmentOrder } from "./fulfillment-order-selector";
 interface FulfillmentDeliveryInvoicePanelProps {
   orderId: string | null;
   order: FulfillmentOrder | null;
-  onRefresh: () => void;
+  onRefresh: (clearSelection?: boolean, nextStage?: FulfillmentOrder["fulfillmentStage"]) => void;
 }
 
 export function FulfillmentDeliveryInvoicePanel({
@@ -43,7 +43,11 @@ export function FulfillmentDeliveryInvoicePanel({
         return;
       }
       notify.success("Updated.");
-      onRefresh();
+      if (action === "mark_delivered") {
+        onRefresh(false, "delivery_complete");
+      } else {
+        onRefresh(true);
+      }
     } catch {
       notify.error("Action failed");
     } finally {

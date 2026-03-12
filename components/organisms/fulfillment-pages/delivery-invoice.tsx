@@ -16,12 +16,27 @@ export function DeliveryInvoiceFulfillmentPage({
   permissions: FulfillmentPermissions;
 }) {
   const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [orderListRefreshTrigger, setOrderListRefreshTrigger] = useState(0);
+  const [invoiceRefreshTrigger, setInvoiceRefreshTrigger] = useState(0);
 
-  const handleRefresh = useCallback(() => {
-    setSelectedOrder(null);
-    setRefreshTrigger((k) => k + 1);
-  }, []);
+  const handleRefresh = useCallback(
+    (clearSelection = true, nextStage?: FulfillmentOrder["fulfillmentStage"]) => {
+      if (clearSelection) {
+        setSelectedOrder(null);
+        setOrderListRefreshTrigger((k) => k + 1);
+        return;
+      }
+
+      if (nextStage) {
+        setSelectedOrder((current) =>
+          current ? { ...current, fulfillmentStage: nextStage } : current
+        );
+      }
+      setOrderListRefreshTrigger((k) => k + 1);
+      setInvoiceRefreshTrigger((k) => k + 1);
+    },
+    []
+  );
 
   return (
     <FulfillmentPermissionsProvider permissions={permissions}>
@@ -32,7 +47,8 @@ export function DeliveryInvoiceFulfillmentPage({
         stages="dispatched,delivery_complete"
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
-        refreshTrigger={refreshTrigger}
+        refreshTrigger={orderListRefreshTrigger}
+        invoiceRefreshTrigger={invoiceRefreshTrigger}
         currentStage="delivery_complete"
       >
         <FulfillmentDeliveryInvoicePanel

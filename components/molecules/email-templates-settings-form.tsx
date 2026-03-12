@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Eye, FileText, Loader2, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { LIMITS } from "@/lib/validation";
 
 type ResignationTemplate = {
   id: string | null;
@@ -26,8 +26,6 @@ interface EmailTemplatesSettingsFormProps {
   canEdit: boolean;
   initialTemplates?: EmailTemplatesResponse | null;
 }
-
-const PLACEHOLDER_HINT = "Placeholders: {{staffName}}, {{resignationDate}}, {{reason}}, {{employeeNumber}}, {{department}}, {{designation}}, {{location}}";
 
 export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailTemplatesSettingsFormProps) {
   const [loading, setLoading] = useState(initialTemplates === undefined);
@@ -124,6 +122,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
       <Card>
         <CardHeader>
           <CardTitle>Email Templates</CardTitle>
+          <CardDescription>Preparing template editor...</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -140,6 +139,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
       <Card>
         <CardHeader>
           <CardTitle>Email Templates</CardTitle>
+          <CardDescription>Company configuration required</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-sm">
@@ -153,76 +153,94 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Email Templates</CardTitle>
-        <p className="text-muted-foreground text-sm">
-          Configure notification emails sent when staff events occur. Use placeholders in subject and body.
-        </p>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="size-4 text-muted-foreground" aria-hidden />
+          Email Templates
+        </CardTitle>
+        <CardDescription>
+          Edit the template HTML and see live output side by side.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <h3 className="text-sm font-medium mb-3">Resignation Notice</h3>
-            <p className="text-muted-foreground text-xs mb-3">
-              Sent to management when a staff member&apos;s resignation and offboarding are completed.
-            </p>
-
-            <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+            <div className="space-y-4 rounded-xl border bg-muted/15 p-4">
+              <h4 className="flex items-center gap-2 text-sm font-semibold">
+                <FileText className="size-4 text-muted-foreground" aria-hidden />
+                Template Editor
+              </h4>
               <div className="space-y-2">
-                <label htmlFor="resign-subject" className="text-sm font-medium">
-                  Subject
-                </label>
+                <label htmlFor="resign-subject" className="text-sm font-medium">Subject</label>
                 <Input
                   id="resign-subject"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   disabled={!canEdit || isBusy}
                   placeholder="Staff Resignation: {{staffName}}"
-                  maxLength={LIMITS.emailTemplateSubject.max}
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="resign-body" className="text-sm font-medium">
-                  Body (HTML)
-                </label>
-                <textarea
-                  id="resign-body"
-                  value={bodyHtml}
-                  onChange={(e) => setBodyHtml(e.target.value)}
-                  disabled={!canEdit || isBusy}
-                  placeholder="Email body with placeholders..."
-                  maxLength={LIMITS.emailTemplateBody.max}
-                  rows={12}
-                  className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                />
-                <p className="text-muted-foreground text-xs">{PLACEHOLDER_HINT}</p>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="resign-recipients" className="text-sm font-medium">
-                  Recipients (comma-separated emails)
-                </label>
+                <label htmlFor="resign-recipients" className="text-sm font-medium">Recipients</label>
                 <Input
                   id="resign-recipients"
                   value={recipients}
                   onChange={(e) => setRecipients(e.target.value)}
                   disabled={!canEdit || isBusy}
                   placeholder="hr@company.com, management@company.com"
-                  maxLength={LIMITS.emailTemplateRecipients.max}
                 />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="resign-body" className="text-sm font-medium">Body (HTML)</label>
+                <Textarea
+                  id="resign-body"
+                  value={bodyHtml}
+                  onChange={(e) => setBodyHtml(e.target.value)}
+                  disabled={!canEdit || isBusy}
+                  placeholder="Email body with placeholders..."
+                  rows={14}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border bg-muted/15 p-4">
+              <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <Eye className="size-4 text-muted-foreground" aria-hidden />
+                Live Preview
+              </h4>
+              <div className="space-y-2 rounded-lg border bg-background p-3">
+                <p className="text-xs font-semibold">Subject</p>
+                <p className="text-sm">{subject.trim() || "No subject provided."}</p>
+              </div>
+              <div className="mt-3 space-y-2 rounded-lg border bg-background p-3">
+                <p className="text-xs font-semibold">Recipients</p>
+                <p className="text-sm break-all">{recipients.trim() || "No recipients provided."}</p>
+              </div>
+              <div className="mt-3 space-y-2 rounded-lg border bg-background p-3">
+                <p className="text-xs font-semibold">Body</p>
+                <div className="prose prose-sm dark:prose-invert max-w-none text-sm [&_*]:break-words">
+                  <div dangerouslySetInnerHTML={{ __html: bodyHtml || "<p>No body content provided.</p>" }} />
+                </div>
               </div>
             </div>
           </div>
 
           {canEdit && (
-            <Button type="submit" disabled={isBusy || !hasChanges}>
-              {busyKey === "save" ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  Saving...
-                </>
-              ) : (
-                "Save changes"
-              )}
-            </Button>
+            <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-muted-foreground text-xs">
+                {hasChanges ? "You have unsaved template changes." : "All template changes are saved."}
+              </p>
+              <Button type="submit" disabled={isBusy || !hasChanges} className="sm:min-w-36">
+                {busyKey === "save" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Saving...
+                  </>
+                ) : (
+                  "Save changes"
+                )}
+              </Button>
+            </div>
           )}
         </form>
       </CardContent>

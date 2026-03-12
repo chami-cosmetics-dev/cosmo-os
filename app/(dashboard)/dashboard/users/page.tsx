@@ -85,16 +85,29 @@ export default async function UserManagementPage() {
   ]);
 
   return (
-    <UserManagementPanel
-      initialUsers={data.users}
-      initialRoles={data.roles}
-      initialPermissions={data.permissions}
-      initialLocations={lookups?.locations}
-      initialDepartments={lookups?.departments}
-      initialDesignations={lookups?.designations}
-      initialPendingInvites={pendingInvites}
-      canManageUsers={canManageUsers}
-      canManageRoles={hasPermission(auth.context, "roles.manage")}
-    />
+    <div className="space-y-6">
+      <section className="from-primary/10 to-background rounded-2xl border bg-gradient-to-r p-5 sm:p-6">
+        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
+          Administration
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+          Users and roles
+        </h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
+          Manage team access, invite members, and control role-based permissions from one place.
+        </p>
+      </section>
+      <UserManagementPanel
+        initialUsers={data.users}
+        initialRoles={data.roles}
+        initialPermissions={data.permissions}
+        initialLocations={lookups?.locations}
+        initialDepartments={lookups?.departments}
+        initialDesignations={lookups?.designations}
+        initialPendingInvites={pendingInvites}
+        canManageUsers={canManageUsers}
+        canManageRoles={hasPermission(auth.context, "roles.manage")}
+      />
+    </div>
   );
 }

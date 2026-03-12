@@ -5,6 +5,13 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { notify } from "@/lib/notify";
 
 const GENDER_OPTIONS = [
@@ -14,6 +21,7 @@ const GENDER_OPTIONS = [
   { value: "other", label: "Other" },
   { value: "prefer_not_to_say", label: "Prefer not to say" },
 ];
+const NONE_VALUE = "__none__";
 
 type Location = { id: string; name: string; address: string | null };
 type Department = { id: string; name: string };
@@ -227,22 +235,25 @@ export function StaffEditForm({
         />
       </div>
       <div className="space-y-2">
-        <label htmlFor="staff-gender" className="text-sm font-medium">
+        <label className="text-sm font-medium">
           Gender
         </label>
-        <select
-          id="staff-gender"
-          value={gender}
-          onChange={(e) => setGender(e.target.value)}
+        <Select
+          value={gender || NONE_VALUE}
+          onValueChange={(value) => setGender(value === NONE_VALUE ? "" : value)}
           disabled={!canEdit || isBusy}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
         >
-          {GENDER_OPTIONS.map((opt) => (
-            <option key={opt.value || "empty"} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="staff-gender">
+            <SelectValue placeholder="Select gender" />
+          </SelectTrigger>
+          <SelectContent>
+            {GENDER_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value || "empty"} value={opt.value || NONE_VALUE}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-2">
         <label htmlFor="staff-dateOfBirth" className="text-sm font-medium">
@@ -300,61 +311,76 @@ export function StaffEditForm({
         />
       </div>
       <div className="space-y-2">
-        <label htmlFor="staff-location" className="text-sm font-medium">
+        <label className="text-sm font-medium">
           Company location
         </label>
-        <select
-          id="staff-location"
-          value={locationId}
-          onChange={(e) => setLocationId(e.target.value)}
+        <Select
+          value={locationId || NONE_VALUE}
+          onValueChange={(value) =>
+            setLocationId(value === NONE_VALUE ? "" : value)
+          }
           disabled={!canEdit || isBusy}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
         >
-          <option value="">Select location</option>
-          {locations.map((loc) => (
-            <option key={loc.id} value={loc.id}>
-              {loc.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="staff-location">
+            <SelectValue placeholder="Select location" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_VALUE}>Select location</SelectItem>
+            {locations.map((loc) => (
+              <SelectItem key={loc.id} value={loc.id}>
+                {loc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-2">
-        <label htmlFor="staff-department" className="text-sm font-medium">
+        <label className="text-sm font-medium">
           Department
         </label>
-        <select
-          id="staff-department"
-          value={departmentId}
-          onChange={(e) => setDepartmentId(e.target.value)}
+        <Select
+          value={departmentId || NONE_VALUE}
+          onValueChange={(value) =>
+            setDepartmentId(value === NONE_VALUE ? "" : value)
+          }
           disabled={!canEdit || isBusy}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
         >
-          <option value="">Select department</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="staff-department">
+            <SelectValue placeholder="Select department" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_VALUE}>Select department</SelectItem>
+            {departments.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-2">
-        <label htmlFor="staff-designation" className="text-sm font-medium">
+        <label className="text-sm font-medium">
           Designation
         </label>
-        <select
-          id="staff-designation"
-          value={designationId}
-          onChange={(e) => setDesignationId(e.target.value)}
+        <Select
+          value={designationId || NONE_VALUE}
+          onValueChange={(value) =>
+            setDesignationId(value === NONE_VALUE ? "" : value)
+          }
           disabled={!canEdit || isBusy}
-          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
         >
-          <option value="">Select designation</option>
-          {designations.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="staff-designation">
+            <SelectValue placeholder="Select designation" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_VALUE}>Select designation</SelectItem>
+            {designations.map((d) => (
+              <SelectItem key={d.id} value={d.id}>
+                {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-2">
         <label htmlFor="staff-appointmentDate" className="text-sm font-medium">

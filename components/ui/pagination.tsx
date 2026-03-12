@@ -4,6 +4,13 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export interface PaginationProps {
@@ -36,27 +43,28 @@ export function Pagination({
         className
       )}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3">
         <p className="text-muted-foreground text-sm">
-          Showing {start}–{end} of {total}
+          Showing {start}-{end} of {total}
         </p>
         {onLimitChange && (
           <div className="flex items-center gap-2">
-            <label htmlFor="limit" className="text-muted-foreground text-sm">
-              Per page
-            </label>
-            <select
-              id="limit"
-              value={limit}
-              onChange={(e) => onLimitChange(Number(e.target.value))}
-              className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm"
+            <label className="text-muted-foreground text-sm">Per page</label>
+            <Select
+              value={String(limit)}
+              onValueChange={(value) => onLimitChange(Number(value))}
             >
-              {limitOptions.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="limit" className="h-8 w-16">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {limitOptions.map((n) => (
+                  <SelectItem key={n} value={String(n)}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
       </div>

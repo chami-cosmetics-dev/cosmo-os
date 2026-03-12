@@ -1,12 +1,21 @@
 import Link from "next/link";
+import type { ComponentType } from "react";
 
 import { SettingsPageData } from "@/components/organisms/settings-page-data";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
+import { Building2, ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+type SettingLink = {
+  key: string;
+  group: "Communication" | "Operations";
+  title: string;
+  description: string;
+  href: string;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+};
 
 export default async function SettingsPage() {
   const context = await getCurrentUserContext();
@@ -23,170 +32,141 @@ export default async function SettingsPage() {
     ? hasPermission(context, "settings.fulfillment")
     : false;
 
+  const settingLinks: SettingLink[] = [
+    ...(canManageEmailTemplates
+      ? [
+          {
+            key: "email-templates",
+            group: "Communication",
+            title: "Email Templates",
+            description:
+              "Configure notification emails for staff events such as resignations.",
+            href: "/dashboard/settings/email-templates",
+            icon: Mail,
+          },
+        ]
+      : []),
+    ...(canManageSmsPortal
+      ? [
+          {
+            key: "sms-portal",
+            group: "Communication",
+            title: "SMS Portal",
+            description:
+              "Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.",
+            href: "/dashboard/settings/sms-portal",
+            icon: MessageSquare,
+          },
+          {
+            key: "sms-notifications",
+            group: "Communication",
+            title: "SMS Notifications",
+            description:
+              "Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).",
+            href: "/dashboard/settings/sms-notifications",
+            icon: MessageSquare,
+          },
+        ]
+      : []),
+    ...(canManageFulfillment
+      ? [
+          {
+            key: "fulfillment",
+            group: "Operations",
+            title: "Order Fulfillment",
+            description:
+              "Manage samples, free issues, package hold reasons, and courier services.",
+            href: "/dashboard/settings/fulfillment",
+            icon: Package,
+          },
+        ]
+      : []),
+  ];
+
+  const communicationLinks = settingLinks.filter((link) => link.group === "Communication");
+  const operationsLinks = settingLinks.filter((link) => link.group === "Operations");
+
   return (
     <div className="space-y-6">
-      {canManageCompany ? (
-        <>
-          <SettingsPageData canEdit={true} />
-          {canManageEmailTemplates && (
+      <Card className="bg-gradient-to-r from-muted/70 via-background to-background">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="size-4 text-muted-foreground" aria-hidden />
+            Settings
+          </CardTitle>
+          <CardDescription>
+            Manage your organization details and operational preferences in one place.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+
+      {canManageCompany && <SettingsPageData canEdit={true} />}
+
+      {settingLinks.length > 0 && (
+        <div className="space-y-4">
+          {communicationLinks.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Email Templates</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  Configure notification emails for staff events such as resignations.
-                </p>
+                <CardTitle className="text-base">Communication</CardTitle>
+                <CardDescription>Email and SMS related settings.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/email-templates">
-                    <Mail className="size-4" aria-hidden />
-                    Manage email templates
-                    <ChevronRight className="size-4" aria-hidden />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-          {canManageSmsPortal && (
-            <Card>
-              <CardHeader>
-                <CardTitle>SMS Portal</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/sms-portal">
-                    <MessageSquare className="size-4" aria-hidden />
-                    Configure SMS portal
-                    <ChevronRight className="size-4" aria-hidden />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-          {canManageSmsPortal && (
-            <Card>
-              <CardHeader>
-                <CardTitle>SMS Notifications</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).
-                </p>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/sms-notifications">
-                    <MessageSquare className="size-4" aria-hidden />
-                    Order SMS notifications
-                    <ChevronRight className="size-4" aria-hidden />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-          {canManageFulfillment && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Order Fulfillment</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  Manage samples, free issues, package hold reasons, and courier services.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/fulfillment">
-                    <Package className="size-4" aria-hidden />
-                    Fulfillment settings
-                    <ChevronRight className="size-4" aria-hidden />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </>
-      ) : null}
-      {(canManageEmailTemplates || canManageSmsPortal || canManageFulfillment) && !canManageCompany && (
-        <>
-          {canManageEmailTemplates && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Email Templates</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  Configure notification emails for staff events such as resignations.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/email-templates">
-                    <Mail className="size-4" aria-hidden />
-                    Manage email templates
-                    <ChevronRight className="size-4" aria-hidden />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-          {canManageSmsPortal && (
-            <>
-              <Card>
-                <CardHeader>
-                  <CardTitle>SMS Portal</CardTitle>
-                  <p className="text-muted-foreground text-sm">
-                    Configure Hutch SMS API credentials for sending SMS. Sent messages are counted for tracking.
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" asChild>
-                    <Link href="/dashboard/settings/sms-portal">
-                      <MessageSquare className="size-4" aria-hidden />
-                      Configure SMS portal
+              <CardContent className="space-y-2">
+                {communicationLinks.map((link) => {
+                  const Icon = link.icon;
+                  return (
+                    <Link
+                      key={link.key}
+                      href={link.href}
+                      className="group flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 text-sm font-medium">
+                          <Icon className="size-4 text-muted-foreground" aria-hidden />
+                          {link.title}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-xs">{link.description}</p>
+                      </div>
                       <ChevronRight className="size-4" aria-hidden />
                     </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>SMS Notifications</CardTitle>
-                  <p className="text-muted-foreground text-sm">
-                    Configure order lifecycle SMS (order received, package ready, dispatched, delivery complete).
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <Button variant="outline" asChild>
-                    <Link href="/dashboard/settings/sms-notifications">
-                      <MessageSquare className="size-4" aria-hidden />
-                      Order SMS notifications
-                      <ChevronRight className="size-4" aria-hidden />
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            </>
-          )}
-          {canManageFulfillment && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Order Fulfillment</CardTitle>
-                <p className="text-muted-foreground text-sm">
-                  Manage samples, free issues, package hold reasons, and courier services.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" asChild>
-                  <Link href="/dashboard/settings/fulfillment">
-                    <Package className="size-4" aria-hidden />
-                    Fulfillment settings
-                    <ChevronRight className="size-4" aria-hidden />
-                  </Link>
-                </Button>
+                  );
+                })}
               </CardContent>
             </Card>
           )}
-        </>
+
+          {operationsLinks.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Operations</CardTitle>
+                <CardDescription>Order and fulfillment related settings.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {operationsLinks.map((link) => {
+                  const Icon = link.icon;
+                  return (
+                    <Link
+                      key={link.key}
+                      href={link.href}
+                      className="group flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 text-sm font-medium">
+                          <Icon className="size-4 text-muted-foreground" aria-hidden />
+                          {link.title}
+                        </p>
+                        <p className="text-muted-foreground mt-1 text-xs">{link.description}</p>
+                      </div>
+                      <ChevronRight className="size-4" aria-hidden />
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       )}
-      {!canManageCompany && !canManageEmailTemplates && !canManageSmsPortal && !canManageFulfillment && (
+
+      {!canManageCompany && settingLinks.length === 0 && (
         <Card>
           <CardHeader>
             <CardTitle>Settings</CardTitle>
