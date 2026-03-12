@@ -70,9 +70,9 @@ interface StaffManagementPanelProps {
 }
 
 function formatDate(date: string | null): string {
-  if (!date) return "—";
+  if (!date) return "-";
   const d = new Date(date);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
+  return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString();
 }
 
 export function StaffManagementPanel({ canManageStaff, initialData }: StaffManagementPanelProps) {
@@ -201,9 +201,9 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
 
   if (loading && staff.length === 0) {
     return (
-      <Card>
+      <Card className="border-border/70 shadow-xs">
         <CardHeader>
-          <CardTitle>Staff</CardTitle>
+          <CardTitle className="text-xl tracking-tight">Staff</CardTitle>
           <Skeleton className="h-4 w-96" />
         </CardHeader>
         <CardContent className="space-y-4">
@@ -219,9 +219,30 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
 
   return (
     <div className="space-y-6">
-      <Card>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="border-border/70 bg-card shadow-xs">
+          <CardContent className="p-4">
+            <p className="text-muted-foreground text-xs uppercase tracking-wide">Total staff</p>
+            <p className="mt-1 text-2xl font-semibold">{total}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/70 bg-card shadow-xs">
+          <CardContent className="p-4">
+            <p className="text-muted-foreground text-xs uppercase tracking-wide">Shown on page</p>
+            <p className="mt-1 text-2xl font-semibold">{filteredStaff.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/70 bg-card shadow-xs">
+          <CardContent className="p-4">
+            <p className="text-muted-foreground text-xs uppercase tracking-wide">Status filter</p>
+            <p className="mt-1 text-2xl font-semibold capitalize">{statusFilter}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-border/70 shadow-xs">
         <CardHeader>
-          <CardTitle>Staff</CardTitle>
+          <CardTitle className="text-xl tracking-tight">Staff</CardTitle>
           <p className="text-muted-foreground text-sm">
             Manage employee details, departments, and designations.
           </p>
@@ -234,27 +255,32 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 disabled={isBusy}
-                className="max-w-xs"
+                className="h-10 w-full sm:max-w-xs"
               />
-              <select
-                value={statusFilter}
-                onChange={(e) =>
-                  setStatusFilter(e.target.value as "all" | "active" | "resigned")
-                }
-                disabled={isBusy}
-                className="flex h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-              >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="resigned">Resigned</option>
-              </select>
+              <div className="bg-muted/20 inline-flex rounded-lg border p-1">
+                {(["all", "active", "resigned"] as const).map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setStatusFilter(status)}
+                    disabled={isBusy}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                      statusFilter === status
+                        ? "bg-background text-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-md border">
+          <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-muted/50">
+                <tr className="bg-muted/40 border-b">
                   <SortableColumnHeader
                     label="Name"
                     sortKey="name"
@@ -348,7 +374,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
               </thead>
               <tbody>
                 {filteredStaff.map((member) => (
-                  <tr key={member.id} className="border-b">
+                  <tr key={member.id} className="hover:bg-muted/20 border-b transition-colors">
                     <td className="p-2">
                       {member.knownName ? (
                         <span>
@@ -358,21 +384,21 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
                           </span>
                         </span>
                       ) : (
-                        member.name ?? "—"
+                        member.name ?? "-"
                       )}
                     </td>
-                    <td className="p-2 text-muted-foreground">{member.email ?? "—"}</td>
+                    <td className="p-2 text-muted-foreground">{member.email ?? "-"}</td>
                     <td className="p-2">
-                      {member.employeeProfile?.employeeNumber ?? "—"}
+                      {member.employeeProfile?.employeeNumber ?? "-"}
                     </td>
                     <td className="p-2">
-                      {member.employeeProfile?.department?.name ?? "—"}
+                      {member.employeeProfile?.department?.name ?? "-"}
                     </td>
                     <td className="p-2">
-                      {member.employeeProfile?.designation?.name ?? "—"}
+                      {member.employeeProfile?.designation?.name ?? "-"}
                     </td>
                     <td className="p-2">
-                      {member.employeeProfile?.location?.name ?? "—"}
+                      {member.employeeProfile?.location?.name ?? "-"}
                     </td>
                     <td className="p-2">
                       {formatDate(member.employeeProfile?.appointmentDate ?? null)}
@@ -381,8 +407,8 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
                       <span
                         className={
                           member.employeeProfile?.status === "resigned"
-                            ? "text-muted-foreground"
-                            : ""
+                            ? "text-muted-foreground rounded-full border px-2 py-0.5 text-xs"
+                            : "inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"
                         }
                       >
                         {member.employeeProfile?.status ?? "active"}
@@ -443,8 +469,8 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       </Card>
 
       <Sheet open={!!editingId} onOpenChange={(open) => !open && closeEdit()}>
-        <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
-          <SheetHeader>
+        <SheetContent side="right" className="overflow-y-auto border-l bg-background sm:max-w-md">
+          <SheetHeader className="border-b pb-4">
             <SheetTitle>Edit staff</SheetTitle>
           </SheetHeader>
           {editingId && (
@@ -463,8 +489,8 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       </Sheet>
 
       <Sheet open={!!resigningMember} onOpenChange={(open) => !open && closeResignForm()}>
-        <SheetContent side="right" className="sm:max-w-md overflow-y-auto">
-          <SheetHeader>
+        <SheetContent side="right" className="overflow-y-auto border-l bg-background sm:max-w-md">
+          <SheetHeader className="border-b pb-4">
             <SheetTitle>Process resignation</SheetTitle>
           </SheetHeader>
           {resigningMember && (
@@ -480,3 +506,6 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
     </div>
   );
 }
+
+
+

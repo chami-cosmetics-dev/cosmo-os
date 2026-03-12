@@ -1071,83 +1071,109 @@ export function UserManagementPanel({
       {/* Create role sheet */}
       <Sheet open={createRoleSheetOpen} onOpenChange={setCreateRoleSheetOpen}>
         <SheetContent className="overflow-y-auto border-l bg-background sm:max-w-md">
-          <SheetHeader>
+          <SheetHeader className="border-b pb-4">
             <SheetTitle>Create role</SheetTitle>
             <SheetDescription>
               Define a new role and assign permissions.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Name</label>
-              <Input
-                placeholder="e.g. support-manager"
-                value={draftRoleName}
-                onChange={(e) => setDraftRoleName(e.target.value)}
-                disabled={isBusy}
-              />
+            <div className="from-background to-muted/10 space-y-4 rounded-xl border bg-gradient-to-b p-4">
+              <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+                Role details
+              </p>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Name</label>
+                <Input
+                  placeholder="e.g. support-manager"
+                  value={draftRoleName}
+                  onChange={(e) => setDraftRoleName(e.target.value)}
+                  disabled={isBusy}
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description (optional)</label>
+                <Input
+                  placeholder="Brief description"
+                  value={draftRoleDescription}
+                  onChange={(e) => setDraftRoleDescription(e.target.value)}
+                  disabled={isBusy}
+                  className="h-10"
+                />
+              </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Description (optional)</label>
-              <Input
-                placeholder="Brief description"
-                value={draftRoleDescription}
-                onChange={(e) => setDraftRoleDescription(e.target.value)}
-                disabled={isBusy}
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Permissions</p>
-              <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium">Permissions</p>
+                <span className="text-muted-foreground text-xs">
+                  {selectedPermissionKeys.length} selected
+                </span>
+              </div>
+              <div className="max-h-[52vh] space-y-3 overflow-y-auto rounded-xl border p-3">
                 {permissionsByGroup.map((item) => (
-                  <div key={item.group}>
-                    <p className="text-muted-foreground mb-1.5 text-xs font-medium uppercase tracking-wide">
+                  <div key={item.group} className="rounded-lg border p-2.5">
+                    <p className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
                       {item.group}
                     </p>
                     {"subGroups" in item && item.subGroups ? (
-                      <div className="space-y-2 pl-2 border-l-2 border-muted">
+                      <div className="space-y-2 border-l-2 border-muted pl-2">
                         {item.subGroups.map(({ subGroup, permissions: perms }) => (
                           <div key={subGroup}>
                             <p className="text-muted-foreground mb-1 text-xs">
                               {subGroup}
                             </p>
                             <div className="flex flex-wrap gap-1.5">
-                              {perms.map((p) => (
-                                <label
-                                  key={p.id}
-                                  className="hover:bg-muted/50 flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedPermissionKeys.includes(p.key)}
-                                    onChange={() => togglePermission(p.key)}
-                                    disabled={isBusy}
-                                    className="rounded"
-                                  />
-                                  {p.key}
-                                </label>
-                              ))}
+                              {perms.map((p) => {
+                                const checked = selectedPermissionKeys.includes(p.key);
+                                return (
+                                  <label
+                                    key={p.id}
+                                    className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+                                      checked
+                                        ? "border-primary/60 bg-primary/10 text-foreground"
+                                        : "hover:bg-muted/50"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => togglePermission(p.key)}
+                                      disabled={isBusy}
+                                      className="rounded"
+                                    />
+                                    {p.key}
+                                  </label>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
-                        {item.permissions.map((p) => (
-                          <label
-                            key={p.id}
-                            className="hover:bg-muted/50 flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedPermissionKeys.includes(p.key)}
-                              onChange={() => togglePermission(p.key)}
-                              disabled={isBusy}
-                              className="rounded"
-                            />
-                            {p.key}
-                          </label>
-                        ))}
+                        {item.permissions.map((p) => {
+                          const checked = selectedPermissionKeys.includes(p.key);
+                          return (
+                            <label
+                              key={p.id}
+                              className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+                                checked
+                                  ? "border-primary/60 bg-primary/10 text-foreground"
+                                  : "hover:bg-muted/50"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => togglePermission(p.key)}
+                                disabled={isBusy}
+                                className="rounded"
+                              />
+                              {p.key}
+                            </label>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1155,7 +1181,7 @@ export function UserManagementPanel({
               </div>
             </div>
           </div>
-          <SheetFooter>
+          <SheetFooter className="border-t pt-4">
             <Button variant="outline" onClick={() => setCreateRoleSheetOpen(false)} disabled={isBusy}>
               Cancel
             </Button>
