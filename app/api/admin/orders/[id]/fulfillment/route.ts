@@ -401,6 +401,7 @@ export async function PATCH(
         where: { id: order.id },
         data: {
           fulfillmentStage: "invoice_complete",
+          fulfillmentStatus: "fulfilled",
           invoiceCompleteAt: now,
           invoiceCompleteById: auth.context!.user!.id,
         },
@@ -457,6 +458,9 @@ export async function PATCH(
       const updateData: Parameters<typeof prisma.order.update>[0]["data"] = {
         fulfillmentStage: targetStage,
       };
+      if (currentStage === "invoice_complete" && targetStage !== "invoice_complete") {
+        updateData.fulfillmentStatus = "unfulfilled";
+      }
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("sample_free_issue")) {
         updateData.sampleFreeIssueCompleteAt = null;
         updateData.sampleFreeIssueCompleteById = null;
@@ -507,6 +511,7 @@ export async function PATCH(
         where: { id: order.id },
         data: {
           fulfillmentStage: "delivery_complete",
+          fulfillmentStatus: "fulfilled",
           printCount: { increment: 1 },
           packageReadyAt: now,
           packageReadyById: userId,
