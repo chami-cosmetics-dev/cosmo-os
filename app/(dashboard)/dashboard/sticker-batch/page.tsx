@@ -87,6 +87,9 @@ export default async function StickerBatchPage({
               select: {
                 id: true;
                 batchName: true;
+                remark: true;
+                createdAt: true;
+                supplier: { select: { name: true } };
                 items: { select: { companyLocationId: true } };
               };
             }) => Promise<
