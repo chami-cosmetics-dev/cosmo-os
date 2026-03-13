@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { Button } from "@/components/ui/button";
@@ -45,12 +45,17 @@ type BatchDetail = {
 
 interface StickerPrintClientProps {
   batches: BatchOption[];
+  initialSelectedBatchId?: string;
 }
 
-export function StickerPrintClient({ batches }: StickerPrintClientProps) {
+export function StickerPrintClient({
+  batches,
+  initialSelectedBatchId = "",
+}: StickerPrintClientProps) {
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<BatchDetail | null>(null);
+  const initialBatchAppliedRef = useRef(false);
 
   async function handleLoadBatch(id: string) {
     setSelectedBatchId(id);
@@ -74,6 +79,19 @@ export function StickerPrintClient({ batches }: StickerPrintClientProps) {
   }
 
   const stickers = useMemo(() => detail?.items ?? [], [detail]);
+
+  useEffect(() => {
+    if (initialBatchAppliedRef.current) return;
+    const targetBatchId = initialSelectedBatchId.trim();
+    if (!targetBatchId) {
+      initialBatchAppliedRef.current = true;
+      return;
+    }
+    const exists = batches.some((batch) => batch.id === targetBatchId);
+    if (!exists) return;
+    initialBatchAppliedRef.current = true;
+    void handleLoadBatch(targetBatchId);
+  }, [initialSelectedBatchId, batches]);
 
   async function waitForStickerAssets() {
     if (typeof document === "undefined") return;

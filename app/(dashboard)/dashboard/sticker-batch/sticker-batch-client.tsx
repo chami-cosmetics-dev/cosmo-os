@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { AlertTriangle, Check, ChevronsUpDown } from "lucide-react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -110,12 +111,24 @@ type LoadedBatchSnapshot = {
   }>;
 };
 
+type BatchHistoryRow = {
+  id: string;
+  batchName: string;
+  remark: string | null;
+  createdAt: string;
+  supplierName: string;
+  itemCount: number;
+};
+
 interface StickerBatchClientProps {
   suppliers: SupplierOption[];
   locations: LocationOption[];
   itemCatalog: ItemCatalogRow[];
   initialBatches: BatchOption[];
   today: string;
+  initialSelectedBatchId?: string;
+  initialTab?: "batch" | "history";
+  initialHistoryRows?: BatchHistoryRow[];
 }
 
 const selectClassName = "";
@@ -124,6 +137,15 @@ const textareaClassName =
   "flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 md:text-sm";
 const inlineChangedClass = "";
 const ITEMS_DRAFT_STORAGE_KEY = "sticker_batch_items_draft_v1";
+
+function getColomboDateKey(date: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
 
 function createEmptyRow(id: string): ItemRow {
   return {
@@ -206,13 +228,31 @@ function formatDateFromApi(value: string) {
   return `${day}/${month}/${year}`;
 }
 
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Colombo",
+  }).format(date);
+}
+
 export function StickerBatchClient({
   suppliers,
   locations,
   itemCatalog,
   initialBatches,
   today,
+  initialSelectedBatchId = "",
+  initialTab = "batch",
+  initialHistoryRows = [],
 }: StickerBatchClientProps) {
+  const [activeTab, setActiveTab] = useState<"batch" | "history">(initialTab);
   const [supplierId, setSupplierId] = useState("");
   const [supplierOpen, setSupplierOpen] = useState(false);
   const [batchName, setBatchName] = useState("");
@@ -222,6 +262,7 @@ export function StickerBatchClient({
   const [selectedBatchId, setSelectedBatchId] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [rowsToAdd, setRowsToAdd] = useState("");
+  const [historyRows, setHistoryRows] = useState<BatchHistoryRow[]>(initialHistoryRows);
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [isPreviewLifted, setIsPreviewLifted] = useState(false);
@@ -239,6 +280,7 @@ export function StickerBatchClient({
   const [itemsResetKey, setItemsResetKey] = useState(0);
   const nextRowIdRef = useRef(1);
   const hasRestoredDraftRef = useRef(false);
+  const initialBatchAppliedRef = useRef(false);
   const skipNextDraftPersistRef = useRef(false);
   const skipNextBatchReloadRef = useRef(false);
   const canSaveBatch = supplierId.trim() !== "" && batchName.trim() !== "";
@@ -369,7 +411,13 @@ export function StickerBatchClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as { error?: string; id?: string; batchName?: string };
+      const data = (await res.json()) as {
+        error?: string;
+        id?: string;
+        batchName?: string;
+        createdAt?: string;
+        remark?: string | null;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to save sticker batch");
         return;
@@ -382,6 +430,22 @@ export function StickerBatchClient({
           prev.some((b) => b.id === createdId)
             ? prev
             : [{ id: createdId, batchName: createdBatchName, mode: "unassigned" }, ...prev]
+        );
+        setHistoryRows((prev) =>
+          prev.some((row) => row.id === createdId)
+            ? prev
+            : [
+                {
+                  id: createdId,
+                  batchName: createdBatchName,
+                  remark: data.remark ?? (remark.trim() || null),
+                  createdAt: data.createdAt ?? new Date().toISOString(),
+                  supplierName:
+                    suppliers.find((supplier) => supplier.id === supplierId)?.name ?? "",
+                  itemCount: 0,
+                },
+                ...prev,
+              ]
         );
       }
       setSupplierId("");
@@ -447,27 +511,12 @@ export function StickerBatchClient({
           batch.id === selectedBatchId ? { ...batch, mode: updatedMode } : batch
         )
       );
-      skipNextDraftPersistRef.current = true;
-      nextRowIdRef.current = 1;
-      setLoadedSnapshot(null);
-      setSelectedBatchId("");
-      setRows([]);
-      setActiveRowId(null);
-      setIsPreviewLifted(false);
-      setRowsToAdd("");
-      setSelectedLocationId("");
-      setPreviewMeta({
-        supplierName: "",
-        companyName: "",
-        companyAddress: "",
-        locationReference: "",
-        locationAddress: "",
-        locationPhone: "",
-      });
-      setItemsResetKey((prev) => prev + 1);
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(ITEMS_DRAFT_STORAGE_KEY);
-      }
+      setHistoryRows((prev) =>
+        prev.map((row) =>
+          row.id === selectedBatchId ? { ...row, itemCount: validRows.length } : row
+        )
+      );
+      clearLoadedBatchItems();
       notify.success("Sticker batch items saved.");
     } catch {
       notify.error("Failed to save sticker batch items");
@@ -499,6 +548,30 @@ export function StickerBatchClient({
     setRows([]);
     setActiveRowId(null);
     setIsPreviewLifted(false);
+  }
+
+  function clearLoadedBatchItems() {
+    skipNextDraftPersistRef.current = true;
+    nextRowIdRef.current = 1;
+    setLoadedSnapshot(null);
+    setSelectedBatchId("");
+    setRows([]);
+    setActiveRowId(null);
+    setIsPreviewLifted(false);
+    setRowsToAdd("");
+    setSelectedLocationId("");
+    setPreviewMeta({
+      supplierName: "",
+      companyName: "",
+      companyAddress: "",
+      locationReference: "",
+      locationAddress: "",
+      locationPhone: "",
+    });
+    setItemsResetKey((prev) => prev + 1);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(ITEMS_DRAFT_STORAGE_KEY);
+    }
   }
 
   function handleRemoveRow(rowId: string) {
@@ -601,6 +674,30 @@ export function StickerBatchClient({
     }
     setRows((prev) => prev.map((row) => ({ ...row, locationId: selectedLocationId })));
   }
+
+  function handleLoadBatchFromHistory(batchId: string) {
+    setActiveTab("batch");
+    setSelectedBatchId(batchId);
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        const target = document.getElementById("sticker-batch-items-section");
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    }
+  }
+
+  useEffect(() => {
+    if (initialBatchAppliedRef.current) return;
+    const targetBatchId = initialSelectedBatchId.trim();
+    if (!targetBatchId) {
+      initialBatchAppliedRef.current = true;
+      return;
+    }
+    const exists = batches.some((batch) => batch.id === targetBatchId);
+    if (!exists) return;
+    setSelectedBatchId(targetBatchId);
+    initialBatchAppliedRef.current = true;
+  }, [initialSelectedBatchId, batches]);
 
   useEffect(() => {
     if (!selectedBatchId) {
@@ -749,12 +846,18 @@ export function StickerBatchClient({
       const raw = window.localStorage.getItem(ITEMS_DRAFT_STORAGE_KEY);
       if (!raw) return;
       const draft = JSON.parse(raw) as {
+        savedDateKey?: string;
         selectedBatchId?: string;
         selectedLocationId?: string;
         rowsToAdd?: string;
         rows?: ItemRow[];
         nextRowId?: number;
       };
+      const todayKey = getColomboDateKey();
+      if (!draft.savedDateKey || draft.savedDateKey !== todayKey) {
+        window.localStorage.removeItem(ITEMS_DRAFT_STORAGE_KEY);
+        return;
+      }
       const restoredRows = Array.isArray(draft.rows)
         ? draft.rows.map((row, index) => {
             const manufactureDate = (row.manufactureDate ?? "").trim();
@@ -808,6 +911,7 @@ export function StickerBatchClient({
       return;
     }
     const payload = {
+      savedDateKey: getColomboDateKey(),
       selectedBatchId,
       selectedLocationId,
       rowsToAdd,
@@ -822,10 +926,38 @@ export function StickerBatchClient({
   }, [selectedBatchId, selectedLocationId, rowsToAdd, rows]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <div className="inline-flex rounded-md border bg-muted/30 p-1">
+        <Button
+          type="button"
+          size="sm"
+          variant={activeTab === "batch" ? "default" : "ghost"}
+          onClick={() => setActiveTab("batch")}
+        >
+          Sticker Batch
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={activeTab === "history" ? "default" : "ghost"}
+          onClick={() => setActiveTab("history")}
+        >
+          Batch History
+        </Button>
+      </div>
+
+      {activeTab === "batch" ? (
+        <div className="space-y-6">
       <Card>
         <CardHeader className="space-y-1">
-          <CardTitle>Sticker Batch</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle>Sticker Batch</CardTitle>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm" type="button">
+                <Link href="/dashboard/sticker-print">Sticker Print</Link>
+              </Button>
+            </div>
+          </div>
           <p className="text-muted-foreground text-sm">
             Sticker batch pre-data capture (UI only).
           </p>
@@ -918,7 +1050,7 @@ export function StickerBatchClient({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="sticker-batch-items-section">
         <CardHeader className="space-y-1">
           <CardTitle>Sticker Batch Items</CardTitle>
           <p className="text-muted-foreground text-sm">
@@ -997,6 +1129,16 @@ export function StickerBatchClient({
                 disabled={!selectedLocationId || rows.length === 0}
               >
                 Apply To All
+              </Button>
+            </div>
+            <div className="shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={clearLoadedBatchItems}
+                disabled={!selectedBatchId && rows.length === 0}
+              >
+                Clear
               </Button>
             </div>
           </div>
@@ -1171,6 +1313,67 @@ export function StickerBatchClient({
           </div>
         </CardContent>
       </Card>
+        </div>
+      ) : (
+        <Card>
+          <CardHeader className="space-y-3">
+            <CardTitle>Sticker Batch History</CardTitle>
+            <div
+              role="alert"
+              aria-live="polite"
+              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <p className="text-sm font-medium text-destructive">
+                Warning: One sticker batch is saved only for 3 days from the created date.
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Open a batch in Sticker Batch Items or jump directly to print.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {historyRows.length === 0 ? (
+              <div className="rounded-md border p-4 text-sm text-muted-foreground">
+                No sticker batches found.
+              </div>
+            ) : (
+              historyRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div className="space-y-1">
+                    <p className="font-medium">{row.batchName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Created: {formatDateTime(row.createdAt)} | Supplier: {row.supplierName || "-"} | Items:{" "}
+                      {row.itemCount}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Remark: {row.remark?.trim() || "-"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => handleLoadBatchFromHistory(row.id)}
+                    >
+                      Load to Sticker Batch Items
+                    </Button>
+                    <Button asChild size="sm" variant="outline" type="button">
+                      <Link href={`/dashboard/sticker-print?batchId=${row.id}`}>
+                        Open Print Page
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
