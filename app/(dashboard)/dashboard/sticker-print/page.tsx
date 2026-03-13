@@ -2,7 +2,13 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext } from "@/lib/rbac";
 import { StickerPrintClient } from "./sticker-print-client";
 
-export default async function StickerPrintPage() {
+export default async function StickerPrintPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ batchId?: string }>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const initialSelectedBatchId = resolvedSearchParams?.batchId?.trim() ?? "";
   const context = await getCurrentUserContext();
   const companyId = context?.user?.companyId ?? null;
 
@@ -29,5 +35,10 @@ export default async function StickerPrintPage() {
     }
   }
 
-  return <StickerPrintClient batches={batches} />;
+  return (
+    <StickerPrintClient
+      batches={batches}
+      initialSelectedBatchId={initialSelectedBatchId}
+    />
+  );
 }

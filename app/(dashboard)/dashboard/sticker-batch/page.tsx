@@ -11,7 +11,14 @@ function getTodayDate() {
   }).format(new Date());
 }
 
-export default async function StickerBatchPage() {
+export default async function StickerBatchPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ batchId?: string; tab?: string }>;
+}) {
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const initialSelectedBatchId = resolvedSearchParams?.batchId?.trim() ?? "";
+  const initialTab = resolvedSearchParams?.tab === "history" ? "history" : "batch";
   const context = await getCurrentUserContext();
   const companyId = context?.user?.companyId ?? null;
 
@@ -61,6 +68,14 @@ export default async function StickerBatchPage() {
     batchName: string;
     mode: "single" | "multiple" | "unassigned";
   }> = [];
+  let initialHistoryRows: Array<{
+    id: string;
+    batchName: string;
+    remark: string | null;
+    createdAt: string;
+    supplierName: string;
+    itemCount: number;
+  }> = [];
   if (companyId) {
     try {
       const batches = await (
@@ -78,6 +93,9 @@ export default async function StickerBatchPage() {
               Array<{
                 id: string;
                 batchName: string;
+                remark: string | null;
+                createdAt: Date;
+                supplier: { name: string };
                 items: Array<{ companyLocationId: string }>;
               }>
             >;
@@ -89,6 +107,9 @@ export default async function StickerBatchPage() {
         select: {
           id: true,
           batchName: true,
+          remark: true,
+          createdAt: true,
+          supplier: { select: { name: true } },
           items: { select: { companyLocationId: true } },
         },
       });
@@ -104,8 +125,17 @@ export default async function StickerBatchPage() {
               : "single";
         return { id: batch.id, batchName: batch.batchName, mode };
       });
+      initialHistoryRows = batches.map((batch) => ({
+        id: batch.id,
+        batchName: batch.batchName,
+        remark: batch.remark,
+        createdAt: batch.createdAt.toISOString(),
+        supplierName: batch.supplier.name,
+        itemCount: batch.items.length,
+      }));
     } catch {
       initialBatches = [];
+      initialHistoryRows = [];
     }
   }
 
@@ -121,6 +151,9 @@ export default async function StickerBatchPage() {
       itemCatalog={itemCatalog}
       initialBatches={initialBatches}
       today={getTodayDate()}
+      initialSelectedBatchId={initialSelectedBatchId}
+      initialTab={initialTab}
+      initialHistoryRows={initialHistoryRows}
     />
   );
 }
