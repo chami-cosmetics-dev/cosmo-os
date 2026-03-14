@@ -1,11 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { FolderTree, Loader2, Pencil, Plus, Store, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Sheet,
   SheetContent,
@@ -32,6 +42,15 @@ type Category = {
   fullName: string | null;
   _count?: { productItems: number };
 };
+
+type PendingDelete =
+  | {
+      type: "vendor" | "category";
+      id: string;
+      name: string;
+      itemCount: number;
+    }
+  | null;
 
 interface VendorsCategoriesPanelProps {
   canManage: boolean;
@@ -65,6 +84,8 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
   const [categoryName, setCategoryName] = useState("");
   const [categoryFullName, setCategoryFullName] = useState("");
   const [categoryBusy, setCategoryBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -175,22 +196,18 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
     }
   }
 
-  async function deleteVendor(v: Vendor) {
+  function requestDeleteVendor(v: Vendor) {
     if (!canManage) return;
     if (v._count && v._count.productItems > 0) {
       notify.error(`Cannot delete: ${v._count.productItems} product(s) use this vendor`);
       return;
     }
-    if (!confirm(`Delete vendor "${v.name}"?`)) return;
-    const res = await fetch(`/api/admin/vendors/${v.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      notify.error(data.error ?? "Failed to delete vendor");
-      return;
-    }
-    setVendors((prev) => prev.filter((x) => x.id !== v.id));
-    setVendorsTotal((prev) => Math.max(0, prev - 1));
-    notify.success("Vendor deleted.");
+    setPendingDelete({
+      type: "vendor",
+      id: v.id,
+      name: v.name,
+      itemCount: v._count?.productItems ?? 0,
+    });
   }
 
   function openAddCategory() {
@@ -252,49 +269,95 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
     }
   }
 
-  async function deleteCategory(c: Category) {
+  function requestDeleteCategory(c: Category) {
     if (!canManage) return;
     if (c._count && c._count.productItems > 0) {
       notify.error(`Cannot delete: ${c._count.productItems} product(s) use this category`);
       return;
     }
-    if (!confirm(`Delete category "${c.name}"?`)) return;
-    const res = await fetch(`/api/admin/categories/${c.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      notify.error(data.error ?? "Failed to delete category");
-      return;
+    setPendingDelete({
+      type: "category",
+      id: c.id,
+      name: c.name,
+      itemCount: c._count?.productItems ?? 0,
+    });
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleteBusy(true);
+    try {
+      if (pendingDelete.type === "vendor") {
+        const res = await fetch(`/api/admin/vendors/${pendingDelete.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = (await res.json()) as { error?: string };
+          notify.error(data.error ?? "Failed to delete vendor");
+          return;
+        }
+        setVendors((prev) => prev.filter((x) => x.id !== pendingDelete.id));
+        setVendorsTotal((prev) => Math.max(0, prev - 1));
+        notify.success("Vendor deleted.");
+      } else {
+        const res = await fetch(`/api/admin/categories/${pendingDelete.id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = (await res.json()) as { error?: string };
+          notify.error(data.error ?? "Failed to delete category");
+          return;
+        }
+        setCategories((prev) => prev.filter((x) => x.id !== pendingDelete.id));
+        setCategoriesTotal((prev) => Math.max(0, prev - 1));
+        notify.success("Category deleted.");
+      }
+      setPendingDelete(null);
+    } finally {
+      setDeleteBusy(false);
     }
-    setCategories((prev) => prev.filter((x) => x.id !== c.id));
-    setCategoriesTotal((prev) => Math.max(0, prev - 1));
-    notify.success("Category deleted.");
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-2 border-b">
-        <button
+      <Card>
+        <CardHeader className="space-y-3">
+          <CardTitle>Vendors & Categories</CardTitle>
+          <p className="text-muted-foreground text-sm">
+            Manage product classification data used by product items and filters.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Store className="size-4 text-muted-foreground" />
+                Vendors
+              </div>
+              <p className="mt-1 text-2xl font-semibold">{vendorsTotal}</p>
+            </div>
+            <div className="rounded-md border bg-muted/20 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <FolderTree className="size-4 text-muted-foreground" />
+                Categories
+              </div>
+              <p className="mt-1 text-2xl font-semibold">{categoriesTotal}</p>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <div className="inline-flex rounded-md border bg-muted/30 p-1">
+        <Button
           type="button"
+          size="sm"
+          variant={activeTab === "vendors" ? "default" : "ghost"}
           onClick={() => setActiveTab("vendors")}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "vendors"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
         >
-          Vendors
-        </button>
-        <button
+          Vendors ({vendorsTotal})
+        </Button>
+        <Button
           type="button"
+          size="sm"
+          variant={activeTab === "categories" ? "default" : "ghost"}
           onClick={() => setActiveTab("categories")}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "categories"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
         >
-          Categories
-        </button>
+          Categories ({categoriesTotal})
+        </Button>
       </div>
 
       {loading ? (
@@ -317,6 +380,9 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                   Vendors are added automatically from Shopify webhooks. You can also add or edit
                   them manually.
                 </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Showing {vendors.length} of {vendorsTotal} vendors.
+                </p>
               </div>
               {canManage && (
                 <Button onClick={openAddVendor} size="sm">
@@ -328,7 +394,15 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
           </CardHeader>
           <CardContent>
             {vendors.length === 0 ? (
-              <p className="text-muted-foreground py-4 text-sm">No vendors yet.</p>
+              <div className="rounded-md border border-dashed p-6 text-center">
+                <p className="text-muted-foreground text-sm">No vendors yet.</p>
+                {canManage && (
+                  <Button onClick={openAddVendor} size="sm" variant="outline" className="mt-3">
+                    <Plus className="size-4" aria-hidden />
+                    Add First Vendor
+                  </Button>
+                )}
+              </div>
             ) : (
               <>
               <div className="overflow-x-auto rounded-md border">
@@ -363,7 +437,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                   </thead>
                   <tbody>
                     {vendors.map((v) => (
-                      <tr key={v.id} className="border-b last:border-0">
+                      <tr key={v.id} className="border-b last:border-0 hover:bg-muted/20">
                         <td className="px-4 py-3 font-medium">{v.name}</td>
                         <td className="px-4 py-3 text-right text-muted-foreground">
                           {v._count !== undefined ? `${v._count.productItems} items` : "—"}
@@ -373,20 +447,22 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                             <div className="flex justify-end gap-1">
                               <Button
                                 variant="ghost"
-                                size="icon"
+                                size="sm"
                                 onClick={() => openEditVendor(v)}
                                 aria-label="Edit vendor"
                               >
                                 <Pencil className="size-4" />
+                                Edit
                               </Button>
                               <Button
                                 variant="ghost"
-                                size="icon"
-                                onClick={() => deleteVendor(v)}
+                                size="sm"
+                                onClick={() => requestDeleteVendor(v)}
                                 disabled={v._count && v._count.productItems > 0}
                                 aria-label="Delete vendor"
                               >
                                 <Trash2 className="size-4" />
+                                Delete
                               </Button>
                             </div>
                           </td>
@@ -424,6 +500,9 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                   Categories are added automatically from Shopify webhooks. You can also add or edit
                   them manually.
                 </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Showing {categories.length} of {categoriesTotal} categories.
+                </p>
               </div>
               {canManage && (
                 <Button onClick={openAddCategory} size="sm">
@@ -435,7 +514,20 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
           </CardHeader>
           <CardContent>
             {categories.length === 0 ? (
-              <p className="text-muted-foreground py-4 text-sm">No categories yet.</p>
+              <div className="rounded-md border border-dashed p-6 text-center">
+                <p className="text-muted-foreground text-sm">No categories yet.</p>
+                {canManage && (
+                  <Button
+                    onClick={openAddCategory}
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                  >
+                    <Plus className="size-4" aria-hidden />
+                    Add First Category
+                  </Button>
+                )}
+              </div>
             ) : (
               <>
               <div className="overflow-x-auto rounded-md border">
@@ -481,7 +573,7 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                   </thead>
                   <tbody>
                     {categories.map((c) => (
-                      <tr key={c.id} className="border-b last:border-0">
+                      <tr key={c.id} className="border-b last:border-0 hover:bg-muted/20">
                         <td className="px-4 py-3 font-medium">{c.name}</td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {c.fullName ?? "—"}
@@ -494,20 +586,22 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
                             <div className="flex justify-end gap-1">
                               <Button
                                 variant="ghost"
-                                size="icon"
+                                size="sm"
                                 onClick={() => openEditCategory(c)}
                                 aria-label="Edit category"
                               >
                                 <Pencil className="size-4" />
+                                Edit
                               </Button>
                               <Button
                                 variant="ghost"
-                                size="icon"
-                                onClick={() => deleteCategory(c)}
+                                size="sm"
+                                onClick={() => requestDeleteCategory(c)}
                                 disabled={c._count && c._count.productItems > 0}
                                 aria-label="Delete category"
                               >
                                 <Trash2 className="size-4" />
+                                Delete
                               </Button>
                             </div>
                           </td>
@@ -616,6 +710,42 @@ export function VendorsCategoriesPanel({ canManage }: VendorsCategoriesPanelProp
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={Boolean(pendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deleteBusy) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {pendingDelete?.type === "vendor" ? "Vendor" : "Category"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.{" "}
+              {pendingDelete ? `"${pendingDelete.name}"` : "This record"} will be removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteBusy}
+            >
+              {deleteBusy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

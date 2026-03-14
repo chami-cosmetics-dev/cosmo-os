@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Printer } from "lucide-react";
+import Link from "next/link";
 
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +48,17 @@ type BatchDetail = {
 interface StickerPrintClientProps {
   batches: BatchOption[];
   initialSelectedBatchId?: string;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Colombo",
+  }).format(date);
 }
 
 export function StickerPrintClient({
@@ -194,46 +207,91 @@ export function StickerPrintClient({
       `}</style>
 
       <Card className="no-print">
-        <CardHeader>
-          <CardTitle>Sticker Print Preview</CardTitle>
+        <CardHeader className="space-y-2">
+          <CardTitle className="flex items-center gap-2">
+            <Printer className="size-5" />
+            Sticker Print Preview
+          </CardTitle>
           <p className="text-muted-foreground text-sm">
             Select a saved sticker batch to preview and print labels.
           </p>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-4">
-          <div className="min-w-[260px] flex-1 space-y-2">
-            <label className="text-sm font-medium">Batch Name</label>
-            <Select
-              value={selectedBatchId || undefined}
-              onValueChange={(value) => void handleLoadBatch(value)}
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="min-w-[260px] flex-1 space-y-2">
+              <label className="text-sm font-medium">Batch Name</label>
+              <Select
+                value={selectedBatchId || undefined}
+                onValueChange={(value) => void handleLoadBatch(value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select sticker batch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {batches.map((batch) => (
+                    <SelectItem key={batch.id} value={batch.id}>
+                      {batch.batchName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              onClick={() => void handlePrint()}
+              disabled={!detail || stickers.length === 0}
             >
-              <SelectTrigger>
-                <SelectValue placeholder="Select sticker batch" />
-              </SelectTrigger>
-              <SelectContent>
-                {batches.map((batch) => (
-                  <SelectItem key={batch.id} value={batch.id}>
-                    {batch.batchName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              Print Stickers
+            </Button>
+            <Button asChild type="button" variant="outline">
+              <Link href="/dashboard/sticker-batch?tab=history">Open Batch History</Link>
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void handlePrint()}
-            disabled={!detail || stickers.length === 0}
-          >
-            Print
-          </Button>
+
+          {detail && (
+            <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Batch</p>
+                <p className="text-sm font-medium">{detail.batchName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Batch Date</p>
+                <p className="text-sm font-medium">{formatDate(detail.batchDate)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Supplier</p>
+                <p className="text-sm font-medium">{detail.supplierName || "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Sticker Count</p>
+                <p className="text-sm font-medium">{stickers.length}</p>
+              </div>
+            </div>
+          )}
+
+          {batches.length === 0 && (
+            <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              No saved sticker batches found. Create a batch first from Sticker Batch.
+            </div>
+          )}
         </CardContent>
       </Card>
 
+      {!loading && !detail && batches.length > 0 && (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">
+            Select a batch to load sticker preview.
+          </CardContent>
+        </Card>
+      )}
+
       {loading && (
         <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">
-            Loading preview...
+          <CardContent className="py-6">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading preview...
+            </div>
           </CardContent>
         </Card>
       )}
@@ -247,7 +305,7 @@ export function StickerPrintClient({
       )}
 
       {!loading && detail && stickers.length > 0 && (
-        <div className="sticker-sheet flex flex-wrap gap-2 top-">
+        <div className="sticker-sheet flex flex-wrap gap-2">
           {stickers.map((item) => (
             <StickerPreviewCard
               key={item.id}
