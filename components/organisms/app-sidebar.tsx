@@ -104,7 +104,10 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/dashboard/settings"}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/settings"}
+                >
                   <Link href="/dashboard/settings">
                     <Settings className="size-4" />
                     <span>Settings</span>
@@ -125,7 +128,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname === "/dashboard/settings/sms-notifications"}
+                  isActive={
+                    pathname === "/dashboard/settings/sms-notifications"
+                  }
                 >
                   <Link href="/dashboard/settings/sms-notifications">
                     <MessageSquare className="size-4" />
@@ -152,7 +157,10 @@ export function AppSidebar({ user }: AppSidebarProps) {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/dashboard/orders"}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/orders"}
+                >
                   <Link href="/dashboard/orders">
                     <ShoppingCart className="size-4" />
                     <span>Orders</span>
@@ -173,28 +181,6 @@ export function AppSidebar({ user }: AppSidebarProps) {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname === "/dashboard/sticker-batch"}
-                >
-                  <Link href="/dashboard/sticker-batch">
-                    <Sticker className="size-4" />
-                    <span>Sticker Batch</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === "/dashboard/sticker-print"}
-                >
-                  <Link href="/dashboard/sticker-print">
-                    <Printer className="size-4" />
-                    <span>Sticker Print</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
                   isActive={pathname === "/dashboard/orders/failed-webhooks"}
                 >
                   <Link href="/dashboard/orders/failed-webhooks">
@@ -207,11 +193,39 @@ export function AppSidebar({ user }: AppSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
+          <SidebarGroupLabel>Stickers</SidebarGroupLabel>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === "/dashboard/sticker-batch"}
+            >
+              <Link href="/dashboard/sticker-batch">
+                <Sticker className="size-4" />
+                <span>Batch</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === "/dashboard/sticker-print"}
+            >
+              <Link href="/dashboard/sticker-print">
+                <Printer className="size-4" />
+                <span>Print</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarGroup>
+        <SidebarGroup>
           <SidebarGroupLabel>Product Management</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton asChild isActive={pathname === "/dashboard/products/items"}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === "/dashboard/products/items"}
+                >
                   <Link href="/dashboard/products/items">
                     <Package className="size-4" />
                     <span>Items</span>
@@ -221,7 +235,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={pathname === "/dashboard/products/vendors-categories"}
+                  isActive={
+                    pathname === "/dashboard/products/vendors-categories"
+                  }
                 >
                   <Link href="/dashboard/products/vendors-categories">
                     <Tags className="size-4" />
