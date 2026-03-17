@@ -9,7 +9,9 @@
     "lint": "eslint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "contacts:import": "node scripts/import-contacts.cjs",
+    "contacts:backfill:orders": "node scripts/backfill-contacts-from-orders.cjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.15.0",

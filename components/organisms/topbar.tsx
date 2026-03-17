@@ -21,6 +21,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
   const titleByPrefix: Array<{ prefix: string; label: string }> = [
     { prefix: "/dashboard/users", label: "User Management" },
     { prefix: "/dashboard/staff", label: "Staff Management" },
+    { prefix: "/dashboard/contacts", label: "Contacts" },
     { prefix: "/dashboard/orders", label: "Orders" },
     { prefix: "/dashboard/settings", label: "Settings" },
     { prefix: "/dashboard/profile", label: "Profile" },

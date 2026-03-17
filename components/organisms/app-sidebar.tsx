@@ -3,6 +3,7 @@
 import packageJson from "@/package.json";
 import {
   AlertCircle,
+  ContactRound,
   LayoutDashboard,
   Mail,
   MessageSquare,
@@ -96,6 +97,12 @@ export function AppSidebar({ user }: AppSidebarProps) {
               icon={UserCircle}
               label="Staff"
               isActive={pathname === "/dashboard/staff"}
+            />
+            <NavItem
+              href="/dashboard/contacts"
+              icon={ContactRound}
+              label="Contacts"
+              isActive={pathname === "/dashboard/contacts"}
             />
           </SidebarGroupContent>
         </SidebarGroup>

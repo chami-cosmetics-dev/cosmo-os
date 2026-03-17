@@ -89,6 +89,29 @@ export function PageSkeleton() {
     );
   }
 
+  // Contacts: card with actions, search, filters, table
+  if (pathname.startsWith("/dashboard/contacts")) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-6 w-28" />
+            <Skeleton className="h-4 w-96" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Skeleton className="h-9 w-28" />
+              <Skeleton className="h-9 w-28" />
+              <Skeleton className="h-9 flex-1 min-w-[220px]" />
+              <Skeleton className="h-9 w-44" />
+            </div>
+            <TableSkeleton columns={8} rows={6} />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Users: card with tabs/table
   if (pathname.startsWith("/dashboard/users")) {
     return (
