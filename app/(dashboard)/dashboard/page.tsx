@@ -1,41 +1,11 @@
-import { prisma } from "@/lib/prisma";
-import { auth0 } from "@/lib/auth0";
 import { DashboardStats } from "@/components/organisms/dashboard-stats";
+import { getCurrentUserContext } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const session = await auth0.getSession();
-  const user = session?.user ? await prisma.user.findUnique({
-    where: { auth0Id: session.user.sub! },
-    select: { companyId: true },
-  }) : null;
-
-  let items: Array<{ id: string; name: string; createdAt?: string }> = [];
-  if (user?.companyId) {
-    try {
-      const productItems = await prisma.productItem.findMany({
-        where: { companyId: user.companyId },
-        orderBy: { updatedAt: "desc" },
-        take: 5,
-        select: {
-          id: true,
-          productTitle: true,
-          variantTitle: true,
-          updatedAt: true,
-        },
-      });
-      items = productItems.map((i) => ({
-        id: i.id,
-        name: i.variantTitle ? `${i.productTitle} (${i.variantTitle})` : i.productTitle,
-        createdAt: i.updatedAt.toISOString(),
-      }));
-    } catch {
-      // Database may not be set up yet
-    }
-  }
-
-  const stats = getDashboardCards(items.length);
+  await getCurrentUserContext();
+  const stats = getDashboardCards();
 
   return (
     <div className="space-y-6">
@@ -57,7 +27,7 @@ export default async function DashboardPage() {
   );
 }
 
-function getDashboardCards(recentItemsCount: number) {
+function getDashboardCards() {
   return [
     {
       shop: "Chami Trading Web",
@@ -71,7 +41,7 @@ function getDashboardCards(recentItemsCount: number) {
         { value: 26, color: "#06b06c" },
         { value: 26, color: "#f06a57" },
       ],
-      footer: `Synced ${recentItemsCount} recent items`,
+      footer: "Synced recent items",
     },
     {
       shop: "Cool Planet - Nugegoda",
