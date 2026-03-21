@@ -11,13 +11,21 @@ import { getCurrentUserContext } from "@/lib/rbac";
 export async function GET() {
   try {
     const context = await getCurrentUserContext();
-    const companyId = context?.user?.companyId ?? null;
-    if (!companyId) {
+    if (!context?.user?.id) {
+      return new NextResponse(null, { status: 404 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: context.user.id },
+      select: { companyId: true },
+    });
+
+    if (!user?.companyId) {
       return new NextResponse(null, { status: 404 });
     }
 
     const company = await prisma.company.findUnique({
-      where: { id: companyId },
+      where: { id: user.companyId },
       select: { faviconUrl: true },
     });
 
@@ -25,12 +33,7 @@ export async function GET() {
       return new NextResponse(null, { status: 404 });
     }
 
-    return NextResponse.redirect(company.faviconUrl, {
-      status: 302,
-      headers: {
-        "Cache-Control": "private, max-age=300, stale-while-revalidate=60",
-      },
-    });
+    return NextResponse.redirect(company.faviconUrl, 302);
   } catch {
     return new NextResponse(null, { status: 404 });
   }
