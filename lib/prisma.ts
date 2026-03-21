@@ -34,10 +34,8 @@ function getRuntimeDatabaseUrl() {
 
 function createPrisma() {
   const dbUrl = getRuntimeDatabaseUrl();
-  const logQueries = process.env.PRISMA_LOG_QUERIES === "1";
-  const slowQueryMs = Number(process.env.PRISMA_SLOW_QUERY_MS ?? 250);
 
-  const client = new PrismaClient({
+  return new PrismaClient({
     ...(dbUrl
       ? {
           datasources: {
@@ -45,21 +43,11 @@ function createPrisma() {
           },
         }
       : {}),
-    log: logQueries || process.env.NODE_ENV === "development"
-      ? [{ emit: "event", level: "query" }, "error", "warn"]
-      : ["error"],
+    log:
+      process.env.NODE_ENV === "development"
+        ? ["query", "error", "warn"]
+        : ["error"],
   });
-
-  if (logQueries) {
-    client.$on("query", (event) => {
-      if (event.duration < slowQueryMs) return;
-      console.warn(
-        `[prisma][slow-query] ${event.duration}ms ${event.target} ${event.query}`
-      );
-    });
-  }
-
-  return client;
 }
 
 // In dev: if cached client is missing newer models (e.g. after schema change + prisma generate),
