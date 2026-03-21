@@ -26,7 +26,7 @@ interface DashboardStatsProps {
   }[];
 }
 
-type OrdersPageDataResponse = {
+type DashboardLiveOrdersResponse = {
   orders: Array<{
     id: string;
     totalPrice: string;
@@ -36,8 +36,6 @@ type OrdersPageDataResponse = {
     companyLocation: { id: string; name: string } | null;
     assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   }>;
-  total: number;
-  page: number;
   limit: number;
 };
 
@@ -68,49 +66,29 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
     setRefreshing(true);
     setLiveError(null);
     try {
-      const pageSize = 100;
-      const maxPages = 12;
-      let page = 1;
-      let total = 0;
-      const collected: LiveOrder[] = [];
+      const params = new URLSearchParams({ limit: "3000" });
+      const response = await fetch(`/api/admin/orders/dashboard-live?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch live dashboard data");
+      }
 
-      do {
-        const params = new URLSearchParams({
-          page: String(page),
-          limit: String(pageSize),
-          sort_by: "created",
-          sort_order: "desc",
-        });
+      const data = (await response.json()) as DashboardLiveOrdersResponse;
+      const normalized = (data.orders ?? []).map((order) => ({
+        id: order.id,
+        totalPrice: Number(order.totalPrice) || 0,
+        createdAt: order.createdAt,
+        sourceName: order.sourceName,
+        fulfillmentStage: order.fulfillmentStage ?? null,
+        locationName: order.companyLocation?.name ?? "Unknown Location",
+        merchantName:
+          order.assignedMerchant?.name ??
+          order.assignedMerchant?.email ??
+          "Unassigned",
+      }));
 
-        const response = await fetch(`/api/admin/orders/page-data?${params.toString()}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          throw new Error("Failed to fetch live dashboard data");
-        }
-
-        const data = (await response.json()) as OrdersPageDataResponse;
-        total = data.total ?? 0;
-
-        const normalized = (data.orders ?? []).map((order) => ({
-          id: order.id,
-          totalPrice: Number(order.totalPrice) || 0,
-          createdAt: order.createdAt,
-          sourceName: order.sourceName,
-          fulfillmentStage: order.fulfillmentStage ?? null,
-          locationName: order.companyLocation?.name ?? "Unknown Location",
-          merchantName:
-            order.assignedMerchant?.name ??
-            order.assignedMerchant?.email ??
-            "Unassigned",
-        }));
-        collected.push(...normalized);
-        page += 1;
-
-        if (page > maxPages) break;
-      } while ((page - 1) * pageSize < total);
-
-      setLiveOrders(collected);
+      setLiveOrders(normalized);
       setLastUpdatedAt(new Date().toISOString());
       setLiveLoaded(true);
     } catch {

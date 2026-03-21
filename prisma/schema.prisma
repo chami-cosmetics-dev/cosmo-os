@@ -57,6 +57,9 @@ model FailedOrderWebhook {
   createdAt         DateTime        @default(now())
   company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, resolvedAt, createdAt])
+  @@index([companyLocationId, createdAt])
 }
 
 model ShopifyWebhookSecret {
@@ -66,6 +69,8 @@ model ShopifyWebhookSecret {
   secret    String
   createdAt DateTime @default(now())
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
 }
 
 model Vendor {
@@ -124,6 +129,10 @@ model ProductItem {
   sampleFreeIssueItems SampleFreeIssueItem[]
 
   @@unique([companyLocationId, shopifyVariantId])
+  @@index([companyId, companyLocationId])
+  @@index([companyId, vendorId])
+  @@index([companyId, categoryId])
+  @@index([companyId, productTitle])
 }
 
 model Invite {
@@ -185,6 +194,9 @@ model User {
   smsLogs                         SmsLog[]
   company                         Company?               @relation("CompanyMembers", fields: [companyId], references: [id])
   userRoles                       UserRole[]
+
+  @@index([companyId, name])
+  @@index([companyId, email])
 }
 
 model CompanyLocation {
@@ -215,6 +227,9 @@ model CompanyLocation {
   productItems            ProductItem[]
   stickerBatchItems       StickerBatchItem[]
   smsNotificationConfigs  SmsNotificationConfig[]
+
+  @@index([companyId, name])
+  @@index([defaultMerchantUserId])
 }
 
 model Customer {
@@ -300,6 +315,12 @@ model Order {
   lineItems                    OrderLineItem[]
   remarks                      OrderRemark[]
   sampleFreeIssues             OrderSampleFreeIssue[]
+
+  @@index([companyId, createdAt])
+  @@index([companyId, companyLocationId, createdAt])
+  @@index([companyId, assignedMerchantId, createdAt])
+  @@index([companyId, fulfillmentStage, createdAt])
+  @@index([customerId])
 }
 
 model OrderLineItem {
@@ -375,6 +396,11 @@ model EmployeeProfile {
   designation               Designation?     @relation(fields: [designationId], references: [id])
   location                  CompanyLocation? @relation(fields: [locationId], references: [id])
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([locationId])
+  @@index([departmentId])
+  @@index([designationId])
 }
 
 model StickerBatch {
@@ -473,6 +499,8 @@ model OrderRemark {
   showOnInvoice Boolean          @default(false)
   addedBy       User?            @relation(fields: [addedById], references: [id])
   order         Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
 }
 
 model SmsNotificationConfig {
@@ -620,6 +648,7 @@ model ContactMaster {
   updatedAt      DateTime  @updatedAt
 
   @@index([companyId, lastPurchaseAt])
+  @@index([companyId, updatedAt])
   @@index([email])
   @@index([phoneNumber])
 }

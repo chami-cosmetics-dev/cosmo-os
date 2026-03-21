@@ -232,6 +232,22 @@ type SessionUser = {
   picture?: string;
 };
 
+const USER_WITH_ROLES_INCLUDE = {
+  userRoles: {
+    include: {
+      role: {
+        include: {
+          rolePermissions: {
+            include: {
+              permission: true,
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 function isPrismaKnownError(error: unknown): error is { code?: string; message?: string } {
   return Boolean(
     error &&
@@ -360,39 +376,45 @@ export async function syncSessionUser(sessionUser: SessionUser) {
 
   await ensureDefaultRbacSetupIfNeeded();
 
-  const user = await prisma.user.upsert({
+  const desiredEmail = sessionUser.email ?? null;
+  const desiredName = sessionUser.name ?? null;
+  const desiredPicture = sessionUser.picture ?? null;
+
+  const existing = await prisma.user.findUnique({
     where: { auth0Id: sessionUser.sub },
-    update: {
-      email: sessionUser.email ?? null,
-      name: sessionUser.name ?? null,
-      picture: sessionUser.picture ?? null,
-    },
-    create: {
-      auth0Id: sessionUser.sub,
-      email: sessionUser.email ?? null,
-      name: sessionUser.name ?? null,
-      picture: sessionUser.picture ?? null,
-    },
+    include: USER_WITH_ROLES_INCLUDE,
   });
 
-  const userWithRoles = await prisma.user.findUnique({
-    where: { id: user.id },
-    include: {
-      userRoles: {
-        include: {
-          role: {
-            include: {
-              rolePermissions: {
-                include: {
-                  permission: true,
-                },
-              },
-            },
-          },
-        },
+  let userWithRoles = existing;
+
+  if (!userWithRoles) {
+    userWithRoles = await prisma.user.create({
+      data: {
+        auth0Id: sessionUser.sub,
+        email: desiredEmail,
+        name: desiredName,
+        picture: desiredPicture,
       },
-    },
-  });
+      include: USER_WITH_ROLES_INCLUDE,
+    });
+  } else {
+    const needsProfileSync =
+      userWithRoles.email !== desiredEmail ||
+      userWithRoles.name !== desiredName ||
+      userWithRoles.picture !== desiredPicture;
+
+    if (needsProfileSync) {
+      userWithRoles = await prisma.user.update({
+        where: { id: userWithRoles.id },
+        data: {
+          email: desiredEmail,
+          name: desiredName,
+          picture: desiredPicture,
+        },
+        include: USER_WITH_ROLES_INCLUDE,
+      });
+    }
+  }
 
   if (!userWithRoles) return null;
 
@@ -406,27 +428,13 @@ export async function syncSessionUser(sessionUser: SessionUser) {
       });
       if (superAdminRole) {
         await prisma.userRole.createMany({
-          data: [{ userId: user.id, roleId: superAdminRole.id }],
+          data: [{ userId: userWithRoles.id, roleId: superAdminRole.id }],
           skipDuplicates: true,
         });
       }
       return prisma.user.findUnique({
-        where: { id: user.id },
-        include: {
-          userRoles: {
-            include: {
-              role: {
-                include: {
-                  rolePermissions: {
-                    include: {
-                      permission: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
+        where: { id: userWithRoles.id },
+        include: USER_WITH_ROLES_INCLUDE,
       });
     }
   }
@@ -491,7 +499,10 @@ async function getCurrentUserContextImpl(session?: SessionLike | null) {
 }
 
 /** TTL cache for parallel API requests from same user (e.g. settings page fetches 5 APIs at once). */
-const USER_CONTEXT_TTL_MS = 2000;
+const USER_CONTEXT_TTL_MS = Math.max(
+  1000,
+  Number(process.env.USER_CONTEXT_TTL_MS ?? 15000)
+);
 const userContextCache = new Map<
   string,
   {
