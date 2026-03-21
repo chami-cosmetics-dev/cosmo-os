@@ -39,6 +39,8 @@ type Order = {
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   lineItemCount: number;
+  paymentGatewayNames: string[];
+  paymentGatewayPrimary: string | null;
 };
 
 const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
@@ -67,6 +69,8 @@ type OrderDetail = {
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  paymentGatewayNames?: string[];
+  paymentGatewayPrimary?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -128,6 +132,7 @@ export type OrdersPanelInitialData = {
   limit: number;
   locations: Array<{ id: string; name: string }>;
   merchants: Array<{ id: string; name: string | null; email: string | null }>;
+  paymentGatewayOptions: string[];
 };
 
 interface OrdersPanelProps {
@@ -154,12 +159,16 @@ export function OrdersPanel({
   const [merchants, setMerchants] = useState<Array<{ id: string; name: string | null; email: string | null }>>(
     initialData?.merchants ?? []
   );
+  const [paymentGatewayOptions, setPaymentGatewayOptions] = useState<string[]>(
+    initialData?.paymentGatewayOptions ?? []
+  );
   const [loading, setLoading] = useState(!initialData);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [merchantFilter, setMerchantFilter] = useState<string>("");
+  const [paymentGatewayFilter, setPaymentGatewayFilter] = useState<string>("");
   const [page, setPage] = useState(initialData?.page ?? 1);
   const [limit, setLimit] = useState(initialData?.limit ?? 10);
   const [total, setTotal] = useState(initialData?.total ?? 0);
@@ -176,7 +185,7 @@ export function OrdersPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, sortBy, sortOrder]);
+  }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -184,6 +193,7 @@ export function OrdersPanel({
     if (locationFilter) params.set("location_id", locationFilter);
     if (sourceFilter) params.set("source", sourceFilter);
     if (merchantFilter) params.set("merchant_id", merchantFilter);
+    if (paymentGatewayFilter) params.set("payment_gateway", paymentGatewayFilter);
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (sortBy) {
@@ -203,12 +213,14 @@ export function OrdersPanel({
       limit: number;
       locations: Array<{ id: string; name: string }>;
       merchants: Array<{ id: string; name: string | null; email: string | null }>;
+      paymentGatewayOptions: string[];
     };
     setOrders(data.orders);
     setTotal(data.total);
     setLocations(data.locations ?? []);
     setMerchants(data.merchants ?? []);
-  }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, page, limit, sortBy, sortOrder]);
+    setPaymentGatewayOptions(data.paymentGatewayOptions ?? []);
+  }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
 
   const skippedInitialFetch = useRef(false);
   useEffect(() => {
@@ -319,7 +331,8 @@ export function OrdersPanel({
             Orders
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Orders received from Shopify (web and POS). Filter by location, source, or assigned merchant.
+            Orders received from Shopify (web and POS). Filter by location, source, merchant, or payment
+            gateway.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -378,10 +391,26 @@ export function OrdersPanel({
                 ))}
               </SelectContent>
             </Select>
+            <Select
+              value={paymentGatewayFilter || ALL_FILTER_VALUE}
+              onValueChange={(value) => setPaymentGatewayFilter(value === ALL_FILTER_VALUE ? "" : value)}
+            >
+              <SelectTrigger className="w-full min-w-0 sm:max-w-[14rem] sm:flex-1">
+                <SelectValue placeholder="All gateways" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FILTER_VALUE}>All gateways</SelectItem>
+                {paymentGatewayOptions.map((g) => (
+                  <SelectItem key={g} value={g}>
+                    {g}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {loading ? (
-            <TableSkeleton columns={9} rows={6} />
+            <TableSkeleton columns={10} rows={6} />
           ) : orders.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground text-sm">
               No orders yet. Orders will appear here when received from Shopify webhooks.
@@ -406,6 +435,7 @@ export function OrdersPanel({
                         currentOrder={sortOrder}
                         onSort={handleSort}
                       />
+                      <th className="px-4 py-2 text-left font-medium">Payment</th>
                       <th className="px-4 py-2 text-left font-medium">Customer</th>
                       <SortableColumnHeader
                         label="Total (LKR)"
@@ -454,6 +484,21 @@ export function OrdersPanel({
                             }`}
                           >
                             {order.sourceName}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">
+                          <span
+                            className="text-muted-foreground max-w-[160px] truncate text-xs"
+                            title={
+                              order.paymentGatewayNames?.length
+                                ? order.paymentGatewayNames.join(", ")
+                                : undefined
+                            }
+                          >
+                            {order.paymentGatewayPrimary ??
+                              (order.paymentGatewayNames?.length
+                                ? order.paymentGatewayNames.join(", ")
+                                : "—")}
                           </span>
                         </td>
                         <td className="px-4 py-2">

@@ -255,6 +255,10 @@ model Order {
   currency                     String?
   financialStatus              String?
   fulfillmentStatus            String?
+  /// Shopify `payment_gateway_names` (deduped, trimmed). Empty when unknown.
+  paymentGatewayNames          String[]                 @default([])
+  /// First gateway in `paymentGatewayNames` — used for aggregates (one amount per order).
+  paymentGatewayPrimary        String?
   customerEmail                String?
   customerPhone                String?
   shippingAddress              Json?
@@ -300,6 +304,8 @@ model Order {
   lineItems                    OrderLineItem[]
   remarks                      OrderRemark[]
   sampleFreeIssues             OrderSampleFreeIssue[]
+
+  @@index([companyId, paymentGatewayPrimary])
 }
 
 model OrderLineItem {
