@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
+import { cuidSchema } from "@/lib/validation";
+import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
 export type OrdersPageParams = {
   page?: number;
@@ -33,6 +34,7 @@ async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<stri
 }
 
 export async function fetchOrdersPageData(companyId: string, params: OrdersPageParams = {}) {
+  const startedAt = Date.now();
   const page = params.page ?? 1;
   const limit = params.limit ?? 10;
   const sortOrder = params.sortOrder ?? "desc";
@@ -188,6 +190,13 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     paymentGatewayNames: o.paymentGatewayNames,
     paymentGatewayPrimary: o.paymentGatewayPrimary,
   }));
+
+  maybeLogSlowDbRequest("orders.page_data", startedAt, {
+    companyId,
+    page,
+    limit,
+    total,
+  });
 
   return {
     orders: ordersData,
