@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { auth0 } from "@/lib/auth0";
 import { isDatabaseUnavailableError } from "@/lib/dbObservability";
+import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
 
 const DEFAULT_PERMISSIONS = [
@@ -582,11 +583,15 @@ export function hasAnyPermission(
 }
 
 export async function requirePermission(permissionKey: string) {
+  const perf = createPerfLogger("rbac.requirePermission", { permissionKey });
   const context = await getCurrentUserContext();
+  perf.mark("get-context");
   if (!context) {
+    perf.end({ status: 401, ok: false });
     return { ok: false as const, status: 401, error: "Not authenticated" };
   }
   if (!context.user) {
+    perf.end({ status: 503, ok: false });
     return {
       ok: false as const,
       status: 503,
@@ -595,9 +600,11 @@ export async function requirePermission(permissionKey: string) {
   }
 
   if (!hasPermission(context, permissionKey)) {
+    perf.end({ status: 403, ok: false });
     return { ok: false as const, status: 403, error: "Permission denied" };
   }
 
+  perf.end({ status: 200, ok: true });
   return { ok: true as const, context };
 }
 
