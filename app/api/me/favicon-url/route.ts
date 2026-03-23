@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { isDatabaseUnavailableError } from "@/lib/db-observability";
+import { isDatabaseUnavailableError } from "@/lib/dbObservability";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext } from "@/lib/rbac";
 
