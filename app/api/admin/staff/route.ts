@@ -32,23 +32,36 @@ export async function GET(request: NextRequest) {
   const statusFilter = searchParams.get("status"); // "active" | "resigned" | null (all)
   const search = searchParams.get("search")?.trim() ?? "";
 
-  const users = await prisma.user.findMany({
-    where: {
-      ...(companyId ? { companyId } : {}),
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: "insensitive" } },
-              { email: { contains: search, mode: "insensitive" } },
-              {
-                employeeProfile: {
-                  employeeNumber: { contains: search, mode: "insensitive" },
-                },
+  const where = {
+    ...(companyId ? { companyId } : {}),
+    ...(search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { email: { contains: search, mode: "insensitive" as const } },
+            {
+              employeeProfile: {
+                employeeNumber: { contains: search, mode: "insensitive" as const },
               },
-            ],
-          }
-        : {}),
-    },
+            },
+          ],
+        }
+      : {}),
+    ...(statusFilter === "active"
+      ? {
+          OR: [
+            { employeeProfile: null },
+            { employeeProfile: { status: "active" as const } },
+          ],
+        }
+      : {}),
+    ...(statusFilter === "resigned"
+      ? { employeeProfile: { status: "resigned" as const } }
+      : {}),
+  };
+
+  const users = await prisma.user.findMany({
+    where,
     include: {
       userRoles: { include: { role: true } },
       employeeProfile: {
@@ -62,16 +75,7 @@ export async function GET(request: NextRequest) {
     orderBy: { name: "asc" },
   });
 
-  let filtered = users;
-  if (statusFilter === "active" || statusFilter === "resigned") {
-    filtered = users.filter((u) => {
-      const profile = u.employeeProfile;
-      if (!profile) return statusFilter === "active";
-      return profile.status === statusFilter;
-    });
-  }
-
-  const staff = filtered.map((u) => ({
+  const staff = users.map((u) => ({
     id: u.id,
     name: u.name,
     email: u.email,
