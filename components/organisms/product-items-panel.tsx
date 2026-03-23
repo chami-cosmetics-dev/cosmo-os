@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
+import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 
 type ProductItem = {
@@ -48,6 +49,12 @@ interface ProductItemsPanelProps {
 }
 
 export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) {
+  const hasInitialData = Boolean(initialData);
+  const pagePerfRef = useRef(
+    createClientPerfLogger("product-items.panel.mount", {
+      hasInitialData,
+    }),
+  );
   const ALL_FILTER_VALUE = "__all__";
   const [items, setItems] = useState<ProductItem[]>(initialData?.items ?? []);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>(
@@ -87,6 +94,11 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
   }, [search]);
 
   const fetchPageData = useCallback(async () => {
+    const perf = createClientPerfLogger("product-items.panel.fetch", {
+      hasInitialData,
+      page,
+      limit,
+    });
     setLoading(true);
     const params = new URLSearchParams();
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -100,10 +112,12 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
       params.set("sort_order", sortOrder);
     }
     const res = await fetch(`/api/admin/product-items/page-data?${params}`);
+    perf.mark("response");
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load items");
       setLoading(false);
+      perf.end({ ok: false });
       return;
     }
     const data = (await res.json()) as {
@@ -121,9 +135,14 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     setVendors(data.vendors ?? []);
     setCategories(data.categories ?? []);
     setLoading(false);
-  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter, page, limit, sortBy, sortOrder]);
+    perf.end({ ok: true, total: data.total });
+  }, [categoryFilter, debouncedSearch, hasInitialData, locationFilter, page, limit, sortBy, sortOrder, vendorFilter]);
 
   const skippedInitialFetch = useRef(false);
+  useEffect(() => {
+    pagePerfRef.current.end({ initialItemCount: initialData?.items.length ?? 0 });
+  }, [initialData]);
+
   useEffect(() => {
     if (initialData && !skippedInitialFetch.current) {
       skippedInitialFetch.current = true;

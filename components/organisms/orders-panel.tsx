@@ -12,6 +12,7 @@ import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
+import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 
 const OrderInvoiceViewModal = dynamic(
@@ -148,6 +149,10 @@ export function OrdersPanel({
   revertPermissionKeys = [],
   initialData,
 }: OrdersPanelProps = {}) {
+  const hasInitialData = Boolean(initialData);
+  const pagePerfRef = useRef(
+    createClientPerfLogger("orders.panel.mount", { hasInitialData }),
+  );
   const canRevertToStage = useMemo(
     () => createCanRevertToStageFromKeys(revertPermissionKeys),
     [revertPermissionKeys]
@@ -188,6 +193,11 @@ export function OrdersPanel({
   }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
+    const perf = createClientPerfLogger("orders.panel.fetch", {
+      hasInitialData,
+      page,
+      limit,
+    });
     const params = new URLSearchParams();
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (locationFilter) params.set("location_id", locationFilter);
@@ -201,9 +211,11 @@ export function OrdersPanel({
       params.set("sort_order", sortOrder);
     }
     const res = await fetch(`/api/admin/orders/page-data?${params}`);
+    perf.mark("response");
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load orders");
+      perf.end({ ok: false });
       return;
     }
     const data = (await res.json()) as {
@@ -220,9 +232,14 @@ export function OrdersPanel({
     setLocations(data.locations ?? []);
     setMerchants(data.merchants ?? []);
     setPaymentGatewayOptions(data.paymentGatewayOptions ?? []);
-  }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
+    perf.end({ ok: true, total: data.total });
+  }, [debouncedSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
 
   const skippedInitialFetch = useRef(false);
+  useEffect(() => {
+    pagePerfRef.current.end({ initialOrderCount: initialData?.orders.length ?? 0 });
+  }, [initialData]);
+
   useEffect(() => {
     if (initialData && !skippedInitialFetch.current) {
       skippedInitialFetch.current = true;
