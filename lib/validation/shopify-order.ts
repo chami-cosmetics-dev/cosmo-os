@@ -80,6 +80,7 @@ export const shopifyOrderWebhookSchema = z.object({
   currency: z.string().optional().nullable(),
   financial_status: z.string().optional().nullable(),
   fulfillment_status: z.string().optional().nullable(),
+  payment_gateway_names: z.array(z.string()).optional().default([]),
   email: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),

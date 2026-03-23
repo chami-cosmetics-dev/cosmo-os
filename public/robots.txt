@@ -1,0 +1,3 @@
+# Cosmo OS — internal app; do not index authenticated areas.
+User-agent: *
+Disallow: /

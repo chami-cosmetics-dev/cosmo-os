@@ -32,6 +32,8 @@ export const LIMITS = {
   shopifyLocationId: { max: 100 },
   shopifyShopName: { max: 200 },
   shopifyAdminStoreHandle: { max: 100 },
+  /** Shopify payment gateway name (e.g. shopify_payments, COD label) */
+  paymentGatewayName: { max: 80 },
   departmentName: { max: 100 },
   designationName: { max: 100 },
   supplierName: { max: 200 },
@@ -96,6 +98,40 @@ export const limitSchema = z
       .min(LIMITS.pagination.limitMin)
       .max(LIMITS.pagination.limitMax)
   );
+
+/** Optional ISO datetime from query (e.g. order list date range). Max length prevents oversized input. */
+export const optionalIsoDateTimeQuerySchema = z
+  .string()
+  .max(40)
+  .optional()
+  .transform((s) => {
+    if (!s?.trim()) return undefined;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  });
+
+/** Dashboard date-only query params (YYYY-MM-DD). */
+const ymdQuerySchema = z
+  .string()
+  .max(10)
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
+
+export const dashboardSalesQuerySchema = z.object({
+  from: ymdQuerySchema,
+  to: ymdQuerySchema,
+  date_type: z.enum(["order", "completed"]).optional().default("order"),
+  analysis_type: z.enum(["merchant", "gateway"]).optional().default("merchant"),
+});
+
+/** Orders list: filter by a gateway string present in `Order.paymentGatewayNames`. */
+export const orderPaymentGatewayFilterSchema = z
+  .string()
+  .max(LIMITS.paymentGatewayName.max)
+  .optional()
+  .transform((s) => {
+    const t = s?.trim();
+    return t ? t : undefined;
+  });
 
 /** CUID format - Prisma default ID format (c + 24 alphanumeric) */
 const cuidRegex = /^c[a-z0-9]{24,30}$/;

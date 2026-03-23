@@ -16,6 +16,25 @@ function parseDecimal(value: string | null | undefined): Decimal | null {
   return Number.isNaN(num) ? null : new Decimal(value);
 }
 
+function normalizePaymentGateways(raw: string[] | undefined): {
+  names: string[];
+  primary: string | null;
+} {
+  const maxLen = LIMITS.paymentGatewayName.max;
+  const maxItems = 20;
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const item of raw ?? []) {
+    if (typeof item !== "string") continue;
+    const s = item.trim().slice(0, maxLen);
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    names.push(s);
+    if (names.length >= maxItems) break;
+  }
+  return { names, primary: names[0] ?? null };
+}
+
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
   location: CompanyLocation,
@@ -54,6 +73,7 @@ export async function processOrderWebhook(
   const customerEmail =
     data.contact_email ?? data.email ?? data.customer?.email ?? null;
   const customerPhone = data.phone ?? data.customer?.phone ?? null;
+  const paymentGateways = normalizePaymentGateways(data.payment_gateway_names);
 
   const orderData = {
     companyId,
@@ -73,6 +93,8 @@ export async function processOrderWebhook(
     currency: data.currency?.slice(0, 10) ?? null,
     financialStatus: data.financial_status?.slice(0, 50) ?? null,
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
+    paymentGatewayNames: paymentGateways.names,
+    paymentGatewayPrimary: paymentGateways.primary,
     customerEmail: customerEmail?.slice(0, LIMITS.email.max) ?? null,
     customerPhone: customerPhone?.slice(0, LIMITS.mobile.max) ?? null,
     shippingAddress: data.shipping_address

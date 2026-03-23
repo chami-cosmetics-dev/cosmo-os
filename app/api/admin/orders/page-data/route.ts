@@ -3,7 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchOrdersPageData } from "@/lib/page-data/orders";
 import { requirePermission } from "@/lib/rbac";
-import { limitSchema, pageSchema, sortOrderSchema } from "@/lib/validation";
+import {
+  limitSchema,
+  optionalIsoDateTimeQuerySchema,
+  orderPaymentGatewayFilterSchema,
+  pageSchema,
+  sortOrderSchema,
+} from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("orders.read");
@@ -29,6 +35,15 @@ export async function GET(request: NextRequest) {
   const pageResult = pageSchema.safeParse(searchParams.get("page"));
   const limitResult = limitSchema.safeParse(searchParams.get("limit"));
   const sortOrderResult = sortOrderSchema.safeParse(searchParams.get("sort_order"));
+  const createdFromResult = optionalIsoDateTimeQuerySchema.safeParse(
+    searchParams.get("created_from") ?? undefined
+  );
+  const createdToResult = optionalIsoDateTimeQuerySchema.safeParse(
+    searchParams.get("created_to") ?? undefined
+  );
+  const paymentGatewayResult = orderPaymentGatewayFilterSchema.safeParse(
+    searchParams.get("payment_gateway") ?? undefined
+  );
 
   const data = await fetchOrdersPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -40,6 +55,9 @@ export async function GET(request: NextRequest) {
     merchantId: searchParams.get("merchant_id") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
     fulfillmentStages: searchParams.get("fulfillment_stages")?.trim() ?? undefined,
+    createdFrom: createdFromResult.success ? createdFromResult.data : undefined,
+    createdTo: createdToResult.success ? createdToResult.data : undefined,
+    paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
   });
 
   return NextResponse.json(data);

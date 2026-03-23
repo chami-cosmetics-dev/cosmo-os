@@ -100,6 +100,8 @@ export async function GET(
     currency: order.currency,
     financialStatus: order.financialStatus,
     fulfillmentStatus: order.fulfillmentStatus,
+    paymentGatewayNames: order.paymentGatewayNames,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
     customerEmail: order.customerEmail,
     customerPhone: order.customerPhone,
     shippingAddress: order.shippingAddress,
