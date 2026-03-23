@@ -70,29 +70,8 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
     try {
       const pageSize = 100;
       const maxPages = 12;
-      let page = 1;
-      let total = 0;
-      const collected: LiveOrder[] = [];
-
-      do {
-        const params = new URLSearchParams({
-          page: String(page),
-          limit: String(pageSize),
-          sort_by: "created",
-          sort_order: "desc",
-        });
-
-        const response = await fetch(`/api/admin/orders/page-data?${params.toString()}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          throw new Error("Failed to fetch live dashboard data");
-        }
-
-        const data = (await response.json()) as OrdersPageDataResponse;
-        total = data.total ?? 0;
-
-        const normalized = (data.orders ?? []).map((order) => ({
+      const normalizeOrders = (orders: OrdersPageDataResponse["orders"]): LiveOrder[] =>
+        (orders ?? []).map((order) => ({
           id: order.id,
           totalPrice: Number(order.totalPrice) || 0,
           createdAt: order.createdAt,
@@ -104,15 +83,56 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             order.assignedMerchant?.email ??
             "Unassigned",
         }));
-        collected.push(...normalized);
-        page += 1;
 
-        if (page > maxPages) break;
-      } while ((page - 1) * pageSize < total);
+      const firstParams = new URLSearchParams({
+        page: "1",
+        limit: String(pageSize),
+        sort_by: "created",
+        sort_order: "desc",
+      });
 
+      const firstResponse = await fetch(`/api/admin/orders/page-data?${firstParams.toString()}`, {
+        cache: "no-store",
+      });
+      if (!firstResponse.ok) {
+        throw new Error("Failed to fetch live dashboard data");
+      }
+
+      const firstData = (await firstResponse.json()) as OrdersPageDataResponse;
+      const total = firstData.total ?? 0;
+      const collected = normalizeOrders(firstData.orders);
+
+      // Render quickly with first page, then enrich with remaining pages.
       setLiveOrders(collected);
-      setLastUpdatedAt(new Date().toISOString());
       setLiveLoaded(true);
+
+      const totalPages = Math.min(maxPages, Math.max(1, Math.ceil(total / pageSize)));
+      if (totalPages > 1) {
+        const pageRequests: Promise<LiveOrder[]>[] = [];
+        for (let page = 2; page <= totalPages; page += 1) {
+          const params = new URLSearchParams({
+            page: String(page),
+            limit: String(pageSize),
+            sort_by: "created",
+            sort_order: "desc",
+          });
+          pageRequests.push(
+            fetch(`/api/admin/orders/page-data?${params.toString()}`, { cache: "no-store" })
+              .then(async (response) => {
+                if (!response.ok) return [];
+                const data = (await response.json()) as OrdersPageDataResponse;
+                return normalizeOrders(data.orders);
+              })
+              .catch(() => [])
+          );
+        }
+
+        const restPages = await Promise.all(pageRequests);
+        const merged = collected.concat(...restPages);
+        setLiveOrders(merged);
+      }
+
+      setLastUpdatedAt(new Date().toISOString());
     } catch {
       setLiveError("Live data unavailable.");
       setLiveLoaded(true);
@@ -399,252 +419,11 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
-    <div className="inline-flex items-center gap-2">
-      <span
-        className="h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: color }}
-        aria-hidden
-      />
-      <span className="text-muted-foreground">{label}</span>
-    </div>
+    <DashboardOverviewProvider>
+      <section className="space-y-5">
+        <DashboardFiltersSlot />
+        <DashboardMainSlot />
+      </section>
+    </DashboardOverviewProvider>
   );
-}
-
-function PresetButton({
-  label,
-  isActive,
-  onClick,
-}: {
-  label: string;
-  isActive: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant={isActive ? "default" : "outline"}
-      size="sm"
-      className="h-7 text-xs"
-      onClick={onClick}
-    >
-      {label}
-    </Button>
-  );
-}
-
-function DonutChartCard({
-  name,
-  value,
-  segments,
-}: {
-  name: string;
-  value: string;
-  segments: Array<{ value: number; color: string }>;
-}) {
-  return (
-    <div className="relative mx-auto mt-1 grid h-56 w-56 place-items-center">
-      <div
-        className="absolute inset-3 rounded-full"
-        style={{ background: toConicGradient(segments) }}
-      />
-      <div className="relative z-10 grid h-[9.25rem] w-[9.25rem] place-items-center rounded-full bg-card p-4 text-center shadow-[0_0_0_2px_#4f95bf]">
-        <div>
-          <p className="text-muted-foreground text-[11px] uppercase">
-            Primary Agent
-          </p>
-          <p className={getNameClass(name)}>{name}</p>
-          <p className="mt-1 text-3xl font-medium">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function getNameClass(name: string) {
-  if (name.length > 18) return "text-sm leading-tight font-semibold";
-  if (name.length > 12) return "text-xl leading-tight font-semibold";
-  return "text-xl leading-tight font-semibold";
-}
-
-function getSegmentLabel(index: number) {
-  if (index === 0) return "Primary";
-  if (index === 1) return "Secondary";
-  return "Other";
-}
-
-function toConicGradient(segments: Array<{ value: number; color: string }>) {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
-  let start = 0;
-
-  const stops = segments.map((segment) => {
-    const sweep = (segment.value / total) * 360;
-    const startWithGap = start + 1.5;
-    const endWithGap = start + sweep - 1.5;
-    const stop = `${segment.color} ${startWithGap.toFixed(2)}deg ${endWithGap.toFixed(2)}deg`;
-    start += sweep;
-    return stop;
-  });
-
-  return `conic-gradient(${stops.join(", ")})`;
-}
-
-function getInitialRange(stats: DashboardStatsProps["stats"]) {
-  if (stats.length === 0) {
-    return { fromDate: "2026-02-26", toDate: "2026-02-26" };
-  }
-
-  const allDates = stats.flatMap((stat) => [stat.orderDate, stat.completedDate]).sort();
-  return { fromDate: allDates[0], toDate: allDates[allDates.length - 1] };
-}
-
-function shiftDate(dateValue: string, days: number) {
-  const date = new Date(dateValue);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function aggregateMerchantStats(orders: LiveOrder[]): DashboardStatsProps["stats"] {
-  const byLocation = new Map<
-    string,
-    {
-      total: number;
-      merchants: Map<string, number>;
-      count: number;
-      minDate: string;
-      maxDate: string;
-    }
-  >();
-
-  for (const order of orders) {
-    const currentDate = order.createdAt.slice(0, 10);
-    const existing = byLocation.get(order.locationName);
-    if (!existing) {
-      byLocation.set(order.locationName, {
-        total: order.totalPrice,
-        merchants: new Map([[order.merchantName, order.totalPrice]]),
-        count: 1,
-        minDate: currentDate,
-        maxDate: currentDate,
-      });
-      continue;
-    }
-
-    existing.total += order.totalPrice;
-    existing.count += 1;
-    existing.minDate = existing.minDate < currentDate ? existing.minDate : currentDate;
-    existing.maxDate = existing.maxDate > currentDate ? existing.maxDate : currentDate;
-    existing.merchants.set(
-      order.merchantName,
-      (existing.merchants.get(order.merchantName) ?? 0) + order.totalPrice,
-    );
-  }
-
-  return Array.from(byLocation.entries())
-    .map(([location, data]) => {
-      const merchantPairs = Array.from(data.merchants.entries()).sort((a, b) => b[1] - a[1]);
-      const topMerchant = merchantPairs[0] ?? ["Unassigned", 0];
-      return {
-        shop: location,
-        total: formatMoney(data.total),
-        agent: topMerchant[0],
-        agentValue: formatMoney(topMerchant[1]),
-        invoiceCount: data.count,
-        orderDate: data.minDate,
-        completedDate: data.maxDate,
-        segments: buildSegmentsFromPairs(merchantPairs),
-      };
-    })
-    .sort((a, b) => parseNumber(b.total) - parseNumber(a.total));
-}
-
-function aggregateGatewayStats(orders: LiveOrder[]): DashboardStatsProps["stats"] {
-  const bySource = new Map<
-    string,
-    {
-      total: number;
-      locations: Map<string, number>;
-      count: number;
-      minDate: string;
-      maxDate: string;
-    }
-  >();
-
-  for (const order of orders) {
-    const currentDate = order.createdAt.slice(0, 10);
-    const gateway = order.sourceName?.toUpperCase() || "UNKNOWN";
-    const existing = bySource.get(gateway);
-    if (!existing) {
-      bySource.set(gateway, {
-        total: order.totalPrice,
-        locations: new Map([[order.locationName, order.totalPrice]]),
-        count: 1,
-        minDate: currentDate,
-        maxDate: currentDate,
-      });
-      continue;
-    }
-
-    existing.total += order.totalPrice;
-    existing.count += 1;
-    existing.minDate = existing.minDate < currentDate ? existing.minDate : currentDate;
-    existing.maxDate = existing.maxDate > currentDate ? existing.maxDate : currentDate;
-    existing.locations.set(
-      order.locationName,
-      (existing.locations.get(order.locationName) ?? 0) + order.totalPrice,
-    );
-  }
-
-  return Array.from(bySource.entries())
-    .map(([source, data]) => {
-      const locationPairs = Array.from(data.locations.entries()).sort((a, b) => b[1] - a[1]);
-      const topLocation = locationPairs[0] ?? ["Unknown", 0];
-      return {
-        shop: `${source} Gateway`,
-        total: formatMoney(data.total),
-        agent: topLocation[0],
-        agentValue: formatMoney(topLocation[1]),
-        invoiceCount: data.count,
-        orderDate: data.minDate,
-        completedDate: data.maxDate,
-        segments: buildSegmentsFromPairs(locationPairs),
-      };
-    })
-    .sort((a, b) => parseNumber(b.total) - parseNumber(a.total));
-}
-
-function buildSegmentsFromPairs(pairs: Array<[string, number]>) {
-  const total = pairs.reduce((sum, current) => sum + current[1], 0) || 1;
-  const palette = ["#4f95bf", "#06b06c", "#f06a57"];
-  const topThree = pairs.slice(0, 3).map(([, value], index) => ({
-    value: Math.max(1, Math.round((value / total) * 100)),
-    color: palette[index],
-  }));
-
-  if (topThree.length === 1) {
-    return [{ value: 100, color: palette[0] }];
-  }
-  return topThree;
-}
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 1,
-    maximumFractionDigits: 1,
-  }).format(value);
-}
-
-function parseNumber(value: string) {
-  return Number(value.replace(/,/g, "")) || 0;
-}
-
-function toStartOfDay(dateValue: string) {
-  const date = new Date(dateValue);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function toEndOfDay(dateValue: string) {
-  const date = new Date(dateValue);
-  date.setHours(23, 59, 59, 999);
-  return date;
 }

@@ -9,7 +9,9 @@
     "lint": "eslint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "contacts:import": "node scripts/import-contacts.cjs",
+    "contacts:backfill:orders": "node scripts/backfill-contacts-from-orders.cjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.15.0",
@@ -28,6 +30,7 @@
     "react": "19.2.3",
     "react-advanced-cropper": "^0.20.1",
     "react-dom": "19.2.3",
+    "recharts": "^2.15.4",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "zod": "^4.3.6"

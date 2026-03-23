@@ -1,3 +1,4 @@
+import "server-only";
 import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
@@ -34,8 +35,11 @@ function getRuntimeDatabaseUrl() {
 
 function createPrisma() {
   const dbUrl = getRuntimeDatabaseUrl();
+  const enableQueryEvents =
+    process.env.NODE_ENV === "development" ||
+    process.env.PRISMA_LOG_SLOW_QUERIES === "true";
 
-  return new PrismaClient({
+  const client = new PrismaClient({
     ...(dbUrl
       ? {
           datasources: {
@@ -43,11 +47,35 @@ function createPrisma() {
           },
         }
       : {}),
-    log:
-      process.env.NODE_ENV === "development"
-        ? ["query", "error", "warn"]
-        : ["error"],
+    log: enableQueryEvents
+      ? [{ emit: "event", level: "query" }, "error", "warn"]
+      : ["error"],
   });
+
+  if (enableQueryEvents) {
+    const slowMs = Number(process.env.PRISMA_SLOW_QUERY_MS ?? "250");
+    const sampleRate = Number(process.env.PRISMA_SLOW_QUERY_SAMPLE_RATE ?? "1");
+
+    client.$on("query", (event) => {
+      if (!Number.isFinite(event.duration) || event.duration < slowMs) {
+        return;
+      }
+      if (sampleRate < 1 && Math.random() > Math.max(0, sampleRate)) {
+        return;
+      }
+
+      console.warn(
+        `[Prisma Slow Query] ${event.duration}ms`,
+        {
+          paramsLength: event.params?.length ?? 0,
+          target: event.target,
+          query: event.query,
+        }
+      );
+    });
+  }
+
+  return client;
 }
 
 // In dev: if cached client is missing newer models (e.g. after schema change + prisma generate),
