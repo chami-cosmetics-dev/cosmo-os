@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { cuidSchema } from "@/lib/validation";
+import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
 export type OrdersPageParams = {
