@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isDatabaseUnavailableError } from "@/lib/db-observability";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext } from "@/lib/rbac";
 
@@ -34,7 +35,10 @@ export async function GET() {
     }
 
     return NextResponse.redirect(company.faviconUrl, 302);
-  } catch {
+  } catch (error) {
+    if (!isDatabaseUnavailableError(error)) {
+      console.error("Failed to load favicon redirect:", error);
+    }
     return new NextResponse(null, { status: 404 });
   }
 }
