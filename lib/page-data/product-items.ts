@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cuidSchema } from "@/lib/validation";
+import { maybeLogSlowDbRequest } from "@/lib/db-observability";
 
 export type ProductItemsPageParams = {
   page?: number;
@@ -14,6 +15,7 @@ export type ProductItemsPageParams = {
 };
 
 export async function fetchProductItemsPageData(companyId: string, params: ProductItemsPageParams = {}) {
+  const startedAt = Date.now();
   const page = params.page ?? 1;
   const limit = params.limit ?? 10;
   const sortOrder = params.sortOrder ?? "asc";
@@ -111,6 +113,13 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     compareAtPrice: item.compareAtPrice?.toString() ?? null,
     companyLocation: item.companyLocation ? { name: item.companyLocation.name } : null,
   }));
+
+  maybeLogSlowDbRequest("product_items.page_data", startedAt, {
+    companyId,
+    page,
+    limit,
+    total,
+  });
 
   return {
     items,
