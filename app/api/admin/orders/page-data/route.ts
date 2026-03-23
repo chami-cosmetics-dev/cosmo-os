@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
 import { fetchOrdersPageData } from "@/lib/page-data/orders";
 import { requirePermission } from "@/lib/rbac";
@@ -12,8 +13,13 @@ import {
 } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
+  const perf = createPerfLogger("api.admin.orders.page-data.GET", {
+    path: request.nextUrl.pathname,
+  });
   const auth = await requirePermission("orders.read");
+  perf.mark("auth");
   if (!auth.ok) {
+    perf.end({ status: auth.status, ok: false });
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
@@ -22,9 +28,11 @@ export async function GET(request: NextRequest) {
     where: { id: userId },
     select: { companyId: true },
   });
+  perf.mark("load-company");
 
   const companyId = user?.companyId ?? null;
   if (!companyId) {
+    perf.end({ status: 404, ok: false });
     return NextResponse.json(
       { error: "No company associated with your account" },
       { status: 404 }
@@ -59,6 +67,8 @@ export async function GET(request: NextRequest) {
     createdTo: createdToResult.success ? createdToResult.data : undefined,
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
   });
+  perf.mark("query");
 
+  perf.end({ status: 200, ok: true, page: data.page, limit: data.limit, total: data.total });
   return NextResponse.json(data);
 }
