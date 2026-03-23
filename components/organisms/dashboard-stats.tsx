@@ -70,29 +70,8 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
     try {
       const pageSize = 100;
       const maxPages = 12;
-      let page = 1;
-      let total = 0;
-      const collected: LiveOrder[] = [];
-
-      do {
-        const params = new URLSearchParams({
-          page: String(page),
-          limit: String(pageSize),
-          sort_by: "created",
-          sort_order: "desc",
-        });
-
-        const response = await fetch(`/api/admin/orders/page-data?${params.toString()}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          throw new Error("Failed to fetch live dashboard data");
-        }
-
-        const data = (await response.json()) as OrdersPageDataResponse;
-        total = data.total ?? 0;
-
-        const normalized = (data.orders ?? []).map((order) => ({
+      const normalizeOrders = (orders: OrdersPageDataResponse["orders"]): LiveOrder[] =>
+        (orders ?? []).map((order) => ({
           id: order.id,
           totalPrice: Number(order.totalPrice) || 0,
           createdAt: order.createdAt,
@@ -104,15 +83,56 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             order.assignedMerchant?.email ??
             "Unassigned",
         }));
-        collected.push(...normalized);
-        page += 1;
 
-        if (page > maxPages) break;
-      } while ((page - 1) * pageSize < total);
+      const firstParams = new URLSearchParams({
+        page: "1",
+        limit: String(pageSize),
+        sort_by: "created",
+        sort_order: "desc",
+      });
 
+      const firstResponse = await fetch(`/api/admin/orders/page-data?${firstParams.toString()}`, {
+        cache: "no-store",
+      });
+      if (!firstResponse.ok) {
+        throw new Error("Failed to fetch live dashboard data");
+      }
+
+      const firstData = (await firstResponse.json()) as OrdersPageDataResponse;
+      const total = firstData.total ?? 0;
+      const collected = normalizeOrders(firstData.orders);
+
+      // Render quickly with first page, then enrich with remaining pages.
       setLiveOrders(collected);
-      setLastUpdatedAt(new Date().toISOString());
       setLiveLoaded(true);
+
+      const totalPages = Math.min(maxPages, Math.max(1, Math.ceil(total / pageSize)));
+      if (totalPages > 1) {
+        const pageRequests: Promise<LiveOrder[]>[] = [];
+        for (let page = 2; page <= totalPages; page += 1) {
+          const params = new URLSearchParams({
+            page: String(page),
+            limit: String(pageSize),
+            sort_by: "created",
+            sort_order: "desc",
+          });
+          pageRequests.push(
+            fetch(`/api/admin/orders/page-data?${params.toString()}`, { cache: "no-store" })
+              .then(async (response) => {
+                if (!response.ok) return [];
+                const data = (await response.json()) as OrdersPageDataResponse;
+                return normalizeOrders(data.orders);
+              })
+              .catch(() => [])
+          );
+        }
+
+        const restPages = await Promise.all(pageRequests);
+        const merged = collected.concat(...restPages);
+        setLiveOrders(merged);
+      }
+
+      setLastUpdatedAt(new Date().toISOString());
     } catch {
       setLiveError("Live data unavailable.");
       setLiveLoaded(true);

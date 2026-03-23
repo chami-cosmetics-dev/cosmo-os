@@ -1,21 +1,22 @@
 import { prisma } from "@/lib/prisma";
 import { auth0 } from "@/lib/auth0";
 import { DashboardStats } from "@/components/organisms/dashboard-stats";
+import { getCurrentUserContext } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const session = await auth0.getSession();
-  const user = session?.user ? await prisma.user.findUnique({
-    where: { auth0Id: session.user.sub! },
-    select: { companyId: true },
-  }) : null;
+  const [session, context] = await Promise.all([
+    auth0.getSession(),
+    getCurrentUserContext(),
+  ]);
+  const companyId = context?.user?.companyId ?? null;
 
   let items: Array<{ id: string; name: string; createdAt?: string }> = [];
-  if (user?.companyId) {
+  if (session?.user && companyId) {
     try {
       const productItems = await prisma.productItem.findMany({
-        where: { companyId: user.companyId },
+        where: { companyId },
         orderBy: { updatedAt: "desc" },
         take: 5,
         select: {
