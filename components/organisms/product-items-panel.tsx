@@ -86,11 +86,8 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     return () => clearTimeout(t);
   }, [search]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter, sortBy, sortOrder]);
-
   const fetchPageData = useCallback(async () => {
+    setLoading(true);
     const params = new URLSearchParams();
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     if (locationFilter) params.set("location_id", locationFilter);
@@ -106,6 +103,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load items");
+      setLoading(false);
       return;
     }
     const data = (await res.json()) as {
@@ -122,6 +120,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     setLocations(data.locations ?? []);
     setVendors(data.vendors ?? []);
     setCategories(data.categories ?? []);
+    setLoading(false);
   }, [debouncedSearch, locationFilter, vendorFilter, categoryFilter, page, limit, sortBy, sortOrder]);
 
   const skippedInitialFetch = useRef(false);
@@ -131,21 +130,13 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
       return;
     }
     skippedInitialFetch.current = true;
-    let cancelled = false;
-    setLoading(true);
-    fetchPageData()
-      .then(() => {
-        if (!cancelled) setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLoading(false);
-          notify.error("Failed to load data");
-        }
+    const timer = setTimeout(() => {
+      fetchPageData().catch(() => {
+        notify.error("Failed to load data");
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchPageData, initialData]);
 
   function handlePageChange(newPage: number) {
@@ -227,15 +218,19 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                 <Input
                   placeholder="Search by title, variant, or SKU..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   className="pl-9"
                 />
               </div>
               <Select
                 value={locationFilter || ALL_FILTER_VALUE}
-                onValueChange={(value) =>
-                  setLocationFilter(value === ALL_FILTER_VALUE ? "" : value)
-                }
+                onValueChange={(value) => {
+                  setLocationFilter(value === ALL_FILTER_VALUE ? "" : value);
+                  setPage(1);
+                }}
               >
                 <SelectTrigger className="w-full sm:w-52">
                   <SelectValue placeholder="All locations" />
@@ -251,9 +246,10 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
               </Select>
               <Select
                 value={vendorFilter || ALL_FILTER_VALUE}
-                onValueChange={(value) =>
-                  setVendorFilter(value === ALL_FILTER_VALUE ? "" : value)
-                }
+                onValueChange={(value) => {
+                  setVendorFilter(value === ALL_FILTER_VALUE ? "" : value);
+                  setPage(1);
+                }}
               >
                 <SelectTrigger className="w-full sm:w-48">
                   <SelectValue placeholder="All vendors" />
@@ -269,9 +265,10 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
               </Select>
               <Select
                 value={categoryFilter || ALL_FILTER_VALUE}
-                onValueChange={(value) =>
-                  setCategoryFilter(value === ALL_FILTER_VALUE ? "" : value)
-                }
+                onValueChange={(value) => {
+                  setCategoryFilter(value === ALL_FILTER_VALUE ? "" : value);
+                  setPage(1);
+                }}
               >
                 <SelectTrigger className="w-full sm:w-52">
                   <SelectValue placeholder="All categories" />

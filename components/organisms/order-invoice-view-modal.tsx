@@ -61,6 +61,8 @@ type OrderDetail = {
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  paymentGatewayNames?: string[];
+  paymentGatewayPrimary?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -506,6 +508,14 @@ export function OrderInvoiceViewModal({
                   <div>
                     <span className="text-muted-foreground text-xs">Source</span>
                     <p>{orderDetail.sourceName}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-xs">Payment gateways</span>
+                    <p>
+                      {orderDetail.paymentGatewayNames && orderDetail.paymentGatewayNames.length > 0
+                        ? orderDetail.paymentGatewayNames.join(", ")
+                        : orderDetail.paymentGatewayPrimary ?? "—"}
+                    </p>
                   </div>
                   <div>
                     <span className="text-muted-foreground text-xs">Location</span>

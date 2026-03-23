@@ -42,6 +42,7 @@ model Company {
   smsPortalConfig        SmsPortalConfig?
   users                  User[]                  @relation("CompanyMembers")
   vendors                Vendor[]
+  contacts               ContactMaster[]
 }
 
 model FailedOrderWebhook {
@@ -57,6 +58,9 @@ model FailedOrderWebhook {
   createdAt         DateTime        @default(now())
   company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, resolvedAt, createdAt(sort: Desc)])
+  @@index([companyId, createdAt(sort: Desc)])
 }
 
 model ShopifyWebhookSecret {
@@ -124,6 +128,10 @@ model ProductItem {
   sampleFreeIssueItems SampleFreeIssueItem[]
 
   @@unique([companyLocationId, shopifyVariantId])
+  @@index([companyId, productTitle, variantTitle])
+  @@index([companyId, companyLocationId])
+  @@index([companyId, vendorId])
+  @@index([companyId, categoryId])
 }
 
 model Invite {
@@ -215,6 +223,8 @@ model CompanyLocation {
   productItems            ProductItem[]
   stickerBatchItems       StickerBatchItem[]
   smsNotificationConfigs  SmsNotificationConfig[]
+
+  @@index([shopifyLocationId])
 }
 
 model Customer {
@@ -255,6 +265,10 @@ model Order {
   currency                     String?
   financialStatus              String?
   fulfillmentStatus            String?
+  /// Shopify `payment_gateway_names` (deduped, trimmed). Empty when unknown.
+  paymentGatewayNames          String[]                 @default([])
+  /// First gateway in `paymentGatewayNames` — used for aggregates (one amount per order).
+  paymentGatewayPrimary        String?
   customerEmail                String?
   customerPhone                String?
   shippingAddress              Json?
@@ -300,6 +314,13 @@ model Order {
   lineItems                    OrderLineItem[]
   remarks                      OrderRemark[]
   sampleFreeIssues             OrderSampleFreeIssue[]
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
+  @@index([companyId, companyLocationId, createdAt(sort: Desc)])
+  @@index([companyId, assignedMerchantId, createdAt(sort: Desc)])
+  @@index([companyId, customerEmail, createdAt(sort: Desc)])
+  @@index([companyId, customerPhone, createdAt(sort: Desc)])
 }
 
 model OrderLineItem {
@@ -618,8 +639,10 @@ model ContactMaster {
   recentMerchant String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, lastPurchaseAt])
-  @@index([email])
-  @@index([phoneNumber])
+  @@index([companyId, updatedAt(sort: Desc)])
+  @@index([companyId, email])
+  @@index([companyId, phoneNumber])
 }
