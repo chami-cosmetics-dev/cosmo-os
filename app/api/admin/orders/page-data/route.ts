@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createPerfLogger } from "@/lib/perf";
-import { prisma } from "@/lib/prisma";
 import { fetchOrdersPageData } from "@/lib/page-data/orders";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -23,14 +22,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const userId = auth.context!.user!.id;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
+  const companyId = auth.context!.user!.companyId ?? null;
   perf.mark("load-company");
-
-  const companyId = user?.companyId ?? null;
   if (!companyId) {
     perf.end({ status: 404, ok: false });
     return NextResponse.json(

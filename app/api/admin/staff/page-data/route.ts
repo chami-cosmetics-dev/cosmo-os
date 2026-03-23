@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createPerfLogger } from "@/lib/perf";
-import { prisma } from "@/lib/prisma";
 import { fetchStaffPageData } from "@/lib/page-data/staff";
 import { requirePermission } from "@/lib/rbac";
 import { limitSchema, pageSchema, sortOrderSchema } from "@/lib/validation";
@@ -17,17 +16,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const userId = auth.context!.user!.id;
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
 
   let companyId: string | null = null;
   if (!isSuperAdmin) {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { companyId: true },
-    });
-    companyId = user?.companyId ?? null;
+    companyId = auth.context!.user!.companyId ?? null;
     perf.mark("load-company");
     if (!companyId) {
       perf.end({ status: 404, ok: false });

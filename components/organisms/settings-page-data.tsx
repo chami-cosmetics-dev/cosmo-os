@@ -27,14 +27,19 @@ export type SettingsPageData = {
 
 interface SettingsPageDataProps {
   canEdit: boolean;
+  initialData?: SettingsPageData | null;
 }
 
-export function SettingsPageData({ canEdit }: SettingsPageDataProps) {
-  const [data, setData] = useState<SettingsPageData | null>(null);
-  const [loading, setLoading] = useState(true);
+export function SettingsPageData({ canEdit, initialData = null }: SettingsPageDataProps) {
+  const [data, setData] = useState<SettingsPageData | null>(initialData);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (initialData) {
+      return;
+    }
+
     async function fetchData() {
       try {
         const res = await fetch("/api/admin/settings/page-data");
@@ -52,7 +57,7 @@ export function SettingsPageData({ canEdit }: SettingsPageDataProps) {
       }
     }
     fetchData();
-  }, []);
+  }, [initialData]);
 
   if (loading) {
     return (
