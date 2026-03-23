@@ -49,9 +49,8 @@ export async function GET(request: NextRequest) {
     status === "resolved"
       ? { companyId, resolvedAt: { not: null } }
       : { companyId, resolvedAt: null };
-  const summaryScanLimit = 2000;
 
-  const [total, failed, failedForSummary, aggregateRange, topicGroups] = await Promise.all([
+  const [total, failed, failedForSummary] = await Promise.all([
     prisma.failedOrderWebhook.count({
       where,
     }),
@@ -68,26 +67,12 @@ export async function GET(request: NextRequest) {
     }),
     prisma.failedOrderWebhook.findMany({
       where,
-      orderBy: { createdAt: "desc" },
-      take: summaryScanLimit,
       select: {
         shopifyOrderId: true,
         shopifyTopic: true,
         errorMessage: true,
         createdAt: true,
       },
-    }),
-    prisma.failedOrderWebhook.aggregate({
-      where,
-      _min: { createdAt: true },
-      _max: { createdAt: true },
-    }),
-    prisma.failedOrderWebhook.groupBy({
-      by: ["shopifyTopic"],
-      where,
-      _count: { _all: true },
-      orderBy: { _count: { shopifyTopic: "desc" } },
-      take: 5,
     }),
   ]);
 
@@ -103,17 +88,26 @@ export async function GET(request: NextRequest) {
   }));
 
   const distinctOrderIds = new Set<string>();
+  const topicCounts = new Map<string, number>();
   const failureTypeCounts = new Map<string, number>();
   const messageCounts = new Map<string, number>();
+  let oldestFailureAt: Date | null = null;
+  let newestFailureAt: Date | null = null;
 
   for (const row of failedForSummary) {
     distinctOrderIds.add(row.shopifyOrderId);
+
+    const topic = row.shopifyTopic?.trim() || "unknown";
+    topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
 
     const failureType = classifyFailure(row.errorMessage);
     failureTypeCounts.set(failureType, (failureTypeCounts.get(failureType) ?? 0) + 1);
 
     const normalizedMessage = normalizeMessage(row.errorMessage);
     messageCounts.set(normalizedMessage, (messageCounts.get(normalizedMessage) ?? 0) + 1);
+
+    if (!oldestFailureAt || row.createdAt < oldestFailureAt) oldestFailureAt = row.createdAt;
+    if (!newestFailureAt || row.createdAt > newestFailureAt) newestFailureAt = row.createdAt;
   }
 
   const sortedEntries = (map: Map<string, number>) =>
@@ -130,11 +124,9 @@ export async function GET(request: NextRequest) {
     summary: {
       totalWebhooks: total,
       uniqueOrders: distinctOrderIds.size,
-      summarySampleSize: failedForSummary.length,
-      summarySampled: total > summaryScanLimit,
-      topTopics: topicGroups.map((group) => ({
-        topic: group.shopifyTopic?.trim() || "unknown",
-        count: group._count._all,
+      topTopics: sortedEntries(topicCounts).slice(0, 5).map((item) => ({
+        topic: item.key,
+        count: item.count,
       })),
       topFailureTypes: sortedEntries(failureTypeCounts).slice(0, 5).map((item) => ({
         type: item.key,
@@ -144,8 +136,8 @@ export async function GET(request: NextRequest) {
         message: item.key,
         count: item.count,
       })),
-      oldestFailureAt: aggregateRange._min.createdAt?.toISOString() ?? null,
-      newestFailureAt: aggregateRange._max.createdAt?.toISOString() ?? null,
+      oldestFailureAt: oldestFailureAt?.toISOString() ?? null,
+      newestFailureAt: newestFailureAt?.toISOString() ?? null,
     },
   });
 }

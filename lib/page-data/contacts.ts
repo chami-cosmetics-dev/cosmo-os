@@ -1,6 +1,5 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { maybeLogSlowDbRequest } from "@/lib/db-observability";
 
 const ACTIVE_WINDOW_DAYS = 180;
 
@@ -25,7 +24,6 @@ export type ContactsPageParams = {
 };
 
 export async function fetchContactsPageData(companyId: string, params: ContactsPageParams = {}) {
-  const startedAt = Date.now();
   const page = params.page ?? 1;
   const limit = params.limit ?? 10;
   const sortOrder = params.sortOrder ?? "desc";
@@ -92,7 +90,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
     }),
   ]);
 
-  const payload = {
+  return {
     contacts: contacts.map((contact) => ({
       ...contact,
       status: deriveStatus(contact.lastPurchaseAt),
@@ -110,12 +108,4 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
       neverPurchased: neverPurchasedCount,
     },
   };
-  maybeLogSlowDbRequest("contacts.page_data", startedAt, {
-    companyId,
-    page,
-    limit,
-    total,
-  });
-
-  return payload;
 }

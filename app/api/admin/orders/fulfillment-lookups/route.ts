@@ -3,19 +3,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
-type FulfillmentLookupsPayload = {
-  samplesFreeIssues: Array<{ id: string; name: string; type: "sample" | "free_issue" }>;
-  packageHoldReasons: Array<{ id: string; name: string }>;
-  courierServices: Array<{ id: string; name: string }>;
-  riders: Array<{ id: string; name: string | null; mobile: string | null }>;
-};
-
-const LOOKUPS_TTL_MS = 30_000;
-const lookupsCache = new Map<
-  string,
-  { expiresAt: number; payload: FulfillmentLookupsPayload }
->();
-
 export async function GET() {
   const auth = await requireAnyPermission([
     "orders.read",
@@ -40,11 +27,6 @@ export async function GET() {
       { error: "No company associated with your account" },
       { status: 404 }
     );
-  }
-
-  const cached = lookupsCache.get(companyId);
-  if (cached && cached.expiresAt > Date.now()) {
-    return NextResponse.json(cached.payload);
   }
 
   const [samplesFreeIssues, packageHoldReasons, courierServices, riders] =
@@ -74,16 +56,10 @@ export async function GET() {
       }),
     ]);
 
-  const payload: FulfillmentLookupsPayload = {
+  return NextResponse.json({
     samplesFreeIssues,
     packageHoldReasons,
     courierServices,
     riders,
-  };
-  lookupsCache.set(companyId, {
-    expiresAt: Date.now() + LOOKUPS_TTL_MS,
-    payload,
   });
-
-  return NextResponse.json(payload);
 }

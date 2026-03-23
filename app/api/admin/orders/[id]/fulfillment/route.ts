@@ -176,41 +176,35 @@ export async function PATCH(
         );
       }
 
-      const sampleIds = Array.from(
-        new Set(data.samples.map((sample) => sample.sampleFreeIssueItemId))
-      );
-      const validItems = await prisma.sampleFreeIssueItem.findMany({
-        where: { companyId, id: { in: sampleIds } },
-        select: { id: true },
-      });
-      const validItemIds = new Set(validItems.map((item) => item.id));
-      const missingSample = sampleIds.find((sampleId) => !validItemIds.has(sampleId));
-      if (missingSample) {
-        return NextResponse.json(
-          { error: `Sample/free issue item not found: ${missingSample}` },
-          { status: 400 }
-        );
+      for (const s of data.samples) {
+        const item = await prisma.sampleFreeIssueItem.findFirst({
+          where: { id: s.sampleFreeIssueItemId, companyId },
+        });
+        if (!item) {
+          return NextResponse.json(
+            { error: `Sample/free issue item not found: ${s.sampleFreeIssueItemId}` },
+            { status: 400 }
+          );
+        }
       }
 
-      await prisma.$transaction(
-        data.samples.map((sample) =>
-          prisma.orderSampleFreeIssue.upsert({
-            where: {
-              orderId_sampleFreeIssueItemId: {
-                orderId: order.id,
-                sampleFreeIssueItemId: sample.sampleFreeIssueItemId,
-              },
-            },
-            create: {
+      for (const s of data.samples) {
+        await prisma.orderSampleFreeIssue.upsert({
+          where: {
+            orderId_sampleFreeIssueItemId: {
               orderId: order.id,
-              sampleFreeIssueItemId: sample.sampleFreeIssueItemId,
-              quantity: sample.quantity,
-              addedById: auth.context!.user!.id,
+              sampleFreeIssueItemId: s.sampleFreeIssueItemId,
             },
-            update: { quantity: sample.quantity },
-          })
-        )
-      );
+          },
+          create: {
+            orderId: order.id,
+            sampleFreeIssueItemId: s.sampleFreeIssueItemId,
+            quantity: s.quantity,
+            addedById: auth.context!.user!.id,
+          },
+          update: { quantity: s.quantity },
+        });
+      }
 
       if (order.fulfillmentStage === "order_received") {
         await prisma.order.update({

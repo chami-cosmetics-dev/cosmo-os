@@ -1,18 +1,5 @@
-type UserPermissionContext = {
-  permissionKeys?: string[];
-  roleNames?: string[];
-} | null;
-
-function hasPermission(context: UserPermissionContext, permissionKey: string) {
-  if (!context) {
-    return false;
-  }
-  const roleNames = context.roleNames ?? [];
-  if (roleNames.includes("super_admin") || roleNames.includes("admin")) {
-    return true;
-  }
-  return (context.permissionKeys ?? []).includes(permissionKey);
-}
+import type { getCurrentUserContext } from "@/lib/rbac";
+import { hasPermission } from "@/lib/rbac";
 
 export type FulfillmentPermissions = {
   canManageSampleFreeIssue: boolean;
@@ -46,10 +33,10 @@ function stageToPermissionKey(stage: string): string {
  * Pass this serializable array to client components instead of a function.
  */
 export function getRevertPermissionKeys(
-  context: UserPermissionContext
+  context: Awaited<ReturnType<typeof getCurrentUserContext>>
 ): string[] {
   if (!context) return [];
-  const keys = context.permissionKeys ?? [];
+  const keys = context.permissionKeys as string[];
   return keys.filter((k) => k.startsWith("fulfillment.revert_to."));
 }
 
@@ -79,7 +66,7 @@ export function createCanRevertToStageFromKeys(
 }
 
 export function buildFulfillmentPermissions(
-  context: UserPermissionContext
+  context: Awaited<ReturnType<typeof getCurrentUserContext>>
 ): FulfillmentPermissions {
   if (!context) {
     return {
@@ -135,7 +122,7 @@ export type FulfillmentNavPermissions = {
 };
 
 export function buildFulfillmentNavPermissions(
-  context: UserPermissionContext
+  context: Awaited<ReturnType<typeof getCurrentUserContext>>
 ): FulfillmentNavPermissions {
   if (!context) {
     return {

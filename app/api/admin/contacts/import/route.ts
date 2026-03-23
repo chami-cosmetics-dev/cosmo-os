@@ -80,10 +80,6 @@ function normalizeNullable(value: string) {
   return v.length > 0 ? v : null;
 }
 
-function toPairKey(email: string | null, phoneNumber: string | null) {
-  return `${email ?? ""}|${phoneNumber ?? ""}`;
-}
-
 export async function POST(request: NextRequest) {
   const auth = await requirePermission("orders.manage");
   if (!auth.ok) {
@@ -126,114 +122,56 @@ export async function POST(request: NextRequest) {
   let updated = 0;
   let skipped = 0;
 
-  const normalizedRows = rows
-    .map((row) => ({
-      name: pickValue(row, ["name", "full_name", "customer_name"]).trim(),
-      email: normalizeNullable(pickValue(row, ["email", "email_address"]).toLowerCase()),
-      phoneNumber: normalizeNullable(pickValue(row, ["phone", "phone_number", "mobile"])),
-      recentMerchant: normalizeNullable(
-        pickValue(row, ["recent_merchant", "recent_merchant_name", "merchant", "agent"])
-      ),
-    }))
-    .filter((row) => {
-      if (!row.name || (!row.email && !row.phoneNumber)) {
-        skipped += 1;
-        return false;
-      }
-      return true;
-    });
+  for (const row of rows) {
+    const name = pickValue(row, ["name", "full_name", "customer_name"]).trim();
+    const email = normalizeNullable(pickValue(row, ["email", "email_address"]).toLowerCase());
+    const phoneNumber = normalizeNullable(pickValue(row, ["phone", "phone_number", "mobile"]));
+    const recentMerchant = normalizeNullable(
+      pickValue(row, ["recent_merchant", "recent_merchant_name", "merchant", "agent"])
+    );
+    const lastPurchaseAt = await getLatestOrderPurchaseAt(companyId, email, phoneNumber);
 
-  const uniqueEmails = Array.from(
-    new Set(normalizedRows.map((row) => row.email).filter((v): v is string => Boolean(v)))
-  );
-  const uniquePhones = Array.from(
-    new Set(normalizedRows.map((row) => row.phoneNumber).filter((v): v is string => Boolean(v)))
-  );
-
-  const existingCandidates =
-    uniqueEmails.length > 0 || uniquePhones.length > 0
-      ? await prisma.contactMaster.findMany({
-          where: {
-            companyId,
-            OR: [
-              ...(uniqueEmails.length > 0 ? [{ email: { in: uniqueEmails } }] : []),
-              ...(uniquePhones.length > 0 ? [{ phoneNumber: { in: uniquePhones } }] : []),
-            ],
-          },
-          select: { id: true, email: true, phoneNumber: true },
-        })
-      : [];
-
-  const contactIdByEmail = new Map<string, string>();
-  const contactIdByPhone = new Map<string, string>();
-  for (const row of existingCandidates) {
-    if (row.email) contactIdByEmail.set(row.email.toLowerCase(), row.id);
-    if (row.phoneNumber) contactIdByPhone.set(row.phoneNumber, row.id);
-  }
-
-  const purchaseCache = new Map<string, Date | null>();
-
-  for (const row of normalizedRows) {
-    const key = toPairKey(row.email, row.phoneNumber);
-    const cachedPurchase = purchaseCache.get(key);
-    const lastPurchaseAt =
-      cachedPurchase !== undefined
-        ? cachedPurchase
-        : await getLatestOrderPurchaseAt(companyId, row.email, row.phoneNumber);
-    purchaseCache.set(key, lastPurchaseAt);
-
-    let existingId =
-      (row.email ? contactIdByEmail.get(row.email.toLowerCase()) : undefined) ??
-      (row.phoneNumber ? contactIdByPhone.get(row.phoneNumber) : undefined);
-
-    if (!existingId) {
-      const fallback = await prisma.contactMaster.findFirst({
-        where: {
-          companyId,
-          OR: [
-            ...(row.email ? [{ email: { equals: row.email, mode: "insensitive" as const } }] : []),
-            ...(row.phoneNumber ? [{ phoneNumber: row.phoneNumber }] : []),
-          ],
-        },
-        select: { id: true, email: true, phoneNumber: true },
-      });
-      if (fallback) {
-        existingId = fallback.id;
-        if (fallback.email) contactIdByEmail.set(fallback.email.toLowerCase(), fallback.id);
-        if (fallback.phoneNumber) contactIdByPhone.set(fallback.phoneNumber, fallback.id);
-      }
+    if (!name || (!email && !phoneNumber)) {
+      skipped += 1;
+      continue;
     }
 
-    if (existingId) {
+    const existing = await prisma.contactMaster.findFirst({
+      where: {
+        companyId,
+        OR: [
+          ...(email ? [{ email: { equals: email, mode: "insensitive" as const } }] : []),
+          ...(phoneNumber ? [{ phoneNumber }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (existing) {
       await prisma.contactMaster.update({
-        where: { id: existingId },
+        where: { id: existing.id },
         data: {
-          name: row.name,
-          email: row.email,
-          phoneNumber: row.phoneNumber,
-          recentMerchant: row.recentMerchant,
+          name,
+          email,
+          phoneNumber,
+          recentMerchant,
           lastPurchaseAt,
         },
       });
-      if (row.email) contactIdByEmail.set(row.email.toLowerCase(), existingId);
-      if (row.phoneNumber) contactIdByPhone.set(row.phoneNumber, existingId);
       updated += 1;
       continue;
     }
 
-    const createdContact = await prisma.contactMaster.create({
+    await prisma.contactMaster.create({
       data: {
         companyId,
-        name: row.name,
-        email: row.email,
-        phoneNumber: row.phoneNumber,
-        recentMerchant: row.recentMerchant,
+        name,
+        email,
+        phoneNumber,
+        recentMerchant,
         lastPurchaseAt,
       },
-      select: { id: true },
     });
-    if (row.email) contactIdByEmail.set(row.email.toLowerCase(), createdContact.id);
-    if (row.phoneNumber) contactIdByPhone.set(row.phoneNumber, createdContact.id);
     created += 1;
   }
 

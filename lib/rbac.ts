@@ -1,7 +1,5 @@
-import "server-only";
 import { cache } from "react";
 import { auth0 } from "@/lib/auth0";
-import { isDatabaseUnavailableError } from "@/lib/db-observability";
 import { prisma } from "@/lib/prisma";
 
 const DEFAULT_PERMISSIONS = [
@@ -272,18 +270,8 @@ function normalizeRoleName(input: string) {
 /** Cached promise so setup runs only once per process. */
 let rbacSetupPromise: Promise<void> | null = null;
 let hasVerifiedDefaultRbacSetup = false;
-let rbacDatabaseUnavailableUntil = 0;
 
 const EXPECTED_PERMISSION_COUNT = DEFAULT_PERMISSIONS.length;
-const RBAC_DB_RETRY_MS = Number(process.env.RBAC_DB_RETRY_MS ?? "15000");
-
-function isRbacDatabaseTemporarilyUnavailable() {
-  return Date.now() < rbacDatabaseUnavailableUntil;
-}
-
-function markRbacDatabaseUnavailable() {
-  rbacDatabaseUnavailableUntil = Date.now() + RBAC_DB_RETRY_MS;
-}
 
 /**
  * Ensures RBAC setup runs when needed. Uses a fast DB count check so we skip the
@@ -291,24 +279,17 @@ function markRbacDatabaseUnavailable() {
  * dev workers (each has its own process-level cache).
  */
 async function ensureDefaultRbacSetupIfNeeded() {
-  if (hasVerifiedDefaultRbacSetup || isRbacDatabaseTemporarilyUnavailable()) {
+  if (hasVerifiedDefaultRbacSetup) {
     return;
   }
 
   if (!rbacSetupPromise) {
     rbacSetupPromise = (async () => {
-      try {
-        const count = await prisma.permission.count();
-        if (count < EXPECTED_PERMISSION_COUNT) {
-          await ensureDefaultRbacSetup();
-        }
-        hasVerifiedDefaultRbacSetup = true;
-      } catch (error) {
-        if (isDatabaseUnavailableError(error)) {
-          markRbacDatabaseUnavailable();
-        }
-        throw error;
+      const count = await prisma.permission.count();
+      if (count < EXPECTED_PERMISSION_COUNT) {
+        await ensureDefaultRbacSetup();
       }
+      hasVerifiedDefaultRbacSetup = true;
     })().finally(() => {
       rbacSetupPromise = null;
     });
@@ -373,7 +354,7 @@ export async function syncSessionUser(sessionUser: SessionUser) {
   if (!sessionUser.sub) {
     return null;
   }
-  if (!isRbacPrismaReady() || isRbacDatabaseTemporarilyUnavailable()) {
+  if (!isRbacPrismaReady()) {
     return null;
   }
 
@@ -497,9 +478,7 @@ async function getCurrentUserContextImpl(session?: SessionLike | null) {
       roleNames,
     };
   } catch (error) {
-    if (isDatabaseUnavailableError(error)) {
-      markRbacDatabaseUnavailable();
-    } else if (!isMissingRbacTableError(error)) {
+    if (!isMissingRbacTableError(error)) {
       console.error("Failed to build RBAC context:", error);
     }
     return {

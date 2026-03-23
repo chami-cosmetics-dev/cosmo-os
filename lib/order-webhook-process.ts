@@ -130,20 +130,13 @@ export async function processOrderWebhook(
     }
   }
 
-  const incomingLineItemIds = Array.from(
-    new Set(data.line_items.map((lineItem) => String(lineItem.id)))
-  );
+  await prisma.orderLineItem.deleteMany({
+    where: { orderId: order.id },
+  });
+
   for (const lineItem of data.line_items) {
     await ensureProductItemAndCreateLineItem(order, lineItem, location);
   }
-  await prisma.orderLineItem.deleteMany({
-    where: {
-      orderId: order.id,
-      ...(incomingLineItemIds.length > 0
-        ? { shopifyLineItemId: { notIn: incomingLineItemIds } }
-        : {}),
-    },
-  });
 
   if (isNewOrder) {
     const addr = data.shipping_address as { name?: string; first_name?: string; last_name?: string } | undefined;

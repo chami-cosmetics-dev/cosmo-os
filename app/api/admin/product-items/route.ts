@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { cuidSchema, limitSchema, pageSchema } from "@/lib/validation";
+import { cuidSchema } from "@/lib/validation";
 
 async function getCompanyId(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
@@ -31,13 +31,6 @@ export async function GET(request: NextRequest) {
   const vendorId = request.nextUrl.searchParams.get("vendor_id");
   const categoryId = request.nextUrl.searchParams.get("category_id");
   const search = request.nextUrl.searchParams.get("search")?.trim();
-  const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
-  const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
-  const usePaginatedShape =
-    request.nextUrl.searchParams.has("page") || request.nextUrl.searchParams.has("limit");
-  const page = pageResult.success ? pageResult.data : 1;
-  const limit = limitResult.success ? limitResult.data : 50;
-  const skip = (page - 1) * limit;
 
   const where: Prisma.ProductItemWhereInput = {
     companyId,
@@ -72,29 +65,15 @@ export async function GET(request: NextRequest) {
     ];
   }
 
-  const [total, items] = await Promise.all([
-    prisma.productItem.count({ where }),
-    prisma.productItem.findMany({
-      where,
-      orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }],
-      skip,
-      take: limit,
-      include: {
-        vendor: { select: { id: true, name: true } },
-        category: { select: { id: true, name: true, fullName: true } },
-        companyLocation: { select: { id: true, name: true, shopifyLocationId: true } },
-      },
-    }),
-  ]);
-
-  if (!usePaginatedShape) {
-    return NextResponse.json(items);
-  }
-
-  return NextResponse.json({
-    items,
-    total,
-    page,
-    limit,
+  const items = await prisma.productItem.findMany({
+    where,
+    orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }],
+    include: {
+      vendor: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, fullName: true } },
+      companyLocation: { select: { id: true, name: true, shopifyLocationId: true } },
+    },
   });
+
+  return NextResponse.json(items);
 }
