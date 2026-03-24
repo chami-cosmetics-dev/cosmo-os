@@ -1,11 +1,43 @@
 "use client";
 
-import { DashboardLocationMerchantCharts } from "@/components/organisms/dashboard-location-merchant-charts";
-import { DashboardSalesCharts } from "@/components/organisms/dashboard-sales-charts";
-import { DashboardSummaryCharts } from "@/components/organisms/dashboard-summary-charts";
+import dynamic from "next/dynamic";
+
 import { Card, CardContent } from "@/components/ui/card";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+
+const DashboardSummaryCharts = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-summary-charts").then((mod) => ({
+      default: mod.DashboardSummaryCharts,
+    })),
+  {
+    ssr: false,
+    loading: () => <DashboardCardPlaceholder heightClassName="h-[22rem]" />,
+  },
+);
+
+const DashboardSalesCharts = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-sales-charts").then((mod) => ({
+      default: mod.DashboardSalesCharts,
+    })),
+  {
+    ssr: false,
+    loading: () => <DashboardCardPlaceholder heightClassName="h-[28rem]" />,
+  },
+);
+
+const DashboardLocationMerchantCharts = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-location-merchant-charts").then((mod) => ({
+      default: mod.DashboardLocationMerchantCharts,
+    })),
+  {
+    ssr: false,
+    loading: () => <DashboardLocationChartsPlaceholder />,
+  },
+);
 
 /** Parallel route `@main` — sales charts driven by `@filters` state (client). */
 export function DashboardMainSlot() {
@@ -188,6 +220,44 @@ function DashboardDonutGrid({
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
+
+function DashboardCardPlaceholder({ heightClassName }: { heightClassName: string }) {
+  return (
+    <Card className="border-border/70 bg-card shadow-xs">
+      <CardContent className="space-y-4 p-4">
+        <div className="space-y-2">
+          <div className="bg-muted h-6 w-52 animate-pulse rounded" />
+          <div className="bg-muted h-4 w-72 animate-pulse rounded" />
+        </div>
+        <div className={`bg-muted/60 w-full animate-pulse rounded-xl ${heightClassName}`} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashboardLocationChartsPlaceholder() {
+  return (
+    <div className="space-y-6">
+      <DashboardCardPlaceholder heightClassName="h-[26rem]" />
+      <Card className="border-border/70 bg-card shadow-xs">
+        <CardContent className="space-y-4 pt-4 pb-4">
+          <div className="space-y-2">
+            <div className="bg-muted h-6 w-64 animate-pulse rounded" />
+            <div className="bg-muted h-4 w-80 animate-pulse rounded" />
+          </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="bg-muted/60 h-[22rem] animate-pulse rounded-xl border border-border/60"
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

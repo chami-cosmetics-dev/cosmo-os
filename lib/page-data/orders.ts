@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
+import { unstable_cache } from "next/cache";
+import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
@@ -33,8 +35,44 @@ async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<stri
   return rows.map((r) => r.name).filter((n) => n.length > 0);
 }
 
+const getOrdersPageLookups = unstable_cache(
+  async (companyId: string) => {
+    const gatewayColumns = await getOrderPaymentGatewayColumnState();
+    const [locations, merchants, paymentGatewayOptions] = await Promise.all([
+      prisma.companyLocation.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      prisma.user.findMany({
+        where: {
+          companyId,
+          OR: [
+            { shopifyUserIds: { isEmpty: false } },
+            { couponCodes: { isEmpty: false } },
+          ],
+        },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, email: true },
+      }),
+      gatewayColumns.hasPaymentGatewayNames
+        ? fetchDistinctPaymentGatewayNames(companyId)
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      locations,
+      merchants,
+      paymentGatewayOptions,
+    };
+  },
+  ["orders-page-lookups"],
+  { revalidate: 60 }
+);
+
 export async function fetchOrdersPageData(companyId: string, params: OrdersPageParams = {}) {
   const startedAt = Date.now();
+  const gatewayColumns = await getOrderPaymentGatewayColumnState();
   const page = params.page ?? 1;
   const limit = params.limit ?? 10;
   const sortOrder = params.sortOrder ?? "desc";
@@ -74,7 +112,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   }
 
   const gatewayParsed = orderPaymentGatewayFilterSchema.safeParse(params.paymentGateway ?? undefined);
-  if (gatewayParsed.success && gatewayParsed.data) {
+  if (
+    gatewayColumns.hasPaymentGatewayNames &&
+    gatewayParsed.success &&
+    gatewayParsed.data
+  ) {
     where.paymentGatewayNames = { has: gatewayParsed.data };
   }
 
@@ -115,7 +157,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     };
   }
 
-  const orderSelect: Prisma.OrderSelect = {
+  const orderSelect = {
     id: true,
     shopifyOrderId: true,
     orderNumber: true,
@@ -134,12 +176,12 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     companyLocation: { select: { id: true, name: true } },
     assignedMerchant: { select: { id: true, name: true, email: true } },
     packageHoldReason: { select: { id: true, name: true } },
-    paymentGatewayNames: true,
-    paymentGatewayPrimary: true,
     _count: { select: { lineItems: true } },
-  };
+    ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
+    ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
+  } satisfies Prisma.OrderSelect;
 
-  const [total, orders, locations, merchants, paymentGatewayOptions] = await Promise.all([
+  const [total, orders, lookups] = await Promise.all([
     prisma.order.count({ where }),
     prisma.order.findMany({
       where,
@@ -148,23 +190,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       take: limit,
       select: orderSelect,
     }),
-    prisma.companyLocation.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    prisma.user.findMany({
-      where: {
-        companyId,
-        OR: [
-          { shopifyUserIds: { isEmpty: false } },
-          { couponCodes: { isEmpty: false } },
-        ],
-      },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, email: true },
-    }),
-    fetchDistinctPaymentGatewayNames(companyId),
+    getOrdersPageLookups(companyId),
   ]);
 
   const ordersData = orders.map((o) => ({
@@ -187,8 +213,8 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     packageOnHoldAt: o.packageOnHoldAt?.toISOString() ?? null,
     packageHoldReason: o.packageHoldReason,
     fulfillmentStage: o.fulfillmentStage,
-    paymentGatewayNames: o.paymentGatewayNames,
-    paymentGatewayPrimary: o.paymentGatewayPrimary,
+    paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
+    paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
   }));
 
   maybeLogSlowDbRequest("orders.page_data", startedAt, {
@@ -203,8 +229,8 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     total,
     page,
     limit,
-    locations,
-    merchants,
-    paymentGatewayOptions,
+    locations: lookups.locations,
+    merchants: lookups.merchants,
+    paymentGatewayOptions: lookups.paymentGatewayOptions,
   };
 }

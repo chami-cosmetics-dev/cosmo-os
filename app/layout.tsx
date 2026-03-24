@@ -2,10 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import NextTopLoader from "nextjs-toploader";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/providers/theme-provider";
-import { Auth0ProviderWrapper } from "./auth0-provider";
-import { FaviconUpdater } from "@/components/providers/favicon-updater";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -47,11 +44,8 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <FaviconUpdater />
-          <TooltipProvider>
-            <Auth0ProviderWrapper>{children}</Auth0ProviderWrapper>
-            <Toaster richColors position="top-right" closeButton />
-          </TooltipProvider>
+          {children}
+          <Toaster richColors position="top-right" closeButton />
         </ThemeProvider>
       </body>
     </html>

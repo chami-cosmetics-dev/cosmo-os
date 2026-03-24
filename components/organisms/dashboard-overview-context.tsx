@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createClientPerfLogger } from "@/lib/client-perf";
 
 export type DashboardSalesLocation = {
   id: string;
@@ -47,6 +48,8 @@ function getDefaultDateRange() {
 }
 
 export function DashboardOverviewProvider({ children }: { children: ReactNode }) {
+  const pagePerfRef = useRef(createClientPerfLogger("dashboard.overview.mount"));
+  const fetchIdRef = useRef(0);
   const initialRange = useMemo(() => getDefaultDateRange(), []);
 
   const [fromDate, setFromDate] = useState(initialRange.fromDate);
@@ -57,8 +60,6 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
   const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>([]);
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
-
-  const fetchIdRef = useRef(0);
 
   const hasInvalidRange = new Date(fromDate) > new Date(toDate);
 
@@ -73,11 +74,18 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
   }, [fromDate, toDate, dateType]);
 
   const loadSales = useCallback(async () => {
+    const perf = createClientPerfLogger("dashboard.overview.fetch", {
+      analysisType,
+      dateType,
+      fromDate,
+      toDate,
+    });
     if (hasInvalidRange) {
       fetchIdRef.current += 1;
       setSalesLocations([]);
       setSalesError(null);
       setSalesLoading(false);
+      perf.end({ skipped: "invalid-range" });
       return;
     }
     const id = ++fetchIdRef.current;
@@ -91,6 +99,7 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
         analysis_type: analysisType,
       });
       const res = await fetch(`/api/admin/dashboard/sales-by-location?${params.toString()}`);
+      perf.mark("response");
       const body = (await res.json()) as {
         error?: string;
         locations?: Array<{
@@ -118,10 +127,12 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
           })),
         })),
       );
+      perf.end({ ok: true, locationCount: body.locations?.length ?? 0 });
     } catch (e) {
       if (id !== fetchIdRef.current) return;
       setSalesError(e instanceof Error ? e.message : "Failed to load dashboard sales");
       setSalesLocations([]);
+      perf.end({ ok: false, error: e instanceof Error ? e.message : "unknown" });
     } finally {
       if (id === fetchIdRef.current) setSalesLoading(false);
     }
@@ -130,6 +141,10 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
   useEffect(() => {
     void loadSales();
   }, [loadSales]);
+
+  useEffect(() => {
+    pagePerfRef.current.end({ hasInitialData: false });
+  }, []);
 
   const value = useMemo<DashboardOverviewContextValue>(
     () => ({

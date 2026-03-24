@@ -9,20 +9,13 @@ export async function GET() {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const userId = auth.context!.user!.id;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
-
-  if (!user?.companyId) {
+  const companyId = auth.context!.user!.companyId;
+  if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
       { status: 404 }
     );
   }
-
-  const companyId = user.companyId;
 
   const company = await prisma.company.findUnique({
     where: { id: companyId },

@@ -1,8 +1,12 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
 
-import { SettingsPageData } from "@/components/organisms/settings-page-data";
+import {
+  SettingsPageData,
+  type SettingsPageData as SettingsPageDataType,
+} from "@/components/organisms/settings-page-data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { Building2, ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
 
@@ -31,6 +35,34 @@ export default async function SettingsPage() {
   const canManageFulfillment = context
     ? hasPermission(context, "settings.fulfillment")
     : false;
+  const companyId = context?.user?.companyId ?? null;
+
+  let initialSettingsData: SettingsPageDataType | null = null;
+  if (canManageCompany && companyId) {
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        faviconUrl: true,
+        employeeSize: true,
+        address: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    initialSettingsData = {
+      company: company
+        ? {
+            ...company,
+            createdAt: company.createdAt.toISOString(),
+            updatedAt: company.updatedAt.toISOString(),
+          }
+        : null,
+    };
+  }
 
   const settingLinks: SettingLink[] = [
     ...(canManageEmailTemplates
@@ -100,7 +132,7 @@ export default async function SettingsPage() {
         </CardHeader>
       </Card>
 
-      {canManageCompany && <SettingsPageData canEdit={true} />}
+      {canManageCompany && <SettingsPageData canEdit={true} initialData={initialSettingsData} />}
 
       {settingLinks.length > 0 && (
         <div className="space-y-4">

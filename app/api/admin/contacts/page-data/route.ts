@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { fetchContactsPageData } from "@/lib/page-data/contacts";
 import { limitSchema, pageSchema, sortOrderSchema } from "@/lib/validation";
@@ -11,12 +10,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: auth.context!.user!.id },
-    select: { companyId: true },
-  });
-
-  const companyId = user?.companyId ?? null;
+  const companyId = auth.context!.user!.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
