@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export type StaffPageParams = {
@@ -9,6 +10,36 @@ export type StaffPageParams = {
   status?: string | null;
   search?: string | null;
 };
+
+const getStaffPageLookups = unstable_cache(
+  async (companyId: string) => {
+    const [locations, departments, designations] = await Promise.all([
+      prisma.companyLocation.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, address: true },
+      }),
+      prisma.department.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      prisma.designation.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    return {
+      locations,
+      departments,
+      designations,
+    };
+  },
+  ["staff-page-lookups"],
+  { revalidate: 60 }
+);
 
 export async function fetchStaffPageData(
   companyId: string | null,
@@ -120,30 +151,18 @@ export async function fetchStaffPageData(
   }));
 
   const lookupsPromise = companyId
-    ? Promise.all([
-        prisma.companyLocation.findMany({
-          where: { companyId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, address: true },
-        }),
-        prisma.department.findMany({
-          where: { companyId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true },
-        }),
-        prisma.designation.findMany({
-          where: { companyId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true },
-        }),
-      ])
+    ? getStaffPageLookups(companyId)
     : Promise.resolve([
         [] as { id: string; name: string; address: string | null }[],
         [] as { id: string; name: string }[],
         [] as { id: string; name: string }[],
-      ]);
+      ] as const).then(([locations, departments, designations]) => ({
+        locations,
+        departments,
+        designations,
+      }));
 
-  const [locations, departments, designations] = await lookupsPromise;
+  const { locations, departments, designations } = await lookupsPromise;
 
   return {
     staff,

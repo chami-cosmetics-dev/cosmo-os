@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
@@ -13,6 +14,36 @@ export type ProductItemsPageParams = {
   categoryId?: string | null;
   search?: string | null;
 };
+
+const getProductItemsPageLookups = unstable_cache(
+  async (companyId: string) => {
+    const [locations, vendors, categories] = await Promise.all([
+      prisma.companyLocation.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      prisma.vendor.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      prisma.category.findMany({
+        where: { companyId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    return {
+      locations,
+      vendors,
+      categories,
+    };
+  },
+  ["product-items-page-lookups"],
+  { revalidate: 60 }
+);
 
 export async function fetchProductItemsPageData(companyId: string, params: ProductItemsPageParams = {}) {
   const startedAt = Date.now();
@@ -73,7 +104,7 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     ];
   }
 
-  const [itemsResult, locations, vendors, categories] = await Promise.all([
+  const [itemsResult, lookups] = await Promise.all([
     Promise.all([
       prisma.productItem.count({ where }),
       prisma.productItem.findMany({
@@ -88,21 +119,7 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
         },
       }),
     ]),
-    prisma.companyLocation.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    prisma.vendor.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    prisma.category.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
+    getProductItemsPageLookups(companyId),
   ]);
 
   const [total, rawItems] = itemsResult;
@@ -126,8 +143,8 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     total,
     page,
     limit,
-    locations,
-    vendors,
-    categories,
+    locations: lookups.locations,
+    vendors: lookups.vendors,
+    categories: lookups.categories,
   };
 }

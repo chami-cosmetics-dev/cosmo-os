@@ -11,13 +11,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const userId = auth.context!.user!.id;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
-
-  const companyId = user?.companyId ?? null;
+  const companyId = auth.context!.user!.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },

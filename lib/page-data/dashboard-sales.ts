@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
 
 export type DashboardLocationMerchantRow = {
@@ -134,6 +135,7 @@ export async function fetchDashboardSalesByLocationGateway(
     dateType: "order" | "completed";
   },
 ): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
+  const gatewayColumns = await getOrderPaymentGatewayColumnState();
   const fromDate = parseDayStartUtc(params.fromYmd);
   const toDate = parseDayEndUtc(params.toYmd);
   if (fromDate > toDate) {
@@ -155,6 +157,23 @@ export async function fetchDashboardSalesByLocationGateway(
     companyId,
     ...dateFilter,
   };
+
+  if (!gatewayColumns.hasPaymentGatewayPrimary) {
+    const locations = await prisma.companyLocation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    });
+
+    return {
+      locations: locations.map((loc) => ({
+        id: loc.id,
+        name: loc.name,
+        merchants: [],
+      })),
+      invalidRange: false,
+    };
+  }
 
   const [locations, groups] = await Promise.all([
     prisma.companyLocation.findMany({
