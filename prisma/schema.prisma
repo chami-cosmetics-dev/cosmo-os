@@ -192,6 +192,11 @@ model User {
   orderSampleFreeIssuesAdded      OrderSampleFreeIssue[]
   smsLogs                         SmsLog[]
   company                         Company?               @relation("CompanyMembers", fields: [companyId], references: [id])
+  deliveryPayments               DeliveryPayment[]
+  mobileSessions                 RiderMobileSession[]
+  receivedCashHandovers          RiderCashHandover[]     @relation("RiderCashHandoverReceivedBy")
+  riderCashHandovers             RiderCashHandover[]     @relation("RiderCashHandovers")
+  riderDeliveryTasks             RiderDeliveryTask[]
   userRoles                       UserRole[]
 }
 
@@ -221,6 +226,7 @@ model CompanyLocation {
   invites                 Invite[]
   orders                  Order[]
   productItems            ProductItem[]
+  riderCashHandoverItems  RiderCashHandoverItem[]
   stickerBatchItems       StickerBatchItem[]
   smsNotificationConfigs  SmsNotificationConfig[]
 
@@ -269,6 +275,8 @@ model Order {
   paymentGatewayNames          String[]                 @default([])
   /// First gateway in `paymentGatewayNames` — used for aggregates (one amount per order).
   paymentGatewayPrimary        String?
+  deliveryOutcome             DeliveryOutcome?
+  deliveryFailedReason        String?
   customerEmail                String?
   customerPhone                String?
   shippingAddress              Json?
@@ -296,12 +304,14 @@ model Order {
   dispatchedById               String?
   invoiceCompleteById          String?
   lastPrintedAt                DateTime?
+  lastRiderUpdateAt            DateTime?
   lastPrintedById              String?
   packageReadyById             String?
   assignedMerchant             User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
   company                      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation              CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
   customer                     Customer?              @relation(fields: [customerId], references: [id])
+  deliveryPayment             DeliveryPayment?
   deliveryCompleteBy           User?                  @relation("OrderDeliveryCompleteBy", fields: [deliveryCompleteById], references: [id])
   dispatchedByCourierService   CourierService?        @relation(fields: [dispatchedByCourierServiceId], references: [id])
   dispatchedBy                 User?                  @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id])
@@ -313,6 +323,7 @@ model Order {
   sampleFreeIssueCompleteBy    User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
   lineItems                    OrderLineItem[]
   remarks                      OrderRemark[]
+  riderDeliveryTask           RiderDeliveryTask?
   sampleFreeIssues             OrderSampleFreeIssue[]
 
   @@index([companyId, createdAt(sort: Desc)])
@@ -321,6 +332,104 @@ model Order {
   @@index([companyId, assignedMerchantId, createdAt(sort: Desc)])
   @@index([companyId, customerEmail, createdAt(sort: Desc)])
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
+}
+
+model RiderMobileSession {
+  id             String                    @id @default(cuid())
+  userId         String
+  tokenHash      String                    @unique
+  status         RiderMobileSessionStatus  @default(active)
+  deviceName     String?
+  expiresAt      DateTime
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
+}
+
+model RiderDeliveryTask {
+  id                  String                 @id @default(cuid())
+  orderId             String                 @unique
+  riderId             String
+  status              RiderDeliveryTaskStatus @default(assigned)
+  assignedAt          DateTime               @default(now())
+  acceptedAt          DateTime?
+  arrivedAt           DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  failureReason       String?
+  latestSyncAt        DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  order               Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider               User                   @relation(fields: [riderId], references: [id], onDelete: Cascade)
+
+  @@index([riderId, status, assignedAt(sort: Desc)])
+}
+
+model DeliveryPayment {
+  id                 String                   @id @default(cuid())
+  orderId            String                   @unique
+  riderId            String
+  cashHandoverId     String?
+  expectedAmount     Decimal                  @db.Decimal(12, 2)
+  collectedAmount    Decimal                  @db.Decimal(12, 2)
+  paymentMethod      DeliveryPaymentMethod
+  collectionStatus   DeliveryCollectionStatus
+  referenceNote      String?
+  bankReference      String?
+  cardReference      String?
+  collectedAt        DateTime?
+  idempotencyKey     String?                  @unique
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  cashHandover       RiderCashHandover?       @relation(fields: [cashHandoverId], references: [id], onDelete: SetNull)
+  order              Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider              User                     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+
+  @@index([cashHandoverId])
+  @@index([riderId, collectedAt(sort: Desc)])
+  @@index([paymentMethod, collectionStatus])
+}
+
+model RiderCashHandover {
+  id                   String                    @id @default(cuid())
+  riderId              String
+  handoverDate         DateTime
+  submittedAt          DateTime                  @default(now())
+  receivedAt           DateTime?
+  receivedById         String?
+  status               RiderCashHandoverStatus   @default(submitted)
+  totalExpectedCash    Decimal                   @db.Decimal(12, 2)
+  totalHandedOverCash  Decimal                   @db.Decimal(12, 2)
+  varianceAmount       Decimal                   @db.Decimal(12, 2)
+  notes                String?
+  idempotencyKey       String?                   @unique
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  deliveryPayments     DeliveryPayment[]
+  rider                User                      @relation("RiderCashHandovers", fields: [riderId], references: [id], onDelete: Cascade)
+  receivedBy           User?                     @relation("RiderCashHandoverReceivedBy", fields: [receivedById], references: [id])
+  items                RiderCashHandoverItem[]
+
+  @@index([riderId, handoverDate(sort: Desc)])
+}
+
+model RiderCashHandoverItem {
+  id                String            @id @default(cuid())
+  handoverId        String
+  companyLocationId String
+  cashAmount        Decimal           @db.Decimal(12, 2)
+  orderCount        Int               @default(0)
+  createdAt         DateTime          @default(now())
+  handover          RiderCashHandover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation   @relation(fields: [companyLocationId], references: [id], onDelete: Restrict)
+
+  @@index([handoverId])
+  @@unique([handoverId, companyLocationId])
 }
 
 model OrderLineItem {
@@ -606,6 +715,44 @@ enum FulfillmentStage {
   delivery_complete
 }
 
+enum RiderDeliveryTaskStatus {
+  assigned
+  accepted
+  arrived
+  completed
+  failed
+}
+
+enum DeliveryPaymentMethod {
+  cod
+  bank_transfer
+  card
+  already_paid
+}
+
+enum DeliveryCollectionStatus {
+  pending
+  collected
+  partially_collected
+  not_collected
+}
+
+enum DeliveryOutcome {
+  pending
+  delivered
+  failed
+}
+
+enum RiderCashHandoverStatus {
+  submitted
+  received
+}
+
+enum RiderMobileSessionStatus {
+  active
+  revoked
+}
+
 enum SampleFreeIssueType {
   sample
   free_issue
@@ -641,8 +788,8 @@ model ContactMaster {
   updatedAt      DateTime  @updatedAt
   company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@index([companyId, lastPurchaseAt])
-  @@index([companyId, updatedAt(sort: Desc)])
-  @@index([companyId, email])
-  @@index([companyId, phoneNumber])
-}
+    @@index([companyId, lastPurchaseAt])
+    @@index([companyId, updatedAt(sort: Desc)])
+    @@index([companyId, email])
+    @@index([companyId, phoneNumber])
+  }

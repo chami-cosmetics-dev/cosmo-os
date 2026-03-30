@@ -82,7 +82,7 @@ function createPrisma() {
 // create a fresh instance so we don't get "Cannot read properties of undefined"
 let instance = globalForPrisma.prisma;
 if (instance && process.env.NODE_ENV !== "production") {
-  if (!("smsNotificationConfig" in instance)) {
+  if (!("smsNotificationConfig" in instance) || !("riderMobileSession" in instance)) {
     void (instance as PrismaClient).$disconnect();
     globalForPrisma.prisma = undefined;
     instance = undefined;

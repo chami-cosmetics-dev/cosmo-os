@@ -408,13 +408,31 @@ export async function syncSessionUser(sessionUser: SessionUser) {
   });
 
   if (!userWithRoles) {
-    userWithRoles = await prisma.user.create({
-      data: {
-        auth0Id: sessionUser.sub,
-        ...profileData,
-      },
-      include: userWithRolesInclude,
-    });
+    const existingUserByEmail = sessionUser.email
+      ? await prisma.user.findUnique({
+          where: { email: sessionUser.email },
+          include: userWithRolesInclude,
+        })
+      : null;
+
+    if (existingUserByEmail) {
+      userWithRoles = await prisma.user.update({
+        where: { id: existingUserByEmail.id },
+        data: {
+          auth0Id: sessionUser.sub,
+          ...profileData,
+        },
+        include: userWithRolesInclude,
+      });
+    } else {
+      userWithRoles = await prisma.user.create({
+        data: {
+          auth0Id: sessionUser.sub,
+          ...profileData,
+        },
+        include: userWithRolesInclude,
+      });
+    }
   } else {
     const needsProfileSync =
       userWithRoles.email !== profileData.email ||
