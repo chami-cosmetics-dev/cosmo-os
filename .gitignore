@@ -40,3 +40,5 @@ next-env.d.ts
 .cursor/rules/snyk_rules.mdc
 
 certificates
+
+mobile/
