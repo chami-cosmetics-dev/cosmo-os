@@ -395,38 +395,47 @@ export async function syncSessionUser(sessionUser: SessionUser) {
   const normalizedEmail = sessionUser.email?.trim().toLowerCase() ?? null;
   const existingUserByAuth0Id = await prisma.user.findUnique({
     where: { auth0Id: sessionUser.sub },
-    select: { id: true },
   });
 
-  const existingUserByEmail = normalizedEmail
+  const existingUserByEmail = normalizedEmail && !existingUserByAuth0Id
     ? await prisma.user.findUnique({
         where: { email: normalizedEmail },
-        select: { id: true, auth0Id: true },
       })
     : null;
 
-  const targetUserId = existingUserByAuth0Id?.id ?? existingUserByEmail?.id ?? null;
+  const existingUser = existingUserByAuth0Id ?? existingUserByEmail ?? null;
   let user;
 
+  const needsUpdate =
+    existingUser &&
+    (existingUser.auth0Id !== sessionUser.sub ||
+      existingUser.email !== normalizedEmail ||
+      existingUser.name !== (sessionUser.name ?? null) ||
+      existingUser.picture !== (sessionUser.picture ?? null));
+
   try {
-    user = targetUserId
-      ? await prisma.user.update({
-          where: { id: targetUserId },
-          data: {
-            auth0Id: sessionUser.sub,
-            email: normalizedEmail,
-            name: sessionUser.name ?? null,
-            picture: sessionUser.picture ?? null,
-          },
-        })
-      : await prisma.user.create({
-          data: {
-            auth0Id: sessionUser.sub,
-            email: normalizedEmail,
-            name: sessionUser.name ?? null,
-            picture: sessionUser.picture ?? null,
-          },
-        });
+    if (existingUser && !needsUpdate) {
+      user = existingUser;
+    } else if (existingUser && needsUpdate) {
+      user = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          auth0Id: sessionUser.sub,
+          email: normalizedEmail,
+          name: sessionUser.name ?? null,
+          picture: sessionUser.picture ?? null,
+        },
+      });
+    } else {
+      user = await prisma.user.create({
+        data: {
+          auth0Id: sessionUser.sub,
+          email: normalizedEmail,
+          name: sessionUser.name ?? null,
+          picture: sessionUser.picture ?? null,
+        },
+      });
+    }
   } catch (error) {
     if (!isUniqueConstraintError(error)) {
       throw error;
