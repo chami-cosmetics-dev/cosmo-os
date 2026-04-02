@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { sendInviteEmail } from "@/lib/maileroo";
+import { getAppBaseUrl } from "@/lib/app-base-url";
 import { prisma } from "@/lib/prisma";
 import { ensureDefaultRbacSetup, requirePermission } from "@/lib/rbac";
 import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
@@ -19,7 +20,7 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const baseUrl = getAppBaseUrl();
 
   const userCount = await prisma.user.count();
 

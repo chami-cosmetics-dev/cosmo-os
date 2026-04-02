@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { sendInviteEmail } from "@/lib/maileroo";
+import { getAppBaseUrl } from "@/lib/app-base-url";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
@@ -13,7 +14,7 @@ const resendSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const baseUrl = getAppBaseUrl();
 
   const body = await request.json().catch(() => ({}));
   const parsed = resendSchema.safeParse(body);

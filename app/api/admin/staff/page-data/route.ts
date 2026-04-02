@@ -19,17 +19,14 @@ export async function GET(request: NextRequest) {
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
 
-  let companyId: string | null = null;
-  if (!isSuperAdmin) {
-    companyId = auth.context!.user!.companyId ?? null;
-    perf.mark("load-company");
-    if (!companyId) {
-      perf.end({ status: 404, ok: false });
-      return NextResponse.json(
-        { error: "No company associated with your account" },
-        { status: 404 }
-      );
-    }
+  const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
+  perf.mark("load-company");
+  if (!isSuperAdmin && !companyId) {
+    perf.end({ status: 404, ok: false });
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 }
+    );
   }
 
   const searchParams = request.nextUrl.searchParams;

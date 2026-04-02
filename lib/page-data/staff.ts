@@ -1,5 +1,4 @@
 import type { Prisma } from "@prisma/client";
-import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 
 export type StaffPageParams = {
@@ -11,35 +10,49 @@ export type StaffPageParams = {
   search?: string | null;
 };
 
-const getStaffPageLookups = unstable_cache(
-  async (companyId: string) => {
-    const [locations, departments, designations] = await Promise.all([
-      prisma.companyLocation.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, address: true },
-      }),
-      prisma.department.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-      prisma.designation.findMany({
-        where: { companyId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-    ]);
+type StaffLookups = {
+  locations: { id: string; name: string; address: string | null }[];
+  departments: { id: string; name: string }[];
+  designations: { id: string; name: string }[];
+};
 
-    return {
-      locations,
-      departments,
-      designations,
-    };
-  },
-  ["staff-page-lookups"],
-  { revalidate: 60 }
-);
+const STAFF_LOOKUPS_TTL_MS = 30_000;
+const staffLookupsCache = new Map<
+  string,
+  {
+    data: StaffLookups;
+    timestamp: number;
+  }
+>();
+
+async function fetchStaffLookups(companyId: string): Promise<StaffLookups> {
+  const cached = staffLookupsCache.get(companyId);
+  if (cached && Date.now() - cached.timestamp < STAFF_LOOKUPS_TTL_MS) {
+    return cached.data;
+  }
+
+  const [locations, departments, designations] = await Promise.all([
+    prisma.companyLocation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, address: true },
+    }),
+    prisma.department.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.designation.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const data = { locations, departments, designations };
+  staffLookupsCache.set(companyId, { data, timestamp: Date.now() });
+  return data;
+}
 
 export async function fetchStaffPageData(
   companyId: string | null,
@@ -150,30 +163,24 @@ export async function fetchStaffPageData(
       : null,
   }));
 
-  const lookupsPromise = companyId
-    ? getStaffPageLookups(companyId)
-    : Promise.resolve([
-        [] as { id: string; name: string; address: string | null }[],
-        [] as { id: string; name: string }[],
-        [] as { id: string; name: string }[],
-      ] as const).then(([locations, departments, designations]) => ({
-        locations,
-        departments,
-        designations,
-      }));
-
-  const { locations, departments, designations } = await lookupsPromise;
+  const lookups = companyId
+    ? await fetchStaffLookups(companyId)
+    : {
+        locations: [] as { id: string; name: string; address: string | null }[],
+        departments: [] as { id: string; name: string }[],
+        designations: [] as { id: string; name: string }[],
+      };
 
   return {
     staff,
     total,
     page,
     limit,
-    locations: locations.map((loc) => {
+    locations: lookups.locations.map((loc) => {
       const l = loc as { id: string; name: string; address?: string | null };
       return { id: l.id, name: l.name, address: l.address ?? null };
     }),
-    departments: [...departments],
-    designations: [...designations],
+    departments: [...lookups.departments],
+    designations: [...lookups.designations],
   };
 }

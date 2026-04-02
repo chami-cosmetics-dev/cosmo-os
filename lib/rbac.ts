@@ -235,22 +235,6 @@ type SessionUser = {
   picture?: string;
 };
 
-const userWithRolesInclude = {
-  userRoles: {
-    include: {
-      role: {
-        include: {
-          rolePermissions: {
-            include: {
-              permission: true,
-            },
-          },
-        },
-      },
-    },
-  },
-} as const;
-
 function isPrismaKnownError(error: unknown): error is { code?: string; message?: string } {
   return Boolean(
     error &&
@@ -265,6 +249,13 @@ function isMissingRbacTableError(error: unknown) {
     return false;
   }
   return error.code === "P2021";
+}
+
+function isUniqueConstraintError(error: unknown) {
+  if (!isPrismaKnownError(error)) {
+    return false;
+  }
+  return error.code === "P2002";
 }
 
 function isRbacPrismaReady() {
@@ -396,39 +387,91 @@ export async function syncSessionUser(sessionUser: SessionUser) {
 
   await ensureDefaultRbacSetupIfNeeded();
 
-  const profileData = {
-    email: sessionUser.email ?? null,
-    name: sessionUser.name ?? null,
-    picture: sessionUser.picture ?? null,
-  };
-
-  let userWithRoles = await prisma.user.findUnique({
+  const normalizedEmail = sessionUser.email?.trim().toLowerCase() ?? null;
+  const existingUserByAuth0Id = await prisma.user.findUnique({
     where: { auth0Id: sessionUser.sub },
-    include: userWithRolesInclude,
+    select: { id: true },
   });
 
-  if (!userWithRoles) {
-    userWithRoles = await prisma.user.create({
+  const existingUserByEmail = normalizedEmail
+    ? await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true, auth0Id: true },
+      })
+    : null;
+
+  const targetUserId = existingUserByAuth0Id?.id ?? existingUserByEmail?.id ?? null;
+  let user;
+
+  try {
+    user = targetUserId
+      ? await prisma.user.update({
+          where: { id: targetUserId },
+          data: {
+            auth0Id: sessionUser.sub,
+            email: normalizedEmail,
+            name: sessionUser.name ?? null,
+            picture: sessionUser.picture ?? null,
+          },
+        })
+      : await prisma.user.create({
+          data: {
+            auth0Id: sessionUser.sub,
+            email: normalizedEmail,
+            name: sessionUser.name ?? null,
+            picture: sessionUser.picture ?? null,
+          },
+        });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    const conflictingUser =
+      (await prisma.user.findUnique({
+        where: { auth0Id: sessionUser.sub },
+        select: { id: true },
+      })) ??
+      (normalizedEmail
+        ? await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true },
+          })
+        : null);
+
+    if (!conflictingUser) {
+      throw error;
+    }
+
+    user = await prisma.user.update({
+      where: { id: conflictingUser.id },
       data: {
         auth0Id: sessionUser.sub,
-        ...profileData,
+        email: normalizedEmail,
+        name: sessionUser.name ?? null,
+        picture: sessionUser.picture ?? null,
       },
-      include: userWithRolesInclude,
     });
-  } else {
-    const needsProfileSync =
-      userWithRoles.email !== profileData.email ||
-      userWithRoles.name !== profileData.name ||
-      userWithRoles.picture !== profileData.picture;
-
-    if (needsProfileSync) {
-      userWithRoles = await prisma.user.update({
-        where: { id: userWithRoles.id },
-        data: profileData,
-        include: userWithRolesInclude,
-      });
-    }
   }
+
+  const userWithRoles = await prisma.user.findUnique({
+    where: { id: user.id },
+    include: {
+      userRoles: {
+        include: {
+          role: {
+            include: {
+              rolePermissions: {
+                include: {
+                  permission: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
 
   if (!userWithRoles) return null;
 
@@ -442,13 +485,27 @@ export async function syncSessionUser(sessionUser: SessionUser) {
       });
       if (superAdminRole) {
         await prisma.userRole.createMany({
-          data: [{ userId: userWithRoles.id, roleId: superAdminRole.id }],
+          data: [{ userId: user.id, roleId: superAdminRole.id }],
           skipDuplicates: true,
         });
       }
       return prisma.user.findUnique({
-        where: { id: userWithRoles.id },
-        include: userWithRolesInclude,
+        where: { id: user.id },
+        include: {
+          userRoles: {
+            include: {
+              role: {
+                include: {
+                  rolePermissions: {
+                    include: {
+                      permission: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       });
     }
   }

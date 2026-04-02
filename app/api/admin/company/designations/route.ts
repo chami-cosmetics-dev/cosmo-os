@@ -9,21 +9,13 @@ const createDesignationSchema = z.object({
   name: trimmedString(1, LIMITS.designationName.max),
 });
 
-async function getCompanyId(userId: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
-  return user?.companyId ?? null;
-}
-
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("settings.company");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = await getCompanyId(auth.context!.user!.id);
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
@@ -41,7 +33,7 @@ export async function GET(request: NextRequest) {
     prisma.designation.count({ where: { companyId } }),
     prisma.designation.findMany({
       where: { companyId },
-      orderBy: { name: "asc" },
+      orderBy: { createdAt: "desc" },
       skip,
       take: limit,
       select: {
@@ -62,7 +54,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = await getCompanyId(auth.context!.user!.id);
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
