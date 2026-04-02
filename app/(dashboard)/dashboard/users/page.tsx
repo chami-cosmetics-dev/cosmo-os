@@ -35,7 +35,10 @@ export default async function UserManagementPage() {
   const canManageUsers = hasPermission(auth.context, "users.manage");
 
   const [data, lookups, pendingInvites] = await Promise.all([
-    listRbacData(),
+    listRbacData({
+      companyId: userCompanyId,
+      isSuperAdmin,
+    }),
     (async () => {
       const companyId = auth.context!.user!.companyId;
       if (!companyId || !hasPermission(auth.context, "settings.company")) {

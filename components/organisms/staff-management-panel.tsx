@@ -18,7 +18,6 @@ import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
-import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string; address: string | null };
@@ -77,10 +76,6 @@ function formatDate(date: string | null): string {
 }
 
 export function StaffManagementPanel({ canManageStaff, initialData }: StaffManagementPanelProps) {
-  const hasInitialData = Boolean(initialData);
-  const pagePerfRef = useRef(
-    createClientPerfLogger("staff.panel.mount", { hasInitialData }),
-  );
   const [staff, setStaff] = useState<StaffMember[]>(initialData?.staff ?? []);
   const [locations, setLocations] = useState<Location[]>(initialData?.locations ?? []);
   const [departments, setDepartments] = useState<Department[]>(initialData?.departments ?? []);
@@ -107,12 +102,6 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
   }, [search]);
 
   const fetchPageData = useCallback(async () => {
-    const perf = createClientPerfLogger("staff.panel.fetch", {
-      hasInitialData,
-      page,
-      limit,
-      statusFilter,
-    });
     const params = new URLSearchParams();
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -122,12 +111,13 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       params.set("sort_by", sortBy);
       params.set("sort_order", sortOrder);
     }
+    if (locations.length === 0 || departments.length === 0 || designations.length === 0) {
+      params.set("include_lookups", "1");
+    }
     const res = await fetch(`/api/admin/staff/page-data?${params}`);
-    perf.mark("response");
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load staff");
-      perf.end({ ok: false });
       return;
     }
     const data = (await res.json()) as {
@@ -135,23 +125,28 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       total: number;
       page: number;
       limit: number;
-      locations: Location[];
-      departments: Department[];
-      designations: Designation[];
+      locations?: Location[];
+      departments?: Department[];
+      designations?: Designation[];
     };
     setStaff(data.staff);
     setTotal(data.total);
-    setLocations(data.locations);
-    setDepartments(data.departments);
-    setDesignations(data.designations);
-    perf.end({ ok: true, total: data.total });
-  }, [debouncedSearch, hasInitialData, page, limit, sortBy, sortOrder, statusFilter]);
+    if (data.locations) setLocations(data.locations);
+    if (data.departments) setDepartments(data.departments);
+    if (data.designations) setDesignations(data.designations);
+  }, [
+    statusFilter,
+    debouncedSearch,
+    page,
+    limit,
+    sortBy,
+    sortOrder,
+    locations.length,
+    departments.length,
+    designations.length,
+  ]);
 
   const skippedInitialFetch = useRef(false);
-  useEffect(() => {
-    pagePerfRef.current.end({ initialStaffCount: initialData?.staff.length ?? 0 });
-  }, [initialData]);
-
   useEffect(() => {
     if (initialData && !skippedInitialFetch.current) {
       skippedInitialFetch.current = true;

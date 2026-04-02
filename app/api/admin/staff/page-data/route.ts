@@ -19,23 +19,23 @@ export async function GET(request: NextRequest) {
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
 
-  let companyId: string | null = null;
-  if (!isSuperAdmin) {
-    companyId = auth.context!.user!.companyId ?? null;
-    perf.mark("load-company");
-    if (!companyId) {
-      perf.end({ status: 404, ok: false });
-      return NextResponse.json(
-        { error: "No company associated with your account" },
-        { status: 404 }
-      );
-    }
+  const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
+  perf.mark("load-company");
+  if (!isSuperAdmin && !companyId) {
+    perf.end({ status: 404, ok: false });
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 }
+    );
   }
 
   const searchParams = request.nextUrl.searchParams;
   const pageResult = pageSchema.safeParse(searchParams.get("page"));
   const limitResult = limitSchema.safeParse(searchParams.get("limit"));
   const sortOrderResult = sortOrderSchema.safeParse(searchParams.get("sort_order"));
+  const includeLookups =
+    searchParams.get("include_lookups") === "1" ||
+    searchParams.get("include_lookups") === "true";
 
   const data = await fetchStaffPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
     sortOrder: sortOrderResult.success ? sortOrderResult.data : "asc",
     status: searchParams.get("status") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
+    includeLookups,
   });
   perf.mark("query");
 

@@ -1,8 +1,8 @@
+import { getAppBaseUrl } from "@/lib/app-base-url";
+
 const getBaseUrl = () => {
   if (typeof window !== "undefined") return "";
-  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
+  return getAppBaseUrl();
 };
 
 export class ApiError extends Error {

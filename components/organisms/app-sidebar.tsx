@@ -19,8 +19,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-
 import {
   Sidebar,
   SidebarContent,
@@ -46,7 +44,6 @@ interface AppSidebarProps {
 
 export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname();
-  const [showCollapsedLogo, setShowCollapsedLogo] = useState(true);
 
   return (
     <Sidebar collapsible="icon">
@@ -56,18 +53,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
             Cosmo OS (Beta) v{packageJson.version}
           </span>
           <div className="hidden group-data-[collapsible=icon]:inline">
-            {showCollapsedLogo ? (
-              <img
-                src="/api/favicon"
-                alt="Cosmo OS logo"
-                className="size-8 shrink-0 rounded-sm object-contain"
-                onError={() => setShowCollapsedLogo(false)}
-              />
-            ) : (
-              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
-                CO
-              </span>
-            )}
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
+              CO
+            </span>
           </div>
         </div>
       </SidebarHeader>

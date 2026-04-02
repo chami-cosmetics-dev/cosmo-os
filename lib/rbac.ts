@@ -235,21 +235,10 @@ type SessionUser = {
   picture?: string;
 };
 
-const userWithRolesInclude = {
-  userRoles: {
-    include: {
-      role: {
-        include: {
-          rolePermissions: {
-            include: {
-              permission: true,
-            },
-          },
-        },
-      },
-    },
-  },
-} as const;
+type AccessRole = {
+  id: string;
+  name: string;
+};
 
 function isPrismaKnownError(error: unknown): error is { code?: string; message?: string } {
   return Boolean(
@@ -265,6 +254,13 @@ function isMissingRbacTableError(error: unknown) {
     return false;
   }
   return error.code === "P2021";
+}
+
+function isUniqueConstraintError(error: unknown) {
+  if (!isPrismaKnownError(error)) {
+    return false;
+  }
+  return error.code === "P2002";
 }
 
 function isRbacPrismaReady() {
@@ -396,39 +392,97 @@ export async function syncSessionUser(sessionUser: SessionUser) {
 
   await ensureDefaultRbacSetupIfNeeded();
 
-  const profileData = {
-    email: sessionUser.email ?? null,
-    name: sessionUser.name ?? null,
-    picture: sessionUser.picture ?? null,
-  };
-
-  let userWithRoles = await prisma.user.findUnique({
+  const normalizedEmail = sessionUser.email?.trim().toLowerCase() ?? null;
+  const existingUserByAuth0Id = await prisma.user.findUnique({
     where: { auth0Id: sessionUser.sub },
-    include: userWithRolesInclude,
   });
 
-  if (!userWithRoles) {
-    userWithRoles = await prisma.user.create({
-      data: {
-        auth0Id: sessionUser.sub,
-        ...profileData,
-      },
-      include: userWithRolesInclude,
-    });
-  } else {
-    const needsProfileSync =
-      userWithRoles.email !== profileData.email ||
-      userWithRoles.name !== profileData.name ||
-      userWithRoles.picture !== profileData.picture;
+  const existingUserByEmail = normalizedEmail && !existingUserByAuth0Id
+    ? await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      })
+    : null;
 
-    if (needsProfileSync) {
-      userWithRoles = await prisma.user.update({
-        where: { id: userWithRoles.id },
-        data: profileData,
-        include: userWithRolesInclude,
+  const existingUser = existingUserByAuth0Id ?? existingUserByEmail ?? null;
+  let user;
+
+  const needsUpdate =
+    existingUser &&
+    (existingUser.auth0Id !== sessionUser.sub ||
+      existingUser.email !== normalizedEmail ||
+      existingUser.name !== (sessionUser.name ?? null) ||
+      existingUser.picture !== (sessionUser.picture ?? null));
+
+  try {
+    if (existingUser && !needsUpdate) {
+      user = existingUser;
+    } else if (existingUser && needsUpdate) {
+      user = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          auth0Id: sessionUser.sub,
+          email: normalizedEmail,
+          name: sessionUser.name ?? null,
+          picture: sessionUser.picture ?? null,
+        },
+      });
+    } else {
+      user = await prisma.user.create({
+        data: {
+          auth0Id: sessionUser.sub,
+          email: normalizedEmail,
+          name: sessionUser.name ?? null,
+          picture: sessionUser.picture ?? null,
+        },
       });
     }
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    const conflictingUser =
+      (await prisma.user.findUnique({
+        where: { auth0Id: sessionUser.sub },
+        select: { id: true },
+      })) ??
+      (normalizedEmail
+        ? await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { id: true },
+          })
+        : null);
+
+    if (!conflictingUser) {
+      throw error;
+    }
+
+    user = await prisma.user.update({
+      where: { id: conflictingUser.id },
+      data: {
+        auth0Id: sessionUser.sub,
+        email: normalizedEmail,
+        name: sessionUser.name ?? null,
+        picture: sessionUser.picture ?? null,
+      },
+    });
   }
+
+  const userWithRoles = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: {
+      userRoles: {
+        select: {
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
 
   if (!userWithRoles) return null;
 
@@ -442,18 +496,17 @@ export async function syncSessionUser(sessionUser: SessionUser) {
       });
       if (superAdminRole) {
         await prisma.userRole.createMany({
-          data: [{ userId: userWithRoles.id, roleId: superAdminRole.id }],
+          data: [{ userId: user.id, roleId: superAdminRole.id }],
           skipDuplicates: true,
         });
       }
       return prisma.user.findUnique({
-        where: { id: userWithRoles.id },
-        include: userWithRolesInclude,
+        where: { id: user.id },
       });
     }
   }
 
-  return userWithRoles;
+  return user;
 }
 
 type SessionLike = { user: { sub?: string; email?: string; name?: string; picture?: string } };
@@ -481,17 +534,10 @@ async function getCurrentUserContextImpl(session?: SessionLike | null) {
       };
     }
 
-    const permissionKeys = Array.from(
-      new Set(
-        user.userRoles.flatMap((userRole) =>
-          userRole.role.rolePermissions.map(
-            (rolePermission) => rolePermission.permission.key
-          )
-        )
-      )
-    );
-
-    const roleNames = Array.from(new Set(user.userRoles.map((r) => r.role.name)));
+    const userAccess = await getUserAccessRoles(user.id);
+    const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
+    const roleNames = Array.from(new Set(roles.map((role) => role.name)));
+    const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
 
     return {
       sessionUser: sess.user,
@@ -516,6 +562,7 @@ async function getCurrentUserContextImpl(session?: SessionLike | null) {
 
 /** TTL cache for parallel API requests from same user (e.g. settings page fetches 5 APIs at once). */
 const USER_CONTEXT_TTL_MS = 2000;
+const ROLE_PERMISSION_TTL_MS = 30000;
 const userContextCache = new Map<
   string,
   {
@@ -523,6 +570,65 @@ const userContextCache = new Map<
     timestamp: number;
   }
 >();
+const rolePermissionCache = new Map<
+  string,
+  {
+    permissionKeys: string[];
+    timestamp: number;
+  }
+>();
+
+async function getUserAccessRoles(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      userRoles: {
+        select: {
+          role: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+async function getRolePermissionKeys(roleIds: string[]) {
+  if (roleIds.length === 0) {
+    return [];
+  }
+
+  const cacheKey = [...roleIds].sort().join(",");
+  const cached = rolePermissionCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp <= ROLE_PERMISSION_TTL_MS) {
+    return cached.permissionKeys;
+  }
+
+  const rolePermissions = await prisma.rolePermission.findMany({
+    where: { roleId: { in: roleIds } },
+    select: {
+      permission: {
+        select: {
+          key: true,
+        },
+      },
+    },
+  });
+
+  const permissionKeys = Array.from(
+    new Set(rolePermissions.map((rolePermission) => rolePermission.permission.key))
+  );
+
+  rolePermissionCache.set(cacheKey, {
+    permissionKeys,
+    timestamp: Date.now(),
+  });
+
+  return permissionKeys;
+}
 
 function getCachedUserContext(
   sub: string
@@ -632,7 +738,12 @@ export async function requireAnyPermission(permissionKeys: string[]) {
   return { ok: true as const, context };
 }
 
-export async function listRbacData() {
+type ListRbacDataOptions = {
+  companyId?: string | null;
+  isSuperAdmin?: boolean;
+};
+
+export async function listRbacData(options: ListRbacDataOptions = {}) {
   if (!isRbacPrismaReady()) {
     throw new Error(
       "RBAC Prisma client is not ready. Run: npm run db:push && npm run db:generate"
@@ -641,22 +752,40 @@ export async function listRbacData() {
 
   await ensureDefaultRbacSetupIfNeeded();
 
-  const [users, roles, permissions] = await Promise.all([
+  const userWhere =
+    options.isSuperAdmin || !options.companyId
+      ? undefined
+      : { companyId: options.companyId };
+
+  const [users, rawRoles, permissions] = await Promise.all([
     prisma.user.findMany({
-      include: {
+      where: userWhere,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        auth0Id: true,
         userRoles: {
-          include: {
-            role: true,
+          select: {
+            role: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
       },
       orderBy: { createdAt: "asc" },
     }),
     prisma.role.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        description: true,
         rolePermissions: {
-          include: {
-            permission: true,
+          select: {
+            permissionId: true,
           },
         },
         _count: {
@@ -668,9 +797,27 @@ export async function listRbacData() {
       orderBy: { name: "asc" },
     }),
     prisma.permission.findMany({
+      select: {
+        id: true,
+        key: true,
+        description: true,
+      },
       orderBy: { key: "asc" },
     }),
   ]);
+
+  const permissionsById = new Map(permissions.map((permission) => [permission.id, permission]));
+  const roles = rawRoles.map((role) => ({
+    ...role,
+    rolePermissions: role.rolePermissions
+      .map((rolePermission) => {
+        const permission = permissionsById.get(rolePermission.permissionId);
+        return permission ? { permission } : null;
+      })
+      .filter((rolePermission): rolePermission is { permission: (typeof permissions)[number] } =>
+        rolePermission !== null
+      ),
+  }));
 
   return {
     users,
