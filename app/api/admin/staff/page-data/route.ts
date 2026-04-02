@@ -33,6 +33,9 @@ export async function GET(request: NextRequest) {
   const pageResult = pageSchema.safeParse(searchParams.get("page"));
   const limitResult = limitSchema.safeParse(searchParams.get("limit"));
   const sortOrderResult = sortOrderSchema.safeParse(searchParams.get("sort_order"));
+  const includeLookups =
+    searchParams.get("include_lookups") === "1" ||
+    searchParams.get("include_lookups") === "true";
 
   const data = await fetchStaffPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -41,6 +44,7 @@ export async function GET(request: NextRequest) {
     sortOrder: sortOrderResult.success ? sortOrderResult.data : "asc",
     status: searchParams.get("status") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
+    includeLookups,
   });
   perf.mark("query");
 

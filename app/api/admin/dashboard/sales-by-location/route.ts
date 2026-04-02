@@ -5,7 +5,6 @@ import {
   fetchDashboardSalesByLocationMerchant,
 } from "@/lib/page-data/dashboard-sales";
 import { createPerfLogger } from "@/lib/perf";
-import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { dashboardSalesQuerySchema } from "@/lib/validation";
 
@@ -28,14 +27,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const userId = auth.context!.user!.id;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
   perf.mark("load-company");
 
-  const companyId = user?.companyId ?? null;
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     perf.end({ status: 404, ok: false });
     return NextResponse.json(

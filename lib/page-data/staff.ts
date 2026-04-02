@@ -8,6 +8,7 @@ export type StaffPageParams = {
   sortOrder?: "asc" | "desc";
   status?: string | null;
   search?: string | null;
+  includeLookups?: boolean;
 };
 
 type StaffLookups = {
@@ -64,6 +65,7 @@ export async function fetchStaffPageData(
   const sortBy = params.sortBy?.trim();
   const statusFilter = params.status;
   const search = params.search?.trim() ?? "";
+  const includeLookups = params.includeLookups ?? true;
   const skip = (page - 1) * limit;
 
   const SORT_FIELDS: Record<string, Prisma.UserOrderByWithRelationInput> = {
@@ -116,13 +118,47 @@ export async function fetchStaffPageData(
     prisma.user.count({ where }),
     prisma.user.findMany({
       where,
-      include: {
-        userRoles: { include: { role: true } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        nicNo: true,
+        gender: true,
+        dateOfBirth: true,
+        mobile: true,
+        knownName: true,
+        shopifyUserIds: true,
+        couponCodes: true,
         employeeProfile: {
-          include: {
-            location: true,
-            department: true,
-            designation: true,
+          select: {
+            id: true,
+            employeeNumber: true,
+            epfNumber: true,
+            locationId: true,
+            location: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            departmentId: true,
+            department: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            designationId: true,
+            designation: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            appointmentDate: true,
+            status: true,
+            resignedAt: true,
+            isRider: true,
           },
         },
       },
@@ -143,7 +179,7 @@ export async function fetchStaffPageData(
     knownName: u.knownName,
     shopifyUserIds: u.shopifyUserIds,
     couponCodes: u.couponCodes,
-    userRoles: u.userRoles.map((ur) => ur.role),
+    userRoles: [],
     employeeProfile: u.employeeProfile
       ? {
           id: u.employeeProfile.id,
@@ -163,7 +199,7 @@ export async function fetchStaffPageData(
       : null,
   }));
 
-  const lookups = companyId
+  const lookups = includeLookups && companyId
     ? await fetchStaffLookups(companyId)
     : {
         locations: [] as { id: string; name: string; address: string | null }[],
