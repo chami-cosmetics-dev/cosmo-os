@@ -6,6 +6,7 @@ import {
   type SettingsPageData as SettingsPageDataType,
 } from "@/components/organisms/settings-page-data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getLocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { Building2, ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
@@ -38,6 +39,7 @@ export default async function SettingsPage() {
   const companyId = context?.user?.companyId ?? null;
 
   let initialSettingsData: SettingsPageDataType | null = null;
+  let locationsInitial: Awaited<ReturnType<typeof getLocationsSettingsInitialData>> | null = null;
   if (canManageCompany && companyId) {
     const company = await prisma.company.findUnique({
       where: { id: companyId },
@@ -62,6 +64,13 @@ export default async function SettingsPage() {
           }
         : null,
     };
+
+    try {
+      locationsInitial = await getLocationsSettingsInitialData(companyId);
+    } catch (e) {
+      console.error("[settings] Failed to prefetch locations (run prisma migrate / db push):", e);
+      locationsInitial = null;
+    }
   }
 
   const settingLinks: SettingLink[] = [
@@ -132,7 +141,13 @@ export default async function SettingsPage() {
         </CardHeader>
       </Card>
 
-      {canManageCompany && <SettingsPageData canEdit={true} initialData={initialSettingsData} />}
+      {canManageCompany && (
+        <SettingsPageData
+          canEdit={true}
+          initialData={initialSettingsData}
+          initialLocationsData={locationsInitial}
+        />
+      )}
 
       {settingLinks.length > 0 && (
         <div className="space-y-4">

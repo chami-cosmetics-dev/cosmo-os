@@ -9,6 +9,7 @@ import { DesignationsSettingsForm } from "@/components/molecules/designations-se
 import { SuppliersSettingsForm } from "@/components/molecules/suppliers-settings-form";
 import { LocationsSettingsForm } from "@/components/molecules/locations-settings-form";
 import { ShopifyWebhookSecretsForm } from "@/components/molecules/shopify-webhook-secrets-form";
+import type { LocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { notify } from "@/lib/notify";
 import { Building2 } from "lucide-react";
 
@@ -28,9 +29,15 @@ export type SettingsPageData = {
 interface SettingsPageDataProps {
   canEdit: boolean;
   initialData?: SettingsPageData | null;
+  /** Server-prefetched locations (avoids client-only failure if API errors). */
+  initialLocationsData?: LocationsSettingsInitialData | null;
 }
 
-export function SettingsPageData({ canEdit, initialData = null }: SettingsPageDataProps) {
+export function SettingsPageData({
+  canEdit,
+  initialData = null,
+  initialLocationsData = null,
+}: SettingsPageDataProps) {
   const [data, setData] = useState<SettingsPageData | null>(initialData);
   const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +66,11 @@ export function SettingsPageData({ canEdit, initialData = null }: SettingsPageDa
     fetchData();
   }, [initialData]);
 
+  useEffect(() => {
+    if (!error) return;
+    notify.error(error);
+  }, [error]);
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -70,7 +82,6 @@ export function SettingsPageData({ canEdit, initialData = null }: SettingsPageDa
   }
 
   if (error) {
-    notify.error(error);
     return (
       <p className="text-muted-foreground text-sm py-4">
         {error}
@@ -96,7 +107,10 @@ export function SettingsPageData({ canEdit, initialData = null }: SettingsPageDa
         </p>
       </div>
 
-      <LocationsSettingsForm canEdit={canEdit} />
+      <LocationsSettingsForm
+        canEdit={canEdit}
+        initialLocationsData={initialLocationsData ?? undefined}
+      />
       <ShopifyWebhookSecretsForm canEdit={canEdit} />
       <DepartmentsSettingsForm canEdit={canEdit} />
       <DesignationsSettingsForm canEdit={canEdit} />

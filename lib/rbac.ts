@@ -59,6 +59,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Retry failed order webhooks and manage order fulfillment",
   },
   {
+    key: "orders.create_manual",
+    description: "Create manual (non-Shopify) orders from the item master",
+  },
+  {
     key: "orders.view_timeline",
     description: "View order fulfillment timeline in modal",
   },
@@ -186,6 +190,7 @@ const DEFAULT_ROLES = [
       "products.manage",
       "orders.read",
       "orders.manage",
+      "orders.create_manual",
       "orders.view_timeline",
       "fulfillment.sample_free_issue.read",
       "fulfillment.sample_free_issue.manage",

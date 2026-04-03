@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Package,
   PackageCheck,
+  Plus,
   Printer,
   Settings,
   ShoppingCart,
@@ -40,9 +41,11 @@ interface AppSidebarProps {
     email?: string | null;
     picture?: string | null;
   };
+  permissionKeys?: string[];
 }
 
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
+  const canCreateManualOrder = permissionKeys.includes("orders.create_manual");
   const pathname = usePathname();
 
   return (
@@ -162,6 +165,19 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {canCreateManualOrder && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/orders/create"}
+                  >
+                    <Link href="/dashboard/orders/create">
+                      <Plus className="size-4" />
+                      <span>Create manual order</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
