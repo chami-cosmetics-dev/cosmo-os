@@ -33,9 +33,13 @@ export async function GET(request: NextRequest) {
   const pageResult = pageSchema.safeParse(searchParams.get("page"));
   const limitResult = limitSchema.safeParse(searchParams.get("limit"));
   const sortOrderResult = sortOrderSchema.safeParse(searchParams.get("sort_order"));
+  // Default true so clients that omit the param still get lookups; empty arrays must not
+  // mean "omit" or the client would overwrite cached lookups with [] (empty array is truthy).
+  const includeLookupsRaw = searchParams.get("include_lookups");
   const includeLookups =
-    searchParams.get("include_lookups") === "1" ||
-    searchParams.get("include_lookups") === "true";
+    includeLookupsRaw === null || includeLookupsRaw === ""
+      ? true
+      : includeLookupsRaw === "1" || includeLookupsRaw === "true";
 
   const data = await fetchStaffPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,

@@ -93,26 +93,25 @@ export async function GET(
   }
 
   const companyId = user.companyId;
-  const lookups =
-    companyId && isSuperAdmin
-      ? await Promise.all([
-          prisma.companyLocation.findMany({
-            where: { companyId },
-            orderBy: { name: "asc" },
-            select: { id: true, name: true, address: true },
-          }),
-          prisma.department.findMany({
-            where: { companyId },
-            orderBy: { name: "asc" },
-            select: { id: true, name: true },
-          }),
-          prisma.designation.findMany({
-            where: { companyId },
-            orderBy: { name: "asc" },
-            select: { id: true, name: true },
-          }),
-        ])
-      : null;
+  const lookups = companyId
+    ? await Promise.all([
+        prisma.companyLocation.findMany({
+          where: { companyId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, address: true },
+        }),
+        prisma.department.findMany({
+          where: { companyId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        }),
+        prisma.designation.findMany({
+          where: { companyId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        }),
+      ])
+    : null;
 
   const [locations, departments, designations] = lookups ?? [[], [], []];
 
