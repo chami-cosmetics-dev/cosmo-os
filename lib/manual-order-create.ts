@@ -202,18 +202,16 @@ export async function createManualOrder(
       },
     });
 
-    for (const lc of lineCreates) {
-      await tx.orderLineItem.create({
-        data: {
-          orderId: created.id,
-          productItemId: lc.productItemId,
-          shopifyLineItemId: lc.shopifyLineItemId,
-          quantity: lc.quantity,
-          price: lc.price,
-          discountPercent: lc.discountPercent,
-        },
-      });
-    }
+    await tx.orderLineItem.createMany({
+      data: lineCreates.map((lc) => ({
+        orderId: created.id,
+        productItemId: lc.productItemId,
+        shopifyLineItemId: lc.shopifyLineItemId,
+        quantity: lc.quantity,
+        price: lc.price,
+        discountPercent: lc.discountPercent,
+      })),
+    });
 
     return { orderId: created.id, invoiceNumber };
   });
