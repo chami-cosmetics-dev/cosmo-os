@@ -13,14 +13,6 @@ const createSecretSchema = z.object({
   name: z.string().max(LIMITS.shopifyWebhookSecretName.max).optional(),
 });
 
-async function getCompanyId(userId: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
-  return user?.companyId ?? null;
-}
-
 function maskSecret(secret: string): string {
   if (secret.length <= 8) return "••••••••";
   return secret.slice(0, 4) + "••••••••" + secret.slice(-4);
@@ -32,7 +24,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = await getCompanyId(auth.context!.user!.id);
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
@@ -78,7 +70,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = await getCompanyId(auth.context!.user!.id);
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },

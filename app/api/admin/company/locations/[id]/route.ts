@@ -3,6 +3,10 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  manualInvoicePrefixSchema,
+  manualInvoiceSeqPaddingSchema,
+} from "@/lib/validation/manual-order";
 import { cuidSchema, emailSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const updateLocationSchema = z.object({
@@ -23,6 +27,11 @@ const updateLocationSchema = z.object({
   shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
   locationReference: z.string().max(LIMITS.locationReference.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
+  manualInvoicePrefix: z
+    .union([manualInvoicePrefixSchema, z.literal("")])
+    .nullable()
+    .optional(),
+  manualInvoiceSeqPadding: manualInvoiceSeqPaddingSchema.optional(),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -107,6 +116,15 @@ export async function PATCH(
       shopifyAdminStoreHandle: toOpt(d.shopifyAdminStoreHandle),
       locationReference: toOpt(d.locationReference),
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
+      ...(d.manualInvoicePrefix !== undefined && {
+        manualInvoicePrefix:
+          d.manualInvoicePrefix === null || d.manualInvoicePrefix === ""
+            ? null
+            : d.manualInvoicePrefix,
+      }),
+      ...(d.manualInvoiceSeqPadding !== undefined && {
+        manualInvoiceSeqPadding: d.manualInvoiceSeqPadding,
+      }),
     },
     select: {
       id: true,
@@ -124,6 +142,9 @@ export async function PATCH(
       shopifyAdminStoreHandle: true,
       locationReference: true,
       defaultMerchantUserId: true,
+      manualInvoicePrefix: true,
+      manualInvoiceNextSeq: true,
+      manualInvoiceSeqPadding: true,
       createdAt: true,
       updatedAt: true,
     },

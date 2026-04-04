@@ -1,11 +1,40 @@
 "use client";
 
-import { DashboardLocationMerchantCharts } from "@/components/organisms/dashboard-location-merchant-charts";
-import { DashboardSalesCharts } from "@/components/organisms/dashboard-sales-charts";
-import { DashboardSummaryCharts } from "@/components/organisms/dashboard-summary-charts";
+import dynamic from "next/dynamic";
+
 import { Card, CardContent } from "@/components/ui/card";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+
+const DashboardSalesCharts = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-sales-charts").then(
+      (module) => module.DashboardSalesCharts,
+    ),
+  {
+    loading: () => <DashboardChartSectionSkeleton label="Loading sales charts..." />,
+  },
+);
+
+const DashboardSummaryCharts = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-summary-charts").then(
+      (module) => module.DashboardSummaryCharts,
+    ),
+  {
+    loading: () => <DashboardChartSectionSkeleton label="Loading summary charts..." />,
+  },
+);
+
+const DashboardLocationMerchantChartsDynamic = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-location-merchant-charts").then(
+      (module) => module.DashboardLocationMerchantCharts,
+    ),
+  {
+    loading: () => <DashboardChartSectionSkeleton label="Loading location charts..." />,
+  },
+);
 
 /** Parallel route `@main` — sales charts driven by `@filters` state (client). */
 export function DashboardMainSlot() {
@@ -95,7 +124,7 @@ export function DashboardMainSlot() {
         stats={summaryStats}
       />
       <DashboardSalesCharts stats={salesChartStats} />
-      <DashboardLocationMerchantCharts
+      <DashboardLocationMerchantChartsDynamic
         key={`${fromDate}-${toDate}-${dateType}-${analysisType}`}
         locations={salesLocations}
         dateType={dateType}
@@ -103,6 +132,16 @@ export function DashboardMainSlot() {
         breakdownVariant={analysisType === "gateway" ? "gateway" : "merchant"}
       />
     </div>
+  );
+}
+
+function DashboardChartSectionSkeleton({ label }: { label: string }) {
+  return (
+    <Card className="border-border/70 bg-card shadow-xs">
+      <CardContent className="text-muted-foreground py-10 text-center text-sm">
+        {label}
+      </CardContent>
+    </Card>
   );
 }
 

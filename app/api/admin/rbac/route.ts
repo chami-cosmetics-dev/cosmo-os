@@ -9,7 +9,11 @@ export async function GET() {
   }
 
   try {
-    const data = await listRbacData();
+    const roleNames = auth.context!.roleNames as string[];
+    const data = await listRbacData({
+      companyId: auth.context!.user?.companyId ?? null,
+      isSuperAdmin: roleNames.includes("super_admin"),
+    });
     return NextResponse.json(data);
   } catch (error) {
     console.error("GET /api/admin/rbac error:", error);

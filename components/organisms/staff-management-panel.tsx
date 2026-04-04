@@ -111,6 +111,9 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       params.set("sort_by", sortBy);
       params.set("sort_order", sortOrder);
     }
+    if (locations.length === 0 || departments.length === 0 || designations.length === 0) {
+      params.set("include_lookups", "1");
+    }
     const res = await fetch(`/api/admin/staff/page-data?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
@@ -122,16 +125,26 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       total: number;
       page: number;
       limit: number;
-      locations: Location[];
-      departments: Department[];
-      designations: Designation[];
+      locations?: Location[];
+      departments?: Department[];
+      designations?: Designation[];
     };
     setStaff(data.staff);
     setTotal(data.total);
-    setLocations(data.locations);
-    setDepartments(data.departments);
-    setDesignations(data.designations);
-  }, [statusFilter, debouncedSearch, page, limit, sortBy, sortOrder]);
+    if (data.locations) setLocations(data.locations);
+    if (data.departments) setDepartments(data.departments);
+    if (data.designations) setDesignations(data.designations);
+  }, [
+    statusFilter,
+    debouncedSearch,
+    page,
+    limit,
+    sortBy,
+    sortOrder,
+    locations.length,
+    departments.length,
+    designations.length,
+  ]);
 
   const skippedInitialFetch = useRef(false);
   useEffect(() => {

@@ -29,14 +29,20 @@ export default async function ProfilePage() {
   }
 
   const { user } = context;
-  const employeeProfile = await prisma.employeeProfile.findFirst({
-    where: { userId: user.id },
-    include: {
-      location: { select: { id: true, name: true } },
-      department: { select: { id: true, name: true } },
-      designation: { select: { id: true, name: true } },
-    },
-  });
+  const [employeeProfile, userAccess] = await Promise.all([
+    prisma.employeeProfile.findFirst({
+      where: { userId: user.id },
+      include: {
+        location: { select: { id: true, name: true } },
+        department: { select: { id: true, name: true } },
+        designation: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { userRoles: { select: { role: true } } },
+    }),
+  ]);
 
   const profileData = {
     id: user.id,
@@ -49,7 +55,7 @@ export default async function ProfilePage() {
     dateOfBirth: user.dateOfBirth,
     mobile: user.mobile,
     knownName: user.knownName,
-    roles: user.userRoles.map((ur) => ur.role),
+    roles: userAccess?.userRoles.map((ur) => ur.role) ?? [],
     employeeProfile: employeeProfile
       ? {
           employeeNumber: employeeProfile.employeeNumber,

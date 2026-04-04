@@ -12,16 +12,18 @@ interface DashboardTemplateProps {
     email?: string | null;
     picture?: string | null;
   };
+  permissionKeys?: string[];
 }
 
 export function DashboardTemplate({
   children,
   title = "Dashboard",
   user,
+  permissionKeys = [],
 }: DashboardTemplateProps) {
   return (
     <SidebarProvider>
-      <AppSidebar user={user} />
+      <AppSidebar user={user} permissionKeys={permissionKeys} />
       <SidebarInset>
         <Topbar title={title} user={user} />
         <div className="flex-1 p-4">{children}</div>

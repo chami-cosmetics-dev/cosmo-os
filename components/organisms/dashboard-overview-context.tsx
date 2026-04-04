@@ -11,6 +11,11 @@ import {
   type ReactNode,
 } from "react";
 
+import {
+  getDefaultDashboardOverviewRange,
+  type DashboardOverviewInitialState,
+} from "@/lib/page-data/dashboard-overview-shared";
+
 export type DashboardSalesLocation = {
   id: string;
   name: string;
@@ -36,29 +41,38 @@ type DashboardOverviewContextValue = {
 
 const DashboardOverviewContext = createContext<DashboardOverviewContextValue | null>(null);
 
-function getDefaultDateRange() {
-  const to = new Date();
-  const from = new Date(to);
-  from.setDate(from.getDate() - 7);
-  return {
-    fromDate: from.toISOString().slice(0, 10),
-    toDate: to.toISOString().slice(0, 10),
-  };
-}
-
-export function DashboardOverviewProvider({ children }: { children: ReactNode }) {
-  const initialRange = useMemo(() => getDefaultDateRange(), []);
+export function DashboardOverviewProvider({
+  children,
+  initialState,
+}: {
+  children: ReactNode;
+  initialState?: DashboardOverviewInitialState | null;
+}) {
+  const initialRange = useMemo(
+    () =>
+      initialState
+        ? { fromDate: initialState.fromDate, toDate: initialState.toDate }
+        : getDefaultDashboardOverviewRange(),
+    [initialState],
+  );
 
   const [fromDate, setFromDate] = useState(initialRange.fromDate);
   const [toDate, setToDate] = useState(initialRange.toDate);
-  const [dateType, setDateType] = useState<"order" | "completed">("order");
-  const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">("merchant");
+  const [dateType, setDateType] = useState<"order" | "completed">(
+    initialState?.dateType ?? "order",
+  );
+  const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
+    initialState?.analysisType ?? "merchant",
+  );
 
-  const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>([]);
+  const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>(
+    initialState?.salesLocations ?? [],
+  );
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
 
   const fetchIdRef = useRef(0);
+  const shouldSkipInitialFetchRef = useRef(initialState !== null && initialState !== undefined);
 
   const hasInvalidRange = new Date(fromDate) > new Date(toDate);
 
@@ -128,6 +142,10 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
   }, [analysisType, dateType, fromDate, hasInvalidRange, toDate]);
 
   useEffect(() => {
+    if (shouldSkipInitialFetchRef.current) {
+      shouldSkipInitialFetchRef.current = false;
+      return;
+    }
     void loadSales();
   }, [loadSales]);
 

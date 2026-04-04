@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   title: "Cosmo OS",
   description: "Cosmo OS Application",
   icons: {
-    icon: "/api/favicon",
+    icon: "/favicon.ico",
   },
 };
 

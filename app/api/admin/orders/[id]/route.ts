@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { Prisma } from "@prisma/client";
+
+import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -20,6 +23,7 @@ export async function GET(
   }
 
   const userId = auth.context!.user!.id;
+  const gatewayColumns = await getOrderPaymentGatewayColumnState();
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { companyId: true },
@@ -35,7 +39,37 @@ export async function GET(
 
   const order = await prisma.order.findFirst({
     where: { id: idResult.data, companyId },
-    include: {
+    select: {
+      id: true,
+      shopifyOrderId: true,
+      orderNumber: true,
+      name: true,
+      sourceName: true,
+      totalPrice: true,
+      subtotalPrice: true,
+      totalDiscounts: true,
+      totalTax: true,
+      totalShipping: true,
+      currency: true,
+      financialStatus: true,
+      fulfillmentStatus: true,
+      customerEmail: true,
+      customerPhone: true,
+      shippingAddress: true,
+      billingAddress: true,
+      discountCodes: true,
+      createdAt: true,
+      fulfillmentStage: true,
+      printCount: true,
+      packageReadyAt: true,
+      packageOnHoldAt: true,
+      dispatchedAt: true,
+      invoiceCompleteAt: true,
+      deliveryCompleteAt: true,
+      lastPrintedAt: true,
+      sampleFreeIssueCompleteAt: true,
+      ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
+      ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
       companyLocation: { select: { id: true, name: true, shopifyShopName: true, shopifyAdminStoreHandle: true } },
       assignedMerchant: { select: { id: true, name: true, email: true } },
       packageHoldReason: { select: { id: true, name: true } },
@@ -69,7 +103,7 @@ export async function GET(
           },
         },
       },
-    },
+    } satisfies Prisma.OrderSelect,
   });
 
   if (!order) {
@@ -100,8 +134,12 @@ export async function GET(
     currency: order.currency,
     financialStatus: order.financialStatus,
     fulfillmentStatus: order.fulfillmentStatus,
-    paymentGatewayNames: order.paymentGatewayNames,
-    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: gatewayColumns.hasPaymentGatewayNames
+      ? ((order as typeof order & { paymentGatewayNames: string[] }).paymentGatewayNames ?? [])
+      : [],
+    paymentGatewayPrimary: gatewayColumns.hasPaymentGatewayPrimary
+      ? ((order as typeof order & { paymentGatewayPrimary: string | null }).paymentGatewayPrimary ?? null)
+      : null,
     customerEmail: order.customerEmail,
     customerPhone: order.customerPhone,
     shippingAddress: order.shippingAddress,
@@ -112,6 +150,9 @@ export async function GET(
     assignedMerchant: order.assignedMerchant,
     lineItems,
     shopifyAdminOrderUrl: (() => {
+      if (order.sourceName === "manual" || order.shopifyOrderId.startsWith("manual-")) {
+        return null;
+      }
       const handle = order.companyLocation.shopifyAdminStoreHandle ?? order.companyLocation.shopifyShopName;
       return handle
         ? `https://admin.shopify.com/store/${handle}/orders/${order.shopifyOrderId}`

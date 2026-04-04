@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Package,
   PackageCheck,
+  Plus,
   Printer,
   Settings,
   ShoppingCart,
@@ -19,8 +20,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-
 import {
   Sidebar,
   SidebarContent,
@@ -42,11 +41,12 @@ interface AppSidebarProps {
     email?: string | null;
     picture?: string | null;
   };
+  permissionKeys?: string[];
 }
 
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
+  const canCreateManualOrder = permissionKeys.includes("orders.create_manual");
   const pathname = usePathname();
-  const [showCollapsedLogo, setShowCollapsedLogo] = useState(true);
 
   return (
     <Sidebar collapsible="icon">
@@ -56,18 +56,9 @@ export function AppSidebar({ user }: AppSidebarProps) {
             Cosmo OS (Beta) v{packageJson.version}
           </span>
           <div className="hidden group-data-[collapsible=icon]:inline">
-            {showCollapsedLogo ? (
-              <img
-                src="/api/favicon"
-                alt="Cosmo OS logo"
-                className="size-8 shrink-0 rounded-sm object-contain"
-                onError={() => setShowCollapsedLogo(false)}
-              />
-            ) : (
-              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
-                CO
-              </span>
-            )}
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
+              CO
+            </span>
           </div>
         </div>
       </SidebarHeader>
@@ -174,6 +165,19 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {canCreateManualOrder && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/orders/create"}
+                  >
+                    <Link href="/dashboard/orders/create">
+                      <Plus className="size-4" />
+                      <span>Create manual order</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
