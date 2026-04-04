@@ -1,6 +1,6 @@
 import "server-only";
 import { createRequire } from "module";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -10,6 +10,10 @@ const require = createRequire(import.meta.url);
 
 type PrismaModule = {
   PrismaClient: new (options?: ConstructorParameters<typeof import("@prisma/client").PrismaClient>[0]) => PrismaClient;
+};
+
+type QueryEventClient = PrismaClient & {
+  $on(eventType: "query", callback: (event: Prisma.QueryEvent) => void): PrismaClient;
 };
 
 function loadPrismaModule() {
@@ -103,7 +107,7 @@ function createPrisma() {
     const slowMs = Number(process.env.PRISMA_SLOW_QUERY_MS ?? "250");
     const sampleRate = Number(process.env.PRISMA_SLOW_QUERY_SAMPLE_RATE ?? "1");
 
-    client.$on("query", (event) => {
+    (client as QueryEventClient).$on("query", (event) => {
       if (!Number.isFinite(event.duration) || event.duration < slowMs) {
         return;
       }
