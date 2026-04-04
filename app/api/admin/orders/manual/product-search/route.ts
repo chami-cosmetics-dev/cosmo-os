@@ -12,21 +12,13 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(80),
 });
 
-async function getCompanyId(userId: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
-  return user?.companyId ?? null;
-}
-
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("orders.create_manual");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = await getCompanyId(auth.context!.user!.id);
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },

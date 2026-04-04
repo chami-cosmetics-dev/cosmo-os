@@ -7,21 +7,13 @@ import { cuidSchema } from "@/lib/validation";
 /** First page of products for manual order UI (avoid loading thousands of rows). */
 const INITIAL_PRODUCT_LIMIT = 400;
 
-async function getCompanyId(userId: string): Promise<string | null> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { companyId: true },
-  });
-  return user?.companyId ?? null;
-}
-
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("orders.create_manual");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = await getCompanyId(auth.context!.user!.id);
+  const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
       { error: "No company associated with your account" },
