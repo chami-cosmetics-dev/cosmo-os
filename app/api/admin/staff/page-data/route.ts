@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
 
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
+  const lookupCompanyId = auth.context!.user?.companyId ?? null;
 
   const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
   perf.mark("load-company");
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
     status: searchParams.get("status") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
     includeLookups,
+    lookupCompanyId,
   });
   perf.mark("query");
 

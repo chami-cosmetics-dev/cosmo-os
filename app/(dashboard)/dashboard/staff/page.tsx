@@ -37,6 +37,7 @@ export default async function StaffPage() {
   const canManageStaff = hasPermission(auth.context, "staff.manage");
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
+  const lookupCompanyId = auth.context!.user?.companyId ?? null;
 
   const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
   if (!isSuperAdmin && !companyId) {
@@ -47,6 +48,7 @@ export default async function StaffPage() {
     page: 1,
     limit: 10,
     status: "active",
+    lookupCompanyId,
   });
 
   return (
