@@ -1,4 +1,4 @@
-# cosmo-os
+# cosmo-os.
 
 ## Database setup
 
