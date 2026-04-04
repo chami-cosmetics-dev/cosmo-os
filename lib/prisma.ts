@@ -1,9 +1,55 @@
 import "server-only";
-import { PrismaClient } from "@prisma/client";
+import { createRequire } from "module";
+import type { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
+
+const require = createRequire(import.meta.url);
+
+type PrismaModule = {
+  PrismaClient: new (options?: ConstructorParameters<typeof import("@prisma/client").PrismaClient>[0]) => PrismaClient;
+};
+
+function loadPrismaModule() {
+  return require("@prisma/client") as PrismaModule;
+}
+
+function clearPrismaModuleCache() {
+  const moduleIds = [
+    "@prisma/client",
+    ".prisma/client",
+    "@prisma/client/default",
+    ".prisma/client/default",
+  ];
+
+  for (const id of moduleIds) {
+    try {
+      const resolved = require.resolve(id);
+      delete require.cache[resolved];
+    } catch {
+      /* module not resolved in this environment */
+    }
+  }
+}
+
+function hasModelField(
+  client: PrismaClient,
+  modelName: string,
+  fieldName: string
+) {
+  const runtimeDataModel = (
+    client as PrismaClient & {
+      _runtimeDataModel?: {
+        models?: Record<string, { fields?: Array<{ name?: string }> }>;
+      };
+    }
+  )._runtimeDataModel;
+
+  const fields = runtimeDataModel?.models?.[modelName]?.fields ?? [];
+  return fields.some((field) => field.name === fieldName);
+}
 
 function getRuntimeDatabaseUrl() {
   const raw = process.env.DATABASE_URL;
@@ -34,6 +80,7 @@ function getRuntimeDatabaseUrl() {
 }
 
 function createPrisma() {
+  const { PrismaClient } = loadPrismaModule();
   const dbUrl = getRuntimeDatabaseUrl();
   const enableQueryEvents =
     process.env.NODE_ENV === "development" ||
@@ -82,8 +129,12 @@ function createPrisma() {
 // create a fresh instance so we don't get "Cannot read properties of undefined"
 let instance = globalForPrisma.prisma;
 if (instance && process.env.NODE_ENV !== "production") {
-  if (!("smsNotificationConfig" in instance)) {
+  if (
+    !("smsNotificationConfig" in instance) ||
+    !hasModelField(instance, "CompanyLocation", "manualInvoicePrefix")
+  ) {
     void (instance as PrismaClient).$disconnect();
+    clearPrismaModuleCache();
     globalForPrisma.prisma = undefined;
     instance = undefined;
   }
