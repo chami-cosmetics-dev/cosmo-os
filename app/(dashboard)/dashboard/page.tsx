@@ -5,7 +5,7 @@ export default function DashboardPage() {
     <section className="from-primary/10 to-background relative overflow-hidden rounded-2xl border bg-gradient-to-r p-5 sm:p-6">
       <div className="max-w-3xl space-y-2">
         <p className="text-muted-foreground text-xs font-semibold tracking-[0.2em] uppercase">
-          Dashboard 2
+          Dashboard
         </p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
           Overview
