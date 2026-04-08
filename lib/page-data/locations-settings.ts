@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getCompanyLocationInvoiceFields } from "@/lib/company-location-invoice-fields";
 
 const LOCATIONS_PAGE_SIZE = 10;
 
@@ -64,9 +65,6 @@ export async function getLocationsSettingsInitialData(
         shopifyAdminStoreHandle: true,
         locationReference: true,
         defaultMerchantUserId: true,
-        manualInvoicePrefix: true,
-        manualInvoiceNextSeq: true,
-        manualInvoiceSeqPadding: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -78,8 +76,13 @@ export async function getLocationsSettingsInitialData(
     }),
   ]);
 
+  const invoiceFields = await getCompanyLocationInvoiceFields(rows.map((row) => row.id));
+
   const locations: LocationsSettingsLocation[] = rows.map((l) => ({
     ...l,
+    manualInvoicePrefix: invoiceFields.get(l.id)?.manualInvoicePrefix ?? null,
+    manualInvoiceNextSeq: invoiceFields.get(l.id)?.manualInvoiceNextSeq ?? 0,
+    manualInvoiceSeqPadding: invoiceFields.get(l.id)?.manualInvoiceSeqPadding ?? 3,
     createdAt: l.createdAt.toISOString(),
     updatedAt: l.updatedAt.toISOString(),
   }));

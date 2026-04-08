@@ -539,6 +539,36 @@ export async function syncSessionUser(sessionUser: SessionUser) {
 
 type SessionLike = { user: { sub?: string; email?: string; name?: string; picture?: string } };
 
+async function buildContextFromSessionUser(sessionUser: SessionUser) {
+  const user = await syncSessionUser({
+    sub: sessionUser.sub,
+    email: sessionUser.email ?? undefined,
+    name: sessionUser.name ?? undefined,
+    picture: sessionUser.picture ?? undefined,
+  });
+
+  if (!user) {
+    return {
+      sessionUser,
+      user: null,
+      permissionKeys: [],
+      roleNames: [],
+    };
+  }
+
+  const userAccess = await getUserAccessRoles(user.id);
+  const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
+  const roleNames = Array.from(new Set(roles.map((role) => role.name)));
+  const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
+
+  return {
+    sessionUser,
+    user,
+    permissionKeys,
+    roleNames,
+  };
+}
+
 async function getCurrentUserContextImpl(session?: SessionLike | null) {
   const sess = session ?? (await auth0.getSession());
   if (!sess?.user) {
@@ -546,37 +576,11 @@ async function getCurrentUserContextImpl(session?: SessionLike | null) {
   }
 
   try {
-    const user = await syncSessionUser({
-      sub: sess.user.sub,
-      email: sess.user.email ?? undefined,
-      name: sess.user.name ?? undefined,
-      picture: sess.user.picture ?? undefined,
-    });
-
-    if (!user) {
-      return {
-        sessionUser: sess.user,
-        user: null,
-        permissionKeys: [],
-        roleNames: [],
-      };
-    }
-
-    const userAccess = await getUserAccessRoles(user.id);
-    const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
-    const roleNames = Array.from(new Set(roles.map((role) => role.name)));
-    const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
-
-    return {
-      sessionUser: sess.user,
-      user,
-      permissionKeys,
-      roleNames,
-    };
+    return await buildContextFromSessionUser(sess.user);
   } catch (error) {
     if (isDatabaseUnavailableError(error)) {
       markRbacDatabaseUnavailable();
-    } else if (!isMissingRbacTableError(error)) {
+    } else {
       console.error("Failed to build RBAC context:", error);
     }
     return {
@@ -720,11 +724,18 @@ export function hasAnyPermission(
 
 export async function requirePermission(permissionKey: string) {
   const perf = createPerfLogger("rbac.requirePermission", { permissionKey });
-  const context = await getCurrentUserContext();
+  let context = await getCurrentUserContext();
   perf.mark("get-context");
   if (!context) {
     perf.end({ status: 401, ok: false });
     return { ok: false as const, status: 401, error: "Not authenticated" };
+  }
+  if (!context.user) {
+    try {
+      context = await buildContextFromSessionUser(context.sessionUser);
+    } catch (error) {
+      console.error("Failed RBAC retry in requirePermission:", error);
+    }
   }
   if (!context.user) {
     perf.end({ status: 503, ok: false });
@@ -746,9 +757,16 @@ export async function requirePermission(permissionKey: string) {
 
 /** Requires user to have at least one of the given permissions. */
 export async function requireAnyPermission(permissionKeys: string[]) {
-  const context = await getCurrentUserContext();
+  let context = await getCurrentUserContext();
   if (!context) {
     return { ok: false as const, status: 401, error: "Not authenticated" };
+  }
+  if (!context.user) {
+    try {
+      context = await buildContextFromSessionUser(context.sessionUser);
+    } catch (error) {
+      console.error("Failed RBAC retry in requireAnyPermission:", error);
+    }
   }
   if (!context.user) {
     return {

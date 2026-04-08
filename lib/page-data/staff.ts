@@ -9,6 +9,7 @@ export type StaffPageParams = {
   status?: string | null;
   search?: string | null;
   includeLookups?: boolean;
+  lookupCompanyId?: string | null;
 };
 
 type StaffLookups = {
@@ -66,6 +67,7 @@ export async function fetchStaffPageData(
   const statusFilter = params.status;
   const search = params.search?.trim() ?? "";
   const includeLookups = params.includeLookups ?? true;
+  const lookupCompanyId = params.lookupCompanyId ?? companyId;
   const skip = (page - 1) * limit;
 
   const SORT_FIELDS: Record<string, Prisma.UserOrderByWithRelationInput> = {
@@ -199,8 +201,8 @@ export async function fetchStaffPageData(
       : null,
   }));
 
-  const lookups = includeLookups && companyId
-    ? await fetchStaffLookups(companyId)
+  const lookups = includeLookups && lookupCompanyId
+    ? await fetchStaffLookups(lookupCompanyId)
     : {
         locations: [] as { id: string; name: string; address: string | null }[],
         departments: [] as { id: string; name: string }[],
