@@ -7,9 +7,12 @@ export default function DashboardPage() {
         <p className="text-muted-foreground text-xs font-semibold tracking-[0.2em] uppercase">
           Dashboard
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Overview</h1>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+          Overview
+        </h1>
         <p className="text-muted-foreground text-sm sm:text-base">
-          Adjust filters and explore sales by location below. Other tools are in the sidebar.
+          Adjust filters and explore sales by location below. Other tools are in
+          the sidebar.
         </p>
       </div>
     </section>

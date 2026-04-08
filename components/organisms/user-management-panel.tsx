@@ -20,6 +20,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string };
@@ -119,6 +128,10 @@ export function UserManagementPanel({
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
     initialPendingInvites ?? []
   );
+  const [userPendingRemoval, setUserPendingRemoval] = useState<{
+    id: string;
+    displayName: string;
+  } | null>(null);
   const [usersPage, setUsersPage] = useState(1);
   const [usersLimit, setUsersLimit] = useState(10);
   const [rolesPage, setRolesPage] = useState(1);
@@ -432,12 +445,14 @@ export function UserManagementPanel({
     return remainder > 0 ? `Expires in ${hours}h ${remainder}m` : `Expires in ${hours}h`;
   }
 
-  async function removeUser(userId: string, userName: string) {
-    const confirmed = window.confirm(
-      `Remove user "${userName}"? They will no longer be able to sign in.`
-    );
-    if (!confirmed) return;
+  const removeUserBusy =
+    userPendingRemoval !== null &&
+    busyKey === `remove-user-${userPendingRemoval.id}`;
 
+  async function confirmRemoveUser() {
+    if (!userPendingRemoval) return;
+
+    const { id: userId } = userPendingRemoval;
     try {
       setBusyKey(`remove-user-${userId}`);
       const response = await fetch(`/api/admin/users/${userId}`, {
@@ -451,6 +466,7 @@ export function UserManagementPanel({
 
       await refreshData();
       notify.success("User removed.");
+      setUserPendingRemoval(null);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to remove user.");
     } finally {
@@ -714,10 +730,11 @@ export function UserManagementPanel({
                                       size="icon"
                                       className="size-8 text-destructive hover:text-destructive"
                                       onClick={() =>
-                                        removeUser(
-                                          user.id,
-                                          user.name ?? user.email ?? "this user"
-                                        )
+                                        setUserPendingRemoval({
+                                          id: user.id,
+                                          displayName:
+                                            user.name ?? user.email ?? "this user",
+                                        })
                                       }
                                       disabled={isBusy}
                                       aria-label="Remove user"
@@ -1387,6 +1404,48 @@ export function UserManagementPanel({
             </SheetFooter>
           </SheetContent>
         </Sheet>
+
+      <AlertDialog
+        open={userPendingRemoval !== null}
+        onOpenChange={(open) => {
+          if (!open && !removeUserBusy) setUserPendingRemoval(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove user?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {userPendingRemoval ? (
+                <>
+                  This will remove{" "}
+                  <span className="text-foreground font-medium">
+                    &quot;{userPendingRemoval.displayName}&quot;
+                  </span>{" "}
+                  from your organization and delete their Auth0 account. They will no longer be
+                  able to sign in. This cannot be undone.
+                </>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeUserBusy}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={removeUserBusy}
+              onClick={() => void confirmRemoveUser()}
+            >
+              {removeUserBusy ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Removing...
+                </>
+              ) : (
+                "Remove user"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
