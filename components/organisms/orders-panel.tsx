@@ -340,7 +340,7 @@ export function OrdersPanel({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full overflow-x-hidden space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -352,9 +352,9 @@ export function OrdersPanel({
             gateway.
           </p>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
-            <div className="relative flex-1">
+        <CardContent className="min-w-0 max-w-full overflow-x-hidden space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(4,minmax(0,1fr))] lg:items-center">
+            <div className="relative min-w-0">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
                 placeholder="Search by order name (e.g. 6008699), #, or customer..."
@@ -367,7 +367,7 @@ export function OrdersPanel({
               value={locationFilter || ALL_FILTER_VALUE}
               onValueChange={(value) => setLocationFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <SelectTrigger className="w-full sm:w-48">
+              <SelectTrigger className="w-full min-w-0">
                 <SelectValue placeholder="All locations" />
               </SelectTrigger>
               <SelectContent>
@@ -383,7 +383,7 @@ export function OrdersPanel({
               value={sourceFilter || ALL_FILTER_VALUE}
               onValueChange={(value) => setSourceFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <SelectTrigger className="w-full sm:w-40">
+              <SelectTrigger className="w-full min-w-0">
                 <SelectValue placeholder="All sources" />
               </SelectTrigger>
               <SelectContent>
@@ -396,7 +396,7 @@ export function OrdersPanel({
               value={merchantFilter || ALL_FILTER_VALUE}
               onValueChange={(value) => setMerchantFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <SelectTrigger className="w-full sm:w-52">
+              <SelectTrigger className="w-full min-w-0">
                 <SelectValue placeholder="All merchants" />
               </SelectTrigger>
               <SelectContent>
@@ -412,7 +412,7 @@ export function OrdersPanel({
               value={paymentGatewayFilter || ALL_FILTER_VALUE}
               onValueChange={(value) => setPaymentGatewayFilter(value === ALL_FILTER_VALUE ? "" : value)}
             >
-              <SelectTrigger className="w-full min-w-0 sm:max-w-[14rem] sm:flex-1">
+              <SelectTrigger className="w-full min-w-0">
                 <SelectValue placeholder="All gateways" />
               </SelectTrigger>
               <SelectContent>
@@ -434,11 +434,12 @@ export function OrdersPanel({
             </p>
           ) : (
             <>
-              <div className="overflow-x-auto rounded-md border">
-                <table className="w-full text-sm">
+              <div className="max-w-full rounded-md border">
+                <table className="w-full table-fixed text-sm [&_th:nth-child(2)]:hidden [&_td:nth-child(2)]:hidden [&_th:nth-child(3)]:hidden [&_td:nth-child(3)]:hidden [&_th:nth-child(6)]:hidden [&_td:nth-child(6)]:hidden [&_th:nth-child(7)]:hidden [&_td:nth-child(7)]:hidden [&_th:nth-child(8)]:hidden [&_td:nth-child(8)]:hidden [&_th:nth-child(9)]:hidden [&_td:nth-child(9)]:hidden [&_th:nth-child(10)]:hidden [&_td:nth-child(10)]:hidden md:[&_th:nth-child(6)]:table-cell md:[&_td:nth-child(6)]:table-cell md:[&_th:nth-child(10)]:table-cell md:[&_td:nth-child(10)]:table-cell lg:[&_th:nth-child(2)]:table-cell lg:[&_td:nth-child(2)]:table-cell lg:[&_th:nth-child(7)]:table-cell lg:[&_td:nth-child(7)]:table-cell xl:[&_th:nth-child(3)]:table-cell xl:[&_td:nth-child(3)]:table-cell xl:[&_th:nth-child(8)]:table-cell xl:[&_td:nth-child(8)]:table-cell xl:[&_th:nth-child(9)]:table-cell xl:[&_td:nth-child(9)]:table-cell">
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <SortableColumnHeader
+                        className="w-[10%]"
                         label="Order"
                         sortKey="name"
                         currentSort={sortBy || undefined}
@@ -446,15 +447,17 @@ export function OrdersPanel({
                         onSort={handleSort}
                       />
                       <SortableColumnHeader
+                        className="hidden lg:table-cell w-[6%]"
                         label="Source"
                         sortKey="source"
                         currentSort={sortBy || undefined}
                         currentOrder={sortOrder}
                         onSort={handleSort}
                       />
-                      <th className="px-4 py-2 text-left font-medium">Payment</th>
-                      <th className="px-4 py-2 text-left font-medium">Customer</th>
+                      <th className="hidden xl:table-cell w-[6%] px-4 py-2 text-left font-medium">Payment</th>
+                      <th className="w-[15%] px-4 py-2 text-left font-medium">Customer</th>
                       <SortableColumnHeader
+                        className="w-[9%]"
                         label="Total (LKR)"
                         sortKey="total"
                         currentSort={sortBy || undefined}
@@ -462,9 +465,10 @@ export function OrdersPanel({
                         onSort={handleSort}
                         align="right"
                       />
-                      <th className="px-4 py-2 text-left font-medium">Shopify Status</th>
-                      <th className="px-4 py-2 text-left font-medium">Fulfillment Stage</th>
+                      <th className="hidden md:table-cell w-[13%] px-4 py-2 text-left font-medium">Shopify Status</th>
+                      <th className="hidden lg:table-cell w-[9%] px-4 py-2 text-left font-medium">Fulfillment Stage</th>
                       <SortableColumnHeader
+                        className="hidden xl:table-cell w-[11%]"
                         label="Location"
                         sortKey="location"
                         currentSort={sortBy || undefined}
@@ -472,6 +476,7 @@ export function OrdersPanel({
                         onSort={handleSort}
                       />
                       <SortableColumnHeader
+                        className="hidden xl:table-cell w-[10%]"
                         label="Merchant"
                         sortKey="merchant"
                         currentSort={sortBy || undefined}
@@ -479,22 +484,27 @@ export function OrdersPanel({
                         onSort={handleSort}
                       />
                       <SortableColumnHeader
+                        className="hidden md:table-cell w-[10%]"
                         label="Date"
                         sortKey="created"
                         currentSort={sortBy || undefined}
                         currentOrder={sortOrder}
                         onSort={handleSort}
                       />
-                      <th className="px-4 py-2 text-left font-medium">Actions</th>
+                      <th className="w-[11%] px-3 py-2 text-right font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {orders.map((order) => (
                       <tr key={order.id} className="border-b last:border-0">
-                        <td className="px-4 py-2 font-medium">{order.name ?? order.orderNumber ?? "—"}</td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 font-medium">
+                          <div className="truncate" title={order.name ?? order.orderNumber ?? undefined}>
+                            {order.name ?? order.orderNumber ?? "—"}
+                          </div>
+                        </td>
+                        <td className="hidden lg:table-cell px-4 py-2">
                           <span
-                            className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${
+                            className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${
                               order.sourceName === "pos"
                                 ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
                                 : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
@@ -503,9 +513,9 @@ export function OrdersPanel({
                             {order.sourceName}
                           </span>
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="hidden xl:table-cell px-4 py-2">
                           <span
-                            className="text-muted-foreground max-w-[160px] truncate text-xs"
+                            className="text-muted-foreground block truncate text-xs"
                             title={
                               order.paymentGatewayNames?.length
                                 ? order.paymentGatewayNames.join(", ")
@@ -519,31 +529,41 @@ export function OrdersPanel({
                           </span>
                         </td>
                         <td className="px-4 py-2">
-                          <div className="max-w-[180px] truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
+                          <div className="truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
                             {order.customerEmail ?? order.customerPhone ?? "—"}
                           </div>
                         </td>
-                        <td className="px-4 py-2 text-right">{formatPrice(order.totalPrice)}</td>
-                        <td className="px-4 py-2">
-                          <span className="text-muted-foreground text-xs">
+                        <td className="px-4 py-2 text-right whitespace-nowrap">{formatPrice(order.totalPrice)}</td>
+                        <td className="hidden md:table-cell px-4 py-2">
+                          <span className="text-muted-foreground block text-xs leading-5">
                             {order.financialStatus ?? "—"} / {order.fulfillmentStatus ?? "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-2">
-                          <span className="text-muted-foreground text-xs">
+                        <td className="hidden lg:table-cell px-4 py-2">
+                          <span className="text-muted-foreground block text-xs leading-5">
                             {order.fulfillmentStage
                               ? FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage
                               : "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
-                        <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}</td>
-                        <td className="px-4 py-2 text-muted-foreground">{formatDate(order.createdAt)}</td>
                         <td className="px-4 py-2">
+                          <div className="truncate" title={order.companyLocation?.name ?? undefined}>
+                            {order.companyLocation?.name ?? "—"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="truncate" title={order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? undefined}>
+                            {order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}
+                          </div>
+                        </td>
+                        <td className="hidden md:table-cell px-4 py-2 text-muted-foreground">
+                          <div className="leading-5">{formatDate(order.createdAt)}</div>
+                        </td>
+                        <td className="px-3 py-2 text-right">
                           <Button
                             size="sm"
                             variant="outline"
-                            className="flex items-center gap-1.5"
+                            className="inline-flex h-9 max-w-full whitespace-nowrap px-3"
                             onClick={() => handleViewOrder(order.id)}
                           >
                             <Eye className="size-4" />
