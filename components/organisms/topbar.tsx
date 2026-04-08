@@ -40,7 +40,6 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
       <SidebarTrigger className="-ml-1 border border-border/60 bg-background/75 text-primary hover:bg-secondary/45 hover:text-primary" />
       <Separator orientation="vertical" className="mr-1 h-6 bg-border/80" />
       <div className="flex flex-1 items-center gap-3">
-        <span className="hidden h-2.5 w-2.5 rounded-full bg-primary shadow-[0_0_0_4px_var(--dashboard-accent-soft)] sm:inline-flex" />
         <div className="flex flex-col">
           <span className="text-[10px] font-semibold tracking-[0.24em] text-muted-foreground uppercase">
             Cosmo OS
