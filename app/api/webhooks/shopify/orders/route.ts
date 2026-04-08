@@ -9,13 +9,24 @@ import { processOrderWebhook } from "@/lib/order-webhook-process";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+function getWebhookLogMeta(request: NextRequest) {
+  return {
+    topic: request.headers.get("x-shopify-topic"),
+    webhookId: request.headers.get("x-shopify-webhook-id"),
+    shopDomain: request.headers.get("x-shopify-shop-domain"),
+    locationId: request.nextUrl.searchParams.get("location_id"),
+  };
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const hmacHeader = request.headers.get("x-shopify-hmac-sha256");
   const shopifyTopic = request.headers.get("x-shopify-topic") ?? null;
+  const webhookMeta = getWebhookLogMeta(request);
 
   const locationIdParam = request.nextUrl.searchParams.get("location_id");
   if (!locationIdParam?.trim()) {
+    console.error("[Order webhook] Missing location_id query param", webhookMeta);
     return NextResponse.json(
       { error: "location_id query param is required" },
       { status: 400 }
@@ -37,6 +48,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (!location) {
+    console.error("[Order webhook] Location not found", webhookMeta);
     return NextResponse.json(
       { error: "Location not found for given shopify location id" },
       { status: 404 }
@@ -45,6 +57,11 @@ export async function POST(request: NextRequest) {
 
   const secrets = location.company.shopifyWebhookSecrets.map((s) => s.secret);
   if (secrets.length === 0) {
+    console.error("[Order webhook] No webhook secrets configured", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      companyLocationId: location.id,
+    });
     return NextResponse.json(
       { error: "No webhook secrets configured for this company" },
       { status: 500 }
@@ -55,6 +72,11 @@ export async function POST(request: NextRequest) {
     verifyShopifyWebhook(rawBody, hmacHeader, secret)
   );
   if (!isValid) {
+    console.error("[Order webhook] Invalid signature", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      companyLocationId: location.id,
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -62,6 +84,11 @@ export async function POST(request: NextRequest) {
   try {
     rawPayload = JSON.parse(rawBody);
   } catch {
+    console.error("[Order webhook] Invalid JSON", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      companyLocationId: location.id,
+    });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
