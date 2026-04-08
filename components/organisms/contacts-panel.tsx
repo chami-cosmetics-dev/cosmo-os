@@ -269,8 +269,8 @@ export function ContactsPanel({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle className="flex items-center gap-2">
             <Users className="size-5" />
             Contact Master
@@ -283,44 +283,50 @@ export function ContactsPanel({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <button
               type="button"
-              className={`rounded-md border p-3 text-left transition-colors ${
-                status === "__all" ? "border-primary bg-primary/5" : "hover:bg-muted/40"
+              className={`rounded-xl border p-3 text-left transition-all ${
+                status === "__all"
+                  ? "border-primary/40 bg-primary/8 shadow-[0_10px_22px_-18px_var(--primary)]"
+                  : "border-border/70 bg-background/70 hover:bg-secondary/10"
               }`}
               onClick={() => setStatus("__all")}
             >
-              <p className="text-muted-foreground text-xs">All Contacts</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">All Contacts</p>
               <p className="text-xl font-semibold">{counts.all}</p>
             </button>
             <button
               type="button"
-              className={`rounded-md border p-3 text-left transition-colors ${
-                status === "active" ? "border-primary bg-primary/5" : "hover:bg-muted/40"
+              className={`rounded-xl border p-3 text-left transition-all ${
+                status === "active"
+                  ? "border-primary/40 bg-primary/8 shadow-[0_10px_22px_-18px_var(--primary)]"
+                  : "border-border/70 bg-background/70 hover:bg-secondary/10"
               }`}
               onClick={() => setStatus("active")}
             >
-              <p className="text-muted-foreground text-xs">Active</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Active</p>
               <p className="text-xl font-semibold">{counts.active}</p>
             </button>
             <button
               type="button"
-              className={`rounded-md border p-3 text-left transition-colors ${
-                status === "inactive" ? "border-primary bg-primary/5" : "hover:bg-muted/40"
+              className={`rounded-xl border p-3 text-left transition-all ${
+                status === "inactive"
+                  ? "border-primary/40 bg-primary/8 shadow-[0_10px_22px_-18px_var(--primary)]"
+                  : "border-border/70 bg-background/70 hover:bg-secondary/10"
               }`}
               onClick={() => setStatus("inactive")}
             >
-              <p className="text-muted-foreground text-xs">Inactive</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Inactive</p>
               <p className="text-xl font-semibold">{counts.inactive}</p>
             </button>
             <button
               type="button"
-              className={`rounded-md border p-3 text-left transition-colors ${
+              className={`rounded-xl border p-3 text-left transition-all ${
                 status === "never_purchased"
-                  ? "border-primary bg-primary/5"
-                  : "hover:bg-muted/40"
+                  ? "border-primary/40 bg-primary/8 shadow-[0_10px_22px_-18px_var(--primary)]"
+                  : "border-border/70 bg-background/70 hover:bg-secondary/10"
               }`}
               onClick={() => setStatus("never_purchased")}
             >
-              <p className="text-muted-foreground text-xs">Never Purchased</p>
+              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Never Purchased</p>
               <p className="text-xl font-semibold">{counts.neverPurchased}</p>
             </button>
           </div>
@@ -330,6 +336,7 @@ export function ContactsPanel({
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
+                  className="border-border/70 bg-background/70 hover:bg-secondary/15"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={importing}
                 >
@@ -347,14 +354,14 @@ export function ContactsPanel({
                   }}
                 />
 
-                <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button>
+                  <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button>
                       <Plus className="mr-2 size-4" />
                       Add Contact
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-xl">
+                  <DialogContent className="max-w-xl border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                     <DialogHeader>
                       <DialogTitle>Add Contact</DialogTitle>
                       <DialogDescription>Create a contact manually for your contact master table.</DialogDescription>
@@ -364,21 +371,25 @@ export function ContactsPanel({
                         placeholder="Name *"
                         value={createForm.name}
                         onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
                       />
                       <Input
                         placeholder="Email"
                         value={createForm.email}
                         onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
                       />
                       <Input
                         placeholder="Phone number"
                         value={createForm.phoneNumber}
                         onChange={(e) => setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
                       />
                       <Input
                         placeholder="Recent merchant"
                         value={createForm.recentMerchant}
                         onChange={(e) => setCreateForm((prev) => ({ ...prev, recentMerchant: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
                       />
                     </div>
                     <DialogFooter>
@@ -400,11 +411,11 @@ export function ContactsPanel({
                 placeholder="Search name, email, phone, merchant..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+                className="rounded-lg border-border/80 bg-background/80 pl-9"
               />
             </div>
             <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-              <SelectTrigger className="w-full sm:w-48">
+              <SelectTrigger className="w-full border-border/80 bg-background/80 sm:w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -416,6 +427,7 @@ export function ContactsPanel({
             </Select>
             <Button
               variant="ghost"
+              className="hover:bg-secondary/15"
               onClick={() => {
                 setSearch("");
                 setStatus("__all");
@@ -439,10 +451,10 @@ export function ContactsPanel({
               <p className="text-muted-foreground text-sm">
                 Showing {contacts.length} of {total} contacts
               </p>
-              <div className="overflow-x-auto rounded-md border">
+              <div className="overflow-x-auto rounded-xl border border-border/70">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50">
+                    <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                       <th className="px-4 py-2 text-left font-medium">Contact</th>
                       <th className="px-4 py-2 text-left font-medium">Phone</th>
                       <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -454,10 +466,10 @@ export function ContactsPanel({
                   </thead>
                   <tbody>
                     {contacts.map((contact) => (
-                      <tr key={contact.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <tr key={contact.id} className="border-b last:border-0 hover:bg-secondary/10">
                         <td className="px-4 py-2">
                           <div className="flex items-center gap-3">
-                            <span className="bg-muted text-muted-foreground inline-flex size-8 items-center justify-center rounded-full text-xs font-semibold">
+                            <span className="inline-flex size-8 items-center justify-center rounded-full bg-secondary/20 text-muted-foreground text-xs font-semibold">
                               {initials(contact.name)}
                             </span>
                             <div>
@@ -479,6 +491,7 @@ export function ContactsPanel({
                           <Button
                             size="sm"
                             variant="outline"
+                            className="border-border/70 bg-background/70 hover:bg-secondary/15"
                             onClick={() => {
                               void onViewPurchases(contact);
                             }}
@@ -519,7 +532,7 @@ export function ContactsPanel({
           }
         }}
       >
-        <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
             <DialogHeader>
               <DialogTitle>Purchases - {viewingContact?.name ?? "Contact"}</DialogTitle>
               <DialogDescription>
@@ -543,10 +556,10 @@ export function ContactsPanel({
               <p className="text-muted-foreground text-sm">
                 {contactPurchases.length} order(s) found
               </p>
-              <div className="overflow-x-auto rounded-md border">
+              <div className="overflow-x-auto rounded-xl border border-border/70">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50">
+                    <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                       <th className="px-4 py-2 text-left font-medium">Order</th>
                       <th className="px-4 py-2 text-left font-medium">Date</th>
                       <th className="px-4 py-2 text-right font-medium">Total</th>
@@ -556,7 +569,7 @@ export function ContactsPanel({
                   </thead>
                   <tbody>
                     {contactPurchases.map((order) => (
-                      <tr key={order.id} className="border-b last:border-0">
+                      <tr key={order.id} className="border-b last:border-0 hover:bg-secondary/10">
                         <td className="px-4 py-2">
                           <p className="font-medium">{order.name ?? order.orderNumber ?? order.shopifyOrderId}</p>
                           <p className="text-muted-foreground text-xs">{order.orderNumber ?? "N/A"}</p>

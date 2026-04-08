@@ -1,8 +1,16 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useState } from "react";
+import { Label, Pie, PieChart, Sector } from "recharts";
 
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
 
@@ -172,7 +180,7 @@ function DashboardDonutGrid({
 
   return (
     <div className="space-y-4">
-      <div className="from-background to-muted/20 flex flex-col gap-3 rounded-xl border border-border/60 bg-gradient-to-r p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-[linear-gradient(120deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_12%,var(--background)),color-mix(in_srgb,var(--accent)_10%,var(--background)))] p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
             Merchant Performance
@@ -193,33 +201,35 @@ function DashboardDonutGrid({
         {stats.map((stat) => (
           <Card
             key={stat.shop}
-            className="rounded-xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_18px_34px_-22px_rgba(15,23,42,0.35)] dark:border-border dark:bg-card"
           >
-            <CardContent className="pb-5">
-              <div className="space-y-1 py-3 text-center">
-                <p className="text-base leading-6 font-semibold tracking-tight">{stat.shop}</p>
-                <p className="text-muted-foreground text-[11px] font-medium tracking-wide uppercase">
-                  Total Orders
+            <div className="h-1 w-full bg-[linear-gradient(90deg,var(--chart-3),var(--chart-2),var(--chart-4))]" />
+            <CardContent className="px-4 pb-5 pt-3">
+              <div className="space-y-1 text-center">
+                <p className="line-clamp-1 text-base leading-6 font-semibold tracking-tight text-slate-800 dark:text-foreground">
+                  {stat.shop}
                 </p>
-                <p className="text-2xl font-semibold">{stat.total}</p>
+                <p className="text-2xl font-semibold text-slate-700 dark:text-foreground">
+                  {stat.total}
+                </p>
               </div>
               <DonutChartCard
                 name={stat.agent}
                 value={stat.agentValue}
                 segments={stat.segments}
               />
-              <div className="mt-3 grid grid-cols-3 gap-1 text-center text-[11px]">
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px]">
                 {stat.segments.map((segment, index) => (
                   <div
                     key={`${stat.shop}-${index}`}
-                    className="rounded-md border border-border/60 px-1 py-1"
+                    className="rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1.5 dark:border-border dark:bg-background/60"
                   >
                     <div
-                      className="mx-auto mb-1 h-1.5 w-8 rounded-full"
+                      className="mx-auto mb-1.5 h-1.5 w-10 rounded-full"
                       style={{ backgroundColor: segment.color }}
                     />
                     <p className="text-muted-foreground">{getSegmentLabel(index)}</p>
-                    <p className="font-medium">{segment.value}%</p>
+                    <p className="font-semibold text-slate-800 dark:text-foreground">{segment.value}%</p>
                   </div>
                 ))}
               </div>
@@ -253,27 +263,103 @@ function DonutChartCard({
   value: string;
   segments: Array<{ value: number; color: string }>;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const chartData = segments.map((segment, index) => ({
+    key: `segment-${index + 1}`,
+    label: getSegmentLabel(index),
+    value: segment.value,
+    fill: segment.color,
+  }));
+  const chartConfig = chartData.reduce<ChartConfig>((config, segment) => {
+    config[segment.key] = {
+      label: segment.label,
+      color: segment.fill,
+    };
+    return config;
+  }, {});
+
   return (
-    <div className="relative mx-auto mt-1 grid h-56 w-56 place-items-center">
-      <div
-        className="absolute inset-3 rounded-full"
-        style={{ background: toConicGradient(segments) }}
-      />
-      <div className="relative z-10 grid h-[9.25rem] w-[9.25rem] place-items-center rounded-full bg-card p-4 text-center shadow-[0_0_0_2px_#4f95bf]">
-        <div>
-          <p className="text-muted-foreground text-[11px] uppercase">Primary Agent</p>
-          <p className={getNameClass(name)}>{name}</p>
-          <p className="mt-1 text-3xl font-medium">{value}</p>
-        </div>
-      </div>
+    <div className="mx-auto mt-3 h-[15.5rem] w-[15.5rem] max-w-full">
+      <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
+        <PieChart>
+          <ChartTooltip
+            cursor={false}
+            content={
+              <ChartTooltipContent
+                hideLabel
+                formatter={(chartValue, _name, item) => {
+                  const payload = item.payload as {
+                    label: string;
+                    value: number;
+                  };
+                  return (
+                    <div className="flex w-full items-center justify-between gap-3">
+                      <span>{payload.label}</span>
+                      <span className="font-medium tabular-nums">{Number(chartValue)}%</span>
+                    </div>
+                  );
+                }}
+              />
+            }
+          />
+          <Pie
+            data={chartData}
+            dataKey="value"
+            nameKey="key"
+            cx="50%"
+            cy="50%"
+            innerRadius={58}
+            outerRadius={104}
+            paddingAngle={2}
+            strokeWidth={0}
+            activeIndex={activeIndex ?? undefined}
+            activeShape={renderActiveDonutShape}
+            isAnimationActive
+            animationDuration={260}
+            onMouseEnter={(_, index) => setActiveIndex(index)}
+            onMouseLeave={() => setActiveIndex(null)}
+          >
+            <Label
+              content={({ viewBox }) => {
+                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                  return (
+                    <text
+                      x={viewBox.cx}
+                      y={viewBox.cy}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) - 26}
+                        className="fill-slate-500 text-[10px] uppercase dark:fill-muted-foreground"
+                      >
+                        Primary Agent
+                      </tspan>
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) - 2}
+                        className="fill-slate-900 text-[11px] font-semibold dark:fill-foreground"
+                      >
+                        {name}
+                      </tspan>
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) + 28}
+                        className="fill-slate-900 text-[20px] font-bold dark:fill-foreground"
+                      >
+                        {value}
+                      </tspan>
+                    </text>
+                  );
+                }
+              }}
+            />
+          </Pie>
+        </PieChart>
+      </ChartContainer>
     </div>
   );
-}
-
-function getNameClass(name: string) {
-  if (name.length > 18) return "text-sm leading-tight font-semibold";
-  if (name.length > 12) return "text-xl leading-tight font-semibold";
-  return "text-xl leading-tight font-semibold";
 }
 
 function getSegmentLabel(index: number) {
@@ -297,18 +383,52 @@ function buildSegmentsFromRows(rows: Array<{ total: number }>) {
   return topThree;
 }
 
-function toConicGradient(segments: Array<{ value: number; color: string }>) {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
-  let start = 0;
+function renderActiveDonutShape(props: {
+  cx?: number;
+  cy?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  startAngle?: number;
+  endAngle?: number;
+  fill?: string;
+  midAngle?: number;
+}) {
+  const {
+    cx = 0,
+    cy = 0,
+    innerRadius = 58,
+    outerRadius = 104,
+    startAngle = 0,
+    endAngle = 0,
+    fill,
+    midAngle = 0,
+  } = props;
 
-  const stops = segments.map((segment) => {
-    const sweep = (segment.value / total) * 360;
-    const startWithGap = start + 1.5;
-    const endWithGap = start + sweep - 1.5;
-    const stop = `${segment.color} ${startWithGap.toFixed(2)}deg ${endWithGap.toFixed(2)}deg`;
-    start += sweep;
-    return stop;
-  });
+  const radians = (-midAngle * Math.PI) / 180;
+  const offsetX = Math.cos(radians) * 14;
+  const offsetY = Math.sin(radians) * 14;
 
-  return `conic-gradient(${stops.join(", ")})`;
+  return (
+    <g>
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 6}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={outerRadius + 10}
+        outerRadius={outerRadius + 16}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        opacity={0.3}
+      />
+    </g>
+  );
 }

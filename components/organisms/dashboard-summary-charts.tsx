@@ -1,6 +1,15 @@
 "use client";
 
+import { useState } from "react";
+import { Label, Pie, PieChart, Sector } from "recharts";
+
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 
 interface DashboardSummaryChartsProps {
   analysisType: "merchant" | "gateway";
@@ -13,15 +22,15 @@ interface DashboardSummaryChartsProps {
 }
 
 const CHART_COLORS = [
-  "#3f8fc1",
-  "#f06a57",
-  "#06b06c",
-  "#f59e0b",
-  "#c4c9d3",
-  "#0ea5e9",
-  "#ef4444",
-  "#84cc16",
-  "#a3a3a3",
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "color-mix(in srgb, var(--chart-1) 55%, white)",
+  "color-mix(in srgb, var(--chart-2) 55%, white)",
+  "color-mix(in srgb, var(--chart-3) 55%, white)",
+  "color-mix(in srgb, var(--muted-foreground) 45%, transparent)",
 ];
 
 export function DashboardSummaryCharts({
@@ -55,7 +64,15 @@ export function DashboardSummaryCharts({
   );
 
   const rightSegments =
-    remainder > 0 ? [...agentTotals, { value: remainder, color: "#c4c9d3" }] : agentTotals;
+    remainder > 0
+      ? [
+          ...agentTotals,
+          {
+            value: remainder,
+            color: "color-mix(in srgb, var(--muted-foreground) 32%, transparent)",
+          },
+        ]
+      : agentTotals;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -90,24 +107,104 @@ function SummaryChartCard({
   centerValue: string;
   segments: Array<{ value: number; color: string }>;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const chartData = segments.map((segment, index) => ({
+    key: `segment-${index + 1}`,
+    label: `Part ${index + 1}`,
+    value: segment.value,
+    fill: segment.color,
+  }));
+  const chartConfig = chartData.reduce<ChartConfig>((config, segment) => {
+    config[segment.key] = {
+      label: segment.label,
+      color: segment.fill,
+    };
+    return config;
+  }, {});
+
   return (
-    <Card className="border-border/70 bg-card shadow-xs">
-      <CardHeader className="space-y-1 border-t-2 border-border py-3 text-center">
-        <p className="text-sm leading-5 font-semibold tracking-wide">{title}</p>
-        <p className="text-2xl font-semibold tracking-tight">{total}</p>
+    <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
+      <CardHeader className="space-y-2 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),transparent)] py-5 text-center">
+        <p className="text-2xl font-semibold tracking-tight text-slate-800 dark:text-foreground">
+          {title}
+        </p>
+        <p className="text-2xl font-semibold tracking-tight text-slate-700 dark:text-foreground">
+          {total}
+        </p>
       </CardHeader>
-      <CardContent className="pb-5">
-        <div className="relative mx-auto mt-1 grid h-56 w-56 place-items-center sm:h-64 sm:w-64">
-          <div
-            className="absolute inset-3 rounded-full"
-            style={{ background: toConicGradient(segments) }}
-          />
-          <div className="relative z-10 grid h-[9.5rem] w-[9.5rem] place-items-center rounded-full bg-card p-4 text-center shadow-[0_0_0_2px_hsl(var(--border))] sm:h-[10rem] sm:w-[10rem]">
-            <div>
-              <p className={getCenterLabelClass(centerLabel)}>{centerLabel}</p>
-              <p className="text-3xl font-medium">{centerValue}</p>
-            </div>
-          </div>
+      <CardContent className="pb-8 pt-4">
+        <div className="mx-auto mt-2 h-[23rem] w-[23rem] max-w-full">
+          <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
+            <PieChart>
+              <ChartTooltip
+                cursor={false}
+                content={
+                  <ChartTooltipContent
+                    hideLabel
+                    formatter={(chartValue, _name, item) => {
+                      const payload = item.payload as {
+                        label: string;
+                        value: number;
+                      };
+                      return (
+                        <div className="flex w-full items-center justify-between gap-3">
+                          <span>{payload.label}</span>
+                          <span className="font-medium tabular-nums">{Number(chartValue).toLocaleString()}</span>
+                        </div>
+                      );
+                    }}
+                  />
+                }
+              />
+              <Pie
+                data={chartData}
+                dataKey="value"
+                nameKey="key"
+                cx="50%"
+                cy="50%"
+                innerRadius={110}
+                outerRadius={145}
+                paddingAngle={2}
+                strokeWidth={0}
+                activeIndex={activeIndex ?? undefined}
+                activeShape={renderActiveDonutShape}
+                isAnimationActive
+                animationDuration={260}
+                onMouseEnter={(_, index) => setActiveIndex(index)}
+                onMouseLeave={() => setActiveIndex(null)}
+              >
+                <Label
+                  content={({ viewBox }) => {
+                    if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                      return (
+                        <text
+                          x={viewBox.cx}
+                          y={viewBox.cy}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                        >
+                          <tspan
+                            x={viewBox.cx}
+                            y={(viewBox.cy || 0) - 10}
+                            className="fill-slate-900 text-[28px] font-semibold dark:fill-foreground"
+                          >
+                            {centerLabel}
+                          </tspan>
+                          <tspan
+                            x={viewBox.cx}
+                            y={(viewBox.cy || 0) + 42}
+                            className="fill-slate-900 text-[30px] font-bold dark:fill-foreground"
+                          >
+                            {centerValue}
+                          </tspan>
+                        </text>
+                      );
+                    }
+                  }}
+                />
+              </Pie>
+            </PieChart>
+          </ChartContainer>
         </div>
       </CardContent>
     </Card>
@@ -126,21 +223,53 @@ function formatMetric(value: number) {
   }).format(value);
 }
 
-function getCenterLabelClass(label: string) {
-  if (label.length > 20) return "text-xs leading-tight font-semibold";
-  if (label.length > 14) return "text-lg leading-tight font-semibold";
-  return "text-2xl leading-tight font-semibold";
+function renderActiveDonutShape(props: {
+  cx?: number;
+  cy?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  startAngle?: number;
+  endAngle?: number;
+  fill?: string;
+  midAngle?: number;
+}) {
+  const {
+    cx = 0,
+    cy = 0,
+    innerRadius = 102,
+    outerRadius = 145,
+    startAngle = 0,
+    endAngle = 0,
+    fill,
+    midAngle = 0,
+  } = props;
+
+  const radians = (-midAngle * Math.PI) / 180;
+  const offsetX = Math.cos(radians) * 16;
+  const offsetY = Math.sin(radians) * 16;
+
+  return (
+    <g>
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 8}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={outerRadius + 12}
+        outerRadius={outerRadius + 18}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        opacity={0.3}
+      />
+    </g>
+  );
 }
 
-function toConicGradient(segments: Array<{ value: number; color: string }>) {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
-  let start = 0;
-  const stops = segments.map((segment) => {
-    const sweep = (segment.value / total) * 360;
-    const gap = Math.min(1.2, sweep / 8);
-    const stop = `${segment.color} ${(start + gap).toFixed(2)}deg ${(start + sweep - gap).toFixed(2)}deg`;
-    start += sweep;
-    return stop;
-  });
-  return `conic-gradient(${stops.join(", ")})`;
-}

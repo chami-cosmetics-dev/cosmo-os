@@ -97,7 +97,7 @@ export function SettingsPageData({
         canEdit={canEdit}
         initialCompany={data.company}
       />
-      <div className="space-y-2 rounded-xl border bg-muted/10 p-4">
+      <div className="space-y-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
         <p className="flex items-center gap-2 text-sm font-semibold">
           <Building2 className="size-4 text-muted-foreground" aria-hidden />
           Company Configuration

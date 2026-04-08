@@ -55,16 +55,34 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
   const pathname = usePathname();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-sidebar-border/70 [&_[data-sidebar=sidebar]]:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--sidebar)_94%,white),var(--sidebar),color-mix(in_srgb,var(--accent)_8%,var(--sidebar)))] dark:[&_[data-sidebar=sidebar]]:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--sidebar)_96%,black),var(--sidebar),color-mix(in_srgb,var(--accent)_6%,var(--sidebar)))]"
+    >
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <span className="text-sm font-semibold group-data-[collapsible=icon]:hidden">
+        <div className="rounded-xl bg-secondary/18 px-2 py-2 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:px-0">
+          <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+          <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Cosmo OS (Beta) v{packageJson.version}
           </span>
           <div className="hidden group-data-[collapsible=icon]:inline">
-            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm">
               CO
             </span>
+          </div>
+        </div>
+        </div>
+        <div className="mx-2 rounded-2xl border border-sidebar-border/70 bg-[linear-gradient(135deg,rgba(37,99,235,0.08),rgba(14,165,164,0.06),rgba(245,158,11,0.08))] px-3 py-3 shadow-[0_12px_24px_-28px_var(--primary)] group-data-[collapsible=icon]:hidden">
+          <p className="text-[11px] font-semibold tracking-[0.2em] text-sidebar-foreground/70 uppercase">
+            Palette
+          </p>
+          <p className="mt-1 text-xs text-sidebar-foreground/80">
+            Blue for structure, teal for freshness, amber for highlights.
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full bg-primary" />
+            <span className="h-3 w-3 rounded-full bg-[var(--chart-2)]" />
+            <span className="h-3 w-3 rounded-full bg-[var(--chart-3)]" />
           </div>
         </div>
       </SidebarHeader>

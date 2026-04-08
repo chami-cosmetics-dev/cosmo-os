@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, SlidersHorizontal, X } from "lucide-react";
+import { Package2, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -192,28 +192,50 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader className="space-y-2">
-          <CardTitle>Product Items</CardTitle>
+      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
+        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
+          Products
+        </p>
+        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          <Package2 className="size-5 text-muted-foreground" />
+          Product Items
+        </h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
+          Browse Shopify-synced product items with quick filters for branch, vendor, and category.
+        </p>
+      </section>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs">
+          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Total Items</p>
+          <p className="mt-2 text-sm font-semibold">{total.toLocaleString("en-LK")}</p>
+          <p className="text-muted-foreground mt-1 text-xs">Live count based on the current product item dataset.</p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
+          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Filters</p>
+          <p className="mt-2 text-sm font-semibold">{activeFilterCount} active</p>
+          <p className="text-muted-foreground mt-1 text-xs">Search and filters help narrow items by location, vendor, and category.</p>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
+          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Sorting</p>
+          <p className="mt-2 text-sm font-semibold">{sortBy ? `${sortBy} (${sortOrder})` : "Default order"}</p>
+          <p className="text-muted-foreground mt-1 text-xs">Use column sorting to inspect price, stock, vendor, and location faster.</p>
+        </div>
+      </div>
+
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="space-y-2 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+          <CardTitle className="flex items-center gap-2">
+            <Package2 className="size-5 text-muted-foreground" />
+            Product Item Explorer
+          </CardTitle>
           <p className="text-muted-foreground text-sm">
             Items synced from Shopify via webhooks. Filter by location, vendor, or category.
           </p>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="rounded-md border bg-muted/30 px-2 py-1">Total: {total}</span>
-            {hasActiveFilters ? (
-              <span className="rounded-md border bg-muted/30 px-2 py-1">
-                Active filters: {activeFilterCount}
-              </span>
-            ) : null}
-            {sortBy ? (
-              <span className="rounded-md border bg-muted/30 px-2 py-1">
-                Sorted by: {sortBy} ({sortOrder})
-              </span>
-            ) : null}
-          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="rounded-lg border bg-muted/20 p-3">
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <SlidersHorizontal className="size-4 text-muted-foreground" />
@@ -225,6 +247,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                 variant="outline"
                 onClick={clearFilters}
                 disabled={!hasActiveFilters && !sortBy}
+                className="border-border/70 bg-background/85 hover:bg-secondary/10"
               >
                 <X className="size-4" />
                 Clear
@@ -241,7 +264,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                     setSearch(e.target.value);
                     setPage(1);
                   }}
-                  className="pl-9"
+                  className="border-border/70 bg-background/90 pl-9"
                 />
               </div>
               <Select
@@ -251,7 +274,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-full sm:w-52">
+                <SelectTrigger className="w-full border-border/70 bg-background/90 sm:w-52">
                   <SelectValue placeholder="All locations" />
                 </SelectTrigger>
                 <SelectContent>
@@ -270,7 +293,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-full sm:w-48">
+                <SelectTrigger className="w-full border-border/70 bg-background/90 sm:w-48">
                   <SelectValue placeholder="All vendors" />
                 </SelectTrigger>
                 <SelectContent>
@@ -289,7 +312,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-full sm:w-52">
+                <SelectTrigger className="w-full border-border/70 bg-background/90 sm:w-52">
                   <SelectValue placeholder="All categories" />
                 </SelectTrigger>
                 <SelectContent>
@@ -307,14 +330,14 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
           {loading ? (
             <TableSkeleton columns={8} rows={6} />
           ) : items.length === 0 ? (
-            <div className="rounded-md border border-dashed p-8 text-center">
+            <div className="rounded-2xl border border-dashed border-border/70 bg-background/85 p-8 text-center">
               <p className="text-muted-foreground text-sm">
                 {hasActiveFilters
                   ? "No items found for current filters."
                   : "No product items yet. Items will appear here when synced from Shopify webhooks."}
               </p>
               {hasActiveFilters ? (
-                <Button className="mt-3" size="sm" variant="outline" onClick={clearFilters}>
+                <Button className="mt-3 border-border/70 bg-background/85 hover:bg-secondary/10" size="sm" variant="outline" onClick={clearFilters}>
                   <X className="size-4" />
                   Clear filters
                 </Button>
@@ -325,10 +348,10 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
               <div className="text-muted-foreground text-xs">
                 Showing {items.length} item(s) on this page.
               </div>
-              <div className="overflow-x-auto rounded-md border">
+              <div className="overflow-x-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50">
+                    <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                       <SortableColumnHeader
                         label="Product"
                         sortKey="product"
@@ -392,7 +415,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                   </thead>
                   <tbody>
                     {items.map((item) => (
-                      <tr key={item.id} className="border-b last:border-0 hover:bg-muted/20">
+                      <tr key={item.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/10">
                         <td className="px-4 py-2">
                           <div className="flex items-center gap-2">
                             {item.imageUrl && (
