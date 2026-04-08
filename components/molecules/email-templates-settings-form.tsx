@@ -149,8 +149,8 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Email Templates</CardTitle>
           <CardDescription>Preparing template editor...</CardDescription>
         </CardHeader>
@@ -166,8 +166,8 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
 
   if (noCompany) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Email Templates</CardTitle>
           <CardDescription>Company configuration required</CardDescription>
         </CardHeader>
@@ -182,8 +182,8 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
 
   if (forbidden) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Settings</CardTitle>
         </CardHeader>
         <CardContent>
@@ -198,8 +198,8 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="overflow-hidden border-border/70 shadow-xs">
+      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
         <CardTitle className="flex items-center gap-2">
           <Mail className="size-4 text-muted-foreground" aria-hidden />
           Email Templates
@@ -208,14 +208,58 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
           Edit the template HTML and see live output side by side.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-6">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs">
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
+              Template
+            </p>
+            <p className="mt-2 text-sm font-semibold">Resignation Notice</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Staff offboarding email sent to the configured recipients.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
+              Status
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              {hasChanges ? "Draft changes pending" : "Saved and up to date"}
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {canEdit ? "Use Ctrl/Cmd + Enter in the editor to save quickly." : "You can preview the template but editing is disabled."}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
+              Placeholders
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              {"{{staffName}} {{resignationDate}} {{department}}"}
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Keep placeholder names unchanged so dynamic data renders correctly.
+            </p>
+          </div>
+        </div>
         <form ref={formRef} onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-6">
           <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-            <div className="space-y-4 rounded-xl border bg-muted/15 p-4">
-              <h4 className="flex items-center gap-2 text-sm font-semibold">
-                <FileText className="size-4 text-muted-foreground" aria-hidden />
-                Template Editor
-              </h4>
+            <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-5 shadow-xs">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="flex items-center gap-2 text-sm font-semibold">
+                  <FileText className="size-4 text-muted-foreground" aria-hidden />
+                  Template Editor
+                </h4>
+                <span className="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  HTML editor
+                </span>
+              </div>
+              <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+                <p className="text-sm font-medium">Resignation Notice</p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Update the subject, recipient list, and HTML body used for resignation notifications.
+                </p>
+              </div>
               <div className="space-y-2">
                 <label htmlFor="resign-subject" className="text-sm font-medium">Subject</label>
                 <Input
@@ -224,6 +268,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
                   onChange={(e) => setSubject(e.target.value)}
                   disabled={!canEdit || isBusy}
                   placeholder="Staff Resignation: {{staffName}}"
+                  className="border-border/70 bg-background/90"
                 />
               </div>
               <div className="space-y-2">
@@ -234,7 +279,11 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
                   onChange={(e) => setRecipients(e.target.value)}
                   disabled={!canEdit || isBusy}
                   placeholder="hr@company.com, management@company.com"
+                  className="border-border/70 bg-background/90"
                 />
+                <p className="text-muted-foreground text-xs">
+                  Separate multiple email addresses with commas.
+                </p>
               </div>
               <div className="space-y-2">
                 <label htmlFor="resign-body" className="text-sm font-medium">Body (HTML)</label>
@@ -244,40 +293,54 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
                   onChange={(e) => setBodyHtml(e.target.value)}
                   disabled={!canEdit || isBusy}
                   placeholder="Email body with placeholders..."
-                  rows={14}
-                  className="font-mono text-xs"
+                  rows={16}
+                  className="min-h-[360px] border-border/70 bg-background/95 font-mono text-xs"
                 />
               </div>
             </div>
 
-            <div className="rounded-xl border bg-muted/15 p-4">
-              <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-                <Eye className="size-4 text-muted-foreground" aria-hidden />
-                Live Preview
-              </h4>
-              <div className="space-y-2 rounded-lg border bg-background p-3">
-                <p className="text-xs font-semibold">Subject</p>
-                <p className="text-sm">{subject.trim() || "No subject provided."}</p>
+            <div className="rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--primary)_7%,transparent))] p-5 shadow-xs">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="flex items-center gap-2 text-sm font-semibold">
+                  <Eye className="size-4 text-muted-foreground" aria-hidden />
+                  Live Preview
+                </h4>
+                <span className="rounded-full border border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  Updates instantly
+                </span>
               </div>
-              <div className="mt-3 space-y-2 rounded-lg border bg-background p-3">
-                <p className="text-xs font-semibold">Recipients</p>
-                <p className="text-sm break-all">{recipients.trim() || "No recipients provided."}</p>
-              </div>
-              <div className="mt-3 space-y-2 rounded-lg border bg-background p-3">
-                <p className="text-xs font-semibold">Body</p>
-                <div className="prose prose-sm dark:prose-invert max-w-none text-sm [&_*]:break-words">
-                  <div dangerouslySetInnerHTML={{ __html: bodyHtml || "<p>No body content provided.</p>" }} />
+              <div className="mt-4 space-y-3">
+                <div className="space-y-2 rounded-xl border border-border/70 bg-background/90 p-4 shadow-xs">
+                  <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Subject</p>
+                  <p className="text-sm font-medium">{subject.trim() || "No subject provided."}</p>
+                </div>
+                <div className="space-y-2 rounded-xl border border-border/70 bg-background/90 p-4 shadow-xs">
+                  <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Recipients</p>
+                  <p className="text-sm break-all">{recipients.trim() || "No recipients provided."}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/95 p-4 shadow-xs">
+                  <div className="border-b border-border/60 pb-3">
+                    <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                      Email Body
+                    </p>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Rendered HTML preview
+                    </p>
+                  </div>
+                  <div className="prose prose-sm dark:prose-invert mt-4 max-w-none text-sm [&_*]:break-words">
+                    <div dangerouslySetInnerHTML={{ __html: bodyHtml || "<p>No body content provided.</p>" }} />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
           {canEdit && (
-            <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-muted-foreground text-xs">
                 {hasChanges ? "You have unsaved template changes." : "All template changes are saved."}
               </p>
-              <Button type="submit" disabled={isBusy || !hasChanges} className="sm:min-w-36">
+              <Button type="submit" disabled={isBusy || !hasChanges} className="sm:min-w-36 shadow-[0_10px_24px_-18px_var(--primary)]">
                 {busyKey === "save" ? (
                   <>
                     <Loader2 className="size-4 animate-spin" aria-hidden />

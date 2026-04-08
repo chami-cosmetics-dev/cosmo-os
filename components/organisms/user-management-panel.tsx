@@ -20,15 +20,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string };
@@ -84,6 +76,7 @@ interface UserManagementPanelProps {
   initialPendingInvites?: PendingInvite[];
   canManageUsers: boolean;
   canManageRoles: boolean;
+  currentUserId: string;
 }
 
 export function UserManagementPanel({
@@ -96,7 +89,9 @@ export function UserManagementPanel({
   initialPendingInvites,
   canManageUsers,
   canManageRoles,
+  currentUserId,
 }: UserManagementPanelProps) {
+  const { confirm } = useConfirmationDialog();
   const [users, setUsers] = useState(initialUsers);
   const [roles, setRoles] = useState(initialRoles);
   const [permissions] = useState(initialPermissions);
@@ -128,10 +123,6 @@ export function UserManagementPanel({
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
     initialPendingInvites ?? []
   );
-  const [userPendingRemoval, setUserPendingRemoval] = useState<{
-    id: string;
-    displayName: string;
-  } | null>(null);
   const [usersPage, setUsersPage] = useState(1);
   const [usersLimit, setUsersLimit] = useState(10);
   const [rolesPage, setRolesPage] = useState(1);
@@ -412,9 +403,12 @@ export function UserManagementPanel({
   }
 
   async function cancelInvite(inviteId: string, email: string) {
-    const confirmed = window.confirm(
-      `Cancel the invitation for ${email}? They will no longer be able to use the invite link.`
-    );
+    const confirmed = await confirm({
+      title: "Cancel invitation?",
+      description: `Cancel the invitation for ${email}? They will no longer be able to use the invite link.`,
+      confirmLabel: "Cancel Invite",
+      variant: "destructive",
+    });
     if (!confirmed) return;
 
     try {
@@ -445,14 +439,19 @@ export function UserManagementPanel({
     return remainder > 0 ? `Expires in ${hours}h ${remainder}m` : `Expires in ${hours}h`;
   }
 
-  const removeUserBusy =
-    userPendingRemoval !== null &&
-    busyKey === `remove-user-${userPendingRemoval.id}`;
+  async function removeUser(userId: string, userName: string) {
+    if (userId === currentUserId) {
+      notify.error("You cannot remove your own account.");
+      return;
+    }
+    const confirmed = await confirm({
+      title: "Remove user?",
+      description: `Remove user "${userName}"? They will no longer be able to sign in.`,
+      confirmLabel: "Remove User",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
 
-  async function confirmRemoveUser() {
-    if (!userPendingRemoval) return;
-
-    const { id: userId } = userPendingRemoval;
     try {
       setBusyKey(`remove-user-${userId}`);
       const response = await fetch(`/api/admin/users/${userId}`, {
@@ -466,7 +465,6 @@ export function UserManagementPanel({
 
       await refreshData();
       notify.success("User removed.");
-      setUserPendingRemoval(null);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to remove user.");
     } finally {
@@ -508,7 +506,12 @@ export function UserManagementPanel({
   }
 
   async function deleteRole(roleId: string, roleName: string) {
-    const confirmed = window.confirm(`Delete role "${roleName}"?`);
+    const confirmed = await confirm({
+      title: "Delete role?",
+      description: `Delete role "${roleName}"?`,
+      confirmLabel: "Delete Role",
+      variant: "destructive",
+    });
     if (!confirmed) {
       return;
     }
@@ -543,34 +546,34 @@ export function UserManagementPanel({
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="border-border/70 bg-card shadow-xs">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">Users</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Users</p>
             <p className="mt-1 text-2xl font-semibold">{users.length}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/70 bg-card shadow-xs">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">Roles</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Roles</p>
             <p className="mt-1 text-2xl font-semibold">{sortedRoles.length}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/70 bg-card shadow-xs">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">Super Admins</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Super Admins</p>
             <p className="mt-1 text-2xl font-semibold">{superAdminCount}</p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="bg-muted/20 inline-flex rounded-lg border p-1">
+      <div className="inline-flex rounded-xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-1 shadow-xs">
         <button
           type="button"
           onClick={() => setActiveTab("users")}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
             activeTab === "users"
-              ? "bg-background text-foreground shadow-xs"
-              : "text-muted-foreground hover:text-foreground"
+              ? "bg-primary text-primary-foreground shadow-[0_10px_22px_-18px_var(--primary)]"
+              : "text-muted-foreground hover:bg-background/80 hover:text-foreground"
           }`}
         >
           Users
@@ -578,10 +581,10 @@ export function UserManagementPanel({
         <button
           type="button"
           onClick={() => setActiveTab("roles")}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
             activeTab === "roles"
-              ? "bg-background text-foreground shadow-xs"
-              : "text-muted-foreground hover:text-foreground"
+              ? "bg-primary text-primary-foreground shadow-[0_10px_22px_-18px_var(--primary)]"
+              : "text-muted-foreground hover:bg-background/80 hover:text-foreground"
           }`}
         >
           Roles
@@ -589,8 +592,8 @@ export function UserManagementPanel({
       </div>
 
       {activeTab === "users" && (
-        <Card className="border-border/70 shadow-xs">
-          <CardHeader className="pb-3">
+        <Card className="overflow-hidden border-border/70 shadow-xs">
+          <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))] pb-3">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-xl tracking-tight">Users</CardTitle>
@@ -608,7 +611,7 @@ export function UserManagementPanel({
           </CardHeader>
           <CardContent className="space-y-4">
             {canManageUsers && pendingInvites.length > 0 && (
-              <div className="from-background to-muted/20 rounded-lg border border-dashed bg-gradient-to-r p-3">
+              <div className="rounded-xl border border-dashed border-border/80 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))] p-3">
                 <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">
                   Pending ({pendingInvites.length})
                 </p>
@@ -616,7 +619,7 @@ export function UserManagementPanel({
                   {pendingInvites.map((inv) => (
                     <div
                       key={inv.id}
-                      className="bg-muted/50 flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm"
+                      className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 py-1.5 text-sm shadow-xs"
                     >
                       <span className="font-medium">{inv.email}</span>
                       <span className="text-muted-foreground text-xs">
@@ -671,7 +674,7 @@ export function UserManagementPanel({
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-muted/40 border-b">
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                         <th className="px-4 py-2.5 text-left font-medium">Name</th>
                         <th className="px-4 py-2.5 text-left font-medium">Email</th>
                         <th className="px-4 py-2.5 text-left font-medium">Roles</th>
@@ -686,13 +689,14 @@ export function UserManagementPanel({
                         const isSuperAdmin = user.userRoles.some(
                           (ur) => ur.role.name === "super_admin"
                         );
+                        const isCurrentUser = user.id === currentUserId;
                         const roleNames = isSuperAdmin
                           ? ["super_admin"]
                           : assignedRoles
                               .map((rid) => sortedRoles.find((r) => r.id === rid)?.name)
                               .filter(Boolean) as string[];
                         return (
-                          <tr key={user.id} className="hover:bg-muted/20 border-b transition-colors last:border-0">
+                          <tr key={user.id} className="border-b transition-colors hover:bg-secondary/10 last:border-0">
                             <td className="px-4 py-2.5 font-medium">
                               {user.name ?? "Unnamed"}
                             </td>
@@ -704,7 +708,7 @@ export function UserManagementPanel({
                                 {roleNames.map((name) => (
                                   <span
                                     key={name}
-                                    className="bg-muted rounded-md border px-1.5 py-0.5 text-xs"
+                                    className="rounded-md border border-border/70 bg-secondary/20 px-1.5 py-0.5 text-xs"
                                   >
                                     {name}
                                   </span>
@@ -730,14 +734,14 @@ export function UserManagementPanel({
                                       size="icon"
                                       className="size-8 text-destructive hover:text-destructive"
                                       onClick={() =>
-                                        setUserPendingRemoval({
-                                          id: user.id,
-                                          displayName:
-                                            user.name ?? user.email ?? "this user",
-                                        })
+                                        removeUser(
+                                          user.id,
+                                          user.name ?? user.email ?? "this user"
+                                        )
                                       }
-                                      disabled={isBusy}
+                                      disabled={isBusy || isCurrentUser}
                                       aria-label="Remove user"
+                                      title={isCurrentUser ? "You cannot remove your own account" : "Remove user"}
                                     >
                                       <Trash2 className="size-4" aria-hidden />
                                     </Button>
@@ -769,8 +773,8 @@ export function UserManagementPanel({
       )}
 
       {activeTab === "roles" && (
-        <Card className="border-border/70 shadow-xs">
-          <CardHeader className="pb-3">
+        <Card className="overflow-hidden border-border/70 shadow-xs">
+          <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))] pb-3">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-xl tracking-tight">Roles</CardTitle>
@@ -794,7 +798,7 @@ export function UserManagementPanel({
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-muted/40 border-b">
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                         <th className="px-4 py-2.5 text-left font-medium">Name</th>
                         <th className="px-4 py-2.5 text-left font-medium">Description</th>
                         <th className="px-4 py-2.5 text-left font-medium">Permissions</th>
@@ -816,7 +820,7 @@ export function UserManagementPanel({
                         return (
                           <tr
                             key={role.id}
-                            className="hover:bg-muted/20 border-b transition-colors last:border-0"
+                            className="border-b transition-colors hover:bg-secondary/10 last:border-0"
                           >
                             <td className="px-4 py-2.5 font-medium">{role.name}</td>
                             <td className="text-muted-foreground max-w-[200px] truncate px-4 py-2.5 text-xs">
@@ -827,7 +831,7 @@ export function UserManagementPanel({
                                 {permKeys.slice(0, 5).map((k) => (
                                   <span
                                     key={k}
-                                    className="bg-muted rounded-md border px-1.5 py-0.5 text-xs"
+                                    className="rounded-md border border-border/70 bg-secondary/20 px-1.5 py-0.5 text-xs"
                                   >
                                     {k}
                                   </span>
@@ -854,7 +858,7 @@ export function UserManagementPanel({
                                           {permKeys.map((k) => (
                                             <span
                                               key={k}
-                                              className="bg-muted rounded-md border px-1.5 py-0.5 text-xs"
+                                              className="rounded-md border border-border/70 bg-secondary/20 px-1.5 py-0.5 text-xs"
                                             >
                                               {k}
                                             </span>
@@ -925,7 +929,7 @@ export function UserManagementPanel({
 
       {/* Invite user sheet */}
       <Sheet open={inviteSheetOpen} onOpenChange={setInviteSheetOpen}>
-        <SheetContent className="overflow-y-auto border-l bg-background sm:max-w-md">
+        <SheetContent className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader className="border-b pb-4">
             <SheetTitle>Invite user</SheetTitle>
             <SheetDescription>
@@ -933,7 +937,7 @@ export function UserManagementPanel({
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
-            <div className="from-background to-muted/10 space-y-4 rounded-xl border bg-gradient-to-b p-4">
+            <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4">
               <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                 Required details
               </p>
@@ -948,7 +952,7 @@ export function UserManagementPanel({
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   disabled={isBusy}
-                  className="h-10"
+                  className="h-10 rounded-lg border-border/80 bg-background/80"
                 />
               </div>
               <div className="space-y-2">
@@ -960,7 +964,7 @@ export function UserManagementPanel({
                   value={inviteRoleId}
                   onChange={(e) => setInviteRoleId(e.target.value)}
                   disabled={isBusy}
-                  className="border-input bg-background h-10 w-full rounded-md border px-3 py-1 text-sm"
+                  className="border-input h-10 w-full rounded-lg border bg-background/80 px-3 py-1 text-sm"
                 >
                   <option value="">Select role</option>
                   {sortedRoles
@@ -976,12 +980,12 @@ export function UserManagementPanel({
             <button
               type="button"
               onClick={() => setShowInviteEmployeeDetails((v) => !v)}
-              className="hover:bg-muted/30 text-muted-foreground hover:text-foreground inline-flex rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
+              className="text-muted-foreground inline-flex rounded-lg border border-border/70 bg-background/50 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-secondary/20 hover:text-foreground"
             >
               {showInviteEmployeeDetails ? "Hide" : "Add"} employee details (optional)
             </button>
             {showInviteEmployeeDetails && (
-              <div className="bg-muted/20 space-y-3 rounded-xl border p-3.5">
+              <div className="space-y-3 rounded-2xl border border-border/70 bg-secondary/10 p-3.5">
                 <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                   Optional employee profile
                 </p>
@@ -1011,7 +1015,7 @@ export function UserManagementPanel({
                     value={inviteLocationId}
                     onChange={(e) => setInviteLocationId(e.target.value)}
                     disabled={isBusy}
-                    className="border-input bg-background h-10 w-full rounded-md border px-3 py-1 text-sm"
+                    className="border-input h-10 w-full rounded-lg border bg-background/80 px-3 py-1 text-sm"
                   >
                     <option value="">Select</option>
                     {locations.map((loc) => (
@@ -1026,7 +1030,7 @@ export function UserManagementPanel({
                       value={inviteDepartmentId}
                       onChange={(e) => setInviteDepartmentId(e.target.value)}
                       disabled={isBusy}
-                      className="border-input bg-background h-10 w-full rounded-md border px-3 py-1 text-sm"
+                      className="border-input h-10 w-full rounded-lg border bg-background/80 px-3 py-1 text-sm"
                     >
                       <option value="">Select</option>
                       {departments.map((d) => (
@@ -1040,7 +1044,7 @@ export function UserManagementPanel({
                       value={inviteDesignationId}
                       onChange={(e) => setInviteDesignationId(e.target.value)}
                       disabled={isBusy}
-                      className="border-input bg-background h-10 w-full rounded-md border px-3 py-1 text-sm"
+                      className="border-input h-10 w-full rounded-lg border bg-background/80 px-3 py-1 text-sm"
                     >
                       <option value="">Select</option>
                       {designations.map((d) => (
@@ -1087,7 +1091,7 @@ export function UserManagementPanel({
 
       {/* Create role sheet */}
       <Sheet open={createRoleSheetOpen} onOpenChange={setCreateRoleSheetOpen}>
-        <SheetContent className="overflow-y-auto border-l bg-background sm:max-w-md">
+        <SheetContent className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader className="border-b pb-4">
             <SheetTitle>Create role</SheetTitle>
             <SheetDescription>
@@ -1095,7 +1099,7 @@ export function UserManagementPanel({
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-4 py-4">
-            <div className="from-background to-muted/10 space-y-4 rounded-xl border bg-gradient-to-b p-4">
+            <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4">
               <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
                 Role details
               </p>
@@ -1106,7 +1110,7 @@ export function UserManagementPanel({
                   value={draftRoleName}
                   onChange={(e) => setDraftRoleName(e.target.value)}
                   disabled={isBusy}
-                  className="h-10"
+                  className="h-10 rounded-lg border-border/80 bg-background/80"
                 />
               </div>
               <div className="space-y-2">
@@ -1116,7 +1120,7 @@ export function UserManagementPanel({
                   value={draftRoleDescription}
                   onChange={(e) => setDraftRoleDescription(e.target.value)}
                   disabled={isBusy}
-                  className="h-10"
+                  className="h-10 rounded-lg border-border/80 bg-background/80"
                 />
               </div>
             </div>
@@ -1127,14 +1131,14 @@ export function UserManagementPanel({
                   {selectedPermissionKeys.length} selected
                 </span>
               </div>
-              <div className="max-h-[52vh] space-y-3 overflow-y-auto rounded-xl border p-3">
+              <div className="max-h-[52vh] space-y-3 overflow-y-auto rounded-2xl border border-border/70 bg-background/50 p-3">
                 {permissionsByGroup.map((item) => (
-                  <div key={item.group} className="rounded-lg border p-2.5">
+                  <div key={item.group} className="rounded-xl border border-border/70 bg-background/70 p-2.5">
                     <p className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
                       {item.group}
                     </p>
                     {"subGroups" in item && item.subGroups ? (
-                      <div className="space-y-2 border-l-2 border-muted pl-2">
+                      <div className="space-y-2 border-l-2 border-secondary/40 pl-2">
                         {item.subGroups.map(({ subGroup, permissions: perms }) => (
                           <div key={subGroup}>
                             <p className="text-muted-foreground mb-1 text-xs">
@@ -1148,8 +1152,8 @@ export function UserManagementPanel({
                                     key={p.id}
                                     className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
                                       checked
-                                        ? "border-primary/60 bg-primary/10 text-foreground"
-                                        : "hover:bg-muted/50"
+                                        ? "border-primary/50 bg-primary/12 text-foreground"
+                                        : "hover:bg-secondary/10"
                                     }`}
                                   >
                                     <input
@@ -1176,8 +1180,8 @@ export function UserManagementPanel({
                               key={p.id}
                               className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
                                 checked
-                                  ? "border-primary/60 bg-primary/10 text-foreground"
-                                  : "hover:bg-muted/50"
+                                  ? "border-primary/50 bg-primary/12 text-foreground"
+                                  : "hover:bg-secondary/10"
                               }`}
                             >
                               <input
@@ -1227,7 +1231,7 @@ export function UserManagementPanel({
         open={!!editingUserRolesId}
         onOpenChange={(open) => !open && setEditingUserRolesId(null)}
       >
-        <SheetContent className="overflow-y-auto border-l bg-background sm:max-w-md">
+        <SheetContent className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Edit roles</SheetTitle>
             <SheetDescription>
@@ -1245,7 +1249,7 @@ export function UserManagementPanel({
                   return (
                     <label
                       key={role.id}
-                      className="hover:bg-muted/50 flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
+                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm transition-colors hover:bg-secondary/10"
                     >
                       <input
                         type="checkbox"
@@ -1296,7 +1300,7 @@ export function UserManagementPanel({
         open={!!editingRoleId}
         onOpenChange={(open) => !open && cancelEditingRole()}
       >
-          <SheetContent className="overflow-y-auto border-l bg-background sm:max-w-md">
+          <SheetContent className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
             <SheetHeader>
               <SheetTitle>Edit role</SheetTitle>
               <SheetDescription>
@@ -1310,6 +1314,7 @@ export function UserManagementPanel({
                   value={editRoleName}
                   onChange={(e) => setEditRoleName(e.target.value)}
                   disabled={isBusy}
+                  className="rounded-lg border-border/80 bg-background/80"
                 />
               </div>
               <div className="space-y-2">
@@ -1318,6 +1323,7 @@ export function UserManagementPanel({
                   value={editRoleDescription}
                   onChange={(e) => setEditRoleDescription(e.target.value)}
                   disabled={isBusy}
+                  className="rounded-lg border-border/80 bg-background/80"
                 />
               </div>
               <div className="space-y-2">
@@ -1329,7 +1335,7 @@ export function UserManagementPanel({
                         {item.group}
                       </p>
                       {"subGroups" in item && item.subGroups ? (
-                        <div className="space-y-2 pl-2 border-l-2 border-muted">
+                        <div className="space-y-2 border-l-2 border-secondary/40 pl-2">
                           {item.subGroups.map(({ subGroup, permissions: perms }) => (
                             <div key={subGroup}>
                               <p className="text-muted-foreground mb-1 text-xs">
@@ -1339,7 +1345,7 @@ export function UserManagementPanel({
                                 {perms.map((p) => (
                                   <label
                                     key={p.id}
-                                    className="hover:bg-muted/50 flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors"
+                                    className="flex cursor-pointer items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-xs transition-colors hover:bg-secondary/10"
                                   >
                                     <input
                                       type="checkbox"
@@ -1360,7 +1366,7 @@ export function UserManagementPanel({
                           {item.permissions.map((p) => (
                             <label
                               key={p.id}
-                              className="hover:bg-muted/50 flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors"
+                              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-xs transition-colors hover:bg-secondary/10"
                             >
                               <input
                                 type="checkbox"
@@ -1404,48 +1410,6 @@ export function UserManagementPanel({
             </SheetFooter>
           </SheetContent>
         </Sheet>
-
-      <AlertDialog
-        open={userPendingRemoval !== null}
-        onOpenChange={(open) => {
-          if (!open && !removeUserBusy) setUserPendingRemoval(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove user?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {userPendingRemoval ? (
-                <>
-                  This will remove{" "}
-                  <span className="text-foreground font-medium">
-                    &quot;{userPendingRemoval.displayName}&quot;
-                  </span>{" "}
-                  from your organization and delete their Auth0 account. They will no longer be
-                  able to sign in. This cannot be undone.
-                </>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={removeUserBusy}>Cancel</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              disabled={removeUserBusy}
-              onClick={() => void confirmRemoveUser()}
-            >
-              {removeUserBusy ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                  Removing...
-                </>
-              ) : (
-                "Remove user"
-              )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 type Supplier = {
@@ -47,6 +48,7 @@ interface SuppliersSettingsFormProps {
 }
 
 export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
+  const { confirm } = useConfirmationDialog();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -203,7 +205,13 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
 
   async function handleDelete(id: string, name: string) {
     if (!canEdit) return;
-    if (!window.confirm(`Delete supplier "${name}"?`)) return;
+    const confirmed = await confirm({
+      title: "Delete supplier?",
+      description: `Delete supplier "${name}"?`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
 
     setBusyKey(`delete-${id}`);
     try {
@@ -265,8 +273,8 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <CardTitle>Suppliers</CardTitle>
         </CardHeader>
         <CardContent>
@@ -281,8 +289,8 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
 
   return (
     <>
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Suppliers</CardTitle>
           <CardDescription>
             Manage suppliers with name, code, contact details, and address.
@@ -290,7 +298,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           {canEdit && (
-            <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold">Quick Add Supplier</p>
@@ -298,7 +306,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
                     Add using name and code, or open full form for contact details.
                   </p>
                 </div>
-                <Button onClick={openAddSheet} variant="outline" disabled={isBusy}>
+                <Button onClick={openAddSheet} variant="outline" className="border-border/70 bg-background/70 hover:bg-secondary/15" disabled={isBusy}>
                   <Plus className="mr-2 size-4" aria-hidden />
                   Full form
                 </Button>
@@ -342,10 +350,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
 
           <ul className="space-y-2">
             {suppliers.map((s) => (
-              <li
-                key={s.id}
-                className="flex flex-col gap-3 rounded-lg border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
-              >
+              <li key={s.id} className="flex flex-col gap-3 rounded-xl border border-border/70 bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-1">
                   <p className="flex items-center gap-2 font-medium">
                     <Building2 className="size-4 text-muted-foreground" aria-hidden />
@@ -379,6 +384,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="border-border/70 bg-background/70 hover:bg-secondary/15"
                       onClick={() => openEditSheet(s)}
                       disabled={isBusy}
                     >
@@ -431,7 +437,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
       >
         <SheetContent
           side="right"
-          className="flex w-full flex-col overflow-y-auto sm:max-w-lg"
+          className="flex w-full flex-col overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-lg"
         >
           <SheetHeader>
             <SheetTitle>
@@ -445,7 +451,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
           </SheetHeader>
 
           <div className="flex flex-1 flex-col gap-6 py-4">
-            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
               <h4 className="text-sm font-semibold">Basic Details</h4>
               <Input
                 placeholder="Supplier Name *"
@@ -462,7 +468,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
                 maxLength={100}
               />
             </div>
-            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
               <h4 className="text-sm font-semibold">Contact Details</h4>
               <Input
                 placeholder="Supplier Contact Number"
@@ -498,7 +504,7 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
                 )}
               </div>
             </div>
-            <div className="space-y-3 rounded-lg border bg-muted/10 p-4">
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
               <h4 className="text-sm font-semibold">Address</h4>
               <Textarea
                 placeholder="Supplier Address"

@@ -120,33 +120,37 @@ export function FulfillmentOrderSelector({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <CardTitle>{title}</CardTitle>
           <p className="text-muted-foreground text-sm">{description}</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="relative">
-            <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-            <Input
-              placeholder="Search by order number or name..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
+            <div className="relative">
+              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+              <Input
+                placeholder="Search by order number or name..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="border-border/70 bg-background/90 pl-9"
+              />
+            </div>
           </div>
           {loading ? (
-            <p className="py-4 text-center text-muted-foreground text-sm">Loading orders...</p>
+            <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-8 text-center">
+              <p className="text-muted-foreground text-sm">Loading orders...</p>
+            </div>
           ) : orders.length === 0 ? (
-            <p className="py-8 text-center text-muted-foreground text-sm">
-              No orders at this stage.
-            </p>
+            <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-8 text-center">
+              <p className="text-muted-foreground text-sm">No orders at this stage.</p>
+            </div>
           ) : (
             <div className="space-y-6">
-              <div className="max-h-[280px] overflow-y-auto rounded-md border">
+              <div className="max-h-[280px] overflow-y-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-                    <tr className="border-b">
+                  <thead className="sticky top-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] backdrop-blur">
+                    <tr className="border-b border-border/60">
                       <th className="px-4 py-2 text-left font-medium">Order</th>
                       <th className="px-4 py-2 text-left font-medium">Location</th>
                       <th className="px-4 py-2 text-left font-medium">Merchant</th>
@@ -167,7 +171,7 @@ export function FulfillmentOrderSelector({
                       <tr
                         key={order.id}
                         className={`border-b last:border-0 ${
-                          selectedOrderId === order.id ? "bg-primary/10" : ""
+                          selectedOrderId === order.id ? "bg-primary/10" : "hover:bg-secondary/10"
                         }`}
                       >
                         <td className="px-4 py-2 font-medium">
@@ -206,6 +210,7 @@ export function FulfillmentOrderSelector({
                           <Button
                             size="sm"
                             variant={selectedOrderId === order.id ? "default" : "outline"}
+                            className={selectedOrderId === order.id ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "border-border/70 bg-background/80 hover:bg-secondary/10"}
                             onClick={() =>
                               onSelectOrder(selectedOrderId === order.id ? null : order)
                             }

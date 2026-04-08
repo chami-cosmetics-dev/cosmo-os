@@ -160,8 +160,8 @@ export function SmsNotificationsSettingsForm({
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>SMS Notifications</CardTitle>
         </CardHeader>
         <CardContent>
@@ -176,8 +176,8 @@ export function SmsNotificationsSettingsForm({
 
   if (forbidden) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Settings</CardTitle>
         </CardHeader>
         <CardContent>
@@ -192,14 +192,14 @@ export function SmsNotificationsSettingsForm({
   }
 
   return (
-    <Card className="border-border/80 shadow-sm">
-      <CardHeader className="space-y-4">
+    <Card className="overflow-hidden border-border/70 shadow-xs">
+      <CardHeader className="space-y-4 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
         <CardTitle className="flex items-center gap-2 text-xl">
-          <MessageSquare className="size-5 text-primary" />
+          <MessageSquare className="size-5 text-muted-foreground" />
           SMS Notifications
         </CardTitle>
 
-        <div className="rounded-lg border bg-muted/30 p-3">
+        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
           <p className="text-muted-foreground text-sm">
             Configure SMS messages for each order stage. Enable a trigger, edit
             the message, then save only that section.
@@ -208,7 +208,7 @@ export function SmsNotificationsSettingsForm({
             {PLACEHOLDERS.map((placeholder) => (
               <span
                 key={placeholder}
-                className="rounded-md border bg-background px-2 py-1 text-xs font-mono text-foreground"
+                className="rounded-full border border-border/70 bg-background/85 px-2.5 py-1 text-xs font-mono text-foreground shadow-xs"
               >
                 {placeholder}
               </span>
@@ -222,10 +222,39 @@ export function SmsNotificationsSettingsForm({
       </CardHeader>
 
       <CardContent className="space-y-5">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs">
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
+              Triggers
+            </p>
+            <p className="mt-2 text-sm font-semibold">{configs.length} SMS stages</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Each order event can be configured independently.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
+              Delivery
+            </p>
+            <p className="mt-2 text-sm font-semibold">Customer and rider messaging</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Choose whether each trigger should notify the customer or rider.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
+            <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">
+              Saving
+            </p>
+            <p className="mt-2 text-sm font-semibold">One section at a time</p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              Update a template and save only that notification block.
+            </p>
+          </div>
+        </div>
         {configs.map((config) => (
           <div
             key={config.trigger}
-            className="rounded-xl border border-border/80 bg-card p-4 shadow-xs transition-colors md:p-5"
+            className="rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs transition-colors md:p-5"
           >
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -238,17 +267,17 @@ export function SmsNotificationsSettingsForm({
                   </p>
                 </div>
                 <span
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
                     config.enabled
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-muted text-muted-foreground"
+                      ? "border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                      : "border-border/70 bg-background/70 text-muted-foreground"
                   }`}
                 >
                   {config.enabled ? "Enabled" : "Disabled"}
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/70 bg-background/70 p-3">
                 {canEdit && (
                   <label
                     htmlFor={`enabled-${config.trigger}`}
@@ -293,29 +322,43 @@ export function SmsNotificationsSettingsForm({
                 )}
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <label
-                    htmlFor={`template-${config.trigger}`}
-                    className="text-sm font-medium"
-                  >
-                    Message template
-                  </label>
-                  <span className="text-xs text-muted-foreground">
-                    {config.template.length}/1000
-                  </span>
+              <div className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <label
+                      htmlFor={`template-${config.trigger}`}
+                      className="text-sm font-medium"
+                    >
+                      Message template
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      {config.template.length}/1000
+                    </span>
+                  </div>
+                  <Textarea
+                    id={`template-${config.trigger}`}
+                    value={config.template}
+                    onChange={(e) =>
+                      updateConfig(config.trigger, { template: e.target.value })
+                    }
+                    disabled={!canEdit || isBusy}
+                    placeholder="Hi! Your order {orderNumber}..."
+                    className="min-h-28 border-border/70 bg-background/90 font-mono text-sm"
+                    maxLength={1000}
+                  />
                 </div>
-                <Textarea
-                  id={`template-${config.trigger}`}
-                  value={config.template}
-                  onChange={(e) =>
-                    updateConfig(config.trigger, { template: e.target.value })
-                  }
-                  disabled={!canEdit || isBusy}
-                  placeholder="Hi! Your order {orderNumber}..."
-                  className="min-h-24 font-mono text-sm"
-                  maxLength={1000}
-                />
+
+                <div className="space-y-2 rounded-xl border border-border/70 bg-background/85 p-4 shadow-xs">
+                  <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                    Preview
+                  </p>
+                  <p className="text-sm leading-6">
+                    {config.template.trim() || "No SMS message provided yet."}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Placeholder values are replaced when the SMS is sent.
+                  </p>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -338,6 +381,7 @@ export function SmsNotificationsSettingsForm({
                   }
                   disabled={!canEdit || isBusy}
                   placeholder="0771234567, 0779876543"
+                  className="border-border/70 bg-background/90"
                 />
                 <p className="text-xs text-muted-foreground">
                   Enter comma-separated phone numbers for QA or internal
@@ -346,12 +390,12 @@ export function SmsNotificationsSettingsForm({
               </div>
 
               {canEdit && (
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-end rounded-xl border border-border/70 bg-background/70 p-3">
                   <Button
                     size="sm"
                     onClick={() => saveConfig(config)}
                     disabled={isBusy || !hasChanges(config)}
-                    className="min-w-24"
+                    className="min-w-24 shadow-[0_10px_24px_-18px_var(--primary)]"
                   >
                     {busyKey === config.trigger ? (
                       <Loader2 className="size-4 animate-spin" />

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 type Designation = {
@@ -20,6 +21,7 @@ interface DesignationsSettingsFormProps {
 }
 
 export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormProps) {
+  const { confirm } = useConfirmationDialog();
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -128,7 +130,13 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
 
   async function handleDelete(id: string, name: string) {
     if (!canEdit) return;
-    if (!window.confirm(`Delete designation "${name}"?`)) return;
+    const confirmed = await confirm({
+      title: "Delete designation?",
+      description: `Delete designation "${name}"?`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
 
     setBusyKey(`delete-${id}`);
     try {
@@ -154,8 +162,8 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <CardTitle>Designations</CardTitle>
         </CardHeader>
         <CardContent>
@@ -169,8 +177,8 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="overflow-hidden border-border/70 shadow-xs">
+      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
         <CardTitle>Designations</CardTitle>
         <p className="text-muted-foreground text-sm">
           Manage job titles (e.g. Manager, Executive).
@@ -185,7 +193,7 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
               onChange={(e) => setNewName(e.target.value)}
               disabled={isBusy}
               maxLength={100}
-              className="max-w-xs"
+              className="max-w-xs rounded-lg border-border/80 bg-background/80"
             />
             <Button type="submit" disabled={isBusy || !newName.trim()}>
               {busyKey === "add" ? (
@@ -202,10 +210,7 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
 
         <ul className="space-y-2">
           {designations.map((d) => (
-            <li
-              key={d.id}
-              className="flex items-center justify-between rounded-lg border p-3"
-            >
+            <li key={d.id} className="flex items-center justify-between rounded-xl border border-border/70 bg-background/70 p-3">
               {editingId === d.id ? (
                 <div className="flex flex-1 items-center gap-2">
                   <Input
@@ -213,7 +218,7 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
                     onChange={(e) => setEditName(e.target.value)}
                     disabled={isBusy}
                     maxLength={100}
-                    className="max-w-xs"
+                    className="max-w-xs rounded-lg border-border/80 bg-background/80"
                   />
                   <Button
                     size="sm"
@@ -226,7 +231,7 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
                       "Save"
                     )}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={cancelEdit} disabled={isBusy}>
+                  <Button size="sm" variant="outline" className="border-border/70 bg-background/70 hover:bg-secondary/15" onClick={cancelEdit} disabled={isBusy}>
                     Cancel
                   </Button>
                 </div>
@@ -238,6 +243,7 @@ export function DesignationsSettingsForm({ canEdit }: DesignationsSettingsFormPr
                       <Button
                         size="sm"
                         variant="outline"
+                        className="border-border/70 bg-background/70 hover:bg-secondary/15"
                         onClick={() => startEdit(d)}
                         disabled={isBusy}
                       >
