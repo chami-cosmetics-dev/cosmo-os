@@ -31,6 +31,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
   const formRef = useRef<HTMLFormElement>(null);
   const [loading, setLoading] = useState(initialTemplates === undefined);
   const [noCompany, setNoCompany] = useState(initialTemplates === null);
+  const [forbidden, setForbidden] = useState(false);
   const [subject, setSubject] = useState(initialTemplates?.resignation_notice?.subject ?? "");
   const [bodyHtml, setBodyHtml] = useState(initialTemplates?.resignation_notice?.bodyHtml ?? "");
   const [recipients, setRecipients] = useState(initialTemplates?.resignation_notice?.recipients ?? "");
@@ -49,6 +50,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
 
   useEffect(() => {
     if (initialTemplates !== undefined && initialTemplates !== null) {
+      setForbidden(false);
       setLoading(false);
       const t = initialTemplates.resignation_notice;
       if (t) {
@@ -58,7 +60,17 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
     }
     async function fetchTemplates() {
       try {
+        if (!canEdit) {
+          setForbidden(true);
+          setLoading(false);
+          return;
+        }
         const res = await fetch("/api/admin/company/email-templates");
+        if (res.status === 403) {
+          setForbidden(true);
+          setLoading(false);
+          return;
+        }
         if (res.status === 404) {
           setNoCompany(true);
           setLoading(false);
@@ -83,7 +95,7 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
       }
     }
     fetchTemplates();
-  }, [initialTemplates]);
+  }, [canEdit, initialTemplates]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -162,6 +174,23 @@ export function EmailTemplatesSettingsForm({ canEdit, initialTemplates }: EmailT
         <CardContent>
           <p className="text-muted-foreground text-sm">
             No company is associated with your account. Email templates are configured per company.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (forbidden) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-sm">
+            Company settings are available to users with the appropriate
+            permissions. Contact your administrator to update company
+            information.
           </p>
         </CardContent>
       </Card>

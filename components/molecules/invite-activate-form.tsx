@@ -106,7 +106,7 @@ export function InviteActivateForm({
       }
 
       notify.success("Account activated. Sign in to continue.");
-      router.push("/auth/login?activated=1");
+      router.push(`/login?activated=1&email=${encodeURIComponent(email)}`);
     } catch {
       setStatus("error");
       notify.error("Activation failed");

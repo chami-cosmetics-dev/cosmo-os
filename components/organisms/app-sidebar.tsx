@@ -46,6 +46,12 @@ interface AppSidebarProps {
 
 export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
   const canCreateManualOrder = permissionKeys.includes("orders.create_manual");
+  const canStickerBatch =
+    permissionKeys.includes("stickers.batch.read") ||
+    permissionKeys.includes("stickers.batch.manage");
+  const canStickerPrint =
+    permissionKeys.includes("stickers.print.read") ||
+    permissionKeys.includes("stickers.print.print");
   const pathname = usePathname();
 
   return (
@@ -205,28 +211,32 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Stickers</SidebarGroupLabel>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === "/dashboard/sticker-batch"}
-            >
-              <Link href="/dashboard/sticker-batch">
-                <Sticker className="size-4" />
-                <span>Batch</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === "/dashboard/sticker-print"}
-            >
-              <Link href="/dashboard/sticker-print">
-                <Printer className="size-4" />
-                <span>Print</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {canStickerBatch && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === "/dashboard/sticker-batch"}
+              >
+                <Link href="/dashboard/sticker-batch">
+                  <Sticker className="size-4" />
+                  <span>Batch</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          {canStickerPrint && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={pathname === "/dashboard/sticker-print"}
+              >
+                <Link href="/dashboard/sticker-print">
+                  <Printer className="size-4" />
+                  <span>Print</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Product Management</SidebarGroupLabel>

@@ -70,6 +70,23 @@ const DEFAULT_PERMISSIONS = [
     key: "settings.fulfillment",
     description: "Manage samples, free issues, hold reasons, and courier services",
   },
+  // Stickers
+  {
+    key: "stickers.batch.read",
+    description: "View sticker batches",
+  },
+  {
+    key: "stickers.batch.manage",
+    description: "Create and edit sticker batches",
+  },
+  {
+    key: "stickers.print.read",
+    description: "View sticker print preview",
+  },
+  {
+    key: "stickers.print.print",
+    description: "Print stickers",
+  },
   // Fulfillment - Sample/Free Issue
   {
     key: "fulfillment.sample_free_issue.read",
@@ -192,6 +209,10 @@ const DEFAULT_ROLES = [
       "orders.manage",
       "orders.create_manual",
       "orders.view_timeline",
+      "stickers.batch.read",
+      "stickers.batch.manage",
+      "stickers.print.read",
+      "stickers.print.print",
       "fulfillment.sample_free_issue.read",
       "fulfillment.sample_free_issue.manage",
       "fulfillment.sample_free_issue.manage_remarks",
@@ -225,6 +246,8 @@ const DEFAULT_ROLES = [
       "products.read",
       "orders.read",
       "orders.view_timeline",
+      "stickers.batch.read",
+      "stickers.print.read",
       "fulfillment.sample_free_issue.read",
       "fulfillment.order_print.read",
       "fulfillment.ready_dispatch.read",

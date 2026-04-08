@@ -67,19 +67,53 @@ export function SmsNotificationsSettingsForm({
   const [lastSaved, setLastSaved] = useState<SmsConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
 
   const isBusy = busyKey !== null;
 
   useEffect(() => {
-    fetch("/api/admin/settings/sms-notifications")
-      .then((r) => r.json())
-      .then((data) => {
-        setConfigs(data);
-        setLastSaved(data);
-      })
-      .catch(() => setConfigs([]))
-      .finally(() => setLoading(false));
-  }, []);
+    if (!canEdit) {
+      setForbidden(true);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/settings/sms-notifications");
+        const data = (await res.json().catch(() => null)) as unknown;
+        if (cancelled) return;
+
+        if (res.status === 403) {
+          setForbidden(true);
+          setConfigs([]);
+          setLastSaved([]);
+          return;
+        }
+
+        if (!res.ok || !Array.isArray(data)) {
+          setConfigs([]);
+          setLastSaved([]);
+          return;
+        }
+
+        setForbidden(false);
+        setConfigs(data as SmsConfig[]);
+        setLastSaved(data as SmsConfig[]);
+      } catch {
+        if (cancelled) return;
+        setConfigs([]);
+        setLastSaved([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canEdit]);
 
   function updateConfig(trigger: string, updates: Partial<SmsConfig>) {
     setConfigs((prev) =>
@@ -135,6 +169,23 @@ export function SmsNotificationsSettingsForm({
             <Loader2 className="size-4 animate-spin" aria-hidden />
             Loading...
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (forbidden) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-sm">
+            Company settings are available to users with the appropriate
+            permissions. Contact your administrator to update company
+            information.
+          </p>
         </CardContent>
       </Card>
     );
