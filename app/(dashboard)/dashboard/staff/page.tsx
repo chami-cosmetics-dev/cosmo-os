@@ -5,6 +5,7 @@ import {
   StaffManagementPanel,
   type StaffManagementPanelInitialData,
 } from "@/components/organisms/staff-management-panel";
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { fetchStaffPageData } from "@/lib/page-data/staff";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 
@@ -31,7 +32,7 @@ export default async function StaffPage() {
         </Card>
       );
     }
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const canManageStaff = hasPermission(auth.context, "staff.manage");
@@ -41,7 +42,7 @@ export default async function StaffPage() {
 
   const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
   if (!isSuperAdmin && !companyId) {
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const initialData = await fetchStaffPageData(companyId, {

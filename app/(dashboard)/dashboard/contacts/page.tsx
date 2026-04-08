@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { ContactsPanel } from "@/components/organisms/contacts-panel";
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { fetchContactsPageData } from "@/lib/page-data/contacts";
 import { requirePermission } from "@/lib/rbac";
 
@@ -12,12 +13,12 @@ export default async function ContactsPage() {
     if (auth.status === 401) {
       redirect("/login");
     }
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const initialData = await fetchContactsPageData(companyId, {

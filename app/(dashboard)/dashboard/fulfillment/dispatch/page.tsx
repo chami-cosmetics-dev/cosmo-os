@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { DispatchFulfillmentPage } from "@/components/organisms/fulfillment-pages/dispatch";
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { buildFulfillmentPermissions } from "@/lib/fulfillment-permissions";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -13,7 +14,7 @@ export default async function DispatchPage() {
   ]);
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const permissions = buildFulfillmentPermissions(auth.context);

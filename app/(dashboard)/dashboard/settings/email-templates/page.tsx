@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { EmailTemplatesSettingsForm } from "@/components/molecules/email-templates-settings-form";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { ChevronLeft } from "lucide-react";
@@ -30,7 +31,30 @@ export default async function EmailTemplatesSettingsPage() {
   const auth = await requirePermission("settings.email_templates");
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
-    redirect("/dashboard/settings");
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/dashboard/settings">
+              <ChevronLeft className="size-4" aria-hidden />
+              Settings
+            </Link>
+          </Button>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground text-sm">
+              Company settings are available to users with the appropriate
+              permissions. Contact your administrator to update company
+              information.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
   const canManageEmailTemplates = hasPermission(auth.context, "settings.email_templates");
 
