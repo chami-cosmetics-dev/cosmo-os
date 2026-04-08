@@ -57,10 +57,10 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
   return (
     <Sidebar
       collapsible="icon"
-      className="border-r border-sidebar-border/70 [&_[data-sidebar=sidebar]]:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--sidebar)_94%,white),var(--sidebar),color-mix(in_srgb,var(--accent)_8%,var(--sidebar)))] dark:[&_[data-sidebar=sidebar]]:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--sidebar)_96%,black),var(--sidebar),color-mix(in_srgb,var(--accent)_6%,var(--sidebar)))]"
+      className="border-r border-sidebar-border/80 shadow-[14px_0_38px_-22px_var(--dashboard-shell-shadow)] [&_[data-sidebar=sidebar]]:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.92),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(125,88,200,0.18),transparent_34%),linear-gradient(180deg,var(--dashboard-sidebar-start),var(--dashboard-sidebar-middle),var(--dashboard-sidebar-end))] dark:[&_[data-sidebar=sidebar]]:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(162,122,221,0.18),transparent_32%),linear-gradient(180deg,var(--dashboard-sidebar-start),var(--dashboard-sidebar-middle),var(--dashboard-sidebar-end))]"
     >
       <SidebarHeader>
-        <div className="rounded-xl bg-secondary/18 px-2 py-2 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:px-0">
+        <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:px-0 dark:border-white/10 dark:bg-white/6">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
           <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Cosmo OS (Beta) v{packageJson.version}
@@ -73,7 +73,7 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
         </div>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="gap-3 px-2 pb-2">
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -227,32 +227,36 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Stickers</SidebarGroupLabel>
-          {canStickerBatch && (
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={pathname === "/dashboard/sticker-batch"}
-              >
-                <Link href="/dashboard/sticker-batch">
-                  <Sticker className="size-4" />
-                  <span>Batch</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
-          {canStickerPrint && (
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                isActive={pathname === "/dashboard/sticker-print"}
-              >
-                <Link href="/dashboard/sticker-print">
-                  <Printer className="size-4" />
-                  <span>Print</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {canStickerBatch && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/sticker-batch"}
+                  >
+                    <Link href="/dashboard/sticker-batch">
+                      <Sticker className="size-4" />
+                      <span>Batch</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {canStickerPrint && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/sticker-print"}
+                  >
+                    <Link href="/dashboard/sticker-print">
+                      <Printer className="size-4" />
+                      <span>Print</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Product Management</SidebarGroupLabel>
