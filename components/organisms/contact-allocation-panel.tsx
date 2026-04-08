@@ -359,14 +359,12 @@ export function ContactAllocationPanel({
 
               <div className="space-y-2">
                 <p className="text-sm font-medium text-muted-foreground">
-                  Total Purchased (Web) (LKR)
                 </p>
                 <Input value={formatAmount(String(totalPurchased), "LKR")} readOnly />
               </div>
 
               <div className="space-y-2">
                 <p className="text-sm font-medium text-muted-foreground">
-                  Role (Website) (linked with Email)
                 </p>
                 <Input
                   value={
@@ -409,10 +407,9 @@ export function ContactAllocationPanel({
                       <tr className="border-b bg-muted/40">
                         <th className="px-4 py-3 text-left font-semibold">Store</th>
                         <th className="px-4 py-3 text-left font-semibold">Code</th>
-                        <th className="px-4 py-3 text-left font-semibold">Item</th>
+                        <th className="px-4 py-3 text-left font-semibold">Invoice No</th>
                         <th className="px-4 py-3 text-left font-semibold">Days</th>
-                        <th className="px-4 py-3 text-left font-semibold">L.P. Date</th>
-                        <th className="px-4 py-3 text-left font-semibold">Finish In</th>
+                        <th className="px-4 py-3 text-left font-semibold">Invoice Date</th>
                         <th className="px-4 py-3 text-left font-semibold">Methode of Use</th>
                       </tr>
                     </thead>

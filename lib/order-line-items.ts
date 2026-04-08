@@ -8,13 +8,23 @@ const UNCATEGORIZED_NAME = "Uncategorized";
 
 type LineItem = ShopifyOrderWebhookPayload["line_items"][number];
 
+/** Shopify sends null variant_id for custom line items; use a stable synthetic key per line. */
+function shopifyVariantKey(lineItem: LineItem): string {
+  const v = lineItem.variant_id;
+  if (v != null && v !== "") return String(v);
+  return `lineitem-${lineItem.id}`;
+}
+
+
+
+
 export async function ensureProductItemAndCreateLineItem(
   order: Order,
   lineItem: LineItem,
   location: CompanyLocation
 ): Promise<void> {
   const companyId = location.companyId;
-  const shopifyVariantId = String(lineItem.variant_id);
+  const shopifyVariantId = shopifyVariantKey(lineItem);
   const shopifyProductId = String(lineItem.product_id ?? 0);
 
   let productItem = await prisma.productItem.findUnique({
