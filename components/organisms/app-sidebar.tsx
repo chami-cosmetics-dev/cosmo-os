@@ -72,19 +72,6 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
           </div>
         </div>
         </div>
-        <div className="mx-2 rounded-2xl border border-sidebar-border/70 bg-[linear-gradient(135deg,rgba(37,99,235,0.08),rgba(14,165,164,0.06),rgba(245,158,11,0.08))] px-3 py-3 shadow-[0_12px_24px_-28px_var(--primary)] group-data-[collapsible=icon]:hidden">
-          <p className="text-[11px] font-semibold tracking-[0.2em] text-sidebar-foreground/70 uppercase">
-            Palette
-          </p>
-          <p className="mt-1 text-xs text-sidebar-foreground/80">
-            Blue for structure, teal for freshness, amber for highlights.
-          </p>
-          <div className="mt-3 flex items-center gap-2">
-            <span className="h-3 w-3 rounded-full bg-primary" />
-            <span className="h-3 w-3 rounded-full bg-[var(--chart-2)]" />
-            <span className="h-3 w-3 rounded-full bg-[var(--chart-3)]" />
-          </div>
-        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
