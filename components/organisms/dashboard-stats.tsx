@@ -352,7 +352,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
         {displayedStats.map((stat) => (
           <Card
             key={stat.shop}
-            className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="overflow-visible rounded-2xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
             <CardHeader className="space-y-1 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_90%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] py-4 text-center">
               <p className="text-base leading-6 font-semibold tracking-tight">
@@ -363,7 +363,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
               </p>
               <p className="text-2xl font-semibold">{stat.total}</p>
             </CardHeader>
-            <CardContent className="bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--secondary)_6%,transparent))] pb-5">
+            <CardContent className="bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--secondary)_6%,transparent))] pb-5 pt-10">
               <DonutChartCard
                 name={stat.agent}
                 value={stat.agentValue}
@@ -486,7 +486,7 @@ function DonutChartCard({
   }, {});
 
   return (
-    <div className="mx-auto mt-1 h-56 w-56">
+    <div className="mx-auto mt-10 h-48 w-48 max-w-full">
       <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
         <PieChart>
           <ChartTooltip
@@ -515,8 +515,8 @@ function DonutChartCard({
             nameKey="key"
             cx="50%"
             cy="50%"
-            innerRadius={46}
-            outerRadius={80}
+            innerRadius={40}
+            outerRadius={66}
             paddingAngle={2}
             strokeWidth={0}
             activeIndex={activeIndex ?? undefined}
@@ -538,7 +538,7 @@ function DonutChartCard({
                     >
                       <tspan
                         x={viewBox.cx}
-                        y={(viewBox.cy || 0) - 28}
+                        y={(viewBox.cy || 0) - 25}
                         className="fill-muted-foreground text-[11px]"
                       >
                         Primary Agent
@@ -552,7 +552,7 @@ function DonutChartCard({
                       </tspan>
                       <tspan
                         x={viewBox.cx}
-                        y={(viewBox.cy || 0) + 40}
+                        y={(viewBox.cy || 0) + 34}
                         className="fill-foreground text-3xl font-bold"
                       >
                         {value}
@@ -588,17 +588,20 @@ function renderActiveDonutShape(props: {
   const {
     cx = 0,
     cy = 0,
-    innerRadius = 46,
-    outerRadius = 80,
+    innerRadius = 40,
+    outerRadius = 66,
     startAngle = 0,
     endAngle = 0,
     fill,
     midAngle = 0,
   } = props;
 
+  const sweepAngle = Math.abs(endAngle - startAngle);
+  const isFullCircle = sweepAngle >= 359;
   const radians = (-midAngle * Math.PI) / 180;
-  const offsetX = Math.cos(radians) * 14;
-  const offsetY = Math.sin(radians) * 14;
+  const offsetDistance = isFullCircle ? 0 : 10;
+  const offsetX = Math.cos(radians) * offsetDistance;
+  const offsetY = Math.sin(radians) * offsetDistance;
 
   return (
     <g>
@@ -606,7 +609,7 @@ function renderActiveDonutShape(props: {
         cx={cx + offsetX}
         cy={cy + offsetY}
         innerRadius={innerRadius}
-        outerRadius={outerRadius + 6}
+        outerRadius={outerRadius + 4}
         startAngle={startAngle}
         endAngle={endAngle}
         fill={fill}
@@ -614,8 +617,8 @@ function renderActiveDonutShape(props: {
       <Sector
         cx={cx + offsetX}
         cy={cy + offsetY}
-        innerRadius={outerRadius + 10}
-        outerRadius={outerRadius + 16}
+        innerRadius={outerRadius + 6}
+        outerRadius={outerRadius + 10}
         startAngle={startAngle}
         endAngle={endAngle}
         fill={fill}

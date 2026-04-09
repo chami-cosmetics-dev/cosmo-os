@@ -201,10 +201,10 @@ function DashboardDonutGrid({
         {stats.map((stat) => (
           <Card
             key={stat.shop}
-            className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_18px_34px_-22px_rgba(15,23,42,0.35)] dark:border-border dark:bg-card"
+            className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_18px_34px_-22px_rgba(15,23,42,0.35)] dark:border-border dark:bg-card"
           >
             <div className="h-1 w-full bg-[linear-gradient(90deg,var(--chart-3),var(--chart-2),var(--chart-4))]" />
-            <CardContent className="px-4 pb-5 pt-3">
+            <CardContent className="px-4 pb-5 pt-6">
               <div className="space-y-1 text-center">
                 <p className="line-clamp-1 text-base leading-6 font-semibold tracking-tight text-slate-800 dark:text-foreground">
                   {stat.shop}
@@ -279,7 +279,7 @@ function DonutChartCard({
   }, {});
 
   return (
-    <div className="mx-auto mt-3 h-[15.5rem] w-[15.5rem] max-w-full">
+    <div className="mx-auto mt-6 h-[14.5rem] w-[14.5rem] max-w-full">
       <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
         <PieChart>
           <ChartTooltip
@@ -308,8 +308,8 @@ function DonutChartCard({
             nameKey="key"
             cx="50%"
             cy="50%"
-            innerRadius={58}
-            outerRadius={104}
+            innerRadius={72}
+            outerRadius={92}
             paddingAngle={2}
             strokeWidth={0}
             activeIndex={activeIndex ?? undefined}
@@ -396,17 +396,20 @@ function renderActiveDonutShape(props: {
   const {
     cx = 0,
     cy = 0,
-    innerRadius = 58,
-    outerRadius = 104,
+    innerRadius = 72,
+    outerRadius = 92,
     startAngle = 0,
     endAngle = 0,
     fill,
     midAngle = 0,
   } = props;
 
+  const sweepAngle = Math.abs(endAngle - startAngle);
+  const isFullCircle = sweepAngle >= 359;
   const radians = (-midAngle * Math.PI) / 180;
-  const offsetX = Math.cos(radians) * 14;
-  const offsetY = Math.sin(radians) * 14;
+  const offsetDistance = isFullCircle ? 0 : 12;
+  const offsetX = Math.cos(radians) * offsetDistance;
+  const offsetY = Math.sin(radians) * offsetDistance;
 
   return (
     <g>
@@ -414,7 +417,7 @@ function renderActiveDonutShape(props: {
         cx={cx + offsetX}
         cy={cy + offsetY}
         innerRadius={innerRadius}
-        outerRadius={outerRadius + 6}
+        outerRadius={outerRadius + 5}
         startAngle={startAngle}
         endAngle={endAngle}
         fill={fill}
@@ -422,8 +425,8 @@ function renderActiveDonutShape(props: {
       <Sector
         cx={cx + offsetX}
         cy={cy + offsetY}
-        innerRadius={outerRadius + 10}
-        outerRadius={outerRadius + 16}
+        innerRadius={outerRadius + 8}
+        outerRadius={outerRadius + 13}
         startAngle={startAngle}
         endAngle={endAngle}
         fill={fill}

@@ -53,6 +53,8 @@ export async function GET(
       currency: true,
       financialStatus: true,
       fulfillmentStatus: true,
+      deliveryOutcome: true,
+      deliveryFailedReason: true,
       customerEmail: true,
       customerPhone: true,
       shippingAddress: true,
@@ -66,6 +68,7 @@ export async function GET(
       dispatchedAt: true,
       invoiceCompleteAt: true,
       deliveryCompleteAt: true,
+      lastRiderUpdateAt: true,
       lastPrintedAt: true,
       sampleFreeIssueCompleteAt: true,
       ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
@@ -77,6 +80,40 @@ export async function GET(
       dispatchedBy: { select: { id: true, name: true, email: true } },
       dispatchedByRider: { select: { id: true, name: true, mobile: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
+      deliveryPayment: {
+        select: {
+          id: true,
+          expectedAmount: true,
+          collectedAmount: true,
+          paymentMethod: true,
+          collectionStatus: true,
+          referenceNote: true,
+          bankReference: true,
+          cardReference: true,
+          collectedAt: true,
+          cashHandover: {
+            select: {
+              id: true,
+              handoverDate: true,
+              status: true,
+              totalHandedOverCash: true,
+            },
+          },
+        },
+      },
+      riderDeliveryTask: {
+        select: {
+          id: true,
+          status: true,
+          assignedAt: true,
+          acceptedAt: true,
+          arrivedAt: true,
+          completedAt: true,
+          failedAt: true,
+          failureReason: true,
+          latestSyncAt: true,
+        },
+      },
       invoiceCompleteBy: { select: { id: true, name: true, email: true } },
       deliveryCompleteBy: { select: { id: true, name: true, email: true } },
       lastPrintedBy: { select: { id: true, name: true, email: true } },
@@ -134,6 +171,8 @@ export async function GET(
     currency: order.currency,
     financialStatus: order.financialStatus,
     fulfillmentStatus: order.fulfillmentStatus,
+    deliveryOutcome: order.deliveryOutcome,
+    deliveryFailedReason: order.deliveryFailedReason,
     paymentGatewayNames: gatewayColumns.hasPaymentGatewayNames
       ? ((order as typeof order & { paymentGatewayNames: string[] }).paymentGatewayNames ?? [])
       : [],
@@ -172,6 +211,41 @@ export async function GET(
     invoiceCompleteBy: order.invoiceCompleteBy ? { id: order.invoiceCompleteBy.id, name: order.invoiceCompleteBy.name, email: order.invoiceCompleteBy.email } : null,
     deliveryCompleteAt: order.deliveryCompleteAt?.toISOString() ?? null,
     deliveryCompleteBy: order.deliveryCompleteBy ? { id: order.deliveryCompleteBy.id, name: order.deliveryCompleteBy.name, email: order.deliveryCompleteBy.email } : null,
+    lastRiderUpdateAt: order.lastRiderUpdateAt?.toISOString() ?? null,
+    riderDeliveryTask: order.riderDeliveryTask
+      ? {
+          id: order.riderDeliveryTask.id,
+          status: order.riderDeliveryTask.status,
+          assignedAt: order.riderDeliveryTask.assignedAt.toISOString(),
+          acceptedAt: order.riderDeliveryTask.acceptedAt?.toISOString() ?? null,
+          arrivedAt: order.riderDeliveryTask.arrivedAt?.toISOString() ?? null,
+          completedAt: order.riderDeliveryTask.completedAt?.toISOString() ?? null,
+          failedAt: order.riderDeliveryTask.failedAt?.toISOString() ?? null,
+          failureReason: order.riderDeliveryTask.failureReason,
+          latestSyncAt: order.riderDeliveryTask.latestSyncAt?.toISOString() ?? null,
+        }
+      : null,
+    deliveryPayment: order.deliveryPayment
+      ? {
+          id: order.deliveryPayment.id,
+          expectedAmount: order.deliveryPayment.expectedAmount.toString(),
+          collectedAmount: order.deliveryPayment.collectedAmount.toString(),
+          paymentMethod: order.deliveryPayment.paymentMethod,
+          collectionStatus: order.deliveryPayment.collectionStatus,
+          referenceNote: order.deliveryPayment.referenceNote,
+          bankReference: order.deliveryPayment.bankReference,
+          cardReference: order.deliveryPayment.cardReference,
+          collectedAt: order.deliveryPayment.collectedAt?.toISOString() ?? null,
+          cashHandover: order.deliveryPayment.cashHandover
+            ? {
+                id: order.deliveryPayment.cashHandover.id,
+                handoverDate: order.deliveryPayment.cashHandover.handoverDate.toISOString(),
+                status: order.deliveryPayment.cashHandover.status,
+                totalHandedOverCash: order.deliveryPayment.cashHandover.totalHandedOverCash.toString(),
+              }
+            : null,
+        }
+      : null,
     lastPrintedAt: order.lastPrintedAt?.toISOString() ?? null,
     lastPrintedBy: order.lastPrintedBy ? { id: order.lastPrintedBy.id, name: order.lastPrintedBy.name, email: order.lastPrintedBy.email } : null,
     sampleFreeIssueCompleteAt: order.sampleFreeIssueCompleteAt?.toISOString() ?? null,

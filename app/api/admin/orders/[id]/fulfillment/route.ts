@@ -370,6 +370,9 @@ export async function PATCH(
           dispatchedById: auth.context!.user!.id,
           dispatchedByRiderId: data.riderId ?? null,
           dispatchedByCourierServiceId: data.courierServiceId ?? null,
+          deliveryOutcome: "pending",
+          deliveryFailedReason: null,
+          lastRiderUpdateAt: data.riderId ? now : null,
           riderDeliveryToken,
         },
         include: {
@@ -377,6 +380,33 @@ export async function PATCH(
           dispatchedByRider: { select: { name: true, mobile: true } },
         },
       });
+      if (data.riderId) {
+        await prisma.riderDeliveryTask.upsert({
+          where: { orderId: order.id },
+          create: {
+            orderId: order.id,
+            riderId: data.riderId,
+            status: "assigned",
+            assignedAt: now,
+            latestSyncAt: now,
+          },
+          update: {
+            riderId: data.riderId,
+            status: "assigned",
+            assignedAt: now,
+            acceptedAt: null,
+            arrivedAt: null,
+            completedAt: null,
+            failedAt: null,
+            failureReason: null,
+            latestSyncAt: now,
+          },
+        });
+      } else {
+        await prisma.riderDeliveryTask.deleteMany({
+          where: { orderId: order.id },
+        });
+      }
       const orderNum = updated.orderNumber ?? updated.name ?? updated.shopifyOrderId;
       sendOrderSms(companyId, order.id, "dispatched", {
         orderNumber: orderNum,
@@ -428,9 +458,22 @@ export async function PATCH(
           fulfillmentStage: "delivery_complete",
           deliveryCompleteAt: now,
           deliveryCompleteById: auth.context!.user!.id,
+          deliveryOutcome: "delivered",
+          deliveryFailedReason: null,
+          lastRiderUpdateAt: now,
           riderDeliveryToken: null,
         },
         include: { companyLocation: true },
+      });
+      await prisma.riderDeliveryTask.updateMany({
+        where: { orderId: order.id },
+        data: {
+          status: "completed",
+          completedAt: now,
+          failedAt: null,
+          failureReason: null,
+          latestSyncAt: now,
+        },
       });
       sendOrderSms(companyId, order.id, "delivery_complete", {
         orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
@@ -467,6 +510,11 @@ export async function PATCH(
       if (currentStage === "invoice_complete" && targetStage !== "invoice_complete") {
         updateData.fulfillmentStatus = "unfulfilled";
       }
+      if (targetIdx <= FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
+        updateData.deliveryOutcome = "pending";
+        updateData.deliveryFailedReason = null;
+        updateData.lastRiderUpdateAt = null;
+      }
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("sample_free_issue")) {
         updateData.sampleFreeIssueCompleteAt = null;
         updateData.sampleFreeIssueCompleteById = null;
@@ -501,6 +549,24 @@ export async function PATCH(
         where: { id: order.id },
         data: updateData,
       });
+      if (targetIdx < FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
+        await prisma.riderDeliveryTask.deleteMany({
+          where: { orderId: order.id },
+        });
+      } else {
+        await prisma.riderDeliveryTask.updateMany({
+          where: { orderId: order.id },
+          data: {
+            status: "assigned",
+            acceptedAt: null,
+            arrivedAt: null,
+            completedAt: null,
+            failedAt: null,
+            failureReason: null,
+            latestSyncAt: null,
+          },
+        });
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -527,12 +593,18 @@ export async function PATCH(
           dispatchedById: userId,
           dispatchedByRiderId: null,
           dispatchedByCourierServiceId: null,
+          deliveryOutcome: "delivered",
+          deliveryFailedReason: null,
           invoiceCompleteAt: isPaid ? now : now,
           invoiceCompleteById: userId,
           deliveryCompleteAt: now,
           deliveryCompleteById: userId,
+          lastRiderUpdateAt: null,
           riderDeliveryToken: null,
         },
+      });
+      await prisma.riderDeliveryTask.deleteMany({
+        where: { orderId: order.id },
       });
       return NextResponse.json({ success: true });
     }

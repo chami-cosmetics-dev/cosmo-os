@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Cosmo Rider",
+    "slug": "cosmo-rider-app",
+    "scheme": "cosmorider",
+    "orientation": "portrait",
+    "plugins": ["expo-secure-store"]
+  }
+}

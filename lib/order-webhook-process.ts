@@ -127,29 +127,18 @@ export async function processOrderWebhook(
       ...orderData,
       ...(isPaid && {
         invoiceCompleteAt: now,
-        fulfillmentStage: "invoice_complete" as const,
       }),
     },
     update: orderData,
   });
 
   if (isPaid && !order.invoiceCompleteAt) {
-    const stagesBeforeInvoice = [
-      "order_received",
-      "sample_free_issue",
-      "print",
-      "ready_to_dispatch",
-      "dispatched",
-    ];
-    if (stagesBeforeInvoice.includes(order.fulfillmentStage)) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          invoiceCompleteAt: now,
-          fulfillmentStage: "invoice_complete",
-        },
-      });
-    }
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        invoiceCompleteAt: now,
+      },
+    });
   }
 
   const incomingLineItemIds = Array.from(
