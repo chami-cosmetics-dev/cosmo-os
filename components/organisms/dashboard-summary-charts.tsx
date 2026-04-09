@@ -244,9 +244,12 @@ function renderActiveDonutShape(props: {
     midAngle = 0,
   } = props;
 
+  const sweepAngle = Math.abs(endAngle - startAngle);
+  const isFullCircle = sweepAngle >= 359;
   const radians = (-midAngle * Math.PI) / 180;
-  const offsetX = Math.cos(radians) * 16;
-  const offsetY = Math.sin(radians) * 16;
+  const offsetDistance = isFullCircle ? 0 : 16;
+  const offsetX = Math.cos(radians) * offsetDistance;
+  const offsetY = Math.sin(radians) * offsetDistance;
 
   return (
     <g>
@@ -272,4 +275,3 @@ function renderActiveDonutShape(props: {
     </g>
   );
 }
-
