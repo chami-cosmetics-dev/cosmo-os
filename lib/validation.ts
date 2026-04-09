@@ -65,6 +65,10 @@ export const LIMITS = {
   courierServiceName: { max: 200 },
   orderRemarkContent: { max: 2000 },
   logoUrl: { max: 2048 },
+  /** Manual invoice number prefix (digits), e.g. 900 → 900001 */
+  manualInvoicePrefix: { min: 1, max: 12 },
+  manualInvoiceSeqPadding: { min: 1, max: 12 },
+  shippingChargeLabel: { max: 120 },
 } as const;
 
 /** Parse and validate page number from query string */

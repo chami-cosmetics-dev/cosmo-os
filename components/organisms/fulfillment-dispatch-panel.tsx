@@ -120,10 +120,10 @@ export function FulfillmentDispatchPanel({
   if (!orderId || !order) return null;
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="overflow-hidden border-border/70 shadow-xs">
+      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
         <CardTitle className="flex items-center gap-2">
-          <Truck className="size-5" />
+          <Truck className="size-5 text-muted-foreground" />
           Ready to Dispatch & Dispatch — Order {order.name ?? order.orderNumber ?? order.id}
         </CardTitle>
         <p className="text-muted-foreground text-sm">
@@ -137,7 +137,7 @@ export function FulfillmentDispatchPanel({
         {lookups && packageStatus !== null && (
           <>
             {!isPackageReady && (perms.canPutOnHold || perms.canRevertHold || perms.canMarkReady) && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
                 {isOnHold ? (
                 <>
                   <p className="text-muted-foreground text-sm">
@@ -164,7 +164,7 @@ export function FulfillmentDispatchPanel({
                       <select
                         value={holdReasonId}
                         onChange={(e) => setHoldReasonId(e.target.value)}
-                        className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-9 w-[200px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                       >
                         <option value="">Put on hold...</option>
                         {lookups.packageHoldReasons.map((r) => (
@@ -175,6 +175,7 @@ export function FulfillmentDispatchPanel({
                       </select>
                       <Button
                         variant="outline"
+                        className="border-border/70 bg-background/85 hover:bg-secondary/10"
                         onClick={() =>
                           doAction("put_on_hold", {
                             action: "put_on_hold",
@@ -191,6 +192,7 @@ export function FulfillmentDispatchPanel({
                     <Button
                       onClick={() => doAction("mark_ready")}
                       disabled={isBusy}
+                      className="shadow-[0_10px_24px_-18px_var(--primary)]"
                     >
                       {busyKey === "mark_ready" ? (
                         <Loader2 className="size-4 animate-spin" />
@@ -203,7 +205,7 @@ export function FulfillmentDispatchPanel({
               )}
               </div>
             )}
-            <div className={!isPackageReady ? "border-t pt-4" : ""}>
+            <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4">
               {isPackageReady && perms.canDispatch ? (
                 <div className="flex flex-wrap gap-2">
                   <select
@@ -212,7 +214,7 @@ export function FulfillmentDispatchPanel({
                       setDispatchRiderId(e.target.value);
                       setDispatchCourierId("");
                     }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                   >
                     <option value="">Select rider</option>
                     {lookups.riders.map((r) => (
@@ -227,7 +229,7 @@ export function FulfillmentDispatchPanel({
                       setDispatchCourierId(e.target.value);
                       setDispatchRiderId("");
                     }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                   >
                     <option value="">Or courier</option>
                     {lookups.courierServices.map((c) => (
@@ -245,6 +247,7 @@ export function FulfillmentDispatchPanel({
                       })
                     }
                     disabled={isBusy || (!dispatchRiderId && !dispatchCourierId)}
+                    className="shadow-[0_10px_24px_-18px_var(--primary)]"
                   >
                     {busyKey === "dispatch" ? (
                       <Loader2 className="size-4 animate-spin" />

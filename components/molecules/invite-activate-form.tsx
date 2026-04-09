@@ -6,6 +6,13 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PasswordStrengthIndicator } from "@/components/molecules/password-strength-indicator";
 import { notify } from "@/lib/notify";
 import { isPasswordStrong } from "@/lib/password-strength";
@@ -32,6 +39,8 @@ type Props = {
   email: string;
   isSuperAdmin: boolean;
 };
+
+const NONE_VALUE = "__none";
 
 export function InviteActivateForm({
   token,
@@ -97,7 +106,7 @@ export function InviteActivateForm({
       }
 
       notify.success("Account activated. Sign in to continue.");
-      router.push("/auth/login?activated=1");
+      router.push(`/login?activated=1&email=${encodeURIComponent(email)}`);
     } catch {
       setStatus("error");
       notify.error("Activation failed");
@@ -167,19 +176,22 @@ export function InviteActivateForm({
         <label htmlFor="gender" className="text-sm font-medium">
           Gender
         </label>
-        <select
-          id="gender"
-          value={gender}
-          onChange={(e) => setGender(e.target.value)}
+        <Select
+          value={gender || NONE_VALUE}
+          onValueChange={(value) => setGender(value === NONE_VALUE ? "" : value)}
           disabled={status === "loading"}
-          className="border-input bg-transparent h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs"
         >
-          {GENDER_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="gender">
+            <SelectValue placeholder="Select gender" />
+          </SelectTrigger>
+          <SelectContent>
+            {GENDER_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value || NONE_VALUE} value={opt.value || NONE_VALUE}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="space-y-2">
         <label htmlFor="dateOfBirth" className="text-sm font-medium">
@@ -266,19 +278,22 @@ export function InviteActivateForm({
             <label htmlFor="employeeSize" className="text-sm font-medium">
               Employee size
             </label>
-            <select
-              id="employeeSize"
-              value={employeeSize}
-              onChange={(e) => setEmployeeSize(e.target.value)}
+            <Select
+              value={employeeSize || NONE_VALUE}
+              onValueChange={(value) => setEmployeeSize(value === NONE_VALUE ? "" : value)}
               disabled={status === "loading"}
-              className="border-input bg-transparent h-9 w-full rounded-md border px-3 py-1 text-sm shadow-xs"
             >
-              {EMPLOYEE_SIZE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="employeeSize">
+                <SelectValue placeholder="Select size" />
+              </SelectTrigger>
+              <SelectContent>
+                {EMPLOYEE_SIZE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value || NONE_VALUE} value={opt.value || NONE_VALUE}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <label htmlFor="address" className="text-sm font-medium">

@@ -189,6 +189,9 @@ export async function GET(
     assignedMerchant: order.assignedMerchant,
     lineItems,
     shopifyAdminOrderUrl: (() => {
+      if (order.sourceName === "manual" || order.shopifyOrderId.startsWith("manual-")) {
+        return null;
+      }
       const handle = order.companyLocation.shopifyAdminStoreHandle ?? order.companyLocation.shopifyShopName;
       return handle
         ? `https://admin.shopify.com/store/${handle}/orders/${order.shopifyOrderId}`

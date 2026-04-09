@@ -2,9 +2,16 @@
 
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Label, Pie, PieChart, Sector } from "recharts";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import { Input } from "@/components/ui/input";
 import { DashboardSalesCharts } from "@/components/organisms/dashboard-sales-charts";
 import { DashboardSummaryCharts } from "@/components/organisms/dashboard-summary-charts";
@@ -178,14 +185,14 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
   return (
     <section className="space-y-5">
-      <Card className="border-border/70 bg-card shadow-xs">
-        <CardHeader className="space-y-1 border-b pb-4">
+      <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
+        <CardHeader className="space-y-1 border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] pb-4">
           <p className="text-sm font-semibold tracking-wide">Filters</p>
           <p className="text-muted-foreground text-sm">
             Adjust date range, date source, and analysis mode for dashboard results.
           </p>
         </CardHeader>
-        <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.4fr_1.4fr_auto]">
+        <CardContent className="grid gap-4 border-t-2 border-primary/30 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent_78%)] p-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.4fr_1.4fr_auto]">
           <div className="space-y-2">
             <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
               From Date
@@ -194,7 +201,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
               type="date"
               value={fromDate}
               onChange={(event) => setFromDate(event.target.value)}
-              className="h-10 rounded-sm border-border bg-background"
+              className="h-10 rounded-lg border-border/80 bg-background/90 shadow-none"
             />
           </div>
           <div className="space-y-2">
@@ -205,14 +212,14 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
               type="date"
               value={toDate}
               onChange={(event) => setToDate(event.target.value)}
-              className="h-10 rounded-sm border-border bg-background"
+              className="h-10 rounded-lg border-border/80 bg-background/90 shadow-none"
             />
           </div>
           <div className="space-y-2">
             <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
               Date Type
             </p>
-            <div className="bg-muted/20 flex h-10 items-center gap-6 rounded-md border border-border px-3 text-sm">
+            <div className="flex h-10 items-center gap-6 rounded-lg border border-border/80 bg-muted/35 px-3 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
@@ -235,7 +242,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
               Analysis Type
             </p>
-            <div className="bg-muted/20 flex h-10 items-center gap-6 rounded-md border border-border px-3 text-sm">
+            <div className="flex h-10 items-center gap-6 rounded-lg border border-border/80 bg-muted/35 px-3 text-sm">
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
@@ -256,7 +263,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
           </div>
           <Button
             size="icon"
-            className="h-10 w-10 justify-self-start rounded-md bg-primary text-primary-foreground"
+            className="h-10 w-10 justify-self-start rounded-lg bg-primary text-primary-foreground shadow-[0_10px_18px_-16px_var(--primary)]"
             onClick={refreshLiveData}
             aria-label="Refresh live data"
             disabled={refreshing}
@@ -264,7 +271,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             <RefreshCw className={`size-5 ${refreshing ? "animate-spin" : ""}`} />
           </Button>
         </CardContent>
-        <div className="border-t border-border/60 px-4 py-3">
+        <div className="border-t border-border/60 bg-background/40 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <PresetButton
               label="All Dates"
@@ -319,8 +326,11 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
 
      
 
-      <div className="from-background to-muted/20 flex flex-col gap-3 rounded-xl border border-border/60 bg-gradient-to-r p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-[linear-gradient(120deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_12%,var(--background)),color-mix(in_srgb,var(--accent)_10%,var(--background)))] p-4 shadow-xs sm:flex-row sm:items-center sm:justify-between">
         <div>
+          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.2em] uppercase">
+            Overview
+          </p>
           <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
             Merchant Performance
           </h2>
@@ -329,9 +339,9 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <LegendDot color="#4f95bf" label="Primary Sales" />
-          <LegendDot color="#06b06c" label="Secondary Sales" />
-          <LegendDot color="#f06a57" label="Other Sources" />
+          <LegendDot color="var(--chart-1)" label="Primary Sales" />
+          <LegendDot color="var(--chart-2)" label="Secondary Sales" />
+          <LegendDot color="var(--chart-3)" label="Other Sources" />
           <span className="text-muted-foreground ml-1">
             {displayedStats.length} merchants
           </span>
@@ -342,9 +352,9 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
         {displayedStats.map((stat) => (
           <Card
             key={stat.shop}
-            className="rounded-xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
           >
-            <CardHeader className="space-y-1 py-3 text-center">
+            <CardHeader className="space-y-1 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_90%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] py-4 text-center">
               <p className="text-base leading-6 font-semibold tracking-tight">
                 {stat.shop}
               </p>
@@ -353,7 +363,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
               </p>
               <p className="text-2xl font-semibold">{stat.total}</p>
             </CardHeader>
-            <CardContent className="pb-5">
+            <CardContent className="bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--secondary)_6%,transparent))] pb-5">
               <DonutChartCard
                 name={stat.agent}
                 value={stat.agentValue}
@@ -363,10 +373,10 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
                 {stat.segments.map((segment, index) => (
                   <div
                     key={`${stat.shop}-${index}`}
-                    className="rounded-md border border-border/60 px-1 py-1"
+                    className="rounded-lg border border-border/60 bg-background/70 px-1.5 py-1.5 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.03] hover:border-primary/30 hover:bg-background hover:shadow-[0_14px_28px_-22px_var(--chart-1)]"
                   >
                     <div
-                      className="mx-auto mb-1 h-1.5 w-8 rounded-full"
+                      className="mx-auto mb-1 h-1.5 w-8 rounded-full transition-all duration-200 ease-out hover:w-10 hover:shadow-[0_0_12px_-2px_currentColor]"
                       style={{ backgroundColor: segment.color }}
                     />
                     <p className="text-muted-foreground">
@@ -394,7 +404,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             </p>
             <Button
               variant="outline"
-              className="mt-3"
+              className="mt-3 border-border/70"
               onClick={resetFilters}
             >
               Clear Filters
@@ -460,29 +470,103 @@ function DonutChartCard({
   value: string;
   segments: Array<{ value: number; color: string }>;
 }) {
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const chartData = segments.map((segment, index) => ({
+    key: `segment-${index + 1}`,
+    label: getSegmentLabel(index),
+    value: segment.value,
+    fill: segment.color,
+  }));
+  const chartConfig = chartData.reduce<ChartConfig>((config, segment) => {
+    config[segment.key] = {
+      label: segment.label,
+      color: segment.fill,
+    };
+    return config;
+  }, {});
+
   return (
-    <div className="relative mx-auto mt-1 grid h-56 w-56 place-items-center">
-      <div
-        className="absolute inset-3 rounded-full"
-        style={{ background: toConicGradient(segments) }}
-      />
-      <div className="relative z-10 grid h-[9.25rem] w-[9.25rem] place-items-center rounded-full bg-card p-4 text-center shadow-[0_0_0_2px_#4f95bf]">
-        <div>
-          <p className="text-muted-foreground text-[11px] uppercase">
-            Primary Agent
-          </p>
-          <p className={getNameClass(name)}>{name}</p>
-          <p className="mt-1 text-3xl font-medium">{value}</p>
-        </div>
-      </div>
+    <div className="mx-auto mt-1 h-56 w-56">
+      <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
+        <PieChart>
+          <ChartTooltip
+            cursor={false}
+            content={
+              <ChartTooltipContent
+                hideLabel
+                formatter={(chartValue, _name, item) => {
+                  const payload = item.payload as {
+                    label: string;
+                    value: number;
+                  };
+                  return (
+                    <div className="flex w-full items-center justify-between gap-3">
+                      <span>{payload.label}</span>
+                      <span className="font-medium tabular-nums">{Number(chartValue)}%</span>
+                    </div>
+                  );
+                }}
+              />
+            }
+          />
+          <Pie
+            data={chartData}
+            dataKey="value"
+            nameKey="key"
+            cx="50%"
+            cy="50%"
+            innerRadius={46}
+            outerRadius={80}
+            paddingAngle={2}
+            strokeWidth={0}
+            activeIndex={activeIndex ?? undefined}
+            activeShape={renderActiveDonutShape}
+            isAnimationActive
+            animationDuration={260}
+            onMouseEnter={(_, index) => setActiveIndex(index)}
+            onMouseLeave={() => setActiveIndex(null)}
+          >
+            <Label
+              content={({ viewBox }) => {
+                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                  return (
+                    <text
+                      x={viewBox.cx}
+                      y={viewBox.cy}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) - 28}
+                        className="fill-muted-foreground text-[11px]"
+                      >
+                        Primary Agent
+                      </tspan>
+                      <tspan
+                        x={viewBox.cx}
+                        y={viewBox.cy}
+                        className="fill-foreground text-[11px] font-semibold"
+                      >
+                        {name}
+                      </tspan>
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) + 40}
+                        className="fill-foreground text-3xl font-bold"
+                      >
+                        {value}
+                      </tspan>
+                    </text>
+                  );
+                }
+              }}
+            />
+          </Pie>
+        </PieChart>
+      </ChartContainer>
     </div>
   );
-}
-
-function getNameClass(name: string) {
-  if (name.length > 18) return "text-sm leading-tight font-semibold";
-  if (name.length > 12) return "text-xl leading-tight font-semibold";
-  return "text-xl leading-tight font-semibold";
 }
 
 function getSegmentLabel(index: number) {
@@ -491,20 +575,54 @@ function getSegmentLabel(index: number) {
   return "Other";
 }
 
-function toConicGradient(segments: Array<{ value: number; color: string }>) {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0) || 1;
-  let start = 0;
+function renderActiveDonutShape(props: {
+  cx?: number;
+  cy?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  startAngle?: number;
+  endAngle?: number;
+  fill?: string;
+  midAngle?: number;
+}) {
+  const {
+    cx = 0,
+    cy = 0,
+    innerRadius = 46,
+    outerRadius = 80,
+    startAngle = 0,
+    endAngle = 0,
+    fill,
+    midAngle = 0,
+  } = props;
 
-  const stops = segments.map((segment) => {
-    const sweep = (segment.value / total) * 360;
-    const startWithGap = start + 1.5;
-    const endWithGap = start + sweep - 1.5;
-    const stop = `${segment.color} ${startWithGap.toFixed(2)}deg ${endWithGap.toFixed(2)}deg`;
-    start += sweep;
-    return stop;
-  });
+  const radians = (-midAngle * Math.PI) / 180;
+  const offsetX = Math.cos(radians) * 14;
+  const offsetY = Math.sin(radians) * 14;
 
-  return `conic-gradient(${stops.join(", ")})`;
+  return (
+    <g>
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 6}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={outerRadius + 10}
+        outerRadius={outerRadius + 16}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        opacity={0.3}
+      />
+    </g>
+  );
 }
 
 function getInitialRange(stats: DashboardStatsProps["stats"]) {
@@ -639,7 +757,7 @@ function aggregateGatewayStats(orders: LiveOrder[]): DashboardStatsProps["stats"
 
 function buildSegmentsFromPairs(pairs: Array<[string, number]>) {
   const total = pairs.reduce((sum, current) => sum + current[1], 0) || 1;
-  const palette = ["#4f95bf", "#06b06c", "#f06a57"];
+  const palette = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)"];
   const topThree = pairs.slice(0, 3).map(([, value], index) => ({
     value: Math.max(1, Math.round((value / total) * 100)),
     color: palette[index],
@@ -673,3 +791,10 @@ function toEndOfDay(dateValue: string) {
   date.setHours(23, 59, 59, 999);
   return date;
 }
+
+type ArcSegment = {
+  color: string;
+  startAngle: number;
+  endAngle: number;
+  midAngle: number;
+};

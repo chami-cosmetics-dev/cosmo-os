@@ -22,6 +22,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/users", label: "User Management" },
     { prefix: "/dashboard/staff", label: "Staff Management" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
+    { prefix: "/dashboard/orders/create", label: "Create manual order" },
     { prefix: "/dashboard/orders", label: "Orders" },
     { prefix: "/dashboard/settings", label: "Settings" },
     { prefix: "/dashboard/profile", label: "Profile" },
@@ -35,12 +36,25 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
   const computedTitle = matched?.label ?? title;
 
   return (
-    <header className="bg-background/95 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b px-4 backdrop-blur">
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-2 h-6" />
-      <h1 className="flex-1 text-lg font-semibold">{computedTitle}</h1>
-      <ThemeToggle />
-      <UserMenu user={user} />
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border/70 bg-[linear-gradient(100deg,color-mix(in_srgb,var(--background)_86%,white),var(--dashboard-bar-start),var(--dashboard-bar-middle),var(--dashboard-bar-end))] px-4 text-foreground shadow-[0_12px_24px_-26px_var(--primary)] backdrop-blur before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top_left,var(--dashboard-bar-highlight),transparent_34%)]">
+      <SidebarTrigger className="-ml-1 border border-border/60 bg-background/75 text-primary hover:bg-secondary/45 hover:text-primary" />
+      <Separator orientation="vertical" className="mr-1 h-6 bg-border/80" />
+      <div className="flex flex-1 items-center gap-3">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-semibold tracking-[0.24em] text-muted-foreground uppercase">
+            Cosmo OS
+          </span>
+          <h1 className="text-lg font-semibold text-foreground">{computedTitle}</h1>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="[&_button]:border [&_button]:border-border/60 [&_button]:bg-background/70 [&_button]:text-foreground [&_button]:hover:bg-secondary/40">
+          <ThemeToggle />
+        </div>
+        <div className="[&_button]:rounded-xl [&_button]:border [&_button]:border-border/60 [&_button]:bg-background/70 [&_button]:px-2 [&_button]:text-foreground [&_button]:hover:bg-secondary/35">
+          <UserMenu user={user} />
+        </div>
+      </div>
     </header>
   );
 }

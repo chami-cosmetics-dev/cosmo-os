@@ -18,7 +18,6 @@ import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
-import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string; address: string | null };
@@ -77,10 +76,6 @@ function formatDate(date: string | null): string {
 }
 
 export function StaffManagementPanel({ canManageStaff, initialData }: StaffManagementPanelProps) {
-  const hasInitialData = Boolean(initialData);
-  const pagePerfRef = useRef(
-    createClientPerfLogger("staff.panel.mount", { hasInitialData }),
-  );
   const [staff, setStaff] = useState<StaffMember[]>(initialData?.staff ?? []);
   const [locations, setLocations] = useState<Location[]>(initialData?.locations ?? []);
   const [departments, setDepartments] = useState<Department[]>(initialData?.departments ?? []);
@@ -107,12 +102,6 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
   }, [search]);
 
   const fetchPageData = useCallback(async () => {
-    const perf = createClientPerfLogger("staff.panel.fetch", {
-      hasInitialData,
-      page,
-      limit,
-      statusFilter,
-    });
     const params = new URLSearchParams();
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
@@ -122,12 +111,13 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       params.set("sort_by", sortBy);
       params.set("sort_order", sortOrder);
     }
+    if (locations.length === 0 || departments.length === 0 || designations.length === 0) {
+      params.set("include_lookups", "1");
+    }
     const res = await fetch(`/api/admin/staff/page-data?${params}`);
-    perf.mark("response");
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load staff");
-      perf.end({ ok: false });
       return;
     }
     const data = (await res.json()) as {
@@ -135,23 +125,28 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       total: number;
       page: number;
       limit: number;
-      locations: Location[];
-      departments: Department[];
-      designations: Designation[];
+      locations?: Location[];
+      departments?: Department[];
+      designations?: Designation[];
     };
     setStaff(data.staff);
     setTotal(data.total);
-    setLocations(data.locations);
-    setDepartments(data.departments);
-    setDesignations(data.designations);
-    perf.end({ ok: true, total: data.total });
-  }, [debouncedSearch, hasInitialData, page, limit, sortBy, sortOrder, statusFilter]);
+    if (data.locations) setLocations(data.locations);
+    if (data.departments) setDepartments(data.departments);
+    if (data.designations) setDesignations(data.designations);
+  }, [
+    statusFilter,
+    debouncedSearch,
+    page,
+    limit,
+    sortBy,
+    sortOrder,
+    locations.length,
+    departments.length,
+    designations.length,
+  ]);
 
   const skippedInitialFetch = useRef(false);
-  useEffect(() => {
-    pagePerfRef.current.end({ initialStaffCount: initialData?.staff.length ?? 0 });
-  }, [initialData]);
-
   useEffect(() => {
     if (initialData && !skippedInitialFetch.current) {
       skippedInitialFetch.current = true;
@@ -219,8 +214,8 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
 
   if (loading && staff.length === 0) {
     return (
-      <Card className="border-border/70 shadow-xs">
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <CardTitle className="text-xl tracking-tight">Staff</CardTitle>
           <Skeleton className="h-4 w-96" />
         </CardHeader>
@@ -238,28 +233,28 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-3">
-        <Card className="border-border/70 bg-card shadow-xs">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">Total staff</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Total staff</p>
             <p className="mt-1 text-2xl font-semibold">{total}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/70 bg-card shadow-xs">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">Shown on page</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Shown on page</p>
             <p className="mt-1 text-2xl font-semibold">{filteredStaff.length}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/70 bg-card shadow-xs">
+        <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-wide">Status filter</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Status filter</p>
             <p className="mt-1 text-2xl font-semibold capitalize">{statusFilter}</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-border/70 shadow-xs">
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle className="text-xl tracking-tight">Staff</CardTitle>
           <p className="text-muted-foreground text-sm">
             Manage employee details, departments, and designations.
@@ -273,19 +268,19 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 disabled={isBusy}
-                className="h-10 w-full sm:max-w-xs"
+                className="h-10 w-full rounded-lg border-border/80 bg-background/80 sm:max-w-xs"
               />
-              <div className="bg-muted/20 inline-flex rounded-lg border p-1">
+              <div className="inline-flex rounded-xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-1 shadow-xs">
                 {(["all", "active", "resigned"] as const).map((status) => (
                   <button
                     key={status}
                     type="button"
                     onClick={() => setStatusFilter(status)}
                     disabled={isBusy}
-                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${
                       statusFilter === status
-                        ? "bg-background text-foreground shadow-xs"
-                        : "text-muted-foreground hover:text-foreground"
+                        ? "bg-primary text-primary-foreground shadow-[0_10px_22px_-18px_var(--primary)]"
+                        : "text-muted-foreground hover:bg-background/80 hover:text-foreground"
                     }`}
                   >
                     {status.charAt(0).toUpperCase() + status.slice(1)}
@@ -295,10 +290,10 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-xl border border-border/70">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-muted/40 border-b">
+                <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                   <SortableColumnHeader
                     label="Name"
                     sortKey="name"
@@ -392,7 +387,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
               </thead>
               <tbody>
                 {filteredStaff.map((member) => (
-                  <tr key={member.id} className="hover:bg-muted/20 border-b transition-colors">
+                  <tr key={member.id} className="border-b transition-colors hover:bg-secondary/10">
                     <td className="p-2">
                       {member.knownName ? (
                         <span>
@@ -425,7 +420,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
                       <span
                         className={
                           member.employeeProfile?.status === "resigned"
-                            ? "text-muted-foreground rounded-full border px-2 py-0.5 text-xs"
+                            ? "text-muted-foreground rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-xs"
                             : "inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"
                         }
                       >
@@ -438,6 +433,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
                           <Button
                             size="sm"
                             variant="outline"
+                            className="border-border/70 bg-background/70 hover:bg-secondary/15"
                             onClick={() => openEdit(member.id)}
                             disabled={isBusy}
                           >
@@ -487,7 +483,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       </Card>
 
       <Sheet open={!!editingId} onOpenChange={(open) => !open && closeEdit()}>
-        <SheetContent side="right" className="overflow-y-auto border-l bg-background sm:max-w-md">
+        <SheetContent side="right" className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader className="border-b pb-4">
             <SheetTitle>Edit staff</SheetTitle>
           </SheetHeader>
@@ -507,7 +503,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       </Sheet>
 
       <Sheet open={!!resigningMember} onOpenChange={(open) => !open && closeResignForm()}>
-        <SheetContent side="right" className="overflow-y-auto border-l bg-background sm:max-w-md">
+        <SheetContent side="right" className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader className="border-b pb-4">
             <SheetTitle>Process resignation</SheetTitle>
           </SheetHeader>

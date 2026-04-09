@@ -25,11 +25,39 @@ function formatAddress(addr: unknown): string {
   return parts.join(", ") || "";
 }
 
-function getCustomerName(addr: unknown): string {
+/** Shopify-style addresses: prefer `name`, then first + last. */
+function getCustomerNameFromAddress(addr: unknown): string {
   if (!addr || typeof addr !== "object") return "";
   const a = addr as Record<string, unknown>;
-  const name = a.name ?? [a.first_name, a.last_name].filter(Boolean).join(" ").trim();
-  return typeof name === "string" ? name : "";
+  if (typeof a.name === "string" && a.name.trim()) return a.name.trim();
+  if (typeof a.name === "number" && Number.isFinite(a.name)) return String(a.name);
+  const fn = typeof a.first_name === "string" ? a.first_name.trim() : "";
+  const ln = typeof a.last_name === "string" ? a.last_name.trim() : "";
+  return [fn, ln].filter(Boolean).join(" ").trim();
+}
+
+/**
+ * Manual orders only persist customer name in `name` (not Shopify first/last).
+ * Using first/last can show numeric junk that is not a person name.
+ */
+function getManualCustomerNameFromAddress(addr: unknown): string {
+  if (!addr || typeof addr !== "object") return "";
+  const a = addr as Record<string, unknown>;
+  if (typeof a.name === "string" && a.name.trim()) return a.name.trim();
+  if (typeof a.name === "number" && Number.isFinite(a.name)) return String(a.name);
+  return "";
+}
+
+function stripManualInvoiceNumberAsName(
+  order: { sourceName: string; name: string | null; orderNumber: string | null },
+  display: string
+): string {
+  const t = display.trim();
+  if (!t || order.sourceName !== "manual") return t;
+  const inv = order.orderNumber?.trim() ?? "";
+  const ordName = order.name?.trim() ?? "";
+  if (t === inv || t === ordName) return "";
+  return t;
 }
 
 function getCity(addr: unknown): string {
@@ -102,6 +130,7 @@ export async function GET(
               variantTitle: true,
               sku: true,
               barcode: true,
+              price: true,
               compareAtPrice: true,
             },
           },
@@ -136,11 +165,14 @@ export async function GET(
 
   const loc = order.companyLocation;
   const company = order.company;
-  const customerName =
-    getCustomerName(order.shippingAddress) ||
-    getCustomerName(order.billingAddress) ||
-    order.customerEmail ||
+  const pickAddrName =
+    order.sourceName === "manual" ? getManualCustomerNameFromAddress : getCustomerNameFromAddress;
+  const customerNameRaw =
+    pickAddrName(order.shippingAddress) ||
+    pickAddrName(order.billingAddress) ||
+    order.customerEmail?.trim() ||
     "";
+  const customerName = stripManualInvoiceNumberAsName(order, customerNameRaw);
   const billingAddr = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
   const shippingCity = getCity(order.shippingAddress);
@@ -468,6 +500,7 @@ export async function GET(
           <th class="text-right">QTY</th>
           <th class="text-right">REGULAR PRICE</th>
           <th class="text-right">SALES PRICE</th>
+          <th class="text-right">DISC %</th>
           <th class="text-right">TOTAL</th>
         </tr>
       </thead>
@@ -475,7 +508,11 @@ export async function GET(
         ${order.lineItems
           .map(
             (li) => {
-              const regPrice = li.productItem.compareAtPrice ?? li.price;
+              const regPrice = li.productItem.compareAtPrice ?? li.productItem.price;
+              const discPct =
+                li.discountPercent != null && Number(li.discountPercent) !== 0
+                  ? String(li.discountPercent)
+                  : "—";
               const productName = [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ");
               return `
         <tr>
@@ -485,6 +522,7 @@ export async function GET(
           <td class="text-right">${li.quantity}</td>
           <td class="text-right">${formatPrice(regPrice.toString(), order.currency)}</td>
           <td class="text-right">${formatPrice(li.price.toString(), order.currency)}</td>
+          <td class="text-right">${escapeHtml(discPct)}</td>
           <td class="text-right">${formatPrice(Number(li.price) * li.quantity, order.currency)}</td>
         </tr>`;
             }
@@ -501,6 +539,7 @@ export async function GET(
           <td class="text-right">—</td>
           <td class="text-right">—</td>
           <td class="text-right">—</td>
+          <td class="text-right">—</td>
         </tr>`
           )
           .join("")}
@@ -512,6 +551,7 @@ export async function GET(
           <td class="text-right">—</td>
           <td class="text-right">—</td>
           <td class="text-right">—</td>
+          <td class="text-right">—</td>
           <td class="text-right">-${formatPrice(order.totalDiscounts.toString(), order.currency)}</td>
         </tr>`
           : ""}
@@ -520,6 +560,7 @@ export async function GET(
         <tr>
           <td colspan="2">—</td>
           <td>Shipping + Bag Fee</td>
+          <td class="text-right">—</td>
           <td class="text-right">—</td>
           <td class="text-right">—</td>
           <td class="text-right">—</td>

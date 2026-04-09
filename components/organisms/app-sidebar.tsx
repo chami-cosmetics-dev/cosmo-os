@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Package,
   PackageCheck,
+  Plus,
   Printer,
   Settings,
   ShoppingCart,
@@ -19,8 +20,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-
 import {
   Sidebar,
   SidebarContent,
@@ -42,36 +41,39 @@ interface AppSidebarProps {
     email?: string | null;
     picture?: string | null;
   };
+  permissionKeys?: string[];
 }
 
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
+  const canCreateManualOrder = permissionKeys.includes("orders.create_manual");
+  const canStickerBatch =
+    permissionKeys.includes("stickers.batch.read") ||
+    permissionKeys.includes("stickers.batch.manage");
+  const canStickerPrint =
+    permissionKeys.includes("stickers.print.read") ||
+    permissionKeys.includes("stickers.print.print");
   const pathname = usePathname();
-  const [showCollapsedLogo, setShowCollapsedLogo] = useState(true);
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-sidebar-border/80 shadow-[14px_0_38px_-22px_var(--dashboard-shell-shadow)] [&_[data-sidebar=sidebar]]:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.92),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(125,88,200,0.18),transparent_34%),linear-gradient(180deg,var(--dashboard-sidebar-start),var(--dashboard-sidebar-middle),var(--dashboard-sidebar-end))] dark:[&_[data-sidebar=sidebar]]:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(162,122,221,0.18),transparent_32%),linear-gradient(180deg,var(--dashboard-sidebar-start),var(--dashboard-sidebar-middle),var(--dashboard-sidebar-end))]"
+    >
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <span className="text-sm font-semibold group-data-[collapsible=icon]:hidden">
+        <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:px-0 dark:border-white/10 dark:bg-white/6">
+          <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+          <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Cosmo OS (Beta) v{packageJson.version}
           </span>
           <div className="hidden group-data-[collapsible=icon]:inline">
-            {showCollapsedLogo ? (
-              <img
-                src="/api/favicon"
-                alt="Cosmo OS logo"
-                className="size-8 shrink-0 rounded-sm object-contain"
-                onError={() => setShowCollapsedLogo(false)}
-              />
-            ) : (
-              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border text-[10px] font-semibold">
-                CO
-              </span>
-            )}
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm">
+              CO
+            </span>
           </div>
         </div>
+        </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="gap-3 px-2 pb-2">
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -98,11 +100,22 @@ export function AppSidebar({ user }: AppSidebarProps) {
               label="Staff"
               isActive={pathname === "/dashboard/staff"}
             />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Contacts</SidebarGroupLabel>
+          <SidebarGroupContent>
             <NavItem
               href="/dashboard/contacts"
               icon={ContactRound}
-              label="Contacts"
+              label="Contact Master"
               isActive={pathname === "/dashboard/contacts"}
+            />
+            <NavItem
+              href="/dashboard/contacts/allocation"
+              icon={ContactRound}
+              label="Contact Allocation"
+              isActive={pathname === "/dashboard/contacts/allocation"}
             />
           </SidebarGroupContent>
         </SidebarGroup>
@@ -174,6 +187,19 @@ export function AppSidebar({ user }: AppSidebarProps) {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {canCreateManualOrder && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/orders/create"}
+                  >
+                    <Link href="/dashboard/orders/create">
+                      <Plus className="size-4" />
+                      <span>Create manual order</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -201,28 +227,36 @@ export function AppSidebar({ user }: AppSidebarProps) {
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Stickers</SidebarGroupLabel>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === "/dashboard/sticker-batch"}
-            >
-              <Link href="/dashboard/sticker-batch">
-                <Sticker className="size-4" />
-                <span>Batch</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === "/dashboard/sticker-print"}
-            >
-              <Link href="/dashboard/sticker-print">
-                <Printer className="size-4" />
-                <span>Print</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {canStickerBatch && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/sticker-batch"}
+                  >
+                    <Link href="/dashboard/sticker-batch">
+                      <Sticker className="size-4" />
+                      <span>Batch</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {canStickerPrint && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/dashboard/sticker-print"}
+                  >
+                    <Link href="/dashboard/sticker-print">
+                      <Printer className="size-4" />
+                      <span>Print</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Product Management</SidebarGroupLabel>

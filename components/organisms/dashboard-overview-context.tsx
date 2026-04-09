@@ -10,7 +10,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createClientPerfLogger } from "@/lib/client-perf";
+
+import {
+  getDefaultDashboardOverviewRange,
+  type DashboardOverviewInitialState,
+} from "@/lib/page-data/dashboard-overview-shared";
 
 export type DashboardSalesLocation = {
   id: string;
@@ -37,29 +41,38 @@ type DashboardOverviewContextValue = {
 
 const DashboardOverviewContext = createContext<DashboardOverviewContextValue | null>(null);
 
-function getDefaultDateRange() {
-  const to = new Date();
-  const from = new Date(to);
-  from.setDate(from.getDate() - 7);
-  return {
-    fromDate: from.toISOString().slice(0, 10),
-    toDate: to.toISOString().slice(0, 10),
-  };
-}
-
-export function DashboardOverviewProvider({ children }: { children: ReactNode }) {
-  const pagePerfRef = useRef(createClientPerfLogger("dashboard.overview.mount"));
-  const fetchIdRef = useRef(0);
-  const initialRange = useMemo(() => getDefaultDateRange(), []);
+export function DashboardOverviewProvider({
+  children,
+  initialState,
+}: {
+  children: ReactNode;
+  initialState?: DashboardOverviewInitialState | null;
+}) {
+  const initialRange = useMemo(
+    () =>
+      initialState
+        ? { fromDate: initialState.fromDate, toDate: initialState.toDate }
+        : getDefaultDashboardOverviewRange(),
+    [initialState],
+  );
 
   const [fromDate, setFromDate] = useState(initialRange.fromDate);
   const [toDate, setToDate] = useState(initialRange.toDate);
-  const [dateType, setDateType] = useState<"order" | "completed">("order");
-  const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">("merchant");
+  const [dateType, setDateType] = useState<"order" | "completed">(
+    initialState?.dateType ?? "order",
+  );
+  const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
+    initialState?.analysisType ?? "merchant",
+  );
 
-  const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>([]);
+  const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>(
+    initialState?.salesLocations ?? [],
+  );
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
+
+  const fetchIdRef = useRef(0);
+  const shouldSkipInitialFetchRef = useRef(initialState !== null && initialState !== undefined);
 
   const hasInvalidRange = new Date(fromDate) > new Date(toDate);
 
@@ -74,18 +87,11 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
   }, [fromDate, toDate, dateType]);
 
   const loadSales = useCallback(async () => {
-    const perf = createClientPerfLogger("dashboard.overview.fetch", {
-      analysisType,
-      dateType,
-      fromDate,
-      toDate,
-    });
     if (hasInvalidRange) {
       fetchIdRef.current += 1;
       setSalesLocations([]);
       setSalesError(null);
       setSalesLoading(false);
-      perf.end({ skipped: "invalid-range" });
       return;
     }
     const id = ++fetchIdRef.current;
@@ -99,7 +105,6 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
         analysis_type: analysisType,
       });
       const res = await fetch(`/api/admin/dashboard/sales-by-location?${params.toString()}`);
-      perf.mark("response");
       const body = (await res.json()) as {
         error?: string;
         locations?: Array<{
@@ -127,24 +132,22 @@ export function DashboardOverviewProvider({ children }: { children: ReactNode })
           })),
         })),
       );
-      perf.end({ ok: true, locationCount: body.locations?.length ?? 0 });
     } catch (e) {
       if (id !== fetchIdRef.current) return;
       setSalesError(e instanceof Error ? e.message : "Failed to load dashboard sales");
       setSalesLocations([]);
-      perf.end({ ok: false, error: e instanceof Error ? e.message : "unknown" });
     } finally {
       if (id === fetchIdRef.current) setSalesLoading(false);
     }
   }, [analysisType, dateType, fromDate, hasInvalidRange, toDate]);
 
   useEffect(() => {
+    if (shouldSkipInitialFetchRef.current) {
+      shouldSkipInitialFetchRef.current = false;
+      return;
+    }
     void loadSales();
   }, [loadSales]);
-
-  useEffect(() => {
-    pagePerfRef.current.end({ hasInitialData: false });
-  }, []);
 
   const value = useMemo<DashboardOverviewContextValue>(
     () => ({

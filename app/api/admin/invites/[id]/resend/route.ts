@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { sendInviteEmail } from "@/lib/maileroo";
+import { getAppBaseUrl } from "@/lib/app-base-url";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
@@ -61,7 +62,7 @@ export async function POST(
     );
   }
 
-  const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const baseUrl = getAppBaseUrl();
   const newToken = generateInviteToken();
   const expiresAt = getInviteExpiresAt();
 

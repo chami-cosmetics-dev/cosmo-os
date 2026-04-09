@@ -25,6 +25,7 @@ export default async function DashboardLayout({
         email: context.sessionUser.email,
         picture: avatarUrl,
       }}
+      permissionKeys={context.permissionKeys ?? []}
     >
       {children}
     </DashboardTemplate>

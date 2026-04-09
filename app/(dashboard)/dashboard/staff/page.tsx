@@ -5,9 +5,9 @@ import {
   StaffManagementPanel,
   type StaffManagementPanelInitialData,
 } from "@/components/organisms/staff-management-panel";
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { fetchStaffPageData } from "@/lib/page-data/staff";
 import { hasPermission, requirePermission } from "@/lib/rbac";
-import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -32,34 +32,30 @@ export default async function StaffPage() {
         </Card>
       );
     }
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const canManageStaff = hasPermission(auth.context, "staff.manage");
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
+  const lookupCompanyId = auth.context!.user?.companyId ?? null;
 
-  let companyId: string | null = null;
-  if (!isSuperAdmin) {
-    const user = await prisma.user.findUnique({
-      where: { id: auth.context!.user!.id },
-      select: { companyId: true },
-    });
-    companyId = user?.companyId ?? null;
-    if (!companyId) {
-      redirect("/dashboard");
-    }
+  const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
+  if (!isSuperAdmin && !companyId) {
+    return <PermissionDeniedCard />;
   }
 
   const initialData = await fetchStaffPageData(companyId, {
     page: 1,
     limit: 10,
     status: "active",
+    lookupCompanyId,
   });
 
   return (
     <div className="space-y-6">
-      <section className="from-primary/10 to-background rounded-2xl border bg-gradient-to-r p-5 sm:p-6">
+      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
         <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
           Human Resources
         </p>
