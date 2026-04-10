@@ -17,6 +17,7 @@ import {
   Tags,
   Users,
   UserCircle,
+  Bike,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -99,6 +100,12 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
               icon={UserCircle}
               label="Staff"
               isActive={pathname === "/dashboard/staff"}
+            />
+            <NavItem
+              href="/dashboard/riders"
+              icon={Bike}
+              label="Riders"
+              isActive={pathname === "/dashboard/riders"}
             />
           </SidebarGroupContent>
         </SidebarGroup>

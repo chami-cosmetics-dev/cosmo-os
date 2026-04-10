@@ -1,3 +1,4 @@
+import { Feather } from "@expo/vector-icons";
 import { useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -9,7 +10,8 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [deviceName, setDeviceName] = useState("Rider phone");
+  const [deviceName, setDeviceName] = useState("");
+  const [rememberTerminal, setRememberTerminal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,7 +19,7 @@ export default function LoginScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await login({ email, password, deviceName });
+      await login({ email, password, deviceName: deviceName.trim() || "Rider phone" });
       router.replace("/(tabs)/deliveries");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -36,40 +38,82 @@ export default function LoginScreen() {
           </View>
           <Text style={styles.title}>Cosmo Rider</Text>
           <Text style={styles.subtitle}>
-            Delivery updates, payment collection, and cash handovers in one clean mobile workspace.
+            Delivery updates, payment collection, and cash handovers.
           </Text>
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Sign in</Text>
-          <Text style={styles.cardCopy}>Use the rider account assigned to your device.</Text>
-          <TextInput
-            style={styles.input}
-            autoCapitalize="none"
-            placeholder="Email"
-            placeholderTextColor={colors.textSoft}
-            value={email}
-            onChangeText={setEmail}
-          />
-          <TextInput
-            style={styles.input}
-            secureTextEntry={true}
-            placeholder="Password"
-            placeholderTextColor={colors.textSoft}
-            value={password}
-            onChangeText={setPassword}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Device name"
-            placeholderTextColor={colors.textSoft}
-            value={deviceName}
-            onChangeText={setDeviceName}
-          />
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Email Address</Text>
+            <View style={styles.inputShell}>
+              <Feather name="at-sign" size={16} color={colors.textSoft} />
+              <TextInput
+                style={styles.input}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholder="name@cosmorider.com"
+                placeholderTextColor={colors.textSoft}
+                value={email}
+                onChangeText={setEmail}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Password</Text>
+            <View style={styles.inputShell}>
+              <Feather name="lock" size={16} color={colors.textSoft} />
+              <TextInput
+                style={styles.input}
+                secureTextEntry={true}
+                placeholder="........"
+                placeholderTextColor={colors.textSoft}
+                value={password}
+                onChangeText={setPassword}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.label}>Device Identification</Text>
+            <View style={styles.inputShell}>
+              <Feather name="archive" size={16} color={colors.textSoft} />
+              <TextInput
+                style={styles.input}
+                placeholder="e.g., Transit-Pad-04"
+                placeholderTextColor={colors.textSoft}
+                value={deviceName}
+                onChangeText={setDeviceName}
+              />
+            </View>
+          </View>
+
+          <View style={styles.utilityRow}>
+            <Pressable style={styles.checkboxRow} onPress={() => setRememberTerminal((value) => !value)}>
+              <View style={[styles.checkbox, rememberTerminal ? styles.checkboxChecked : null]}>
+                {rememberTerminal ? <Feather name="check" size={12} color={colors.white} /> : null}
+              </View>
+              <Text style={styles.utilityText}>Remember terminal</Text>
+            </Pressable>
+            <Pressable>
+              <Text style={styles.resetText}>Reset Pin</Text>
+            </Pressable>
+          </View>
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable style={styles.button} onPress={handleLogin} disabled={submitting}>
-            <Text style={styles.buttonText}>{submitting ? "Signing in..." : "Sign in"}</Text>
+            <Text style={styles.buttonText}>{submitting ? "Signing In..." : "Sign In"}</Text>
+            <Feather name="arrow-right" size={17} color={colors.white} />
           </Pressable>
+        </View>
+
+        <View style={styles.footer}>
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Operational Support</Text>
+            <Text style={styles.footerDivider}>|</Text>
+            <Text style={styles.footerText}>Security Protocol</Text>
+          </View>
+          <Text style={styles.footerMeta}>V 2.4.0 - STABLE - AWS SECURE NODE 7</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -77,47 +121,85 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: colors.bg },
-  scrollContent: { flexGrow: 1, padding: 24, justifyContent: "center" },
-  hero: { marginBottom: 24 },
+  page: { flex: 1, backgroundColor: "#f4f5fa" },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 16, paddingVertical: 28, justifyContent: "center" },
+  hero: { marginBottom: 22, alignItems: "center" },
   eyebrow: {
-    alignSelf: "flex-start",
     borderRadius: radii.pill,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.brandSoft,
-    marginBottom: 16,
+    paddingVertical: 6,
+    backgroundColor: "#dde7fb",
+    marginBottom: 14,
   },
-  eyebrowText: { color: colors.brand, fontSize: 12, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" },
-  title: { fontSize: 40, fontWeight: "800", color: colors.text, letterSpacing: -1.2 },
-  subtitle: { marginTop: 12, fontSize: 16, lineHeight: 24, color: colors.textMuted, maxWidth: 340 },
+  eyebrowText: { color: "#5f77a5", fontSize: 10, fontWeight: "700", letterSpacing: 0.7, textTransform: "uppercase" },
+  title: { fontSize: 28, fontWeight: "800", color: "#22314d", letterSpacing: -0.8 },
+  subtitle: { marginTop: 8, fontSize: 14, lineHeight: 21, color: "#7b8193", maxWidth: 290, textAlign: "center" },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radii.lg,
-    padding: 24,
-    gap: 12,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    gap: 14,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#eef0f5",
     ...shadows.card,
   },
-  cardTitle: { fontSize: 24, fontWeight: "800", color: colors.text },
-  cardCopy: { fontSize: 14, color: colors.textMuted, marginBottom: 2 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
-    padding: 15,
-    backgroundColor: colors.surfaceMuted,
-    fontSize: 16,
-    color: colors.text,
+  fieldGroup: { gap: 8 },
+  label: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    color: "#7f8495",
   },
-  button: {
-    backgroundColor: colors.brand,
-    borderRadius: radii.sm,
-    padding: 16,
+  inputShell: {
+    flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
+    borderRadius: 8,
+    backgroundColor: "#eef2ff",
+    paddingHorizontal: 12,
+    height: 44,
+    gap: 8,
   },
-  buttonText: { color: colors.white, fontWeight: "800", fontSize: 15 },
-  error: { color: colors.danger, marginTop: 4 },
+  input: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+    paddingVertical: 0,
+  },
+  utilityRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 2 },
+  checkboxRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
+  checkbox: {
+    width: 14,
+    height: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#ccd3df",
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: {
+    backgroundColor: colors.slate,
+    borderColor: colors.slate,
+  },
+  utilityText: { fontSize: 13, color: "#7b8193" },
+  resetText: { fontSize: 13, fontWeight: "700", color: "#7a75dd" },
+  button: {
+    backgroundColor: colors.slate,
+    borderRadius: 10,
+    paddingVertical: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+    flexDirection: "row",
+    gap: 8,
+  },
+  buttonText: { color: colors.white, fontWeight: "800", fontSize: 16 },
+  error: { color: colors.danger, marginTop: -4, fontSize: 13 },
+  footer: { marginTop: 20, alignItems: "center", gap: 8 },
+  footerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  footerText: { color: "#82889a", fontSize: 10.5 },
+  footerDivider: { color: "#c2c7d1", fontSize: 10.5 },
+  footerMeta: { color: "#afb4c1", fontSize: 10, fontWeight: "700", letterSpacing: 0.4 },
 });

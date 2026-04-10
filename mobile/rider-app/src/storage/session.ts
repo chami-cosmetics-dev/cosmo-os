@@ -10,6 +10,10 @@ export type RiderSession = {
     name: string | null;
     email: string | null;
     mobile: string | null;
+    company?: {
+      id: string;
+      name: string;
+    } | null;
   };
 };
 

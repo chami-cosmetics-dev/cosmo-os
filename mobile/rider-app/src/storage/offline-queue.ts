@@ -29,3 +29,7 @@ export async function queueAction(action: Omit<QueuedAction, "id" | "createdAt">
 export async function replaceQueue(queue: QueuedAction[]) {
   await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
 }
+
+export async function clearQueue() {
+  await AsyncStorage.removeItem(QUEUE_KEY);
+}

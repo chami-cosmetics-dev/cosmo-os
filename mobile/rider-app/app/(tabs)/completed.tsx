@@ -3,6 +3,7 @@ import { RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from
 import { useFocusEffect } from "expo-router";
 import { apiClient } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
+import type { CompletedDelivery } from "@/src/storage/completed-deliveries";
 import { colors, radii, shadows } from "@/src/theme";
 
 type Delivery = {
@@ -15,7 +16,16 @@ type Delivery = {
   companyLocation?: { name: string } | null;
 };
 
-function isRenderableDelivery(delivery: Delivery) {
+type CompletedListItem = {
+  id: string;
+  orderLabel: string;
+  amount: string;
+  completedAt?: string | null;
+  customerName: string | null;
+  companyLocation?: { name: string } | null;
+};
+
+function isRenderableDelivery(delivery: Delivery | CompletedDelivery) {
   return (
     typeof delivery.id === "string" &&
     delivery.id.trim().length > 0 &&
@@ -28,7 +38,7 @@ function isRenderableDelivery(delivery: Delivery) {
 
 export default function CompletedScreen() {
   const { completedDeliveries } = useCompletedDeliveries();
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [deliveries, setDeliveries] = useState<CompletedListItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
@@ -105,7 +115,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderRadius: radii.lg,
     backgroundColor: colors.slate,
-    padding: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
     ...shadows.card,
   },
   bannerPill: {
@@ -116,9 +128,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
     marginBottom: 12,
   },
-  bannerPillText: { color: colors.white, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  bannerTitle: { color: colors.white, fontSize: 28, fontWeight: "800", letterSpacing: -0.8 },
-  bannerText: { color: "#d9e3ef", marginTop: 8, lineHeight: 21 },
+  bannerPillText: { color: colors.white, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
+  bannerTitle: { color: colors.white, fontSize: 25, fontWeight: "800", letterSpacing: -0.5 },
+  bannerText: { color: "rgba(255,255,255,0.76)", marginTop: 8, lineHeight: 20 },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radii.md,
@@ -133,14 +145,16 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: "800", color: colors.text },
   cardMeta: { color: colors.textMuted, lineHeight: 20 },
   completedBadge: {
-    backgroundColor: colors.slateSoft,
-    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.sm,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   completedBadgeText: { color: colors.slate, fontSize: 12, fontWeight: "800" },
   cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
-  cardAmount: { fontSize: 22, fontWeight: "800", color: colors.brand },
+  cardAmount: { fontSize: 22, fontWeight: "800", color: colors.slate },
   cardStatus: { color: colors.textSoft, textAlign: "right", flexShrink: 1 },
   emptyCard: {
     backgroundColor: colors.surface,

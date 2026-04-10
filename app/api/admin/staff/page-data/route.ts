@@ -41,6 +41,8 @@ export async function GET(request: NextRequest) {
     includeLookupsRaw === null || includeLookupsRaw === ""
       ? true
       : includeLookupsRaw === "1" || includeLookupsRaw === "true";
+  const riderOnlyRaw = searchParams.get("rider_only");
+  const riderOnly = riderOnlyRaw === "1" || riderOnlyRaw === "true";
 
   const data = await fetchStaffPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest) {
     sortOrder: sortOrderResult.success ? sortOrderResult.data : "asc",
     status: searchParams.get("status") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
+    riderOnly,
     includeLookups,
     lookupCompanyId,
   });

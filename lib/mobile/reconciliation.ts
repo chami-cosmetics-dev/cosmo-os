@@ -11,6 +11,13 @@ export async function getRiderCashSummary(riderId: string, date = new Date()) {
       cashHandoverId: null,
       paymentMethod: "cod",
       collectionStatus: { in: ["collected", "partially_collected"] },
+      order: {
+        riderDeliveryTask: {
+          is: {
+            status: "completed",
+          },
+        },
+      },
     },
     include: {
       order: {

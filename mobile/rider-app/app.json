@@ -1,9 +1,23 @@
 {
   "expo": {
     "name": "Cosmo Rider",
+    "description": "Cosmo Rider delivery operations app for route management, proof of delivery, and cash handovers.",
     "slug": "cosmo-rider-app",
+    "version": "1.0.0",
     "scheme": "cosmorider",
     "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "android": {
+      "package": "com.cosmo.rider",
+      "versionCode": 1,
+      "permissions": []
+    },
     "plugins": ["expo-secure-store"]
   }
 }
