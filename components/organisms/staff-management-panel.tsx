@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Pencil, UserMinus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -106,14 +106,16 @@ export function StaffManagementPanel({
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
     if (statusFilter !== "all") params.set("status", statusFilter);
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (effectiveSearch) params.set("search", effectiveSearch);
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (sortBy) {
@@ -148,7 +150,7 @@ export function StaffManagementPanel({
     if (data.designations) setDesignations(data.designations);
   }, [
     statusFilter,
-    debouncedSearch,
+    effectiveSearch,
     page,
     limit,
     sortBy,
@@ -185,7 +187,7 @@ export function StaffManagementPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, debouncedSearch, sortBy, sortOrder]);
+  }, [statusFilter, effectiveSearch, sortBy, sortOrder]);
 
   async function openEdit(id: string) {
     setEditingId(id);

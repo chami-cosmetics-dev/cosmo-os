@@ -9,7 +9,11 @@ export async function GET(request: NextRequest) {
     return auth.response;
   }
 
-  const summary = await getRiderCashSummary(auth.session.userId);
+  const dateParam = request.nextUrl.searchParams.get("date");
+  const requestedDate =
+    dateParam && !Number.isNaN(new Date(dateParam).getTime()) ? new Date(dateParam) : new Date();
+
+  const summary = await getRiderCashSummary(auth.session.userId, requestedDate);
 
   return NextResponse.json({
     date: summary.date.toISOString(),

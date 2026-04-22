@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -64,20 +64,22 @@ export function FulfillmentOrderSelector({
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
 
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, refreshTrigger]);
+  }, [effectiveSearch, refreshTrigger]);
 
   const fetchOrders = useCallback(async () => {
     const params = new URLSearchParams();
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
     params.set("limit", String(limit));
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (effectiveSearch) params.set("search", effectiveSearch);
     const res = await fetch(`/api/admin/orders/page-data?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
@@ -90,7 +92,7 @@ export function FulfillmentOrderSelector({
     };
     setOrders(data.orders ?? []);
     setTotal(data.total ?? 0);
-  }, [stages, debouncedSearch, refreshTrigger, page, limit]);
+  }, [effectiveSearch, stages, refreshTrigger, page, limit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,7 +139,7 @@ export function FulfillmentOrderSelector({
               />
             </div>
           </div>
-          {loading ? (
+          {loading && orders.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-8 text-center">
               <p className="text-muted-foreground text-sm">Loading orders...</p>
             </div>

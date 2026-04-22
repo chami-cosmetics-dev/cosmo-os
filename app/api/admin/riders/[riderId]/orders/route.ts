@@ -4,6 +4,8 @@ import { fetchRiderOrdersData } from "@/lib/page-data/riders";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ riderId: string }> }
@@ -30,9 +32,5 @@ export async function GET(
   }
 
   const data = await fetchRiderOrdersData(companyId, riderIdResult.data);
-  if (!data.rider) {
-    return NextResponse.json({ error: "Rider not found" }, { status: 404 });
-  }
-
   return NextResponse.json(data);
 }

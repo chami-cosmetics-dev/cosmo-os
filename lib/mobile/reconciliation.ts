@@ -1,16 +1,23 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
-import { startOfDay } from "@/lib/mobile/dates";
+import { endOfDay, startOfDay } from "@/lib/mobile/dates";
 import { prisma } from "@/lib/prisma";
 
 export async function getRiderCashSummary(riderId: string, date = new Date()) {
+  const dayStart = startOfDay(date);
+  const dayEnd = endOfDay(date);
+
   const payments = await prisma.deliveryPayment.findMany({
     where: {
       riderId,
       cashHandoverId: null,
       paymentMethod: "cod",
       collectionStatus: { in: ["collected", "partially_collected"] },
+      collectedAt: {
+        gte: dayStart,
+        lte: dayEnd,
+      },
       order: {
         riderDeliveryTask: {
           is: {
@@ -65,7 +72,7 @@ export async function getRiderCashSummary(riderId: string, date = new Date()) {
   );
 
   return {
-    date: startOfDay(date),
+    date: dayStart,
     totalExpectedCash,
     totalCollectedCash,
     groups: Array.from(groups.values()).sort((a, b) =>

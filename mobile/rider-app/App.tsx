@@ -84,6 +84,11 @@ type CashSummary = {
   }>;
 };
 
+function buildCashSummaryPath(dateKey?: string | null) {
+  if (!dateKey) return "/api/mobile/v1/cash-summary";
+  return `/api/mobile/v1/cash-summary?date=${encodeURIComponent(`${dateKey}T12:00:00+05:30`)}`;
+}
+
 const ACTIVE_DELIVERY_STATUSES = new Set(["assigned", "accepted", "arrived"]);
 const ANDROID_STATUSBAR_HEIGHT =
   Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
@@ -286,6 +291,7 @@ function MainView() {
   const [tab, setTab] = useState<"deliveries" | "completed" | "cash" | "profile">("deliveries");
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [summary, setSummary] = useState<CashSummary | null>(null);
+  const [selectedDateSummary, setSelectedDateSummary] = useState<CashSummary | null>(null);
   const [handoverHistory, setHandoverHistory] = useState<
     Array<{
       id: string;
@@ -319,6 +325,12 @@ function MainView() {
   const [showLegacyCashHandover, setShowLegacyCashHandover] = useState(false);
   const [selectedCompletedDate, setSelectedCompletedDate] = useState<string | null>(null);
   const [showCompletedDatePicker, setShowCompletedDatePicker] = useState(false);
+  const [completedStartDate, setCompletedStartDate] = useState<string | null>(null);
+  const [completedEndDate, setCompletedEndDate] = useState<string | null>(null);
+  const [selectedCompletedLocation, setSelectedCompletedLocation] = useState<string | null>(null);
+  const [showCompletedStartDatePicker, setShowCompletedStartDatePicker] = useState(false);
+  const [showCompletedEndDatePicker, setShowCompletedEndDatePicker] = useState(false);
+  const [showCompletedLocationPicker, setShowCompletedLocationPicker] = useState(false);
   const [selectedHandoverDate, setSelectedHandoverDate] = useState<string | null>(null);
   const [showHandoverDatePicker, setShowHandoverDatePicker] = useState(false);
   const previousPendingCount = useRef(0);
@@ -392,6 +404,10 @@ function MainView() {
       .filter(Boolean);
 
     return parts.length > 0 ? parts.join(", ") : "No address";
+  }
+
+  function getDeliveryLocationName(delivery: Delivery) {
+    return delivery.companyLocation?.name?.trim() || "Unknown location";
   }
 
   async function openDirections(delivery: Delivery | null) {
@@ -603,8 +619,13 @@ function MainView() {
   }
 
   async function loadSummary() {
-    const data = await apiClient.get<CashSummary>("/api/mobile/v1/cash-summary");
+    const data = await apiClient.get<CashSummary>(buildCashSummaryPath());
     setSummary(data);
+  }
+
+  async function loadSelectedDateSummary(dateKey: string) {
+    const data = await apiClient.get<CashSummary>(buildCashSummaryPath(dateKey));
+    setSelectedDateSummary(data);
   }
 
   async function loadHandoverHistory() {
@@ -794,13 +815,20 @@ function MainView() {
   }
 
   async function submitHandover() {
-    if (!summary) return;
+    const todayDateKey = getCompletedDateKey(new Date().toISOString());
+    const handoverDateKey = selectedHandoverDate ?? todayDateKey;
+    const activeSummary =
+      selectedHandoverDate && selectedHandoverDate !== todayDateKey
+        ? selectedDateSummary
+        : summary;
+    if (!activeSummary) return;
     setHandoverSubmitting(true);
     try {
       const result = await submitOrQueue({
         endpoint: "/api/mobile/v1/handovers",
         body: {
-          totalHandedOverCash: Number(summary.totalCollectedCash),
+          handoverDate: `${handoverDateKey}T12:00:00+05:30`,
+          totalHandedOverCash: Number(activeSummary.totalCollectedCash),
           idempotencyKey: `handover-${Date.now()}`,
         },
         queuedMessage: "Handover was added to the sync queue.",
@@ -808,6 +836,9 @@ function MainView() {
       if (result.mode === "live") {
         await loadSummary();
         await loadHandoverHistory();
+        if (selectedHandoverDate && selectedHandoverDate !== todayDateKey) {
+          await loadSelectedDateSummary(selectedHandoverDate);
+        }
         setShowHandoverPreview(false);
         Alert.alert("Submitted", "Handover was submitted successfully.");
         return;
@@ -823,6 +854,21 @@ function MainView() {
     void loadSummary();
     void loadHandoverHistory();
   }, []);
+
+  useEffect(() => {
+    if (!selectedHandoverDate) {
+      setSelectedDateSummary(null);
+      return;
+    }
+
+    const todayDateKey = getCompletedDateKey(new Date().toISOString());
+    if (selectedHandoverDate === todayDateKey) {
+      setSelectedDateSummary(summary);
+      return;
+    }
+
+    void loadSelectedDateSummary(selectedHandoverDate);
+  }, [selectedHandoverDate, summary]);
 
   const queuedDeliveryStates = useMemo(() => {
     const stateMap = new Map<string, { hasQueuedPayment: boolean; hasQueuedComplete: boolean; hasQueuedFail: boolean }>();
@@ -870,17 +916,33 @@ function MainView() {
         .filter((value) => value !== "unknown")
     ),
   ];
+  const completedLocationOptions = [
+    ...new Set(sortedCompletedDeliveries.map((delivery) => getDeliveryLocationName(delivery))),
+  ].sort((a, b) => a.localeCompare(b));
+  const hasCompletedRange = !!completedStartDate || !!completedEndDate;
+  const hasCompletedAdvancedFilters = hasCompletedRange || !!selectedCompletedLocation;
+  const completedRangeStartKey = completedStartDate ?? "0000-01-01";
+  const completedRangeEndKey = completedEndDate ?? "9999-12-31";
+  const baseCompletedDeliveries = sortedCompletedDeliveries.filter((delivery) => {
+    const dateKey = getCompletedDateKey(delivery.completedAt);
+    if (dateKey === "unknown") return false;
+    if (dateKey < completedRangeStartKey || dateKey > completedRangeEndKey) return false;
+    if (selectedCompletedLocation && getDeliveryLocationName(delivery) !== selectedCompletedLocation) return false;
+    return true;
+  });
   const todayCompletedDateKey = getCompletedDateKey(new Date().toISOString());
-  const todayCompletedDeliveries = sortedCompletedDeliveries.filter(
+  const todayCompletedDeliveries = baseCompletedDeliveries.filter(
     (delivery) => getCompletedDateKey(delivery.completedAt) === todayCompletedDateKey
   );
   const todayCompletedRevenue = todayCompletedDeliveries.reduce((sum, delivery) => sum + parseMoney(delivery.amount), 0);
-  const historyCompletedDeliveries = sortedCompletedDeliveries.filter(
+  const historyCompletedDeliveries = baseCompletedDeliveries.filter(
     (delivery) => getCompletedDateKey(delivery.completedAt) !== todayCompletedDateKey
   );
   const filteredCompletedDeliveries = selectedCompletedDate
-    ? sortedCompletedDeliveries.filter((delivery) => getCompletedDateKey(delivery.completedAt) === selectedCompletedDate)
-    : historyCompletedDeliveries;
+    ? baseCompletedDeliveries.filter((delivery) => getCompletedDateKey(delivery.completedAt) === selectedCompletedDate)
+    : hasCompletedAdvancedFilters
+      ? baseCompletedDeliveries
+      : historyCompletedDeliveries;
   const filteredCompletedRevenue = filteredCompletedDeliveries.reduce((sum, delivery) => sum + parseMoney(delivery.amount), 0);
   const completedSections = filteredCompletedDeliveries.reduce<
     Array<{ title: string; items: Delivery[] }>
@@ -895,7 +957,8 @@ function MainView() {
     groups.push({ title, items: [delivery] });
     return groups;
   }, []);
-  const todayCompletedSection = todayCompletedDeliveries.length
+  const showTodayCompletedSection = !selectedCompletedDate && !hasCompletedAdvancedFilters;
+  const todayCompletedSection = showTodayCompletedSection && todayCompletedDeliveries.length
     ? [{ title: "Today", items: todayCompletedDeliveries }]
     : [];
   const cashWorkedDatesFromDeliveries = sortedCompletedDeliveries
@@ -949,7 +1012,9 @@ function MainView() {
     ? sortedHandoverHistory.filter((handover) => getCompletedDateKey(handover.handoverDate) === selectedHandoverDate)
     : historyHandovers;
   const selectedDateCashOrders = selectedHandoverDate
-    ? (summary?.orders ?? []).filter((order) => getCompletedDateKey(order.collectedAt) === selectedHandoverDate)
+    ? (selectedDateSummary?.orders ?? []).filter(
+        (order) => getCompletedDateKey(order.collectedAt) === selectedHandoverDate
+      )
     : [];
   const selectedDateCashTotalsByHub = selectedDateCashOrders.reduce<
     Map<string, { companyLocationId: string; companyLocationName: string; cashAmount: number; orderCount: number }>
@@ -978,9 +1043,12 @@ function MainView() {
       void loadDeliveries();
       void loadSummary();
       void loadHandoverHistory();
+      if (selectedHandoverDate) {
+        void loadSelectedDateSummary(selectedHandoverDate);
+      }
     }
     previousPendingCount.current = pendingCount;
-  }, [pendingCount]);
+  }, [pendingCount, selectedHandoverDate]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -1465,23 +1533,54 @@ function MainView() {
             </View>
           ))}
           <View style={styles.completedHistoryTools}>
-              <Pressable style={styles.completedDatePickerButton} onPress={() => setShowCompletedDatePicker(true)}>
-                <Feather name="calendar" size={14} color={colors.text} />
-                <Text style={styles.completedDatePickerText}>
-                  {selectedCompletedDate ? formatCompletedDateChipLabel(selectedCompletedDate) : "Pick worked date"}
+            <Pressable style={styles.completedDatePickerButton} onPress={() => setShowCompletedDatePicker(true)}>
+              <Feather name="calendar" size={14} color={colors.text} />
+              <Text style={styles.completedDatePickerText}>
+                {selectedCompletedDate ? formatCompletedDateChipLabel(selectedCompletedDate) : "Pick worked date"}
+              </Text>
+              <Feather name="chevron-down" size={14} color={colors.textSoft} />
+            </Pressable>
+            <View style={styles.completedFilterRow}>
+              <Pressable style={styles.completedMiniFilterButton} onPress={() => setShowCompletedStartDatePicker(true)}>
+                <Feather name="calendar" size={12} color={colors.textSoft} />
+                <Text style={styles.completedMiniFilterText}>
+                  {completedStartDate ? `From ${formatCompletedDateChipLabel(completedStartDate)}` : "From date"}
                 </Text>
-                <Feather name="chevron-down" size={14} color={colors.textSoft} />
               </Pressable>
-            {selectedCompletedDate ? (
-              <Pressable style={styles.completedHistoryReset} onPress={() => setSelectedCompletedDate(null)}>
-                <Text style={styles.completedHistoryResetText}>Back to history</Text>
+              <Pressable style={styles.completedMiniFilterButton} onPress={() => setShowCompletedEndDatePicker(true)}>
+                <Feather name="calendar" size={12} color={colors.textSoft} />
+                <Text style={styles.completedMiniFilterText}>
+                  {completedEndDate ? `To ${formatCompletedDateChipLabel(completedEndDate)}` : "To date"}
+                </Text>
+              </Pressable>
+            </View>
+            <Pressable style={styles.completedDatePickerButton} onPress={() => setShowCompletedLocationPicker(true)}>
+              <Feather name="map-pin" size={14} color={colors.text} />
+              <Text style={styles.completedDatePickerText}>
+                {selectedCompletedLocation ? selectedCompletedLocation : "All locations"}
+              </Text>
+              <Feather name="chevron-down" size={14} color={colors.textSoft} />
+            </Pressable>
+            {selectedCompletedDate || hasCompletedAdvancedFilters ? (
+              <Pressable
+                style={styles.completedHistoryReset}
+                onPress={() => {
+                  setSelectedCompletedDate(null);
+                  setCompletedStartDate(null);
+                  setCompletedEndDate(null);
+                  setSelectedCompletedLocation(null);
+                }}
+              >
+                <Text style={styles.completedHistoryResetText}>Clear filters</Text>
               </Pressable>
             ) : null}
           </View>
           {!selectedCompletedDate ? (
             <View style={styles.completedHistoryHeader}>
               <Text style={styles.completedHistoryTitle}>Other history</Text>
-              <Text style={styles.completedHistorySubtitle}>Older completed deliveries</Text>
+              <Text style={styles.completedHistorySubtitle}>
+                {hasCompletedAdvancedFilters ? "Filtered completed deliveries" : "Older completed deliveries"}
+              </Text>
             </View>
           ) : null}
           {completedSections.map((section) => (
@@ -1528,7 +1627,7 @@ function MainView() {
               })}
             </View>
           ))}
-          {todayCompletedDeliveries.length === 0 && !selectedCompletedDate ? (
+          {showTodayCompletedSection && todayCompletedDeliveries.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.sectionTitle}>No completed orders today</Text>
               <Text style={styles.subtitle}>Today&apos;s completed deliveries will appear here first.</Text>
@@ -1536,9 +1635,19 @@ function MainView() {
           ) : null}
           {filteredCompletedDeliveries.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.sectionTitle}>{selectedCompletedDate ? "No history for this date" : "No delivery history yet"}</Text>
+              <Text style={styles.sectionTitle}>
+                {selectedCompletedDate
+                  ? "No history for this date"
+                  : hasCompletedAdvancedFilters
+                    ? "No results for this filter"
+                    : "No delivery history yet"}
+              </Text>
               <Text style={styles.subtitle}>
-                {selectedCompletedDate ? "No completed deliveries were found for the selected date." : "Older completed deliveries will appear here automatically."}
+                {selectedCompletedDate
+                  ? "No completed deliveries were found for the selected date."
+                  : hasCompletedAdvancedFilters
+                    ? "Try widening the date range or changing the location."
+                    : "Older completed deliveries will appear here automatically."}
               </Text>
             </View>
           ) : null}
@@ -2027,6 +2136,8 @@ function MainView() {
               style={styles.datePickerOption}
               onPress={() => {
                 setSelectedCompletedDate(null);
+                setCompletedStartDate(null);
+                setCompletedEndDate(null);
                 setShowCompletedDatePicker(false);
               }}
             >
@@ -2039,11 +2150,126 @@ function MainView() {
                 style={styles.datePickerOption}
                 onPress={() => {
                   setSelectedCompletedDate(value);
+                  setCompletedStartDate(null);
+                  setCompletedEndDate(null);
                   setShowCompletedDatePicker(false);
                 }}
               >
                 <Text style={styles.datePickerOptionText}>{formatCompletedDateChipLabel(value)}</Text>
                 {selectedCompletedDate === value ? <Feather name="check" size={14} color={colors.brand} /> : null}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showCompletedStartDatePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCompletedStartDatePicker(false)}
+      >
+        <Pressable style={styles.datePickerBackdrop} onPress={() => setShowCompletedStartDatePicker(false)}>
+          <Pressable style={styles.datePickerSheet} onPress={() => undefined}>
+            <Text style={styles.datePickerTitle}>Select from date</Text>
+            <Pressable
+              style={styles.datePickerOption}
+              onPress={() => {
+                setCompletedStartDate(null);
+                setSelectedCompletedDate(null);
+                setShowCompletedStartDatePicker(false);
+              }}
+            >
+              <Text style={styles.datePickerOptionText}>Any start date</Text>
+              {!completedStartDate ? <Feather name="check" size={14} color={colors.brand} /> : null}
+            </Pressable>
+            {completedWorkedDates.map((value) => (
+              <Pressable
+                key={value}
+                style={styles.datePickerOption}
+                onPress={() => {
+                  const nextEndDate = completedEndDate && value > completedEndDate ? value : completedEndDate;
+                  setCompletedStartDate(value);
+                  setCompletedEndDate(nextEndDate);
+                  setSelectedCompletedDate(null);
+                  setShowCompletedStartDatePicker(false);
+                }}
+              >
+                <Text style={styles.datePickerOptionText}>{formatCompletedDateChipLabel(value)}</Text>
+                {completedStartDate === value ? <Feather name="check" size={14} color={colors.brand} /> : null}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showCompletedEndDatePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCompletedEndDatePicker(false)}
+      >
+        <Pressable style={styles.datePickerBackdrop} onPress={() => setShowCompletedEndDatePicker(false)}>
+          <Pressable style={styles.datePickerSheet} onPress={() => undefined}>
+            <Text style={styles.datePickerTitle}>Select to date</Text>
+            <Pressable
+              style={styles.datePickerOption}
+              onPress={() => {
+                setCompletedEndDate(null);
+                setSelectedCompletedDate(null);
+                setShowCompletedEndDatePicker(false);
+              }}
+            >
+              <Text style={styles.datePickerOptionText}>Any end date</Text>
+              {!completedEndDate ? <Feather name="check" size={14} color={colors.brand} /> : null}
+            </Pressable>
+            {completedWorkedDates.map((value) => (
+              <Pressable
+                key={value}
+                style={styles.datePickerOption}
+                onPress={() => {
+                  const nextStartDate = completedStartDate && value < completedStartDate ? value : completedStartDate;
+                  setCompletedEndDate(value);
+                  setCompletedStartDate(nextStartDate);
+                  setSelectedCompletedDate(null);
+                  setShowCompletedEndDatePicker(false);
+                }}
+              >
+                <Text style={styles.datePickerOptionText}>{formatCompletedDateChipLabel(value)}</Text>
+                {completedEndDate === value ? <Feather name="check" size={14} color={colors.brand} /> : null}
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal
+        visible={showCompletedLocationPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCompletedLocationPicker(false)}
+      >
+        <Pressable style={styles.datePickerBackdrop} onPress={() => setShowCompletedLocationPicker(false)}>
+          <Pressable style={styles.datePickerSheet} onPress={() => undefined}>
+            <Text style={styles.datePickerTitle}>Select location</Text>
+            <Pressable
+              style={styles.datePickerOption}
+              onPress={() => {
+                setSelectedCompletedLocation(null);
+                setShowCompletedLocationPicker(false);
+              }}
+            >
+              <Text style={styles.datePickerOptionText}>All locations</Text>
+              {!selectedCompletedLocation ? <Feather name="check" size={14} color={colors.brand} /> : null}
+            </Pressable>
+            {completedLocationOptions.map((value) => (
+              <Pressable
+                key={value}
+                style={styles.datePickerOption}
+                onPress={() => {
+                  setSelectedCompletedLocation(value);
+                  setShowCompletedLocationPicker(false);
+                }}
+              >
+                <Text style={styles.datePickerOptionText}>{value}</Text>
+                {selectedCompletedLocation === value ? <Feather name="check" size={14} color={colors.brand} /> : null}
               </Pressable>
             ))}
           </Pressable>
@@ -3034,6 +3260,28 @@ function createAppStyles(colors: ThemeColors) {
     marginTop: -4,
     marginBottom: 12,
     gap: 10,
+  },
+  completedFilterRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  completedMiniFilterButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: isDark ? "#132239" : colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: isDark ? "rgba(167, 185, 214, 0.18)" : colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  completedMiniFilterText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 12.5,
+    fontWeight: "700",
   },
   completedDatePickerButton: {
     flexDirection: "row",

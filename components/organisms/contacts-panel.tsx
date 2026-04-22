@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, FileUp, Loader2, Plus, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -133,13 +133,15 @@ export function ContactsPanel({
   const skippedInitialFetch = useRef(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
 
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, status]);
+  }, [effectiveSearch, status]);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -147,7 +149,7 @@ export function ContactsPanel({
     params.set("limit", String(limit));
     params.set("sort_by", "updated");
     params.set("sort_order", "desc");
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (effectiveSearch) params.set("search", effectiveSearch);
     if (status !== "__all") params.set("status", status);
 
     const res = await fetch(`/api/admin/contacts/page-data?${params.toString()}`);
@@ -159,7 +161,7 @@ export function ContactsPanel({
     setContacts(data.contacts);
     setTotal(data.total);
     setCounts(data.counts);
-  }, [debouncedSearch, page, limit, status]);
+  }, [effectiveSearch, page, limit, status]);
 
   useEffect(() => {
     if (!skippedInitialFetch.current) {
@@ -167,7 +169,6 @@ export function ContactsPanel({
       return;
     }
     let cancelled = false;
-    setLoading(true);
     fetchPageData()
       .catch((error) => {
         if (!cancelled) notify.error(error instanceof Error ? error.message : "Failed to fetch contacts");
@@ -437,7 +438,7 @@ export function ContactsPanel({
             </Button>
           </div>
 
-          {loading ? (
+          {loading && contacts.length === 0 ? (
             <TableSkeleton columns={7} rows={6} />
           ) : contacts.length === 0 ? (
             <div className="rounded-md border border-dashed py-10 text-center">

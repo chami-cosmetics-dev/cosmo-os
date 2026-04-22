@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     data: {
       riderId: auth.session.userId,
       handoverDate,
-      totalExpectedCash: summary.totalCollectedCash,
+      totalExpectedCash: summary.totalExpectedCash,
       totalHandedOverCash,
       varianceAmount,
       notes: parsed.data.notes?.trim() || null,

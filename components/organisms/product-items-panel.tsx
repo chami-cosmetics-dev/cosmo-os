@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Package2, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -89,9 +89,11 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
   ].filter(Boolean).length;
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
   const fetchPageData = useCallback(async () => {
     const perf = createClientPerfLogger("product-items.panel.fetch", {
@@ -99,9 +101,8 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
       page,
       limit,
     });
-    setLoading(true);
     const params = new URLSearchParams();
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (effectiveSearch) params.set("search", effectiveSearch);
     if (locationFilter) params.set("location_id", locationFilter);
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
@@ -136,7 +137,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     setCategories(data.categories ?? []);
     setLoading(false);
     perf.end({ ok: true, total: data.total });
-  }, [categoryFilter, debouncedSearch, hasInitialData, locationFilter, page, limit, sortBy, sortOrder, vendorFilter]);
+  }, [categoryFilter, effectiveSearch, hasInitialData, locationFilter, page, limit, sortBy, sortOrder, vendorFilter]);
 
   const skippedInitialFetch = useRef(false);
   useEffect(() => {
@@ -327,7 +328,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
             </div>
           </div>
 
-          {loading ? (
+          {loading && items.length === 0 ? (
             <TableSkeleton columns={8} rows={6} />
           ) : items.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-background/85 p-8 text-center">

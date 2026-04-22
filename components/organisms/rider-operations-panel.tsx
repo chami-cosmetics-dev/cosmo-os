@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Download, Printer } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { CalendarDays, Download, Printer } from "lucide-react";
 
+import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { StaffManagementPanel, type StaffManagementPanelInitialData } from "@/components/organisms/staff-management-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { notify } from "@/lib/notify";
 
 type RiderRosterItem = {
@@ -58,6 +60,39 @@ type RiderOrdersData = {
   }>;
 };
 
+const APP_TIME_ZONE = "Asia/Colombo";
+
+function getTodayDateKey() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function getRelativeDateLabel(value: string | null | undefined) {
+  if (!value) return "Select date";
+
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const todayKey = getTodayDateKey();
+  const todayStart = new Date(`${todayKey}T00:00:00`);
+  const targetStart = new Date(`${value}T00:00:00`);
+  const diffDays = Math.round((todayStart.getTime() - targetStart.getTime()) / 86400000);
+
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: APP_TIME_ZONE,
+  });
+}
+
 interface RiderOperationsPanelProps {
   canManageStaff: boolean;
   initialDirectoryData: StaffManagementPanelInitialData;
@@ -76,7 +111,58 @@ function formatMoney(value: string | null | undefined) {
 function formatDate(value: string | null | undefined) {
   if (!value) return "--";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "--" : date.toLocaleString("en-LK");
+  if (Number.isNaN(date.getTime())) return "--";
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  if (!year || !month || !day) return "--";
+
+  const dateKey = `${year}-${month}-${day}`;
+  const todayKey = getTodayDateKey();
+  const todayStart = new Date(`${todayKey}T00:00:00`);
+  const targetStart = new Date(`${dateKey}T00:00:00`);
+  const diffDays = Math.round((todayStart.getTime() - targetStart.getTime()) / 86400000);
+
+  const timeLabel = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: APP_TIME_ZONE,
+  });
+
+  if (diffDays === 0) return `Today, ${timeLabel}`;
+
+  const shortDate = date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    timeZone: APP_TIME_ZONE,
+  });
+
+  if (diffDays === 1) return `Yesterday, ${shortDate}, ${timeLabel}`;
+
+  return `${shortDate}, ${timeLabel}`;
+}
+
+function getOrderDateKey(row: RiderOrdersData["rows"][number]) {
+  const value = row.completedAt ?? row.failedAt ?? row.assignedAt;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-CA", { timeZone: APP_TIME_ZONE });
+}
+
+function toAmount(value: string | null | undefined) {
+  const parsed = Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function riderLabel(rider: RiderRosterItem) {
@@ -103,13 +189,33 @@ export function RiderOperationsPanel({
   riderRoster,
   initialOrdersData,
 }: RiderOperationsPanelProps) {
+  const defaultDateKey = getTodayDateKey();
+  const fromDateInputRef = useRef<HTMLInputElement | null>(null);
+  const toDateInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<"directory" | "orders">("orders");
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(initialOrdersData?.rider?.id ?? riderRoster[0]?.id ?? null);
   const [ordersData, setOrdersData] = useState<RiderOrdersData | null>(initialOrdersData);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [fromDate, setFromDate] = useState(defaultDateKey);
+  const [toDate, setToDate] = useState(defaultDateKey);
+  const [locationFilter, setLocationFilter] = useState("all");
+
+  function openDatePicker(input: HTMLInputElement | null) {
+    if (!input) return;
+    const pickerInput = input as HTMLInputElement & { showPicker?: () => void };
+    if (typeof pickerInput.showPicker === "function") {
+      pickerInput.showPicker();
+      return;
+    }
+    pickerInput.focus();
+    pickerInput.click();
+  }
 
   async function loadRiderOrders(riderId: string) {
     setSelectedRiderId(riderId);
+    setFromDate(defaultDateKey);
+    setToDate(defaultDateKey);
+    setLocationFilter("all");
     setLoadingOrders(true);
     try {
       const response = await fetch(`/api/admin/riders/${riderId}/orders`);
@@ -131,9 +237,89 @@ export function RiderOperationsPanel({
     [riderRoster, selectedRiderId]
   );
 
+  const locationOptions = useMemo(() => {
+    const options = new Set<string>();
+    for (const row of ordersData?.rows ?? []) {
+      options.add(row.locationName ?? "Unknown location");
+    }
+    return [...options].sort((a, b) => a.localeCompare(b));
+  }, [ordersData]);
+
+  const filteredRows = useMemo(() => {
+    return (ordersData?.rows ?? []).filter((row) => {
+      const rowLocation = row.locationName ?? "Unknown location";
+      if (locationFilter !== "all" && rowLocation !== locationFilter) return false;
+
+      const dateKey = getOrderDateKey(row);
+      if (fromDate && (!dateKey || dateKey < fromDate)) return false;
+      if (toDate && (!dateKey || dateKey > toDate)) return false;
+      return true;
+    });
+  }, [fromDate, locationFilter, ordersData, toDate]);
+
+  const filteredStatusSummary = useMemo(() => {
+    return filteredRows.reduce(
+      (acc, row) => {
+        const status = row.status.toLowerCase();
+        acc.total += 1;
+        if (status === "assigned") acc.assigned += 1;
+        if (status === "completed") acc.completed += 1;
+        if (status === "failed") acc.failed += 1;
+        if (status === "accepted" || status === "arrived") acc.inProgress += 1;
+        return acc;
+      },
+      { total: 0, assigned: 0, inProgress: 0, completed: 0, failed: 0 }
+    );
+  }, [filteredRows]);
+
+  const filteredLocationSummary = useMemo(() => {
+    const totals = new Map<
+      string,
+      {
+        locationName: string;
+        orderCount: number;
+        cashTotal: number;
+        bankTransferTotal: number;
+        cardTotal: number;
+        alreadyPaidTotal: number;
+        collectedTotal: number;
+      }
+    >();
+
+    for (const row of filteredRows) {
+      const locationName = row.locationName ?? "Unknown location";
+      const paymentMethod = (row.paymentMethod ?? "").toLowerCase();
+      const amount = toAmount(row.collectedAmount ?? row.expectedAmount);
+      const current = totals.get(locationName) ?? {
+        locationName,
+        orderCount: 0,
+        cashTotal: 0,
+        bankTransferTotal: 0,
+        cardTotal: 0,
+        alreadyPaidTotal: 0,
+        collectedTotal: 0,
+      };
+
+      current.orderCount += 1;
+      current.collectedTotal += amount;
+      if (paymentMethod === "cod") current.cashTotal += amount;
+      if (paymentMethod === "bank_transfer") current.bankTransferTotal += amount;
+      if (paymentMethod === "card") current.cardTotal += amount;
+      if (paymentMethod === "already_paid") current.alreadyPaidTotal += amount;
+
+      totals.set(locationName, current);
+    }
+
+    return [...totals.values()].sort((a, b) => a.locationName.localeCompare(b.locationName));
+  }, [filteredRows]);
+
   function exportCsv() {
     if (!ordersData?.rider) {
       notify.error("Select a rider first");
+      return;
+    }
+    if (filteredRows.length === 0) {
+      notify.error("No rows match the selected filters");
       return;
     }
 
@@ -154,7 +340,7 @@ export function RiderOperationsPanel({
 
     const lines = [
       header.map((item) => csvEscape(item)).join(","),
-      ...ordersData.rows.map((row) =>
+      ...filteredRows.map((row) =>
         [
           row.orderLabel,
           row.orderNumber ?? row.shopifyOrderId,
@@ -190,29 +376,32 @@ export function RiderOperationsPanel({
       notify.error("Select a rider first");
       return;
     }
+    if (filteredRows.length === 0) {
+      notify.error("No rows match the selected filters");
+      return;
+    }
 
     const riderName = riderLabel(ordersData.rider);
-    const totalCashToHandover = ordersData.locationSummary.reduce((sum, item) => {
-      const amount = Number.parseFloat(item.cashTotal ?? "0");
-      return sum + (Number.isFinite(amount) ? amount : 0);
+    const totalCashToHandover = filteredLocationSummary.reduce((sum, item) => {
+      return sum + item.cashTotal;
     }, 0);
-    const locationRows = ordersData.locationSummary
+    const locationRows = filteredLocationSummary
       .map(
         (item) => `
           <tr>
             <td>${escapeHtml(item.locationName)}</td>
             <td>${item.orderCount}</td>
-            <td>${escapeHtml(formatMoney(item.cashTotal))}</td>
-            <td>${escapeHtml(formatMoney(item.bankTransferTotal))}</td>
-            <td>${escapeHtml(formatMoney(item.cardTotal))}</td>
-            <td>${escapeHtml(formatMoney(item.alreadyPaidTotal))}</td>
-            <td>${escapeHtml(formatMoney(item.collectedTotal))}</td>
+            <td>${escapeHtml(formatMoney(String(item.cashTotal)))}</td>
+            <td>${escapeHtml(formatMoney(String(item.bankTransferTotal)))}</td>
+            <td>${escapeHtml(formatMoney(String(item.cardTotal)))}</td>
+            <td>${escapeHtml(formatMoney(String(item.alreadyPaidTotal)))}</td>
+            <td>${escapeHtml(formatMoney(String(item.collectedTotal)))}</td>
           </tr>
         `
       )
       .join("");
 
-    const orderRows = ordersData.rows
+    const orderRows = filteredRows
       .map(
         (row) => `
           <tr>
@@ -398,11 +587,101 @@ export function RiderOperationsPanel({
               </div>
             </div>
 
+            <Card className="border-border/70 shadow-xs">
+              <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_auto]">
+                <label className="space-y-1">
+                  <span className="text-muted-foreground text-xs font-medium">From date</span>
+                  <div className="relative">
+                    <input
+                      ref={fromDateInputRef}
+                      type="date"
+                      value={fromDate}
+                      onChange={(event) => setFromDate(event.target.value)}
+                      className="pointer-events-none absolute inset-0 opacity-0"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openDatePicker(fromDateInputRef.current)}
+                      className="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition focus:ring-2 focus:ring-primary/40"
+                    >
+                      <span>{getRelativeDateLabel(fromDate)}</span>
+                      <CalendarDays className="size-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground text-xs font-medium">To date</span>
+                  <div className="relative">
+                    <input
+                      ref={toDateInputRef}
+                      type="date"
+                      value={toDate}
+                      onChange={(event) => setToDate(event.target.value)}
+                      className="pointer-events-none absolute inset-0 opacity-0"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => openDatePicker(toDateInputRef.current)}
+                      className="flex w-full items-center justify-between rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition focus:ring-2 focus:ring-primary/40"
+                    >
+                      <span>{getRelativeDateLabel(toDate)}</span>
+                      <CalendarDays className="size-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-muted-foreground text-xs font-medium">Location</span>
+                  <select
+                    value={locationFilter}
+                    onChange={(event) => setLocationFilter(event.target.value)}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+                  >
+                    <option value="all">All locations</option>
+                    {locationOptions.map((location) => (
+                      <option key={location} value={location}>
+                        {location}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-end">
+                  <Button
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                    onClick={() => {
+                      setFromDate("");
+                      setToDate("");
+                      setLocationFilter("all");
+                    }}
+                  >
+                    Clear Filters
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Total</p><p className="mt-1 text-2xl font-semibold">{ordersData?.statusSummary.total ?? 0}</p></CardContent></Card>
-              <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Assigned</p><p className="mt-1 text-2xl font-semibold">{ordersData?.statusSummary.assigned ?? 0}</p></CardContent></Card>
-              <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">In Progress</p><p className="mt-1 text-2xl font-semibold">{ordersData?.statusSummary.inProgress ?? 0}</p></CardContent></Card>
-              <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Completed</p><p className="mt-1 text-2xl font-semibold">{ordersData?.statusSummary.completed ?? 0}</p></CardContent></Card>
+              {loadingOrders ? (
+                Array.from({ length: 4 }).map((_, index) => (
+                  <Card key={index} className="border-border/70 shadow-xs">
+                    <CardContent className="space-y-3 p-4">
+                      <Skeleton className="h-3 w-20" />
+                      <Skeleton className="h-8 w-16" />
+                    </CardContent>
+                  </Card>
+                ))
+              ) : (
+                <>
+                  <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Total</p><p className="mt-1 text-2xl font-semibold">{filteredStatusSummary.total}</p></CardContent></Card>
+                  <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Assigned</p><p className="mt-1 text-2xl font-semibold">{filteredStatusSummary.assigned}</p></CardContent></Card>
+                  <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">In Progress</p><p className="mt-1 text-2xl font-semibold">{filteredStatusSummary.inProgress}</p></CardContent></Card>
+                  <Card className="border-border/70 shadow-xs"><CardContent className="p-4"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Completed</p><p className="mt-1 text-2xl font-semibold">{filteredStatusSummary.completed}</p></CardContent></Card>
+                </>
+              )}
             </div>
 
             <Card className="overflow-hidden border-border/70 shadow-xs">
@@ -410,39 +689,43 @@ export function RiderOperationsPanel({
                 <CardTitle className="text-xl tracking-tight">Location Totals</CardTitle>
               </CardHeader>
               <CardContent className="overflow-x-auto p-0">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
-                      <th className="p-3 text-left font-medium">Location</th>
-                      <th className="p-3 text-left font-medium">Orders</th>
-                      <th className="p-3 text-left font-medium">Cash</th>
-                      <th className="p-3 text-left font-medium">Bank</th>
-                      <th className="p-3 text-left font-medium">Card</th>
-                      <th className="p-3 text-left font-medium">Already Paid</th>
-                      <th className="p-3 text-left font-medium">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(ordersData?.locationSummary ?? []).map((item) => (
-                      <tr key={item.locationName} className="border-b last:border-0">
-                        <td className="p-3">{item.locationName}</td>
-                        <td className="p-3">{item.orderCount}</td>
-                        <td className="p-3">{formatMoney(item.cashTotal)}</td>
-                        <td className="p-3">{formatMoney(item.bankTransferTotal)}</td>
-                        <td className="p-3">{formatMoney(item.cardTotal)}</td>
-                        <td className="p-3">{formatMoney(item.alreadyPaidTotal)}</td>
-                        <td className="p-3 font-medium">{formatMoney(item.collectedTotal)}</td>
+                {loadingOrders ? (
+                  <TableSkeleton columns={7} rows={4} />
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
+                        <th className="p-3 text-left font-medium">Location</th>
+                        <th className="p-3 text-left font-medium">Orders</th>
+                        <th className="p-3 text-left font-medium">Cash</th>
+                        <th className="p-3 text-left font-medium">Bank</th>
+                        <th className="p-3 text-left font-medium">Card</th>
+                        <th className="p-3 text-left font-medium">Already Paid</th>
+                        <th className="p-3 text-left font-medium">Total</th>
                       </tr>
-                    ))}
-                    {(ordersData?.locationSummary ?? []).length === 0 ? (
-                      <tr>
-                        <td className="text-muted-foreground p-6 text-center" colSpan={7}>
-                          No completed rider orders yet.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredLocationSummary.map((item) => (
+                        <tr key={item.locationName} className="border-b last:border-0">
+                          <td className="p-3">{item.locationName}</td>
+                          <td className="p-3">{item.orderCount}</td>
+                          <td className="p-3">{formatMoney(String(item.cashTotal))}</td>
+                          <td className="p-3">{formatMoney(String(item.bankTransferTotal))}</td>
+                          <td className="p-3">{formatMoney(String(item.cardTotal))}</td>
+                          <td className="p-3">{formatMoney(String(item.alreadyPaidTotal))}</td>
+                          <td className="p-3 font-medium">{formatMoney(String(item.collectedTotal))}</td>
+                        </tr>
+                      ))}
+                      {filteredLocationSummary.length === 0 ? (
+                        <tr>
+                          <td className="text-muted-foreground p-6 text-center" colSpan={7}>
+                            No location totals for the selected filters.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                )}
               </CardContent>
             </Card>
 
@@ -451,61 +734,58 @@ export function RiderOperationsPanel({
                 <CardTitle className="text-xl tracking-tight">Assigned Orders</CardTitle>
               </CardHeader>
               <CardContent className="overflow-x-auto p-0">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
-                      <th className="p-3 text-left font-medium">Order</th>
-                      <th className="p-3 text-left font-medium">Customer</th>
-                      <th className="p-3 text-left font-medium">Location</th>
-                      <th className="p-3 text-left font-medium">Status</th>
-                      <th className="p-3 text-left font-medium">Assigned</th>
-                      <th className="p-3 text-left font-medium">Completed</th>
-                      <th className="p-3 text-left font-medium">Amount</th>
-                      <th className="p-3 text-left font-medium">Payment</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(ordersData?.rows ?? []).map((row) => (
-                      <tr key={row.taskId} className="border-b last:border-0">
-                        <td className="p-3">
-                          <div className="font-medium">{row.orderLabel}</div>
-                          <div className="text-muted-foreground text-xs">{row.orderNumber ?? row.shopifyOrderId}</div>
-                        </td>
-                        <td className="p-3">
-                          <div>{row.customerName ?? "--"}</div>
-                          <div className="text-muted-foreground text-xs">{row.customerPhone ?? "--"}</div>
-                        </td>
-                        <td className="p-3">{row.locationName ?? "--"}</td>
-                        <td className="p-3">
-                          <span className="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-xs font-medium capitalize">
-                            {row.status}
-                          </span>
-                        </td>
-                        <td className="p-3">{formatDate(row.assignedAt)}</td>
-                        <td className="p-3">{formatDate(row.completedAt ?? row.failedAt)}</td>
-                        <td className="p-3">{formatMoney(row.collectedAmount ?? row.expectedAmount)}</td>
-                        <td className="p-3">
-                          <div>{row.paymentMethod ?? "--"}</div>
-                          <div className="text-muted-foreground text-xs">{row.collectionStatus ?? "--"}</div>
-                        </td>
+                {loadingOrders ? (
+                  <TableSkeleton columns={8} rows={6} />
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
+                        <th className="p-3 text-left font-medium">Order</th>
+                        <th className="p-3 text-left font-medium">Customer</th>
+                        <th className="p-3 text-left font-medium">Location</th>
+                        <th className="p-3 text-left font-medium">Status</th>
+                        <th className="p-3 text-left font-medium">Assigned</th>
+                        <th className="p-3 text-left font-medium">Completed</th>
+                        <th className="p-3 text-left font-medium">Amount</th>
+                        <th className="p-3 text-left font-medium">Payment</th>
                       </tr>
-                    ))}
-                    {!loadingOrders && (ordersData?.rows ?? []).length === 0 ? (
-                      <tr>
-                        <td className="text-muted-foreground p-6 text-center" colSpan={8}>
-                          No orders assigned to this rider yet.
-                        </td>
-                      </tr>
-                    ) : null}
-                    {loadingOrders ? (
-                      <tr>
-                        <td className="text-muted-foreground p-6 text-center" colSpan={8}>
-                          Loading rider orders...
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {filteredRows.map((row) => (
+                        <tr key={row.taskId} className="border-b last:border-0">
+                          <td className="p-3">
+                            <div className="font-medium">{row.orderLabel}</div>
+                            <div className="text-muted-foreground text-xs">{row.orderNumber ?? row.shopifyOrderId}</div>
+                          </td>
+                          <td className="p-3">
+                            <div>{row.customerName ?? "--"}</div>
+                            <div className="text-muted-foreground text-xs">{row.customerPhone ?? "--"}</div>
+                          </td>
+                          <td className="p-3">{row.locationName ?? "--"}</td>
+                          <td className="p-3">
+                            <span className="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-xs font-medium capitalize">
+                              {row.status}
+                            </span>
+                          </td>
+                          <td className="p-3">{formatDate(row.assignedAt)}</td>
+                          <td className="p-3">{formatDate(row.completedAt ?? row.failedAt)}</td>
+                          <td className="p-3">{formatMoney(row.collectedAmount ?? row.expectedAmount)}</td>
+                          <td className="p-3">
+                            <div>{row.paymentMethod ?? "--"}</div>
+                            <div className="text-muted-foreground text-xs">{row.collectionStatus ?? "--"}</div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredRows.length === 0 ? (
+                        <tr>
+                          <td className="text-muted-foreground p-6 text-center" colSpan={8}>
+                            No rider orders match the selected filters.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                )}
               </CardContent>
             </Card>
           </div>
