@@ -2,22 +2,27 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import { API_BASE_URL } from "@/src/config";
-import { getQueue, replaceQueue } from "@/src/storage/offline-queue";
+import { clearQueue, getQueue, replaceQueue, type QueuedAction } from "@/src/storage/offline-queue";
 import { loadSession } from "@/src/storage/session";
 
 type SyncContextValue = {
   pendingCount: number;
+  queuedActions: QueuedAction[];
   flushQueue: () => Promise<void>;
+  clearPendingQueue: () => Promise<void>;
+  refreshPendingQueue: () => Promise<void>;
 };
 
 const SyncContext = createContext<SyncContextValue | null>(null);
 
 export function SyncProvider({ children }: PropsWithChildren) {
   const [pendingCount, setPendingCount] = useState(0);
+  const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([]);
 
-  async function refreshCount() {
+  async function refreshPendingQueue() {
     const queue = await getQueue();
     setPendingCount(queue.length);
+    setQueuedActions(queue);
   }
 
   async function flushQueue() {
@@ -48,10 +53,17 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
     await replaceQueue(remaining);
     setPendingCount(remaining.length);
+    setQueuedActions(remaining);
+  }
+
+  async function clearPendingQueue() {
+    await clearQueue();
+    setPendingCount(0);
+    setQueuedActions([]);
   }
 
   useEffect(() => {
-    void refreshCount();
+    void refreshPendingQueue();
     const unsubscribe = NetInfo.addEventListener((state) => {
       if (state.isConnected) {
         void flushQueue();
@@ -63,9 +75,12 @@ export function SyncProvider({ children }: PropsWithChildren) {
   const value = useMemo(
     () => ({
       pendingCount,
+      queuedActions,
       flushQueue,
+      clearPendingQueue,
+      refreshPendingQueue,
     }),
-    [pendingCount]
+    [pendingCount, queuedActions]
   );
 
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;

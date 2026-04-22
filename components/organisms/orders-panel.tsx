@@ -184,13 +184,15 @@ export function OrdersPanel({
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
 
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, sortBy, sortOrder]);
+  }, [effectiveSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
     const perf = createClientPerfLogger("orders.panel.fetch", {
@@ -199,7 +201,7 @@ export function OrdersPanel({
       limit,
     });
     const params = new URLSearchParams();
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (effectiveSearch) params.set("search", effectiveSearch);
     if (locationFilter) params.set("location_id", locationFilter);
     if (sourceFilter) params.set("source", sourceFilter);
     if (merchantFilter) params.set("merchant_id", merchantFilter);
@@ -233,7 +235,7 @@ export function OrdersPanel({
     setMerchants(data.merchants ?? []);
     setPaymentGatewayOptions(data.paymentGatewayOptions ?? []);
     perf.end({ ok: true, total: data.total });
-  }, [debouncedSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
+  }, [effectiveSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
 
   const skippedInitialFetch = useRef(false);
   useEffect(() => {
@@ -247,7 +249,6 @@ export function OrdersPanel({
     }
     skippedInitialFetch.current = true;
     let cancelled = false;
-    setLoading(true);
     fetchPageData()
       .then(() => {
         if (!cancelled) setLoading(false);
@@ -471,7 +472,7 @@ export function OrdersPanel({
           </div>
           </div>
 
-          {loading ? (
+          {loading && orders.length === 0 ? (
             <TableSkeleton columns={10} rows={6} />
           ) : orders.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-10 text-center">

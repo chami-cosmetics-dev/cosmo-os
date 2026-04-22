@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { Pencil, UserMinus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,7 @@ export type StaffManagementPanelInitialData = {
 interface StaffManagementPanelProps {
   canManageStaff: boolean;
   initialData?: StaffManagementPanelInitialData | null;
+  mode?: "staff" | "riders";
 }
 
 function formatDate(date: string | null): string {
@@ -75,7 +76,11 @@ function formatDate(date: string | null): string {
   return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString();
 }
 
-export function StaffManagementPanel({ canManageStaff, initialData }: StaffManagementPanelProps) {
+export function StaffManagementPanel({
+  canManageStaff,
+  initialData,
+  mode = "staff",
+}: StaffManagementPanelProps) {
   const [staff, setStaff] = useState<StaffMember[]>(initialData?.staff ?? []);
   const [locations, setLocations] = useState<Location[]>(initialData?.locations ?? []);
   const [departments, setDepartments] = useState<Department[]>(initialData?.departments ?? []);
@@ -92,24 +97,33 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
   const [editData, setEditData] = useState<StaffMember | null>(null);
   const [resigningMember, setResigningMember] = useState<StaffMember | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const isRiderMode = mode === "riders";
+  const entityLabel = isRiderMode ? "riders" : "staff";
+  const entityTitle = isRiderMode ? "Riders" : "Staff";
+  const entitySingular = isRiderMode ? "rider" : "staff";
 
   const isBusy = busyKey !== null;
 
   const [debouncedSearch, setDebouncedSearch] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
     if (statusFilter !== "all") params.set("status", statusFilter);
-    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    if (effectiveSearch) params.set("search", effectiveSearch);
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (sortBy) {
       params.set("sort_by", sortBy);
       params.set("sort_order", sortOrder);
+    }
+    if (isRiderMode) {
+      params.set("rider_only", "1");
     }
     if (locations.length === 0 || departments.length === 0 || designations.length === 0) {
       params.set("include_lookups", "1");
@@ -136,11 +150,12 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
     if (data.designations) setDesignations(data.designations);
   }, [
     statusFilter,
-    debouncedSearch,
+    effectiveSearch,
     page,
     limit,
     sortBy,
     sortOrder,
+    isRiderMode,
     locations.length,
     departments.length,
     designations.length,
@@ -172,7 +187,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, debouncedSearch, sortBy, sortOrder]);
+  }, [statusFilter, effectiveSearch, sortBy, sortOrder]);
 
   async function openEdit(id: string) {
     setEditingId(id);
@@ -216,7 +231,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
     return (
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
-          <CardTitle className="text-xl tracking-tight">Staff</CardTitle>
+          <CardTitle className="text-xl tracking-tight">{entityTitle}</CardTitle>
           <Skeleton className="h-4 w-96" />
         </CardHeader>
         <CardContent className="space-y-4">
@@ -235,7 +250,9 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       <div className="grid gap-3 sm:grid-cols-3">
         <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
           <CardContent className="p-4">
-            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Total staff</p>
+            <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">
+              Total {entityLabel}
+            </p>
             <p className="mt-1 text-2xl font-semibold">{total}</p>
           </CardContent>
         </Card>
@@ -255,16 +272,18 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
 
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
-          <CardTitle className="text-xl tracking-tight">Staff</CardTitle>
+          <CardTitle className="text-xl tracking-tight">{entityTitle}</CardTitle>
           <p className="text-muted-foreground text-sm">
-            Manage employee details, departments, and designations.
+            {isRiderMode
+              ? "View and manage rider-ready staff who can sign in to the mobile app."
+              : "Manage employee details, departments, and designations."}
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Input
-                placeholder="Search by name, email, or employee number"
+                placeholder={`Search ${entityLabel} by name, email, or employee number`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 disabled={isBusy}
@@ -476,7 +495,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
 
           {filteredStaff.length === 0 && !loading && (
             <p className="text-muted-foreground py-8 text-center text-sm">
-              No staff members found.
+              No {entityLabel} found.
             </p>
           )}
         </CardContent>
@@ -485,7 +504,7 @@ export function StaffManagementPanel({ canManageStaff, initialData }: StaffManag
       <Sheet open={!!editingId} onOpenChange={(open) => !open && closeEdit()}>
         <SheetContent side="right" className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader className="border-b pb-4">
-            <SheetTitle>Edit staff</SheetTitle>
+            <SheetTitle>{`Edit ${entitySingular}`}</SheetTitle>
           </SheetHeader>
           {editingId && (
             <StaffEditForm

@@ -8,6 +8,7 @@ export type StaffPageParams = {
   sortOrder?: "asc" | "desc";
   status?: string | null;
   search?: string | null;
+  riderOnly?: boolean;
   includeLookups?: boolean;
   lookupCompanyId?: string | null;
 };
@@ -66,6 +67,7 @@ export async function fetchStaffPageData(
   const sortBy = params.sortBy?.trim();
   const statusFilter = params.status;
   const search = params.search?.trim() ?? "";
+  const riderOnly = params.riderOnly ?? false;
   const includeLookups = params.includeLookups ?? true;
   const lookupCompanyId = params.lookupCompanyId ?? companyId;
   const skip = (page - 1) * limit;
@@ -107,6 +109,13 @@ export async function fetchStaffPageData(
     });
   } else if (statusFilter === "resigned") {
     andConditions.push({ employeeProfile: { status: "resigned" } });
+  }
+  if (riderOnly) {
+    andConditions.push({
+      employeeProfile: {
+        isRider: true,
+      },
+    });
   }
 
   const where: Prisma.UserWhereInput =
