@@ -130,13 +130,13 @@ export async function POST(
           resignationDate: validResignedAt.toLocaleDateString(),
           reason: reason ?? "Not provided",
           employeeNumber:
-            targetUser.employeeProfile?.employeeNumber ?? "—",
+            targetUser.employeeProfile?.employeeNumber ?? "-",
           department:
-            targetUser.employeeProfile?.department?.name ?? "—",
+            targetUser.employeeProfile?.department?.name ?? "-",
           designation:
-            targetUser.employeeProfile?.designation?.name ?? "—",
+            targetUser.employeeProfile?.designation?.name ?? "-",
           location:
-            targetUser.employeeProfile?.location?.name ?? "—",
+            targetUser.employeeProfile?.location?.name ?? "-",
         };
 
         const emailResult = await sendResignationNotice(
