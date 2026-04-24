@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders"] as const;
+export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff"] as const;
 
 export const AUDIT_LOG_ACTIONS = [
   "download",
@@ -21,6 +21,13 @@ export const AUDIT_LOG_ACTIONS = [
   "remark_created",
   "remark_updated",
   "remark_deleted",
+  "contact_created",
+  "contact_imported",
+  "setting_created",
+  "setting_updated",
+  "setting_deleted",
+  "staff_updated",
+  "staff_resigned",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -211,3 +218,4 @@ export async function fetchAuditLogs(input: AuditLogQueryInput) {
     return [] satisfies AuditLogEntry[];
   }
 }
+

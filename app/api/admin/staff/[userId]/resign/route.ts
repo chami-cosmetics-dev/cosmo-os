@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { sendResignationNotice } from "@/lib/maileroo";
 import { requirePermission } from "@/lib/rbac";
@@ -129,13 +130,13 @@ export async function POST(
           resignationDate: validResignedAt.toLocaleDateString(),
           reason: reason ?? "Not provided",
           employeeNumber:
-            targetUser.employeeProfile?.employeeNumber ?? "â€”",
+            targetUser.employeeProfile?.employeeNumber ?? "—",
           department:
-            targetUser.employeeProfile?.department?.name ?? "â€”",
+            targetUser.employeeProfile?.department?.name ?? "—",
           designation:
-            targetUser.employeeProfile?.designation?.name ?? "â€”",
+            targetUser.employeeProfile?.designation?.name ?? "—",
           location:
-            targetUser.employeeProfile?.location?.name ?? "â€”",
+            targetUser.employeeProfile?.location?.name ?? "—",
         };
 
         const emailResult = await sendResignationNotice(
@@ -150,6 +151,25 @@ export async function POST(
       }
     }
   }
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "staff",
+    action: "staff_resigned",
+    entityType: "Staff",
+    entityId: targetUser.id,
+    summary: `Marked ${targetUser.name ?? targetUser.email ?? targetUser.id} as resigned`,
+    beforeData: {
+      companyId: targetUser.companyId,
+      employeeProfile: targetUser.employeeProfile,
+    },
+    afterData: {
+      resignedAt: validResignedAt,
+      reason,
+      companyId: null,
+    },
+  });
 
   return NextResponse.json({ success: true });
 }

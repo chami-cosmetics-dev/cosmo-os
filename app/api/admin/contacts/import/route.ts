@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { getLatestOrderPurchaseAt } from "@/lib/orders-last-purchase";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -237,8 +238,24 @@ export async function POST(request: NextRequest) {
     created += 1;
   }
 
+  const summary = { totalRows: rows.length, created, updated, skipped };
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "contacts",
+    action: "contact_imported",
+    entityType: "ContactImport",
+    entityId: filename,
+    summary: `Imported contacts from ${file.name}`,
+    metadata: {
+      fileName: file.name,
+      summary,
+    },
+  });
+
   return NextResponse.json({
     message: "Import completed",
-    summary: { totalRows: rows.length, created, updated, skipped },
+    summary,
   });
 }

@@ -31,6 +31,13 @@ const actionLabels: Record<string, string> = {
   remark_created: "Remark Created",
   remark_updated: "Remark Updated",
   remark_deleted: "Remark Deleted",
+  contact_created: "Contact Created",
+  contact_imported: "Contacts Imported",
+  setting_created: "Setting Created",
+  setting_updated: "Setting Updated",
+  setting_deleted: "Setting Deleted",
+  staff_updated: "Staff Updated",
+  staff_resigned: "Staff Resigned",
 };
 
 function toTitleCase(value: string) {
@@ -177,3 +184,4 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
     </div>
   );
 }
+
