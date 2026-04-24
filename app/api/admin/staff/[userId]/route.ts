@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS } from "@/lib/validation";
@@ -197,6 +198,18 @@ export async function PATCH(
       ? parsedAppointment
       : undefined;
 
+  const beforeData = {
+    name: targetUser.name,
+    knownName: targetUser.knownName,
+    nicNo: targetUser.nicNo,
+    gender: targetUser.gender,
+    dateOfBirth: targetUser.dateOfBirth,
+    mobile: targetUser.mobile,
+    shopifyUserIds: targetUser.shopifyUserIds,
+    couponCodes: targetUser.couponCodes,
+    employeeProfile: targetUser.employeeProfile,
+  };
+
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id: idResult.data },
@@ -250,6 +263,18 @@ export async function PATCH(
         },
       },
     },
+  });
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "staff",
+    action: "staff_updated",
+    entityType: "Staff",
+    entityId: targetUser.id,
+    summary: `Updated staff profile for ${updated?.name ?? updated?.email ?? targetUser.id}`,
+    beforeData,
+    afterData: updated,
   });
 
   return NextResponse.json(updated);

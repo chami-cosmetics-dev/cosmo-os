@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
@@ -66,6 +67,17 @@ export async function POST(request: NextRequest) {
   const service = await prisma.courierService.create({
     data: { companyId, name: parsed.data.name },
     select: { id: true, name: true, createdAt: true },
+  });
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "settings",
+    action: "setting_created",
+    entityType: "CourierService",
+    entityId: service.id,
+    summary: `Created courier service ${service.name}`,
+    afterData: { name: service.name },
   });
 
   return NextResponse.json(service);

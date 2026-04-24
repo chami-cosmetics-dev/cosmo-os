@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { getLatestOrderPurchaseAt } from "@/lib/orders-last-purchase";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -85,6 +86,23 @@ export async function POST(request: NextRequest) {
       recentMerchant: true,
       createdAt: true,
       updatedAt: true,
+    },
+  });
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "contacts",
+    action: "contact_created",
+    entityType: "ContactMaster",
+    entityId: contact.id,
+    summary: `Created contact ${contact.name}`,
+    afterData: {
+      name: contact.name,
+      email: contact.email,
+      phoneNumber: contact.phoneNumber,
+      recentMerchant: contact.recentMerchant,
+      lastPurchaseAt: contact.lastPurchaseAt,
     },
   });
 
