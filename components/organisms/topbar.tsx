@@ -24,6 +24,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/riders", label: "Rider Management" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
     { prefix: "/dashboard/reports", label: "Dump Reports" },
+    { prefix: "/dashboard/audit", label: "Audit Trail" },
     { prefix: "/dashboard/orders/create", label: "Create manual order" },
     { prefix: "/dashboard/orders", label: "Orders" },
     { prefix: "/dashboard/settings", label: "Settings" },

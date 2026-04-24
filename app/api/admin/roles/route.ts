@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, toSafeRoleName } from "@/lib/rbac";
 import {
@@ -82,6 +83,21 @@ export async function POST(request: NextRequest) {
             permission: true,
           },
         },
+      },
+    });
+
+    await writeAuditLog({
+      companyId: auth.context!.user?.companyId,
+      actorUserId: auth.context!.user?.id,
+      module: "roles",
+      action: "role_created",
+      entityType: "Role",
+      entityId: role.id,
+      summary: `Created role ${safeName}`,
+      afterData: {
+        name: createdRole?.name ?? safeName,
+        description: createdRole?.description ?? null,
+        permissionKeys: createdRole?.rolePermissions.map((entry) => entry.permission.key) ?? [],
       },
     });
 
