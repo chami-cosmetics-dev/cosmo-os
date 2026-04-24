@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/lib/audit-log";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
@@ -119,6 +120,29 @@ function getRequiredRevertPermissions(
   return perms;
 }
 
+
+async function logOrderFulfillmentAudit(input: {
+  companyId: string;
+  actorUserId: string;
+  orderId: string;
+  summary: string;
+  beforeStage: FulfillmentStage;
+  afterStage: FulfillmentStage;
+  metadata?: Record<string, unknown>;
+}) {
+  await writeAuditLog({
+    companyId: input.companyId,
+    actorUserId: input.actorUserId,
+    module: "orders",
+    action: "fulfillment_updated",
+    entityType: "Order",
+    entityId: input.orderId,
+    summary: input.summary,
+    beforeData: { fulfillmentStage: input.beforeStage },
+    afterData: { fulfillmentStage: input.afterStage },
+    metadata: input.metadata,
+  });
+}
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -219,6 +243,16 @@ export async function PATCH(
         });
       }
 
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Added samples/free issues to order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage === "order_received" ? "sample_free_issue" : order.fulfillmentStage,
+        metadata: { action: data.action, sampleCount: data.samples.length },
+      });
+
       return NextResponse.json({ success: true });
     }
 
@@ -236,6 +270,15 @@ export async function PATCH(
           sampleFreeIssueCompleteAt: now,
           sampleFreeIssueCompleteById: auth.context!.user!.id,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Advanced order ${order.orderNumber ?? order.name ?? order.id} to print`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "print",
+        metadata: { action: data.action },
       });
       return NextResponse.json({ success: true });
     }
@@ -261,6 +304,15 @@ export async function PATCH(
           packageHoldReasonId: data.holdReasonId,
           packageReadyAt: null,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Put order ${order.orderNumber ?? order.name ?? order.id} on hold`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "ready_to_dispatch",
+        metadata: { action: data.action, holdReasonId: data.holdReasonId },
       });
       return NextResponse.json({ success: true });
     }
@@ -288,6 +340,15 @@ export async function PATCH(
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] package_ready failed:", err));
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as package ready`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "ready_to_dispatch",
+        metadata: { action: data.action },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -310,6 +371,15 @@ export async function PATCH(
           packageOnHoldAt: null,
           packageHoldReasonId: null,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Reverted hold on order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage,
+        metadata: { action: data.action },
       });
       return NextResponse.json({ success: true });
     }
@@ -423,6 +493,15 @@ export async function PATCH(
           deliveryUrl,
         }).catch((err) => console.error("[Order SMS] rider_dispatched failed:", err));
       }
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Dispatched order ${orderNum}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "dispatched",
+        metadata: { action: data.action, riderId: data.riderId ?? null, courierServiceId: data.courierServiceId ?? null },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -441,6 +520,15 @@ export async function PATCH(
           invoiceCompleteAt: now,
           invoiceCompleteById: auth.context!.user!.id,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Marked invoice complete for order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "invoice_complete",
+        metadata: { action: data.action },
       });
       return NextResponse.json({ success: true });
     }
@@ -480,6 +568,15 @@ export async function PATCH(
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "delivery_complete",
+        metadata: { action: data.action },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -567,6 +664,15 @@ export async function PATCH(
           },
         });
       }
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: targetStage,
+        metadata: { action: data.action, targetStage },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -606,6 +712,15 @@ export async function PATCH(
       await prisma.riderDeliveryTask.deleteMany({
         where: { orderId: order.id },
       });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Completed POS order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "delivery_complete",
+        metadata: { action: data.action },
+      });
       return NextResponse.json({ success: true });
     }
   } catch (err) {
@@ -618,3 +733,12 @@ export async function PATCH(
 
   return NextResponse.json({ success: true });
 }
+
+
+
+
+
+
+
+
+

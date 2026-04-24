@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -110,6 +111,22 @@ export async function PUT(
             role: true,
           },
         },
+      },
+    });
+
+    await writeAuditLog({
+      companyId: existingUser.companyId,
+      actorUserId: auth.context!.user?.id,
+      module: "users",
+      action: "user_roles_updated",
+      entityType: "User",
+      entityId: existingUser.id,
+      summary: `Updated roles for ${existingUser.email ?? existingUser.name ?? existingUser.id}`,
+      beforeData: {
+        roleNames: existingUser.userRoles.map((userRole) => userRole.role.name),
+      },
+      afterData: {
+        roleNames: updatedUser?.userRoles.map((userRole) => userRole.role.name) ?? [],
       },
     });
 

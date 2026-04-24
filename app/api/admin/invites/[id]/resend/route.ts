@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { sendInviteEmail } from "@/lib/maileroo";
 import { getAppBaseUrl } from "@/lib/app-base-url";
+import { writeAuditLog } from "@/lib/audit-log";
+import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
+import { sendInviteEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
 import { cuidSchema } from "@/lib/validation";
 
 export async function POST(
@@ -32,6 +33,7 @@ export async function POST(
       id: true,
       email: true,
       companyId: true,
+      roleId: true,
       usedAt: true,
       expiresAt: true,
     },
@@ -80,6 +82,26 @@ export async function POST(
       { status: 500 }
     );
   }
+
+  await writeAuditLog({
+    companyId: invite.companyId,
+    actorUserId: auth.context!.user?.id,
+    module: "users",
+    action: "invite_resent",
+    entityType: "Invite",
+    entityId: invite.id,
+    summary: `Resent invite to ${invite.email}`,
+    beforeData: {
+      expiresAt: invite.expiresAt,
+    },
+    afterData: {
+      expiresAt,
+    },
+    metadata: {
+      email: invite.email,
+      roleId: invite.roleId,
+    },
+  });
 
   return NextResponse.json({ success: true });
 }

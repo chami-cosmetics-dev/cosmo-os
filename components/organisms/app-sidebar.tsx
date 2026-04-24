@@ -18,6 +18,7 @@ import {
   Users,
   UserCircle,
   Bike,
+  FileText,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -123,6 +124,17 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
               icon={ContactRound}
               label="Contact Allocation"
               isActive={pathname === "/dashboard/contacts/allocation"}
+            />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Reports</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <NavItem
+              href="/dashboard/reports"
+              icon={FileText}
+              label="Dump Reports"
+              isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
             />
           </SidebarGroupContent>
         </SidebarGroup>
@@ -303,3 +315,4 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
     </Sidebar>
   );
 }
+
