@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { logReportDownload } from "@/lib/report-download-log";
 import {
   addDays,
   endOfDay,
@@ -59,6 +60,18 @@ function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
 }
 
+function getReportLabel(report: ReportKind, range: RangeKind) {
+  if (report === "invoice-item") {
+    if (range === "warehouse-360") return "Web-site Invoice Item Detail (Invoice Wise) [Processed Up to Last Day]";
+    if (range === "historical-year") return "Historical Invoice Item Details";
+    return "Web-site Invoice Item Detail (Invoice/Item Wise) [Last 90 Days]";
+  }
+
+  if (range === "warehouse-360") return "Web-site Invoice Detail (Invoice Wise 360 Days) [Processed Up to Last Day]";
+  if (range === "historical-year") return "Historical Invoice Details";
+  return "Web-site Invoice Detail (Invoice Wise) [Last 90 Days]";
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
@@ -106,6 +119,9 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  const filters = range === "historical-year" ? `report=${report};range=${range};year=${label}` : `report=${report};range=${range}`;
+  const reportLabel = getReportLabel(report, range);
+
   if (report === "invoice-item") {
     const rows = orders.flatMap((order) => {
       const customerName =
@@ -146,10 +162,21 @@ export async function GET(request: NextRequest) {
     });
 
     const csv = buildOrderInvoiceItemCsv(rows);
+    const fileName = `order-invoice-item-${label}.csv`;
+
+    await logReportDownload({
+      companyId,
+      userId: auth.context?.user?.id,
+      reportKey: `orders:${report}:${range}`,
+      reportLabel,
+      filters,
+      fileName,
+    });
+
     return new NextResponse(csv, {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="order-invoice-item-${label}.csv"`,
+        "Content-Disposition": `attachment; filename="${fileName}"`,
         "Cache-Control": "no-store",
       },
     });
@@ -194,13 +221,22 @@ export async function GET(request: NextRequest) {
   });
 
   const csv = buildOrderInvoiceCsv(rows);
+  const fileName = `order-invoice-${label}.csv`;
+
+  await logReportDownload({
+    companyId,
+    userId: auth.context?.user?.id,
+    reportKey: `orders:${report}:${range}`,
+    reportLabel,
+    filters,
+    fileName,
+  });
+
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="order-invoice-${label}.csv"`,
+      "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store",
     },
   });
 }
-
-

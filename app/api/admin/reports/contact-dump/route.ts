@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { logReportDownload } from "@/lib/report-download-log";
 import { CONTACT_DUMP_PARTS, type ContactDumpPartKey, buildContactDumpCsv } from "@/lib/reports/contact-dump";
 import { requirePermission } from "@/lib/rbac";
 
@@ -45,13 +46,22 @@ export async function GET(request: NextRequest) {
   const csv = buildContactDumpCsv(contacts);
   const today = new Date().toISOString().slice(0, 10);
   const suffix = part === "all" ? "all" : part.replace("_", "-");
+  const fileName = `contact-dump-${suffix}-${today}.csv`;
+
+  await logReportDownload({
+    companyId,
+    userId: auth.context?.user?.id,
+    reportKey: `contact-dump:${part}`,
+    reportLabel: part === "all" ? "Contact Number List with details (All)" : `Contact Number List with details Part ${part}`,
+    filters: `part=${part}`,
+    fileName,
+  });
 
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="contact-dump-${suffix}-${today}.csv"`,
+      "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store",
     },
   });
 }
-

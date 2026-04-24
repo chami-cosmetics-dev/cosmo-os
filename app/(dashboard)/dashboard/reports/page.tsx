@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { DumpReportsPanel } from "@/components/organisms/dump-reports-panel";
+import { fetchRecentReportDownloadLogs } from "@/lib/report-download-log";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -29,5 +30,7 @@ export default async function ReportsPage() {
     return <PermissionDeniedCard />;
   }
 
-  return <DumpReportsPanel historicalYears={getHistoricalYears()} />;
+  const recentLogs = await fetchRecentReportDownloadLogs(companyId, 12);
+
+  return <DumpReportsPanel historicalYears={getHistoricalYears()} recentLogs={recentLogs} />;
 }

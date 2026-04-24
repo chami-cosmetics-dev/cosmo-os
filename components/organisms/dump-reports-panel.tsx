@@ -2,11 +2,13 @@
 
 import { Database, Download, History, Sparkles } from "lucide-react";
 
+import type { ReportDownloadLogRecord } from "@/lib/report-download-log";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type DumpReportsPanelProps = {
   historicalYears: number[];
+  recentLogs?: ReportDownloadLogRecord[];
 };
 
 type ReportAction = {
@@ -19,6 +21,15 @@ function toneClass(tone?: ReportAction["tone"]) {
   if (tone === "amber") return "bg-amber-500 hover:bg-amber-600";
   if (tone === "sky") return "bg-sky-500 hover:bg-sky-600";
   return "bg-emerald-500 hover:bg-emerald-600";
+}
+
+function formatLogTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
 }
 
 function ReportRow({ title, subtitle, actions }: { title: string; subtitle: string; actions: ReportAction[] }) {
@@ -42,7 +53,7 @@ function ReportRow({ title, subtitle, actions }: { title: string; subtitle: stri
   );
 }
 
-export function DumpReportsPanel({ historicalYears }: DumpReportsPanelProps) {
+export function DumpReportsPanel({ historicalYears, recentLogs = [] }: DumpReportsPanelProps) {
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-6 shadow-[0_18px_40px_-28px_var(--primary)]">
@@ -73,8 +84,8 @@ export function DumpReportsPanel({ historicalYears }: DumpReportsPanelProps) {
           </Card>
           <Card className="border-white/40 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
             <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Export Format</p>
-              <p className="mt-2 text-2xl font-semibold">CSV</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Recent Logged Downloads</p>
+              <p className="mt-2 text-2xl font-semibold">{recentLogs.length}</p>
             </CardContent>
           </Card>
         </div>
@@ -187,6 +198,45 @@ export function DumpReportsPanel({ historicalYears }: DumpReportsPanelProps) {
           </Card>
         </div>
       </div>
+
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50">
+          <CardTitle>Recent Download History</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {recentLogs.length === 0 ? (
+            <div className="p-6 text-sm text-muted-foreground">No report downloads have been logged yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/40 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">User</th>
+                    <th className="px-4 py-3 font-medium">Report</th>
+                    <th className="px-4 py-3 font-medium">File</th>
+                    <th className="px-4 py-3 font-medium">Filters</th>
+                    <th className="px-4 py-3 font-medium">Downloaded At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentLogs.map((log) => (
+                    <tr key={log.id} className="border-t border-border/60">
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-foreground">{log.userName ?? "Unknown user"}</div>
+                        <div className="text-xs text-muted-foreground">{log.userEmail ?? log.userId ?? "No user id"}</div>
+                      </td>
+                      <td className="px-4 py-3 text-foreground">{log.reportLabel}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{log.fileName}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{log.filters ?? "-"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{formatLogTime(log.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

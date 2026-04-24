@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { logReportDownload } from "@/lib/report-download-log";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 import { requirePermission } from "@/lib/rbac";
 
@@ -78,6 +79,22 @@ export async function GET(request: NextRequest) {
       : report === "loyalty"
         ? "loyalty-customers.csv"
         : "contact-last-purchased-date.csv";
+
+  const reportLabel =
+    report === "log"
+      ? "Contact Number Log Details"
+      : report === "loyalty"
+        ? "Loyalty Customer List"
+        : "Contact Number with Last Purchased Date";
+
+  await logReportDownload({
+    companyId,
+    userId: auth.context?.user?.id,
+    reportKey: `contacts:${report}`,
+    reportLabel,
+    filters: `report=${report}`,
+    fileName,
+  });
 
   return new NextResponse(payload, {
     headers: {
