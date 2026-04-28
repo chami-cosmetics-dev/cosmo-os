@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, FileUp, Loader2, Plus, Search, Users } from "lucide-react";
+import { Download, Eye, FileUp, Loader2, Plus, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -230,6 +230,17 @@ export function ContactsPanel({
     }
   }
 
+  function downloadContactExport() {
+    const params = new URLSearchParams();
+    if (effectiveSearch) params.set("search", effectiveSearch);
+    if (status !== "__all") params.set("status", status);
+    window.open(`/api/admin/contacts/export?${params.toString()}`, "_blank", "noopener");
+  }
+
+  function downloadImportSample() {
+    window.open("/api/admin/contacts/import-template", "_blank", "noopener");
+  }
+
   async function onCreateContact() {
     if (!createForm.name.trim()) {
       notify.error("Name is required");
@@ -409,6 +420,22 @@ export function ContactsPanel({
                 >
                   <FileUp className="mr-2 size-4" />
                   {importing ? "Importing..." : "Import CSV"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-border/70 bg-background/70 hover:bg-secondary/15"
+                  onClick={downloadImportSample}
+                >
+                  <Download className="mr-2 size-4" />
+                  Sample CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-border/70 bg-background/70 hover:bg-secondary/15"
+                  onClick={downloadContactExport}
+                >
+                  <Download className="mr-2 size-4" />
+                  Export Contacts
                 </Button>
                 <input
                   ref={fileInputRef}
