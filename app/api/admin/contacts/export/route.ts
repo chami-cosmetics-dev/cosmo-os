@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 import { logReportDownload } from "@/lib/report-download-log";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
   const search = request.nextUrl.searchParams.get("search")?.trim() || null;
   const cutoff = getActiveCutoff();
 
-  const where: Parameters<typeof prisma.contactMaster.findMany>[0]["where"] = { companyId };
+  const where: Prisma.ContactMasterWhereInput = { companyId };
   if (status === "active") {
     where.lastPurchaseAt = { gte: cutoff };
   } else if (status === "inactive") {
