@@ -37,6 +37,7 @@ model Company {
   shopifyWebhookSecrets  ShopifyWebhookSecret[]
   stickerBatches         StickerBatch[]
   stickerBatchItems      StickerBatchItem[]
+  merchantOrderReviews   MerchantOrderReview[]
   smsLogs                SmsLog[]
   smsNotificationConfigs SmsNotificationConfig[]
   smsPortalConfig        SmsPortalConfig?
@@ -195,6 +196,7 @@ model User {
   company                         Company?               @relation("CompanyMembers", fields: [companyId], references: [id])
   deliveryPayments               DeliveryPayment[]
   mobileSessions                 RiderMobileSession[]
+  merchantOrderReviews           MerchantOrderReview[]  @relation("MerchantOrderReviewUser")
   receivedCashHandovers          RiderCashHandover[]     @relation("RiderCashHandoverReceivedBy")
   riderCashHandovers             RiderCashHandover[]     @relation("RiderCashHandovers")
   riderDeliveryTasks             RiderDeliveryTask[]
@@ -345,6 +347,7 @@ model Order {
   lineItems                    OrderLineItem[]
   remarks                      OrderRemark[]
   riderDeliveryTask           RiderDeliveryTask?
+  merchantReview             MerchantOrderReview?
   sampleFreeIssues             OrderSampleFreeIssue[]
 
   @@index([companyId, createdAt(sort: Desc)])
@@ -353,6 +356,28 @@ model Order {
   @@index([companyId, assignedMerchantId, createdAt(sort: Desc)])
   @@index([companyId, customerEmail, createdAt(sort: Desc)])
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
+}
+
+model MerchantOrderReview {
+  id               String    @id @default(cuid())
+  companyId        String
+  orderId          String    @unique
+  merchantUserId   String?
+  reviewStatus     String    @default("pending")
+  customerRating   Int?
+  customerFeedback String?
+  itemFeedback     String?
+  merchantNotes    String?
+  followUpNeeded   Boolean   @default(false)
+  reviewMarkedAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  merchantUser     User?     @relation("MerchantOrderReviewUser", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, reviewStatus, updatedAt(sort: Desc)])
+  @@index([companyId, merchantUserId, reviewStatus, updatedAt(sort: Desc)])
 }
 
 model RiderMobileSession {
@@ -809,9 +834,39 @@ model ContactMaster {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  emails         ContactEmail[]
+  phones         ContactPhone[]
 
-    @@index([companyId, lastPurchaseAt])
-    @@index([companyId, updatedAt(sort: Desc)])
-    @@index([companyId, email])
-    @@index([companyId, phoneNumber])
-  }
+  @@index([companyId, lastPurchaseAt])
+  @@index([companyId, updatedAt(sort: Desc)])
+  @@index([companyId, email])
+  @@index([companyId, phoneNumber])
+}
+
+model ContactEmail {
+  id        String        @id @default(cuid())
+  contactId String
+  email     String
+  isPrimary Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  contact   ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, email])
+  @@index([email])
+  @@index([contactId])
+}
+
+model ContactPhone {
+  id          String        @id @default(cuid())
+  contactId   String
+  phoneNumber String
+  isPrimary   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  contact     ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, phoneNumber])
+  @@index([phoneNumber])
+  @@index([contactId])
+}

@@ -3,6 +3,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { randomUUID } from "crypto";
 
 import type { CreateManualOrderBody } from "@/lib/validation/manual-order";
+import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 import { sendOrderSms } from "@/lib/order-sms";
@@ -220,6 +221,31 @@ export async function createManualOrder(
     body.customerName?.trim() ||
     body.shippingAddress?.name?.trim() ||
     undefined;
+
+  try {
+    const assignedMerchant = assignedMerchantId
+      ? await prisma.user.findUnique({
+          where: { id: assignedMerchantId },
+          select: { name: true, email: true },
+        })
+      : null;
+
+    await syncContactMasterSafely({
+      companyId,
+      sourceLabel: "Manual order",
+      sourceType: "manual_order",
+      sourceId: result.orderId,
+      orderNumber: result.invoiceNumber,
+      occurredAt: new Date(),
+      email: customerEmail,
+      phoneNumber: customerPhone,
+      name: customerName ?? null,
+      recentMerchant: assignedMerchant?.name ?? assignedMerchant?.email ?? null,
+      auditBehavior: "full",
+    });
+  } catch (error) {
+    console.error("[manual order] contact sync failed:", error);
+  }
 
   sendOrderSms(companyId, result.orderId, "order_received", {
     orderNumber: result.invoiceNumber,

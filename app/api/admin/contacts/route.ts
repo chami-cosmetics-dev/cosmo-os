@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { ensureSecondaryContactIdentifiers, findMatchingContacts } from "@/lib/contact-identifiers";
 import { getLatestOrderPurchaseAt } from "@/lib/orders-last-purchase";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -11,6 +12,8 @@ const createContactSchema = z.object({
   name: trimmedString(1, LIMITS.name.max),
   email: emailSchema.optional().nullable(),
   phoneNumber: z.string().trim().max(LIMITS.mobile.max).optional().nullable(),
+  secondaryEmail: emailSchema.optional().nullable(),
+  secondaryPhoneNumber: z.string().trim().max(LIMITS.mobile.max).optional().nullable(),
   recentMerchant: z.string().trim().max(LIMITS.name.max).optional().nullable(),
 });
 
@@ -48,20 +51,31 @@ export async function POST(request: NextRequest) {
 
   const email = normalizeNullableText(parsed.data.email);
   const phoneNumber = normalizeNullableText(parsed.data.phoneNumber);
-  const lastPurchaseAt = await getLatestOrderPurchaseAt(companyId, email, phoneNumber);
+  const secondaryEmail = normalizeNullableText(parsed.data.secondaryEmail);
+  const secondaryPhoneNumber = normalizeNullableText(parsed.data.secondaryPhoneNumber);
+  const [primaryLastPurchaseAt, secondaryLastPurchaseAt] = await Promise.all([
+    getLatestOrderPurchaseAt(companyId, email, phoneNumber),
+    secondaryEmail || secondaryPhoneNumber
+      ? getLatestOrderPurchaseAt(companyId, secondaryEmail, secondaryPhoneNumber)
+      : Promise.resolve(null),
+  ]);
+  const lastPurchaseAt =
+    primaryLastPurchaseAt && secondaryLastPurchaseAt
+      ? primaryLastPurchaseAt > secondaryLastPurchaseAt
+        ? primaryLastPurchaseAt
+        : secondaryLastPurchaseAt
+      : primaryLastPurchaseAt ?? secondaryLastPurchaseAt ?? null;
 
-  const duplicate = await prisma.contactMaster.findFirst({
-    where: {
-      companyId,
-      OR: [
-        ...(email ? [{ email: { equals: email, mode: "insensitive" as const } }] : []),
-        ...(phoneNumber ? [{ phoneNumber }] : []),
-      ],
-    },
-    select: { id: true },
-  });
+  const duplicateMatches = await findMatchingContacts(companyId, email, phoneNumber);
+  const duplicate = duplicateMatches.emailMatches[0] ?? duplicateMatches.phoneMatches[0] ?? null;
+  const secondaryDuplicateMatches =
+    secondaryEmail || secondaryPhoneNumber
+      ? await findMatchingContacts(companyId, secondaryEmail, secondaryPhoneNumber)
+      : null;
+  const secondaryDuplicate =
+    secondaryDuplicateMatches?.emailMatches[0] ?? secondaryDuplicateMatches?.phoneMatches[0] ?? null;
 
-  if (duplicate) {
+  if (duplicate || secondaryDuplicate) {
     return NextResponse.json(
       { error: "A contact with the same email or phone already exists" },
       { status: 409 }
@@ -89,6 +103,14 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  await ensureSecondaryContactIdentifiers({
+    contactId: contact.id,
+    primaryEmail: contact.email,
+    primaryPhoneNumber: contact.phoneNumber,
+    email: secondaryEmail,
+    phoneNumber: secondaryPhoneNumber,
+  });
+
   await writeAuditLog({
     companyId,
     actorUserId: auth.context!.user!.id,
@@ -101,6 +123,8 @@ export async function POST(request: NextRequest) {
       name: contact.name,
       email: contact.email,
       phoneNumber: contact.phoneNumber,
+      secondaryEmail,
+      secondaryPhoneNumber,
       recentMerchant: contact.recentMerchant,
       lastPurchaseAt: contact.lastPurchaseAt,
     },

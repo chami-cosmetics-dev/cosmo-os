@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Clock3, Loader2, Phone, Search } from "lucide-react";
+import { Clock3, Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -205,8 +205,12 @@ export function ContactAllocationPanel({
   const contactsForDisplay =
     initialData.contacts.length > 0 ? initialData.contacts : [MOCK_CONTACT];
 
-  const [phoneSearch, setPhoneSearch] = useState(contactsForDisplay[0]?.phoneNumber ?? "");
-  const [selectedContactId, setSelectedContactId] = useState(contactsForDisplay[0]?.id ?? "");
+  const [phoneSearch, setPhoneSearch] = useState(
+    contactsForDisplay[0]?.phoneNumber ?? ""
+  );
+  const [selectedContactId, setSelectedContactId] = useState(
+    contactsForDisplay[0]?.id ?? ""
+  );
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [orders, setOrders] = useState<ContactPurchaseOrder[]>([]);
   const [form, setForm] = useState<DetailForm>(() =>
@@ -215,7 +219,10 @@ export function ContactAllocationPanel({
 
   const selectedContact = useMemo(() => {
     if (selectedContactId) {
-      return contactsForDisplay.find((contact) => contact.id === selectedContactId) ?? null;
+      return (
+        contactsForDisplay.find((contact) => contact.id === selectedContactId) ??
+        null
+      );
     }
     return null;
   }, [contactsForDisplay, selectedContactId]);
@@ -273,16 +280,6 @@ export function ContactAllocationPanel({
     };
   }, [selectedContact]);
 
-  useEffect(() => {
-    if (!selectedContact) return;
-
-    console.log("Contact allocation preview", {
-      selectedContact,
-      form,
-      orders,
-    });
-  }, [selectedContact, form, orders]);
-
   const totalPurchased = orders.reduce((sum, order) => {
     const amount = Number.parseFloat(order.totalPrice);
     return Number.isNaN(amount) ? sum : sum + amount;
@@ -323,7 +320,8 @@ export function ContactAllocationPanel({
         <CardHeader className="border-b">
           <CardTitle>Contact Allocation</CardTitle>
           <CardDescription>
-            Search by phone number, review purchase history, and update contact details.
+            Search by phone number, review purchase history, and update contact
+            details.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -352,20 +350,18 @@ export function ContactAllocationPanel({
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_300px]">
               <div className="space-y-2">
                 <div className="space-y-1 text-sm">
-                  <p className="text-sm font-medium text-muted-foreground">Merchant</p>
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Merchant
+                  </p>
                   <Input value={selectedContact?.recentMerchant ?? "N/A"} readOnly />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">
-                </p>
                 <Input value={formatAmount(String(totalPurchased), "LKR")} readOnly />
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">
-                </p>
                 <Input
                   value={
                     selectedContact?.email
@@ -377,7 +373,9 @@ export function ContactAllocationPanel({
               </div>
 
               <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">Profile Picture</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Profile Picture
+                </p>
                 <div className="flex min-h-[220px] items-start justify-center rounded-md border bg-muted/20 p-4">
                   <div className="flex h-40 w-full items-center justify-center rounded-md border bg-background text-sm text-muted-foreground">
                     No image
@@ -405,12 +403,24 @@ export function ContactAllocationPanel({
                   <table className="w-full min-w-[880px] text-sm">
                     <thead>
                       <tr className="border-b bg-muted/40">
-                        <th className="px-4 py-3 text-left font-semibold">Store</th>
-                        <th className="px-4 py-3 text-left font-semibold">Code</th>
-                        <th className="px-4 py-3 text-left font-semibold">Invoice No</th>
-                        <th className="px-4 py-3 text-left font-semibold">Days</th>
-                        <th className="px-4 py-3 text-left font-semibold">Invoice Date</th>
-                        <th className="px-4 py-3 text-left font-semibold">Methode of Use</th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Store
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Code
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Invoice No
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Days
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Invoice Date
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Methode of Use
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -424,7 +434,9 @@ export function ContactAllocationPanel({
                             {order.name ?? "Order Purchase"}
                           </td>
                           <td className="px-4 py-3">-</td>
-                          <td className="px-4 py-3">{formatDateTime(order.createdAt)}</td>
+                          <td className="px-4 py-3">
+                            {formatDateTime(order.createdAt)}
+                          </td>
                           <td className="px-4 py-3">No Detail</td>
                           <td className="px-4 py-3">
                             {formatAmount(order.totalPrice, order.currency)}
@@ -446,7 +458,8 @@ export function ContactAllocationPanel({
             <div>
               <CardTitle>Customer Details</CardTitle>
               <CardDescription>
-                Update CRM notes, customer profile details, and follow-up scheduling in one place.
+                Update CRM notes, customer profile details, and follow-up
+                scheduling in one place.
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -465,7 +478,8 @@ export function ContactAllocationPanel({
               <div>
                 <p className="text-sm font-medium">Remarks</p>
                 <p className="text-muted-foreground text-sm">
-                  Add important context, reminders, and team notes for this contact.
+                  Add important context, reminders, and team notes for this
+                  contact.
                 </p>
               </div>
             </div>
@@ -487,7 +501,8 @@ export function ContactAllocationPanel({
                   <div>
                     <p className="font-medium">Customer Profile</p>
                     <p className="text-muted-foreground text-sm">
-                      Identity and personal fields used by the team during customer follow-up.
+                      Identity and personal fields used by the team during
+                      customer follow-up.
                     </p>
                   </div>
                 </div>
@@ -530,10 +545,14 @@ export function ContactAllocationPanel({
                   </div>
 
                   <div className="space-y-2 xl:col-span-3">
-                    <label className="text-sm font-medium">Main Profile No</label>
+                    <label className="text-sm font-medium">
+                      Main Profile No
+                    </label>
                     <Input
                       value={form.mainProfileNo}
-                      onChange={(event) => updateForm("mainProfileNo", event.target.value)}
+                      onChange={(event) =>
+                        updateForm("mainProfileNo", event.target.value)
+                      }
                       disabled={!canManage}
                     />
                   </div>
@@ -544,7 +563,9 @@ export function ContactAllocationPanel({
                     <label className="text-sm font-medium">Work Place</label>
                     <Input
                       value={form.workPlace}
-                      onChange={(event) => updateForm("workPlace", event.target.value)}
+                      onChange={(event) =>
+                        updateForm("workPlace", event.target.value)
+                      }
                       disabled={!canManage}
                     />
                   </div>
@@ -553,27 +574,37 @@ export function ContactAllocationPanel({
                     <label className="text-sm font-medium">Occupation</label>
                     <Input
                       value={form.occupation}
-                      onChange={(event) => updateForm("occupation", event.target.value)}
+                      onChange={(event) =>
+                        updateForm("occupation", event.target.value)
+                      }
                       disabled={!canManage}
                     />
                   </div>
 
                   <div className="space-y-2 xl:col-span-4">
-                    <label className="text-sm font-medium">Date of Birth (YYYY / MM / DD)</label>
+                    <label className="text-sm font-medium">
+                      Date of Birth (YYYY / MM / DD)
+                    </label>
                     <div className="grid grid-cols-3 gap-2">
                       <Input
                         value={form.birthYear}
-                        onChange={(event) => updateForm("birthYear", event.target.value)}
+                        onChange={(event) =>
+                          updateForm("birthYear", event.target.value)
+                        }
                         disabled={!canManage}
                       />
                       <Input
                         value={form.birthMonth}
-                        onChange={(event) => updateForm("birthMonth", event.target.value)}
+                        onChange={(event) =>
+                          updateForm("birthMonth", event.target.value)
+                        }
                         disabled={!canManage}
                       />
                       <Input
                         value={form.birthDay}
-                        onChange={(event) => updateForm("birthDay", event.target.value)}
+                        onChange={(event) =>
+                          updateForm("birthDay", event.target.value)
+                        }
                         disabled={!canManage}
                       />
                     </div>
@@ -594,16 +625,21 @@ export function ContactAllocationPanel({
                 <div className="mb-4">
                   <p className="font-medium">Segmentation</p>
                   <p className="text-muted-foreground text-sm">
-                    CRM grouping and audience fields used for categorization and targeting.
+                    CRM grouping and audience fields used for categorization and
+                    targeting.
                   </p>
                 </div>
 
                 <div className="grid gap-5 xl:grid-cols-12">
                   <div className="space-y-2 xl:col-span-4">
-                    <label className="text-sm font-medium">Service Provider</label>
+                    <label className="text-sm font-medium">
+                      Service Provider
+                    </label>
                     <Select
                       value={form.serviceProvider}
-                      onValueChange={(value) => updateForm("serviceProvider", value)}
+                      onValueChange={(value) =>
+                        updateForm("serviceProvider", value)
+                      }
                       disabled={!canManage}
                     >
                       <SelectTrigger>
@@ -672,10 +708,14 @@ export function ContactAllocationPanel({
                   </div>
 
                   <div className="space-y-2 xl:col-span-4">
-                    <label className="text-sm font-medium">Customer Type</label>
+                    <label className="text-sm font-medium">
+                      Customer Type
+                    </label>
                     <Select
                       value={form.customerType}
-                      onValueChange={(value) => updateForm("customerType", value)}
+                      onValueChange={(value) =>
+                        updateForm("customerType", value)
+                      }
                       disabled={!canManage}
                     >
                       <SelectTrigger>
@@ -683,7 +723,9 @@ export function ContactAllocationPanel({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="N/A">N/A</SelectItem>
-                        <SelectItem value="Loyalty Customer">Loyalty Customer</SelectItem>
+                        <SelectItem value="Loyalty Customer">
+                          Loyalty Customer
+                        </SelectItem>
                         <SelectItem value="New Customer">New Customer</SelectItem>
                       </SelectContent>
                     </Select>
@@ -722,7 +764,9 @@ export function ContactAllocationPanel({
                     <label className="text-sm font-medium">C.N Saved</label>
                     <Select
                       value={form.contactSaved}
-                      onValueChange={(value) => updateForm("contactSaved", value)}
+                      onValueChange={(value) =>
+                        updateForm("contactSaved", value)
+                      }
                       disabled={!canManage}
                     >
                       <SelectTrigger>
@@ -736,10 +780,14 @@ export function ContactAllocationPanel({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Allowed for WhatsApp Msg</label>
+                    <label className="text-sm font-medium">
+                      Allowed for WhatsApp Msg
+                    </label>
                     <Select
                       value={form.whatsappAllowed}
-                      onValueChange={(value) => updateForm("whatsappAllowed", value)}
+                      onValueChange={(value) =>
+                        updateForm("whatsappAllowed", value)
+                      }
                       disabled={!canManage}
                     >
                       <SelectTrigger>
@@ -753,10 +801,14 @@ export function ContactAllocationPanel({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Main Profile No</label>
+                    <label className="text-sm font-medium">
+                      Main Profile No
+                    </label>
                     <Input
                       value={form.mainProfileNo}
-                      onChange={(event) => updateForm("mainProfileNo", event.target.value)}
+                      onChange={(event) =>
+                        updateForm("mainProfileNo", event.target.value)
+                      }
                       disabled={!canManage}
                     />
                   </div>
@@ -771,11 +823,15 @@ export function ContactAllocationPanel({
 
                 <div className="mt-4 space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-cyan-700">Remind Date</label>
+                    <label className="text-sm font-medium text-cyan-700">
+                      Remind Date
+                    </label>
                     <Input
                       type="date"
                       value={form.remindDate}
-                      onChange={(event) => updateForm("remindDate", event.target.value)}
+                      onChange={(event) =>
+                        updateForm("remindDate", event.target.value)
+                      }
                       disabled={!canManage}
                     />
                   </div>
@@ -785,7 +841,9 @@ export function ContactAllocationPanel({
                     <div className="flex">
                       <Input
                         value={form.remindTime}
-                        onChange={(event) => updateForm("remindTime", event.target.value)}
+                        onChange={(event) =>
+                          updateForm("remindTime", event.target.value)
+                        }
                         disabled={!canManage}
                         className="rounded-r-none"
                       />
