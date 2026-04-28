@@ -1,14 +1,19 @@
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import {
+  ensureSecondaryContactIdentifiers,
+  findMatchingContacts,
+  normalizeContactEmail,
+  normalizeContactPhone,
+} from "@/lib/contact-identifiers";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 
 type SyncContactMasterInput = {
   companyId: string;
   sourceLabel: string;
-  sourceType?: "shopify_order" | "order_backfill";
+  sourceType?: "shopify_order" | "order_backfill" | "manual_order";
   sourceId: string;
   orderNumber?: string | null;
   occurredAt: Date;
@@ -36,13 +41,11 @@ type SyncContactMasterFromOrderInput = {
 };
 
 function normalizeEmail(value: string | null | undefined) {
-  const trimmed = value?.trim().toLowerCase() ?? "";
-  return trimmed ? trimmed.slice(0, LIMITS.email.max) : null;
+  return normalizeContactEmail(value);
 }
 
 function normalizePhone(value: string | null | undefined) {
-  const trimmed = value?.trim() ?? "";
-  return trimmed ? trimmed.slice(0, LIMITS.mobile.max) : null;
+  return normalizeContactPhone(value);
 }
 
 function normalizeName(value: string | null | undefined) {
@@ -88,8 +91,7 @@ function buildSourceLabel(sourceId: string, orderNumber?: string | null) {
   return orderNumber?.trim() || sourceId;
 }
 
-export async function syncContactMaster(input: SyncContactMasterInput): Promise<SyncContactMasterResult> {
-  const auditBehavior = input.auditBehavior ?? "full";
+async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Promise<SyncContactMasterResult> {
   const email = normalizeEmail(input.email ?? null);
   const phoneNumber = normalizePhone(input.phoneNumber ?? null);
 
@@ -99,15 +101,13 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
   const name = normalizeName(input.name ?? null);
   const recentMerchant = normalizeMerchant(input.recentMerchant);
-  const orderLabel = buildSourceLabel(input.sourceId, input.orderNumber);
-  const phoneVariants = phoneNumber ? buildPhoneLookupVariants(phoneNumber) : [];
 
   const candidates = await prisma.contactMaster.findMany({
     where: {
       companyId: input.companyId,
       OR: [
         ...(email ? [{ email: { equals: email, mode: "insensitive" as const } }] : []),
-        ...(phoneVariants.length > 0 ? [{ phoneNumber: { in: phoneVariants } }] : []),
+        ...(phoneNumber ? [{ phoneNumber }] : []),
       ],
     },
     select: {
@@ -123,12 +123,79 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const emailMatches = email
     ? candidates.filter((contact) => contact.email?.trim().toLowerCase() === email)
     : [];
-  const phoneMatches = phoneVariants.length > 0
-    ? candidates.filter((contact) => {
-        const existingPhone = contact.phoneNumber?.trim();
-        return existingPhone ? phoneVariants.includes(existingPhone) : false;
-      })
+  const phoneMatches = phoneNumber
+    ? candidates.filter((contact) => contact.phoneNumber?.trim() === phoneNumber)
     : [];
+
+  if (emailMatches.length > 1 || phoneMatches.length > 1) {
+    return { status: "conflict" };
+  }
+
+  const emailMatch = emailMatches[0] ?? null;
+  const phoneMatch = phoneMatches[0] ?? null;
+
+  if (emailMatch && phoneMatch && emailMatch.id !== phoneMatch.id) {
+    return { status: "conflict" };
+  }
+
+  const matchedContact = emailMatch ?? phoneMatch;
+
+  if (!matchedContact) {
+    const created = await prisma.contactMaster.create({
+      data: {
+        companyId: input.companyId,
+        name: name ?? email ?? phoneNumber ?? "Shopify Contact",
+        email,
+        phoneNumber,
+        recentMerchant,
+        lastPurchaseAt: input.occurredAt,
+      },
+      select: { id: true },
+    });
+    return { status: "created", contactId: created.id };
+  }
+
+  const updateData: {
+    name?: string;
+    email?: string;
+    phoneNumber?: string;
+    recentMerchant?: string;
+    lastPurchaseAt?: Date;
+  } = {};
+
+  if (isBlank(matchedContact.name) && name) updateData.name = name;
+  if (isBlank(matchedContact.email) && email) updateData.email = email;
+  if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
+  if (isBlank(matchedContact.recentMerchant) && recentMerchant) updateData.recentMerchant = recentMerchant;
+  if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
+    updateData.lastPurchaseAt = input.occurredAt;
+  }
+
+  if (Object.keys(updateData).length === 0) {
+    return { status: "unchanged", contactId: matchedContact.id };
+  }
+
+  const updated = await prisma.contactMaster.update({
+    where: { id: matchedContact.id },
+    data: updateData,
+    select: { id: true },
+  });
+  return { status: "enriched", contactId: updated.id };
+}
+
+export async function syncContactMaster(input: SyncContactMasterInput): Promise<SyncContactMasterResult> {
+  const auditBehavior = input.auditBehavior ?? "full";
+  const email = normalizeEmail(input.email ?? null);
+  const phoneNumber = normalizePhone(input.phoneNumber ?? null);
+
+  if (!email && !phoneNumber) {
+    return { status: "skipped_no_identifier" };
+  }
+
+  const name = normalizeName(input.name ?? null);
+  const recentMerchant = normalizeMerchant(input.recentMerchant);
+  const orderLabel = buildSourceLabel(input.sourceId, input.orderNumber);
+  const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
 
   if (emailMatches.length > 1 || phoneMatches.length > 1) {
     if (auditBehavior === "full") {
@@ -228,6 +295,14 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     return { status: "created", contactId: created.id };
   }
 
+  await ensureSecondaryContactIdentifiers({
+    contactId: matchedContact.id,
+    primaryEmail: matchedContact.email,
+    primaryPhoneNumber: matchedContact.phoneNumber,
+    email,
+    phoneNumber,
+  });
+
   const updateData: {
     name?: string;
     email?: string;
@@ -303,7 +378,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 }
 
 export async function syncContactMasterFromShopifyOrder(input: SyncContactMasterFromOrderInput) {
-  return syncContactMaster({
+  const syncInput: SyncContactMasterInput = {
     companyId: input.companyId,
     sourceLabel: "Shopify order",
     sourceType: "shopify_order",
@@ -315,5 +390,21 @@ export async function syncContactMasterFromShopifyOrder(input: SyncContactMaster
     name: pickBestCustomerName(input.order),
     recentMerchant: input.recentMerchant,
     auditBehavior: "full",
-  });
+  };
+
+  try {
+    return await syncContactMaster(syncInput);
+  } catch (error) {
+    console.error("[contact sync] Shopify primary sync fallback triggered:", error);
+    return syncContactMasterPrimaryOnly(syncInput);
+  }
+}
+
+export async function syncContactMasterSafely(input: SyncContactMasterInput) {
+  try {
+    return await syncContactMaster(input);
+  } catch (error) {
+    console.error("[contact sync] Primary sync fallback triggered:", error);
+    return syncContactMasterPrimaryOnly(input);
+  }
 }

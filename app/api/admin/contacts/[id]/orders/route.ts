@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -36,14 +37,17 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ contact, orders: [] });
   }
 
+  const emails = await listContactEmails(contact.id, contact.email);
+  const phones = await listContactPhones(contact.id, contact.phoneNumber);
+
   const orders = await prisma.order.findMany({
     where: {
       companyId,
       OR: [
-        ...(contact.email
-          ? [{ customerEmail: { equals: contact.email, mode: "insensitive" as const } }]
+        ...(emails.length > 0
+          ? emails.map((email) => ({ customerEmail: { equals: email, mode: "insensitive" as const } }))
           : []),
-        ...(contact.phoneNumber ? [{ customerPhone: contact.phoneNumber }] : []),
+        ...(phones.length > 0 ? [{ customerPhone: { in: phones } }] : []),
       ],
     },
     orderBy: { createdAt: "desc" },

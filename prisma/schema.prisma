@@ -809,9 +809,39 @@ model ContactMaster {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  emails         ContactEmail[]
+  phones         ContactPhone[]
 
-    @@index([companyId, lastPurchaseAt])
-    @@index([companyId, updatedAt(sort: Desc)])
-    @@index([companyId, email])
-    @@index([companyId, phoneNumber])
-  }
+  @@index([companyId, lastPurchaseAt])
+  @@index([companyId, updatedAt(sort: Desc)])
+  @@index([companyId, email])
+  @@index([companyId, phoneNumber])
+}
+
+model ContactEmail {
+  id        String        @id @default(cuid())
+  contactId String
+  email     String
+  isPrimary Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  contact   ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, email])
+  @@index([email])
+  @@index([contactId])
+}
+
+model ContactPhone {
+  id          String        @id @default(cuid())
+  contactId   String
+  phoneNumber String
+  isPrimary   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  contact     ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, phoneNumber])
+  @@index([phoneNumber])
+  @@index([contactId])
+}

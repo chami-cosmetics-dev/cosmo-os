@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Eye, FileUp, Loader2, Plus, Search, Users } from "lucide-react";
+import { Download, Eye, FileUp, Loader2, MoreHorizontal, Plus, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -85,6 +92,8 @@ type CreateContactInput = {
   name: string;
   email: string;
   phoneNumber: string;
+  secondaryEmail: string;
+  secondaryPhoneNumber: string;
   recentMerchant: string;
 };
 
@@ -147,6 +156,7 @@ export function ContactsPanel({
   const [backfillDialogOpen, setBackfillDialogOpen] = useState(false);
   const [backfillPreviewLoading, setBackfillPreviewLoading] = useState(false);
   const [backfillRunning, setBackfillRunning] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [viewingContact, setViewingContact] = useState<ContactItem | null>(null);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
@@ -155,6 +165,8 @@ export function ContactsPanel({
     name: "",
     email: "",
     phoneNumber: "",
+    secondaryEmail: "",
+    secondaryPhoneNumber: "",
     recentMerchant: "",
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -238,11 +250,13 @@ export function ContactsPanel({
     }
   }
 
-  function downloadContactExport() {
+  function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
     const params = new URLSearchParams();
     if (effectiveSearch) params.set("search", effectiveSearch);
     if (status !== "__all") params.set("status", status);
+    params.set("mode", mode);
     window.open(`/api/admin/contacts/export?${params.toString()}`, "_blank", "noopener");
+    setExportDialogOpen(false);
   }
 
   function downloadImportSample() {
@@ -264,6 +278,8 @@ export function ContactsPanel({
           ...createForm,
           email: createForm.email.trim() || null,
           phoneNumber: createForm.phoneNumber.trim() || null,
+          secondaryEmail: createForm.secondaryEmail.trim() || null,
+          secondaryPhoneNumber: createForm.secondaryPhoneNumber.trim() || null,
           recentMerchant: createForm.recentMerchant.trim() || null,
         }),
       });
@@ -278,6 +294,8 @@ export function ContactsPanel({
         name: "",
         email: "",
         phoneNumber: "",
+        secondaryEmail: "",
+        secondaryPhoneNumber: "",
         recentMerchant: "",
       });
       await fetchPageData();
@@ -362,7 +380,7 @@ export function ContactsPanel({
             Contact Master
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Maintain all customer contacts in one place. Import from CSV or add contacts manually.
+            Keep your customer list up to date, bring in contact sheets, and recover missing contacts from previous orders.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -420,6 +438,66 @@ export function ContactsPanel({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             {canManage && (
               <div className="flex flex-wrap gap-2">
+                <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="shadow-[0_12px_30px_-20px_var(--primary)]">
+                      <Plus className="mr-2 size-4" />
+                      Add Contact
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-xl border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+                    <DialogHeader>
+                      <DialogTitle>Add New Contact</DialogTitle>
+                      <DialogDescription>Create a contact manually in your Contact Master list.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Input
+                        placeholder="Name *"
+                        value={createForm.name}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
+                      />
+                      <Input
+                        placeholder="Email"
+                        value={createForm.email}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
+                      />
+                      <Input
+                        placeholder="Phone number"
+                        value={createForm.phoneNumber}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
+                      />
+                      <Input
+                        placeholder="Second email"
+                        value={createForm.secondaryEmail}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, secondaryEmail: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
+                      />
+                      <Input
+                        placeholder="Second phone number"
+                        value={createForm.secondaryPhoneNumber}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, secondaryPhoneNumber: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
+                      />
+                      <Input
+                        placeholder="Recent merchant"
+                        value={createForm.recentMerchant}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, recentMerchant: e.target.value }))}
+                        className="rounded-lg border-border/80 bg-background/80"
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={creating}>
+                        Cancel
+                      </Button>
+                      <Button onClick={onCreateContact} disabled={creating}>
+                        {creating ? "Saving..." : "Save Contact"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
                 <Button
                   variant="outline"
                   className="border-border/70 bg-background/70 hover:bg-secondary/15"
@@ -427,23 +505,7 @@ export function ContactsPanel({
                   disabled={importing}
                 >
                   <FileUp className="mr-2 size-4" />
-                  {importing ? "Importing..." : "Import CSV"}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="border-border/70 bg-background/70 hover:bg-secondary/15"
-                  onClick={downloadImportSample}
-                >
-                  <Download className="mr-2 size-4" />
-                  Sample CSV
-                </Button>
-                <Button
-                  variant="outline"
-                  className="border-border/70 bg-background/70 hover:bg-secondary/15"
-                  onClick={downloadContactExport}
-                >
-                  <Download className="mr-2 size-4" />
-                  Export Contacts
+                  {importing ? "Importing..." : "Import List"}
                 </Button>
                 <input
                   ref={fileInputRef}
@@ -455,6 +517,49 @@ export function ContactsPanel({
                     if (file) void onImportCsv(file);
                   }}
                 />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="border-border/70 bg-background/70 hover:bg-secondary/15"
+                    >
+                      <MoreHorizontal className="mr-2 size-4" />
+                      More Actions
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="w-64 border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]"
+                  >
+                    <DropdownMenuItem
+                      className="rounded-lg px-3 py-3"
+                      onSelect={() => downloadImportSample()}
+                    >
+                      <Download className="mr-2 size-4" />
+                      Download Template
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="rounded-lg px-3 py-3"
+                      onSelect={() => setExportDialogOpen(true)}
+                    >
+                      <Download className="mr-2 size-4" />
+                      Export Contacts
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="rounded-lg px-3 py-3"
+                      onSelect={() => {
+                        setBackfillDialogOpen(true);
+                        if (!backfillPreview && !backfillPreviewLoading) {
+                          void loadBackfillPreview();
+                        }
+                      }}
+                    >
+                      <FileUp className="mr-2 size-4" />
+                      Recover From Orders
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
                 <Dialog
                   open={backfillDialogOpen}
@@ -465,25 +570,11 @@ export function ContactsPanel({
                     }
                   }}
                 >
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="border-border/70 bg-background/70 hover:bg-secondary/15"
-                      onClick={() => {
-                        setBackfillDialogOpen(true);
-                        if (!backfillPreview && !backfillPreviewLoading) {
-                          void loadBackfillPreview();
-                        }
-                      }}
-                    >
-                      Sync From Orders
-                    </Button>
-                  </DialogTrigger>
                   <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                     <DialogHeader>
-                      <DialogTitle>Backfill Contacts From Order History</DialogTitle>
+                      <DialogTitle>Recover Missing Contacts From Order History</DialogTitle>
                       <DialogDescription>
-                        Preview orders missing a Contact Master match, then backfill them in a small safe batch.
+                        Review past orders that are still missing from Contact Master, then add them in a small safe batch.
                       </DialogDescription>
                     </DialogHeader>
                     {backfillPreviewLoading ? (
@@ -553,58 +644,42 @@ export function ContactsPanel({
                         Refresh Preview
                       </Button>
                       <Button onClick={() => void runBackfill()} disabled={backfillPreviewLoading || backfillRunning || !backfillPreview || backfillPreview.missingCandidates === 0}>
-                        {backfillRunning ? "Running..." : "Run Backfill"}
+                        {backfillRunning ? "Running..." : "Add Missing Contacts"}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
 
-                  <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button>
-                      <Plus className="mr-2 size-4" />
-                      Add Contact
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-xl border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
+                <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                  <DialogContent className="max-w-lg border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                     <DialogHeader>
-                      <DialogTitle>Add Contact</DialogTitle>
-                      <DialogDescription>Create a contact manually for your contact master table.</DialogDescription>
+                      <DialogTitle>Choose Export Type</DialogTitle>
+                      <DialogDescription>
+                        Export only contact details, or include purchase summary values matched by the contact&apos;s number.
+                      </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Input
-                        placeholder="Name *"
-                        value={createForm.name}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
-                        className="rounded-lg border-border/80 bg-background/80"
-                      />
-                      <Input
-                        placeholder="Email"
-                        value={createForm.email}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, email: e.target.value }))}
-                        className="rounded-lg border-border/80 bg-background/80"
-                      />
-                      <Input
-                        placeholder="Phone number"
-                        value={createForm.phoneNumber}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
-                        className="rounded-lg border-border/80 bg-background/80"
-                      />
-                      <Input
-                        placeholder="Recent merchant"
-                        value={createForm.recentMerchant}
-                        onChange={(e) => setCreateForm((prev) => ({ ...prev, recentMerchant: e.target.value }))}
-                        className="rounded-lg border-border/80 bg-background/80"
-                      />
+                    <div className="grid gap-3">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10"
+                        onClick={() => downloadContactExport("contacts")}
+                      >
+                        <p className="font-medium">Contact Info Only</p>
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          Name, email, phone number, merchant, and contact dates only.
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10"
+                        onClick={() => downloadContactExport("purchase_summary")}
+                      >
+                        <p className="font-medium">With Purchase Summary</p>
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          Includes total orders, total purchase value, and last order date matched by contact number.
+                        </p>
+                      </button>
                     </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setCreateDialogOpen(false)} disabled={creating}>
-                        Cancel
-                      </Button>
-                      <Button onClick={onCreateContact} disabled={creating}>
-                        {creating ? "Saving..." : "Save Contact"}
-                      </Button>
-                    </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
