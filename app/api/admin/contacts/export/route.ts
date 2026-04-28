@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
 import { logReportDownload } from "@/lib/report-download-log";
