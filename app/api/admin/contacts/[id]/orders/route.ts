@@ -58,15 +58,43 @@ export async function GET(_request: NextRequest, { params }: Params) {
       financialStatus: true,
       fulfillmentStatus: true,
       createdAt: true,
+      lineItems: {
+        select: {
+          id: true,
+          quantity: true,
+          price: true,
+          productItem: {
+            select: {
+              productTitle: true,
+              variantTitle: true,
+              sku: true,
+            },
+          },
+        },
+      },
     },
   });
 
   return NextResponse.json({
     contact,
     orders: orders.map((order) => ({
-      ...order,
       totalPrice: order.totalPrice.toString(),
       createdAt: order.createdAt.toISOString(),
+      id: order.id,
+      shopifyOrderId: order.shopifyOrderId,
+      orderNumber: order.orderNumber,
+      name: order.name,
+      currency: order.currency,
+      financialStatus: order.financialStatus,
+      fulfillmentStatus: order.fulfillmentStatus,
+      lineItems: order.lineItems.map((item) => ({
+        id: item.id,
+        quantity: item.quantity,
+        price: item.price.toString(),
+        productTitle: item.productItem.productTitle,
+        variantTitle: item.productItem.variantTitle,
+        sku: item.productItem.sku,
+      })),
     })),
   });
 }

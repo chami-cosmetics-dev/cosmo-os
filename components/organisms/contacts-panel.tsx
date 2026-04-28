@@ -42,6 +42,14 @@ type ContactPurchaseOrder = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   createdAt: string;
+  lineItems: Array<{
+    id: string;
+    quantity: number;
+    price: string;
+    productTitle: string;
+    variantTitle: string | null;
+    sku: string | null;
+  }>;
 };
 
 type ContactsPanelInitialData = {
@@ -562,6 +570,7 @@ export function ContactsPanel({
                   <thead>
                     <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                       <th className="px-4 py-2 text-left font-medium">Order</th>
+                      <th className="px-4 py-2 text-left font-medium">Items</th>
                       <th className="px-4 py-2 text-left font-medium">Date</th>
                       <th className="px-4 py-2 text-right font-medium">Total</th>
                       <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -574,6 +583,28 @@ export function ContactsPanel({
                         <td className="px-4 py-2">
                           <p className="font-medium">{order.name ?? order.orderNumber ?? order.shopifyOrderId}</p>
                           <p className="text-muted-foreground text-xs">{order.orderNumber ?? "N/A"}</p>
+                        </td>
+                        <td className="px-4 py-2">
+                          {order.lineItems.length > 0 ? (
+                            <div className="space-y-2">
+                              {order.lineItems.map((item) => (
+                                <div key={item.id} className="rounded-md border border-dashed border-border/70 px-3 py-2">
+                                  <p className="font-medium leading-snug">{item.productTitle}</p>
+                                  <p className="text-muted-foreground text-xs">
+                                    {[item.variantTitle, item.sku ? `SKU: ${item.sku}` : null]
+                                      .filter(Boolean)
+                                      .join(" • ") || "Standard item"}
+                                  </p>
+                                  <p className="mt-1 text-xs">
+                                    Qty {item.quantity}
+                                    <span className="text-muted-foreground"> • {formatAmount(item.price, order.currency)} each</span>
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">No items</span>
+                          )}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{toDateTimeLabel(order.createdAt)}</td>
                         <td className="px-4 py-2 text-right">{formatAmount(order.totalPrice, order.currency)}</td>

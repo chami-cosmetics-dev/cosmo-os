@@ -4,6 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { syncContactMasterFromShopifyOrder } from "@/lib/contact-master-sync";
 import { LIMITS } from "@/lib/validation";
 import { ensureCustomerAndLink } from "@/lib/order-customers";
 import { resolveAssignedMerchant } from "@/lib/order-assignment";
@@ -140,6 +141,23 @@ export async function processOrderWebhook(
       },
     });
   }
+
+  const assignedMerchant = assignedMerchantId
+    ? await prisma.user.findUnique({
+        where: { id: assignedMerchantId },
+        select: { name: true, email: true },
+      })
+    : null;
+
+  const orderCreatedAt = data.created_at ? new Date(data.created_at) : new Date();
+  await syncContactMasterFromShopifyOrder({
+    companyId,
+    shopifyOrderId: String(data.id),
+    orderNumber: data.order_number != null ? String(data.order_number) : data.name?.slice(0, 100) ?? null,
+    orderCreatedAt: Number.isNaN(orderCreatedAt.getTime()) ? new Date() : orderCreatedAt,
+    order: data,
+    recentMerchant: assignedMerchant?.name ?? assignedMerchant?.email ?? null,
+  });
 
   const incomingLineItemIds = Array.from(
     new Set(data.line_items.map((lineItem) => String(lineItem.id)))
