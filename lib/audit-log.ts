@@ -17,6 +17,7 @@ export const AUDIT_LOG_ACTIONS = [
   "role_updated",
   "role_deleted",
   "manual_order_created",
+  "merchant_review_saved",
   "fulfillment_updated",
   "remark_created",
   "remark_updated",

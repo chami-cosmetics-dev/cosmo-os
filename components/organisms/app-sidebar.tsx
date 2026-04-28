@@ -126,6 +126,12 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
               label="Contact Allocation"
               isActive={pathname === "/dashboard/contacts/allocation"}
             />
+            <NavItem
+              href="/dashboard/contacts/reviews"
+              icon={ContactRound}
+              label="Merchant Reviews"
+              isActive={pathname === "/dashboard/contacts/reviews"}
+            />
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
