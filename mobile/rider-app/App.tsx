@@ -366,6 +366,44 @@ function MainView() {
     return Number.isFinite(amount) ? amount : 0;
   }
 
+  function moneyMatches(value: number, expected: number) {
+    return Math.abs(value - expected) < 0.01;
+  }
+
+  function getPaymentValidation(delivery: Delivery | null) {
+    if (!delivery) {
+      return { canComplete: false, message: "Select a delivery first." };
+    }
+
+    const expectedAmount = parseMoney(delivery.amount);
+    const collected = parseMoney(collectedAmount);
+
+    if (paymentMethod === "cod") {
+      const customerPaid = parseMoney(customerPaidAmount);
+      if (customerPaid <= 0) {
+        return { canComplete: false, message: "Enter the cash amount received." };
+      }
+      if (customerPaid + 0.01 < expectedAmount) {
+        return { canComplete: false, message: "Cash received must cover the order total." };
+      }
+      return { canComplete: true, message: null };
+    }
+
+    if (paymentMethod === "already_paid") {
+      return { canComplete: true, message: null };
+    }
+
+    if (!moneyMatches(collected, expectedAmount)) {
+      return { canComplete: false, message: "Entered amount must match the order total." };
+    }
+
+    if (requiresReference(paymentMethod) && !paymentReference.trim()) {
+      return { canComplete: false, message: "Enter the invoice/reference number." };
+    }
+
+    return { canComplete: true, message: null };
+  }
+
   function formatMoney(value: string | null | undefined, currency?: string | null) {
     const amount = parseMoney(value);
     const formatted = amount.toLocaleString("en-LK", {
@@ -668,27 +706,19 @@ function MainView() {
 
   async function queueDelivered() {
     if (!selectedDelivery) return;
-    setDeliverySubmitting(true);
     const expectedAmount = parseMoney(selectedDelivery.amount);
+    const validation = getPaymentValidation(selectedDelivery);
+
+    if (!validation.canComplete) {
+      Alert.alert("Check payment", validation.message ?? "Enter the correct payment details before completing.");
+      return;
+    }
+
+    setDeliverySubmitting(true);
     const actualCollectedAmount =
       paymentMethod === "cod"
         ? parseMoney(collectedAmount)
         : parseMoney(collectedAmount || selectedDelivery.amount);
-
-    if (paymentMethod === "cod" && actualCollectedAmount <= 0) {
-      Alert.alert("Missing amount", "Enter the cash amount collected from the customer.");
-      return;
-    }
-
-    if (paymentMethod !== "cod" && paymentMethod !== "already_paid" && actualCollectedAmount <= 0) {
-      Alert.alert("Missing amount", "Enter the payment amount before completing.");
-      return;
-    }
-
-    if (requiresReference(paymentMethod) && !paymentReference.trim()) {
-      Alert.alert("Missing reference", "Enter the invoice/reference number before completing.");
-      return;
-    }
 
     try {
       const paymentResult = await submitOrQueue({
@@ -1092,6 +1122,8 @@ function MainView() {
     const customerName = selectedDelivery.customerName ?? "Unknown customer";
     const locationName = selectedDelivery.companyLocation?.name ?? "Unknown location";
     const statusLabel = getRouteBadgeLabel(selectedDelivery.deliveryStatus as Delivery["deliveryStatus"]);
+    const paymentValidation = getPaymentValidation(selectedDelivery);
+    const completeDisabled = deliverySubmitting || !paymentValidation.canComplete;
 
     return (
       <SafeAreaView style={styles.page}>
@@ -1312,9 +1344,9 @@ function MainView() {
               <Text style={styles.detailDangerButtonText}>Report Failure</Text>
             </Pressable>
             <Pressable
-              style={[styles.detailPrimaryButton, deliverySubmitting ? styles.buttonDisabled : null]}
+              style={[styles.detailPrimaryButton, completeDisabled ? styles.buttonDisabled : null]}
               onPress={() => void queueDelivered()}
-              disabled={deliverySubmitting}
+              disabled={completeDisabled}
             >
               <Feather name="check-circle" size={15} color={colors.white} />
               <Text style={styles.detailPrimaryButtonText}>

@@ -32,7 +32,7 @@ export async function POST(
     return mobileError("Delivery not found", 404);
   }
 
-  if (task.status === "completed" || task.order.fulfillmentStage === "delivery_complete") {
+  if (task.order.fulfillmentStage === "delivery_complete") {
     return NextResponse.json({ success: true, alreadyCompleted: true });
   }
 
