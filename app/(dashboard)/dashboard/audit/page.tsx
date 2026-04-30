@@ -39,6 +39,7 @@ const actionLabels: Record<string, string> = {
   remark_deleted: "Remark Deleted",
   contact_created: "Contact Created",
   contact_imported: "Contacts Imported",
+  contact_follow_up_contacted: "Contact Follow-up Contacted",
   contact_auto_created: "Contact Auto-Created",
   contact_auto_enriched: "Contact Auto-Enriched",
   contact_auto_sync_conflict: "Contact Auto-Sync Conflict",
@@ -48,6 +49,8 @@ const actionLabels: Record<string, string> = {
   setting_deleted: "Setting Deleted",
   staff_updated: "Staff Updated",
   staff_resigned: "Staff Resigned",
+  complaint_created: "Complaint Created",
+  complaint_updated: "Complaint Updated",
 };
 
 function toTitleCase(value: string) {

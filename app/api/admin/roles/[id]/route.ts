@@ -18,7 +18,7 @@ const updateRoleSchema = z.object({
   description: z.string().max(LIMITS.description.max).optional(),
   permissionKeys: z
     .array(z.string().max(LIMITS.permissionKey.max))
-    .max(50)
+    .max(200)
     .default([]),
 });
 

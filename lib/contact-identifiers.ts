@@ -2,6 +2,8 @@ import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 
+type ContactIdentifierDb = typeof prisma;
+
 type ContactIdentifierContact = {
   id: string;
   name: string;
@@ -23,13 +25,13 @@ type ContactPhoneModel = {
   create: (args: unknown) => Promise<unknown>;
 };
 
-function getContactEmailModel(): ContactEmailModel | null {
-  const model = (prisma as unknown as { contactEmail?: ContactEmailModel }).contactEmail;
+function getContactEmailModel(db: ContactIdentifierDb = prisma): ContactEmailModel | null {
+  const model = (db as unknown as { contactEmail?: ContactEmailModel }).contactEmail;
   return model ?? null;
 }
 
-function getContactPhoneModel(): ContactPhoneModel | null {
-  const model = (prisma as unknown as { contactPhone?: ContactPhoneModel }).contactPhone;
+function getContactPhoneModel(db: ContactIdentifierDb = prisma): ContactPhoneModel | null {
+  const model = (db as unknown as { contactPhone?: ContactPhoneModel }).contactPhone;
   return model ?? null;
 }
 
@@ -50,11 +52,12 @@ export function normalizeContactPhone(value: string | null | undefined) {
 export async function findMatchingContacts(
   companyId: string,
   email: string | null,
-  phoneNumber: string | null
+  phoneNumber: string | null,
+  db: ContactIdentifierDb = prisma
 ) {
   const phoneVariants = phoneNumber ? buildPhoneLookupVariants(phoneNumber) : [];
 
-  const primaryCandidates = await prisma.contactMaster.findMany({
+  const primaryCandidates = await db.contactMaster.findMany({
     where: {
       companyId,
       OR: [
@@ -72,8 +75,8 @@ export async function findMatchingContacts(
     },
   });
 
-  const emailAliasModel = getContactEmailModel();
-  const phoneAliasModel = getContactPhoneModel();
+  const emailAliasModel = getContactEmailModel(db);
+  const phoneAliasModel = getContactPhoneModel(db);
 
   const emailAliasMatches = email && emailAliasModel
     ? await emailAliasModel.findMany({
@@ -209,13 +212,13 @@ export async function ensureSecondaryContactIdentifiers(input: {
   primaryPhoneNumber?: string | null;
   email?: string | null;
   phoneNumber?: string | null;
-}) {
+}, db: ContactIdentifierDb = prisma) {
   const email = normalizeContactEmail(input.email);
   const phoneNumber = normalizeContactPhone(input.phoneNumber);
   const primaryEmail = normalizeContactEmail(input.primaryEmail);
   const primaryPhoneNumber = normalizeContactPhone(input.primaryPhoneNumber);
 
-  const emailModel = getContactEmailModel();
+  const emailModel = getContactEmailModel(db);
   if (email && emailModel && email !== primaryEmail) {
     const exists = await emailModel.findFirst({
       where: {
@@ -235,7 +238,7 @@ export async function ensureSecondaryContactIdentifiers(input: {
     }
   }
 
-  const phoneModel = getContactPhoneModel();
+  const phoneModel = getContactPhoneModel(db);
   if (phoneNumber && phoneModel && phoneNumber !== primaryPhoneNumber) {
     const variants = buildPhoneLookupVariants(phoneNumber);
     const exists = await phoneModel.findFirst({

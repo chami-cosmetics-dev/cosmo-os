@@ -23,6 +23,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/staff", label: "Staff Management" },
     { prefix: "/dashboard/riders", label: "Rider Management" },
     { prefix: "/dashboard/contacts/reviews", label: "Merchant Reviews" },
+    { prefix: "/dashboard/complaints", label: "Complaints" },
     { prefix: "/dashboard/contacts/allocation", label: "Contact Allocation" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
     { prefix: "/dashboard/reports", label: "Dump Reports" },

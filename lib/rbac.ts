@@ -71,6 +71,18 @@ const DEFAULT_PERMISSIONS = [
     key: "orders.view_timeline",
     description: "View order fulfillment timeline in modal",
   },
+  {
+    key: "complaints.create",
+    description: "Create merchant complaints",
+  },
+  {
+    key: "complaints.read",
+    description: "View merchant complaints",
+  },
+  {
+    key: "complaints.manage",
+    description: "Update complaint status and resolution",
+  },
   // Reports - Dump downloads
   {
     key: REPORT_DUMP_PERMISSIONS.contactListPart1,
@@ -267,6 +279,9 @@ const DEFAULT_ROLES = [
       "orders.manage",
       "orders.create_manual",
       "orders.view_timeline",
+      "complaints.create",
+      "complaints.read",
+      "complaints.manage",
       REPORT_DUMP_PERMISSIONS.contactListPart1,
       REPORT_DUMP_PERMISSIONS.contactListPart1_1,
       REPORT_DUMP_PERMISSIONS.contactListPart2,

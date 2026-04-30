@@ -20,6 +20,7 @@ import {
   Bike,
   FileText,
   History,
+  MessageSquareWarning,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -60,6 +61,10 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
     permissionKeys.includes(permission)
   );
   const canViewAudit = permissionKeys.includes("users.read");
+  const canViewComplaints =
+    permissionKeys.includes("complaints.create") ||
+    permissionKeys.includes("complaints.read") ||
+    permissionKeys.includes("complaints.manage");
   const pathname = usePathname();
 
   return (
@@ -91,6 +96,14 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
               label="Dashboard"
               isActive={pathname === "/dashboard"}
             />
+            {canViewComplaints && (
+              <NavItem
+                href="/dashboard/complaints"
+                icon={MessageSquareWarning}
+                label="Complaints"
+                isActive={pathname === "/dashboard/complaints"}
+              />
+            )}
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>

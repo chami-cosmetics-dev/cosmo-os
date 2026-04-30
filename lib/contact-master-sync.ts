@@ -91,6 +91,10 @@ function buildSourceLabel(sourceId: string, orderNumber?: string | null) {
   return orderNumber?.trim() || sourceId;
 }
 
+function buildContactSyncLockKey(companyId: string, email: string | null, phoneNumber: string | null) {
+  return `contact-sync:${companyId}:${email ?? ""}:${phoneNumber ?? ""}`;
+}
+
 async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Promise<SyncContactMasterResult> {
   const email = normalizeEmail(input.email ?? null);
   const phoneNumber = normalizePhone(input.phoneNumber ?? null);
@@ -141,18 +145,36 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   const matchedContact = emailMatch ?? phoneMatch;
 
   if (!matchedContact) {
-    const created = await prisma.contactMaster.create({
-      data: {
-        companyId: input.companyId,
-        name: name ?? email ?? phoneNumber ?? "Shopify Contact",
-        email,
-        phoneNumber,
-        recentMerchant,
-        lastPurchaseAt: input.occurredAt,
-      },
-      select: { id: true },
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
+      const existing = await tx.contactMaster.findFirst({
+        where: {
+          companyId: input.companyId,
+          OR: [
+            ...(email ? [{ email: { equals: email, mode: "insensitive" as const } }] : []),
+            ...(phoneNumber ? [{ phoneNumber }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        return { status: "unchanged" as const, contactId: existing.id };
+      }
+
+      const created = await tx.contactMaster.create({
+        data: {
+          companyId: input.companyId,
+          name: name ?? email ?? phoneNumber ?? "Shopify Contact",
+          email,
+          phoneNumber,
+          recentMerchant,
+          lastPurchaseAt: input.occurredAt,
+        },
+        select: { id: true },
+      });
+      return { status: "created" as const, contactId: created.id };
     });
-    return { status: "created", contactId: created.id };
+    return result;
   }
 
   const updateData: {
@@ -251,24 +273,53 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const matchedContact = emailMatch ?? phoneMatch;
 
   if (!matchedContact) {
-    const created = await prisma.contactMaster.create({
-      data: {
-        companyId: input.companyId,
-        name: name ?? email ?? phoneNumber ?? "Shopify Contact",
-        email,
-        phoneNumber,
-        recentMerchant,
-        lastPurchaseAt: input.occurredAt,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phoneNumber: true,
-        recentMerchant: true,
-        lastPurchaseAt: true,
-      },
+    const createResult = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
+      const rechecked = await findMatchingContacts(input.companyId, email, phoneNumber, tx as never);
+      if (rechecked.emailMatches.length > 1 || rechecked.phoneMatches.length > 1) {
+        return { status: "conflict" as const };
+      }
+
+      const recheckedEmailMatch = rechecked.emailMatches[0] ?? null;
+      const recheckedPhoneMatch = rechecked.phoneMatches[0] ?? null;
+      if (recheckedEmailMatch && recheckedPhoneMatch && recheckedEmailMatch.id !== recheckedPhoneMatch.id) {
+        return { status: "conflict" as const };
+      }
+
+      const recheckedContact = recheckedEmailMatch ?? recheckedPhoneMatch;
+      if (recheckedContact) {
+        return { status: "unchanged" as const, contactId: recheckedContact.id };
+      }
+
+      const created = await tx.contactMaster.create({
+        data: {
+          companyId: input.companyId,
+          name: name ?? email ?? phoneNumber ?? "Shopify Contact",
+          email,
+          phoneNumber,
+          recentMerchant,
+          lastPurchaseAt: input.occurredAt,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phoneNumber: true,
+          recentMerchant: true,
+          lastPurchaseAt: true,
+        },
+      });
+      return { status: "created" as const, contact: created };
     });
+
+    if (createResult.status === "conflict") {
+      return { status: "conflict" };
+    }
+    if (createResult.status === "unchanged") {
+      return { status: "unchanged", contactId: createResult.contactId };
+    }
+
+    const created = createResult.contact;
 
     if (auditBehavior === "full") {
       await writeAuditLog({
