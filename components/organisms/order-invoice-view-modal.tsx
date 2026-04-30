@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -318,6 +319,8 @@ export function OrderInvoiceViewModal({
   const [showJsonModal, setShowJsonModal] = useState(false);
   const [revertingToStage, setRevertingToStage] = useState<string | null>(null);
   const [confirmRevertStage, setConfirmRevertStage] = useState<{ targetStage: string; label: string } | null>(null);
+  const [revertReason, setRevertReason] = useState("");
+  const [visibleRevertReasonId, setVisibleRevertReasonId] = useState<string | null>(null);
 
   const stage = orderDetail?.fulfillmentStage ?? "order_received";
   const isDispatchedWithRider =
@@ -351,17 +354,22 @@ export function OrderInvoiceViewModal({
   }
 
   function handleRevertClick(targetStage: string, label: string) {
+    setRevertReason("");
     setConfirmRevertStage({ targetStage, label });
   }
 
   async function handleConfirmRevert() {
     if (!orderId || !confirmRevertStage) return;
+    if (!revertReason.trim()) {
+      notify.error("Please provide a reason for reverting.");
+      return;
+    }
     setRevertingToStage(confirmRevertStage.targetStage);
     try {
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "revert_to_stage", targetStage: confirmRevertStage.targetStage }),
+        body: JSON.stringify({ action: "revert_to_stage", targetStage: confirmRevertStage.targetStage, revertReason: revertReason.trim() }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) {
@@ -370,6 +378,7 @@ export function OrderInvoiceViewModal({
       }
       notify.success("Order reverted.");
       setConfirmRevertStage(null);
+      setRevertReason("");
       onRefresh?.();
     } catch {
       notify.error("Failed to revert stage");
@@ -438,6 +447,9 @@ export function OrderInvoiceViewModal({
                     stage !== targetDbStage &&
                     FULFILLMENT_STAGE_ORDER.indexOf(stage) > FULFILLMENT_STAGE_ORDER.indexOf(targetDbStage);
                   const isReverting = revertingToStage === targetDbStage;
+                  const stageRevertRemarks = (orderDetail?.remarks ?? []).filter(
+                    (r) => r.stage === targetDbStage && r.content.startsWith("[REVERT] ")
+                  );
                   return (
                     <div key={item.id} className="relative flex gap-4">
                       {/* Vertical line */}
@@ -493,6 +505,31 @@ export function OrderInvoiceViewModal({
                         {item.detail && (
                           <p className="text-muted-foreground mt-1 text-xs">{item.detail}</p>
                         )}
+                        {stageRevertRemarks.map((r) => (
+                          <div key={r.id} className="mt-1.5">
+                            <div className="flex items-center gap-1.5 text-xs text-destructive/80">
+                              <RotateCcw className="size-3 shrink-0" />
+                              <span>
+                                Reverted by {r.addedBy ? (r.addedBy.name ?? r.addedBy.email ?? "unknown") : "unknown"}
+                                {r.createdAt ? ` on ${formatDate(r.createdAt)}` : ""}
+                              </span>
+                              <button
+                                type="button"
+                                className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+                                onClick={() =>
+                                  setVisibleRevertReasonId((prev) => (prev === r.id ? null : r.id))
+                                }
+                              >
+                                {visibleRevertReasonId === r.id ? "Hide reason" : "View reason"}
+                              </button>
+                            </div>
+                            {visibleRevertReasonId === r.id && (
+                              <p className="mt-1 rounded border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive/90">
+                                {r.content.replace(/^\[REVERT\] /, "")}
+                              </p>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   );
@@ -640,7 +677,7 @@ export function OrderInvoiceViewModal({
       </DialogContent>
     </Dialog>
 
-    <AlertDialog open={!!confirmRevertStage} onOpenChange={(open) => !open && setConfirmRevertStage(null)}>
+    <AlertDialog open={!!confirmRevertStage} onOpenChange={(open) => { if (!open) { setConfirmRevertStage(null); setRevertReason(""); } }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Revert to {confirmRevertStage?.label}</AlertDialogTitle>
@@ -650,11 +687,26 @@ export function OrderInvoiceViewModal({
             action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        <div className="py-1">
+          <label className="mb-1.5 block text-sm font-medium" htmlFor="revert-reason">
+            Reason for reverting <span className="text-destructive">*</span>
+          </label>
+          <Textarea
+            id="revert-reason"
+            placeholder="Describe why this order is being reverted…"
+            value={revertReason}
+            onChange={(e) => setRevertReason(e.target.value)}
+            maxLength={500}
+            rows={3}
+            disabled={!!revertingToStage}
+          />
+          <p className="mt-1 text-right text-xs text-muted-foreground">{revertReason.length}/500</p>
+        </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={!!revertingToStage}>Cancel</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={!!revertingToStage}
+            disabled={!!revertingToStage || !revertReason.trim()}
             onClick={handleConfirmRevert}
             className="gap-2"
           >
