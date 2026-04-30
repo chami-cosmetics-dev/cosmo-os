@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { AuditFilterForm } from "@/components/organisms/audit-filter-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AUDIT_LOG_ACTIONS, AUDIT_LOG_MODULES, fetchAuditLogs } from "@/lib/audit-log";
+import { Button } from "@/components/ui/button";
+import { AUDIT_LOG_ACTIONS, AUDIT_LOG_MODULES, countAuditLogs, fetchAuditLogs } from "@/lib/audit-log";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +15,11 @@ type AuditPageProps = {
     module?: string;
     action?: string;
     q?: string;
+    page?: string;
   }>;
 };
+
+const AUDIT_PAGE_SIZE = 10;
 
 const actionLabels: Record<string, string> = {
   download: "Download",
@@ -64,6 +69,24 @@ function formatDateTime(value: string) {
   return date.toLocaleString();
 }
 
+function parsePage(value: string | undefined) {
+  const page = Number.parseInt(value ?? "1", 10);
+  return Number.isFinite(page) && page > 0 ? page : 1;
+}
+
+function buildPageHref(
+  params: Awaited<AuditPageProps["searchParams"]>,
+  page: number
+) {
+  const next = new URLSearchParams();
+  if (params.module) next.set("module", params.module);
+  if (params.action) next.set("action", params.action);
+  if (params.q?.trim()) next.set("q", params.q.trim());
+  if (page > 1) next.set("page", String(page));
+  const query = next.toString();
+  return query ? `/dashboard/audit?${query}` : "/dashboard/audit";
+}
+
 export default async function AuditPage({ searchParams }: AuditPageProps) {
   const auth = await requirePermission("users.read");
   if (!auth.ok) {
@@ -77,13 +100,23 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
   const moduleFilter = parseFilter(resolvedSearchParams.module, AUDIT_LOG_MODULES);
   const actionFilter = parseFilter(resolvedSearchParams.action, AUDIT_LOG_ACTIONS);
   const queryFilter = resolvedSearchParams.q?.trim() || undefined;
+  const requestedPage = parsePage(resolvedSearchParams.page);
 
-  const logs = await fetchAuditLogs({
+  const auditQuery = {
     companyId: auth.context?.user?.companyId ?? null,
     module: moduleFilter,
     action: actionFilter,
     query: queryFilter,
-    limit: 50,
+  };
+
+  const totalLogs = await countAuditLogs(auditQuery);
+  const totalPages = Math.max(1, Math.ceil(totalLogs / AUDIT_PAGE_SIZE));
+  const currentPage = Math.min(requestedPage, totalPages);
+  const offset = (currentPage - 1) * AUDIT_PAGE_SIZE;
+  const logs = await fetchAuditLogs({
+    ...auditQuery,
+    limit: AUDIT_PAGE_SIZE,
+    offset,
   });
 
   const distinctModules = new Set(logs.map((log) => log.module)).size;
@@ -102,7 +135,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
           <Card className="border-white/40 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
             <CardContent className="p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Visible Events</p>
-              <p className="mt-2 text-2xl font-semibold">{logs.length}</p>
+              <p className="mt-2 text-2xl font-semibold">{totalLogs}</p>
             </CardContent>
           </Card>
           <Card className="border-white/40 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
@@ -138,7 +171,12 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
 
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50">
-          <CardTitle>Recent Activity</CardTitle>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>Recent Activity</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Showing {totalLogs === 0 ? 0 : offset + 1}-{Math.min(offset + logs.length, totalLogs)} of {totalLogs}
+            </p>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {logs.length === 0 ? (
@@ -182,6 +220,37 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {totalLogs > AUDIT_PAGE_SIZE && (
+            <div className="flex flex-col gap-3 border-t border-border/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Page {currentPage} of {totalPages}
+              </p>
+              <div className="flex items-center gap-2">
+                {currentPage > 1 ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={buildPageHref(resolvedSearchParams, currentPage - 1)}>
+                      Previous
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" disabled>
+                    Previous
+                  </Button>
+                )}
+                {currentPage < totalPages ? (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={buildPageHref(resolvedSearchParams, currentPage + 1)}>
+                      Next
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" disabled>
+                    Next
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </CardContent>
