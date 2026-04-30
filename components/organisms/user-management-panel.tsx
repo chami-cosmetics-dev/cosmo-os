@@ -23,6 +23,8 @@ import {
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
+const SEO_WELCOME_PERMISSION = "seo.welcome";
+
 type Location = { id: string; name: string };
 type Department = { id: string; name: string };
 type Designation = { id: string; name: string };
@@ -163,6 +165,20 @@ export function UserManagementPanel({
     () => sortedRoles.filter((r) => r.name !== "super_admin"),
     [sortedRoles]
   );
+  const seoRoleIds = useMemo(
+    () =>
+      new Set(
+        roles
+          .filter((role) =>
+            role.name !== "admin" &&
+            role.name !== "super_admin" &&
+            role.rolePermissions.length === 1 &&
+            role.rolePermissions.some((entry) => entry.permission.key === SEO_WELCOME_PERMISSION)
+          )
+          .map((role) => role.id)
+      ),
+    [roles]
+  );
 
   const isBusy = busyKey !== null;
 
@@ -234,11 +250,19 @@ export function UserManagementPanel({
   function toggleUserRole(userId: string, roleId: string) {
     setDraftAssignments((current) => {
       const existing = current[userId] ?? [];
+      const isSeoRole = seoRoleIds.has(roleId);
+      if (existing.includes(roleId)) {
+        return {
+          ...current,
+          [userId]: existing.filter((id) => id !== roleId),
+        };
+      }
+
       return {
         ...current,
-        [userId]: existing.includes(roleId)
-          ? existing.filter((id) => id !== roleId)
-          : [...existing, roleId],
+        [userId]: isSeoRole
+          ? [roleId]
+          : [...existing.filter((id) => !seoRoleIds.has(id)), roleId],
       };
     });
   }
@@ -1246,16 +1270,27 @@ export function UserManagementPanel({
                 {assignableRoles.map((role) => {
                   const assignedRoles = draftAssignments[editingUser.id] ?? [];
                   const checked = assignedRoles.includes(role.id);
+                  const isSeoRole = seoRoleIds.has(role.id);
+                  const hasNormalRole = assignedRoles.some((id) => !seoRoleIds.has(id));
+                  const hasSeoRole = assignedRoles.some((id) => seoRoleIds.has(id));
+                  const disabled =
+                    isBusy ||
+                    (isSeoRole && hasNormalRole && !checked) ||
+                    (!isSeoRole && hasSeoRole && !checked);
                   return (
                     <label
                       key={role.id}
-                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm transition-colors hover:bg-secondary/10"
+                      className={`flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm transition-colors ${
+                        disabled
+                          ? "cursor-not-allowed opacity-50"
+                          : "cursor-pointer hover:bg-secondary/10"
+                      }`}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleUserRole(editingUser.id, role.id)}
-                        disabled={isBusy}
+                        disabled={disabled}
                         className="rounded"
                       />
                       {role.name}

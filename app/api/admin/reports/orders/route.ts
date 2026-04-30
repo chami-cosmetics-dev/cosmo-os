@@ -16,6 +16,7 @@ import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
 } from "@/lib/reports/order-dump";
+import { getOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
 type ReportKind = "invoice" | "invoice-item";
@@ -75,7 +76,9 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("orders.read");
+  const report = parseReportKind(request.nextUrl.searchParams.get("report"));
+  const range = parseRangeKind(request.nextUrl.searchParams.get("range"));
+  const auth = await requirePermission(getOrderDumpPermission(report, range));
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -85,8 +88,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const report = parseReportKind(request.nextUrl.searchParams.get("report"));
-  const range = parseRangeKind(request.nextUrl.searchParams.get("range"));
   const yearParam = request.nextUrl.searchParams.get("year");
   const parsedYear = yearParam ? Number.parseInt(yearParam, 10) : null;
   const { from, to, label } = getRangeBounds(range, parsedYear);

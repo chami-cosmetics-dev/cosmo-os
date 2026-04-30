@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
+import { ALL_REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 
 interface AppSidebarProps {
   user: {
@@ -55,6 +56,10 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
   const canStickerPrint =
     permissionKeys.includes("stickers.print.read") ||
     permissionKeys.includes("stickers.print.print");
+  const canViewReports = ALL_REPORT_DUMP_PERMISSIONS.some((permission) =>
+    permissionKeys.includes(permission)
+  );
+  const canViewAudit = permissionKeys.includes("users.read");
   const pathname = usePathname();
 
   return (
@@ -134,23 +139,29 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
             />
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>Reports</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <NavItem
-              href="/dashboard/reports"
-              icon={FileText}
-              label="Dump Reports"
-              isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
-            />
-            <NavItem
-              href="/dashboard/audit"
-              icon={History}
-              label="Audit Trail"
-              isActive={pathname === "/dashboard/audit" || pathname.startsWith("/dashboard/audit/")}
-            />
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {(canViewReports || canViewAudit) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Reports</SidebarGroupLabel>
+            <SidebarGroupContent>
+              {canViewReports && (
+                <NavItem
+                  href="/dashboard/reports"
+                  icon={FileText}
+                  label="Dump Reports"
+                  isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
+                />
+              )}
+              {canViewAudit && (
+                <NavItem
+                  href="/dashboard/audit"
+                  icon={History}
+                  label="Audit Trail"
+                  isActive={pathname === "/dashboard/audit" || pathname.startsWith("/dashboard/audit/")}
+                />
+              )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         <SidebarGroup>
           <SidebarGroupLabel>General Settings</SidebarGroupLabel>
           <SidebarGroupContent>

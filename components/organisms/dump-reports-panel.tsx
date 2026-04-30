@@ -5,15 +5,18 @@ import { Database, Download, History, Sparkles } from "lucide-react";
 import type { ReportDownloadLogRecord } from "@/lib/report-download-log";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 
 type DumpReportsPanelProps = {
   historicalYears: number[];
+  permissionKeys: string[];
   recentLogs?: ReportDownloadLogRecord[];
 };
 
 type ReportAction = {
   href: string;
   label: string;
+  permission: string;
   tone?: "emerald" | "sky" | "amber";
 };
 
@@ -33,6 +36,8 @@ function formatLogTime(value: string) {
 }
 
 function ReportRow({ title, subtitle, actions }: { title: string; subtitle: string; actions: ReportAction[] }) {
+  if (actions.length === 0) return null;
+
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/80 p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
       <div className="space-y-1">
@@ -53,7 +58,12 @@ function ReportRow({ title, subtitle, actions }: { title: string; subtitle: stri
   );
 }
 
-export function DumpReportsPanel({ historicalYears, recentLogs = [] }: DumpReportsPanelProps) {
+export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs = [] }: DumpReportsPanelProps) {
+  const can = (permission: string) => permissionKeys.includes(permission);
+  const allowedActions = (actions: ReportAction[]) => actions.filter((action) => can(action.permission));
+  const canHistoricalInvoiceItem = can(REPORT_DUMP_PERMISSIONS.historicalInvoiceItem);
+  const canHistoricalInvoice = can(REPORT_DUMP_PERMISSIONS.historicalInvoice);
+
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-6 shadow-[0_18px_40px_-28px_var(--primary)]">
@@ -103,41 +113,41 @@ export function DumpReportsPanel({ historicalYears, recentLogs = [] }: DumpRepor
             <ReportRow
               title="Contact Number List with details"
               subtitle="Live export from the current Contact Master records with the same sample column headers."
-              actions={[
-                { href: "/api/admin/reports/contact-dump?part=1", label: "Dump 1 (Part 1)", tone: "emerald" },
-                { href: "/api/admin/reports/contact-dump?part=1_1", label: "Dump 1 (Part 1_1)", tone: "emerald" },
-                { href: "/api/admin/reports/contact-dump?part=2", label: "Dump 1 (Part 2)", tone: "emerald" },
-              ]}
+              actions={allowedActions([
+                { href: "/api/admin/reports/contact-dump?part=1", label: "Dump 1 (Part 1)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1, tone: "emerald" },
+                { href: "/api/admin/reports/contact-dump?part=1_1", label: "Dump 1 (Part 1_1)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1_1, tone: "emerald" },
+                { href: "/api/admin/reports/contact-dump?part=2", label: "Dump 1 (Part 2)", permission: REPORT_DUMP_PERMISSIONS.contactListPart2, tone: "emerald" },
+              ])}
             />
             <ReportRow
               title="Web-site Invoice Detail (Invoice Wise) [Last 90 Days]"
               subtitle="Invoice-wise website and manual order export for the last 90 days."
-              actions={[{ href: "/api/admin/reports/orders?report=invoice&range=last-90", label: "Dump 2", tone: "sky" }]}
+              actions={allowedActions([{ href: "/api/admin/reports/orders?report=invoice&range=last-90", label: "Dump 2", permission: REPORT_DUMP_PERMISSIONS.invoice90, tone: "sky" }])}
             />
             <ReportRow
               title="Web-site Invoice Item Detail (Invoice/Item Wise) [Last 90 Days]"
               subtitle="Line-item level export for the last 90 days."
-              actions={[{ href: "/api/admin/reports/orders?report=invoice-item&range=last-90", label: "Dump 3", tone: "sky" }]}
+              actions={allowedActions([{ href: "/api/admin/reports/orders?report=invoice-item&range=last-90", label: "Dump 3", permission: REPORT_DUMP_PERMISSIONS.invoiceItem90, tone: "sky" }])}
             />
             <ReportRow
               title="Contact Number with Last Purchased Date"
               subtitle="Simple contact list with latest purchase date and recent merchant."
-              actions={[{ href: "/api/admin/reports/contacts?report=last-purchased", label: "Dump 4", tone: "sky" }]}
+              actions={allowedActions([{ href: "/api/admin/reports/contacts?report=last-purchased", label: "Dump 4", permission: REPORT_DUMP_PERMISSIONS.contactLastPurchased, tone: "sky" }])}
             />
             <ReportRow
               title="Contact Number Log Details"
               subtitle="Contact creation and update log with latest purchase date."
-              actions={[{ href: "/api/admin/reports/contacts?report=log", label: "Dump 5", tone: "sky" }]}
+              actions={allowedActions([{ href: "/api/admin/reports/contacts?report=log", label: "Dump 5", permission: REPORT_DUMP_PERMISSIONS.contactLog, tone: "sky" }])}
             />
             <ReportRow
               title="Loyalty Customer List"
               subtitle="Contacts with recorded purchases, exported as a loyalty-oriented list."
-              actions={[{ href: "/api/admin/reports/contacts?report=loyalty", label: "Loyalty Customers", tone: "amber" }]}
+              actions={allowedActions([{ href: "/api/admin/reports/contacts?report=loyalty", label: "Loyalty Customers", permission: REPORT_DUMP_PERMISSIONS.loyaltyCustomers, tone: "amber" }])}
             />
             <ReportRow
               title="Full contact dump"
               subtitle="Download all available contact records in one file."
-              actions={[{ href: "/api/admin/reports/contact-dump?part=all", label: "Download All", tone: "sky" }]}
+              actions={allowedActions([{ href: "/api/admin/reports/contact-dump?part=all", label: "Download All", permission: REPORT_DUMP_PERMISSIONS.contactListAll, tone: "sky" }])}
             />
           </CardContent>
         </Card>
@@ -154,12 +164,12 @@ export function DumpReportsPanel({ historicalYears, recentLogs = [] }: DumpRepor
               <ReportRow
                 title="Web-site Invoice Detail (Invoice Wise 360 Days) [Processed Up to Last Day]"
                 subtitle="Invoice-wise warehouse export for the last 360 days ending yesterday."
-                actions={[{ href: "/api/admin/reports/orders?report=invoice&range=warehouse-360", label: "Dump 1", tone: "sky" }]}
+                actions={allowedActions([{ href: "/api/admin/reports/orders?report=invoice&range=warehouse-360", label: "Dump 1", permission: REPORT_DUMP_PERMISSIONS.warehouseInvoice, tone: "sky" }])}
               />
               <ReportRow
                 title="Web-site Invoice Item Detail (Invoice Wise) [Processed Up to Last Day]"
                 subtitle="Invoice item warehouse export for the last 360 days ending yesterday."
-                actions={[{ href: "/api/admin/reports/orders?report=invoice-item&range=warehouse-360", label: "Dump 3", tone: "sky" }]}
+                actions={allowedActions([{ href: "/api/admin/reports/orders?report=invoice-item&range=warehouse-360", label: "Dump 3", permission: REPORT_DUMP_PERMISSIONS.warehouseInvoiceItem, tone: "sky" }])}
               />
             </CardContent>
           </Card>
@@ -176,18 +186,22 @@ export function DumpReportsPanel({ historicalYears, recentLogs = [] }: DumpRepor
                 <div key={year} className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/80 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <p className="font-medium text-foreground">Data {year}</p>
                   <div className="flex flex-wrap gap-2">
-                    <Button asChild className="bg-sky-500 text-white hover:bg-sky-600">
-                      <a href={`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}>
-                        <Download className="mr-2 size-4" />
-                        Invoice Item Details
-                      </a>
-                    </Button>
-                    <Button asChild className="bg-amber-500 text-white hover:bg-amber-600">
-                      <a href={`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}>
-                        <Download className="mr-2 size-4" />
-                        Invoice Details
-                      </a>
-                    </Button>
+                    {canHistoricalInvoiceItem && (
+                      <Button asChild className="bg-sky-500 text-white hover:bg-sky-600">
+                        <a href={`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}>
+                          <Download className="mr-2 size-4" />
+                          Invoice Item Details
+                        </a>
+                      </Button>
+                    )}
+                    {canHistoricalInvoice && (
+                      <Button asChild className="bg-amber-500 text-white hover:bg-amber-600">
+                        <a href={`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}>
+                          <Download className="mr-2 size-4" />
+                          Invoice Details
+                        </a>
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
