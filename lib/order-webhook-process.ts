@@ -41,15 +41,36 @@ export async function processOrderWebhook(
   location: CompanyLocation,
   rawPayload: unknown
 ): Promise<void> {
-  const companyId = location.companyId;
-
   const existingOrder = await prisma.order.findUnique({
     where: { shopifyOrderId: String(data.id) },
+    select: {
+      id: true,
+      invoiceCompleteAt: true,
+      companyLocationId: true,
+    },
   });
+  let effectiveLocation = location;
+  if (existingOrder && existingOrder.companyLocationId !== location.id) {
+    const persistedLocation = await prisma.companyLocation.findUnique({
+      where: { id: existingOrder.companyLocationId },
+    });
+    if (persistedLocation) {
+      effectiveLocation = persistedLocation;
+      console.warn("[Order webhook] Preserving original order location", {
+        shopifyOrderId: String(data.id),
+        incomingLocationId: location.id,
+        preservedLocationId: persistedLocation.id,
+        incomingShopifyLocationId: location.shopifyLocationId,
+        preservedShopifyLocationId: persistedLocation.shopifyLocationId,
+      });
+    }
+  }
+
+  const companyId = effectiveLocation.companyId;
   const isNewOrder = !existingOrder;
 
   const customerId = await ensureCustomerAndLink(data, companyId, isNewOrder);
-  const assignedMerchantId = await resolveAssignedMerchant(data, location);
+  const assignedMerchantId = await resolveAssignedMerchant(data, effectiveLocation);
 
   const sourceName = (data.source_name ?? "web").trim().slice(0, 20) || "web";
   const totalPrice = parseDecimal(data.total_price) ?? new Decimal(0);
@@ -78,7 +99,7 @@ export async function processOrderWebhook(
 
   const orderData = {
     companyId,
-    companyLocationId: location.id,
+    companyLocationId: effectiveLocation.id,
     assignedMerchantId,
     customerId,
     shopifyOrderId: String(data.id),
@@ -163,7 +184,7 @@ export async function processOrderWebhook(
     new Set(data.line_items.map((lineItem) => String(lineItem.id)))
   );
   for (const lineItem of data.line_items) {
-    await ensureProductItemAndCreateLineItem(order, lineItem, location);
+    await ensureProductItemAndCreateLineItem(order, lineItem, effectiveLocation);
   }
   await prisma.orderLineItem.deleteMany({
     where: {
@@ -183,7 +204,7 @@ export async function processOrderWebhook(
       orderName: order.name ?? undefined,
       customerName: customerName || undefined,
       customerPhone: customerPhone ?? undefined,
-      locationName: location.name,
+      locationName: effectiveLocation.name,
     }).catch((err) => console.error("[Order SMS] order_received failed:", err));
   }
 }

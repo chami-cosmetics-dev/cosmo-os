@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifyShopifyWebhook } from "@/lib/shopify-webhook";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
@@ -16,6 +17,47 @@ function getWebhookLogMeta(request: NextRequest) {
     shopDomain: request.headers.get("x-shopify-shop-domain"),
     locationId: request.nextUrl.searchParams.get("location_id"),
   };
+}
+
+async function resolveLocationByOrderSeries(
+  companyId: string,
+  data: { order_number?: number | null; name?: string | null }
+): Promise<CompanyLocation | null> {
+  const orderSeries = data.order_number != null
+    ? String(data.order_number).trim()
+    : (data.name ?? "").replace(/^#/, "").trim();
+
+  const SERIES_LOCATION_RULES: Array<{
+    prefix: string;
+    nameParts: string[];
+  }> = [
+    { prefix: "100", nameParts: ["cool planet", "nugegoda"] },
+    { prefix: "200", nameParts: ["kiribathgoda"] },
+    { prefix: "300", nameParts: ["ogf"] },
+    { prefix: "400", nameParts: ["pepiliyana"] },
+    { prefix: "500", nameParts: ["chami"] },
+    { prefix: "600", nameParts: ["cosmetics.lk", "new web"] },
+    { prefix: "700", nameParts: ["maharagama"] },
+    { prefix: "800", nameParts: ["spk"] },
+    { prefix: "900", nameParts: ["pevi"] },
+  ];
+
+  const matchedRule = SERIES_LOCATION_RULES.find((rule) =>
+    orderSeries.startsWith(rule.prefix)
+  );
+  if (!matchedRule) return null;
+
+  return prisma.companyLocation.findFirst({
+    where: {
+      companyId,
+      AND: matchedRule.nameParts.map((part) => ({
+        name: {
+          contains: part,
+          mode: "insensitive" as const,
+        },
+      })),
+    },
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -114,10 +156,84 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+  let resolvedLocation: CompanyLocation = location;
+  const shopDomain = request.headers.get("x-shopify-shop-domain")?.trim().toLowerCase() ?? null;
+  const normalizedConfiguredShopDomain = location.shopifyShopName?.trim().toLowerCase() ?? null;
+  const payloadLocationId =
+    data.location_id != null
+      ? String(data.location_id).trim().slice(0, LIMITS.shopifyLocationId.max)
+      : null;
+
+  if (
+    shopDomain &&
+    normalizedConfiguredShopDomain &&
+    shopDomain !== normalizedConfiguredShopDomain
+  ) {
+    const shopDomainLocation = await prisma.companyLocation.findFirst({
+      where: {
+        companyId: location.companyId,
+        shopifyShopName: {
+          equals: shopDomain,
+          mode: "insensitive",
+        },
+      },
+    });
+
+    if (shopDomainLocation) {
+      resolvedLocation = shopDomainLocation;
+    }
+
+    console.warn("[Order webhook] Shop domain/query location mismatch", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      queryCompanyLocationId: location.id,
+      queryShopDomain: location.shopifyShopName,
+      headerShopDomain: shopDomain,
+      resolvedCompanyLocationId: resolvedLocation.id,
+    });
+  }
+
+  if (
+    payloadLocationId &&
+    resolvedLocation.shopifyLocationId &&
+    payloadLocationId !== resolvedLocation.shopifyLocationId
+  ) {
+    const payloadLocation = await prisma.companyLocation.findFirst({
+      where: {
+        companyId: resolvedLocation.companyId,
+        shopifyLocationId: payloadLocationId,
+      },
+    });
+
+    if (payloadLocation) {
+      resolvedLocation = payloadLocation;
+    }
+
+    console.warn("[Order webhook] Payload/query location mismatch", {
+      ...webhookMeta,
+      companyId: resolvedLocation.companyId,
+      queryShopifyLocationId: location.shopifyLocationId,
+      payloadShopifyLocationId: payloadLocationId,
+      resolvedCompanyLocationId: resolvedLocation.id,
+    });
+  }
+
+  const seriesLocation = await resolveLocationByOrderSeries(location.companyId, data);
+  if (seriesLocation && seriesLocation.id !== resolvedLocation.id) {
+    resolvedLocation = seriesLocation;
+    console.warn("[Order webhook] Order series location override", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      orderNumber: data.order_number != null ? String(data.order_number) : data.name,
+      resolvedCompanyLocationId: resolvedLocation.id,
+      resolvedCompanyLocationName: resolvedLocation.name,
+    });
+  }
+
   const shopifyOrderId = String(data.id);
 
   try {
-    await processOrderWebhook(data, location, rawPayload);
+    await processOrderWebhook(data, resolvedLocation, rawPayload);
     return NextResponse.json({ ok: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -125,8 +241,8 @@ export async function POST(request: NextRequest) {
 
     await prisma.failedOrderWebhook.create({
       data: {
-        companyId: location.companyId,
-        companyLocationId: location.id,
+        companyId: resolvedLocation.companyId,
+        companyLocationId: resolvedLocation.id,
         shopifyOrderId,
         shopifyTopic: shopifyTopic?.slice(0, 100) ?? null,
         errorMessage: errorMessage.slice(0, 10000),
