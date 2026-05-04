@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { findMatchingContacts } from "@/lib/contact-identifiers";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -90,6 +92,53 @@ function getPaymentDescription(financialStatus: string | null): string {
   return financialStatus.toUpperCase();
 }
 
+function addUniquePhoneForInvoice(phones: string[], seenVariants: Set<string>, value?: string | null) {
+  const phone = value?.trim();
+  if (!phone) return;
+
+  const variants = buildPhoneLookupVariants(phone);
+  if (variants.some((variant) => seenVariants.has(variant))) return;
+
+  phones.push(phone);
+  for (const variant of variants) {
+    seenVariants.add(variant);
+  }
+}
+
+async function getInvoiceCustomerPhones(input: {
+  companyId: string;
+  email?: string | null;
+  phoneNumber?: string | null;
+}) {
+  const phones: string[] = [];
+  const seenVariants = new Set<string>();
+  addUniquePhoneForInvoice(phones, seenVariants, input.phoneNumber);
+
+  const matches = await findMatchingContacts(input.companyId, input.email ?? null, input.phoneNumber ?? null);
+  const emailMatch = matches.emailMatches[0] ?? null;
+  const phoneMatch = matches.phoneMatches[0] ?? null;
+  if (emailMatch && phoneMatch && emailMatch.id !== phoneMatch.id) {
+    return phones;
+  }
+
+  const contact = emailMatch ?? phoneMatch;
+  if (!contact) return phones;
+
+  addUniquePhoneForInvoice(phones, seenVariants, contact.phoneNumber);
+
+  const secondaryPhones = await prisma.contactPhone.findMany({
+    where: { contactId: contact.id },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: { phoneNumber: true },
+  });
+
+  for (const row of secondaryPhones) {
+    addUniquePhoneForInvoice(phones, seenVariants, row.phoneNumber);
+  }
+
+  return phones;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -176,6 +225,12 @@ export async function GET(
   const billingAddr = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
   const shippingCity = getCity(order.shippingAddress);
+  const customerPhones = await getInvoiceCustomerPhones({
+    companyId,
+    email: order.customerEmail,
+    phoneNumber: order.customerPhone,
+  });
+  const customerPhoneDisplay = customerPhones.join(", ");
 
   const externalRemarks = order.remarks
     .filter((r) => r.type === "external" && r.showOnInvoice)
@@ -479,7 +534,7 @@ export async function GET(
       <div class="address-block">
         <h3>Bill To</h3>
         <p><strong>Customer Name:</strong> ${escapeHtml(customerName)}</p>
-        ${order.customerPhone ? `<p><strong>Contact Number:</strong> ${escapeHtml(order.customerPhone)}</p>` : ""}
+        ${customerPhoneDisplay ? `<p><strong>Contact Number:</strong> ${escapeHtml(customerPhoneDisplay)}</p>` : ""}
         ${billingAddr ? `<p><strong>Address:</strong> ${escapeHtml(billingAddr)}</p>` : ""}
       </div>
       <div class="address-block">

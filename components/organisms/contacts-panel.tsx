@@ -59,6 +59,15 @@ type ContactPurchaseOrder = {
   }>;
 };
 
+type ContactPurchaseDetails = {
+  id: string;
+  name: string;
+  email: string | null;
+  phoneNumber: string | null;
+  emails: string[];
+  phoneNumbers: string[];
+};
+
 type ContactsPanelInitialData = {
   contacts: ContactItem[];
   total: number;
@@ -161,6 +170,7 @@ export function ContactsPanel({
   const [viewingContact, setViewingContact] = useState<ContactItem | null>(null);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
   const [contactPurchases, setContactPurchases] = useState<ContactPurchaseOrder[]>([]);
+  const [purchaseContactDetails, setPurchaseContactDetails] = useState<ContactPurchaseDetails | null>(null);
   const [createForm, setCreateForm] = useState<CreateContactInput>({
     name: "",
     email: "",
@@ -309,14 +319,20 @@ export function ContactsPanel({
   async function onViewPurchases(contact: ContactItem) {
     setViewingContact(contact);
     setContactPurchases([]);
+    setPurchaseContactDetails(null);
     setPurchasesLoading(true);
     try {
       const res = await fetch(`/api/admin/contacts/${contact.id}/orders`);
-      const data = (await res.json()) as { error?: string; orders?: ContactPurchaseOrder[] };
+      const data = (await res.json()) as {
+        error?: string;
+        contact?: ContactPurchaseDetails;
+        orders?: ContactPurchaseOrder[];
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to fetch purchases");
         return;
       }
+      setPurchaseContactDetails(data.contact ?? null);
       setContactPurchases(data.orders ?? []);
     } catch {
       notify.error("Failed to fetch purchases");
@@ -809,6 +825,7 @@ export function ContactsPanel({
           if (!open) {
             setViewingContact(null);
             setContactPurchases([]);
+            setPurchaseContactDetails(null);
           }
         }}
       >
@@ -824,19 +841,53 @@ export function ContactsPanel({
             <div className="flex items-center justify-center py-10">
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
             </div>
-          ) : contactPurchases.length === 0 ? (
-            <div className="rounded-md border border-dashed py-10 text-center">
-              <p className="text-sm font-medium">No purchases found</p>
-              <p className="text-muted-foreground mt-1 text-sm">
-                This contact has no matching orders yet.
-              </p>
-            </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-muted-foreground text-sm">
-                {contactPurchases.length} order(s) found
-              </p>
-              <div className="overflow-x-auto rounded-xl border border-border/70">
+              {purchaseContactDetails && (
+                <div className="grid gap-3 rounded-lg border border-border/70 bg-background/70 p-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Emails</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {purchaseContactDetails.emails.length > 0 ? (
+                        purchaseContactDetails.emails.map((email) => (
+                          <span key={email} className="rounded-md border border-border/70 px-2 py-1 text-xs">
+                            {email}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No emails saved</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Contact Numbers</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {purchaseContactDetails.phoneNumbers.length > 0 ? (
+                        purchaseContactDetails.phoneNumbers.map((phone) => (
+                          <span key={phone} className="rounded-md border border-border/70 px-2 py-1 text-xs">
+                            {phone}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No numbers saved</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {contactPurchases.length === 0 ? (
+                <div className="rounded-md border border-dashed py-10 text-center">
+                  <p className="text-sm font-medium">No purchases found</p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    This contact has no matching orders yet.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-muted-foreground text-sm">
+                    {contactPurchases.length} order(s) found
+                  </p>
+                  <div className="overflow-x-auto rounded-xl border border-border/70">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
@@ -896,7 +947,9 @@ export function ContactsPanel({
                     ))}
                   </tbody>
                 </table>
-              </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </DialogContent>

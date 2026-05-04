@@ -1,12 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FulfillmentOrderInvoiceDetails } from "@/components/organisms/fulfillment-order-invoice-details";
 import { notify } from "@/lib/notify";
 
@@ -39,6 +48,10 @@ interface FulfillmentOrderSelectorProps {
   currentStage?: string;
   showPrintStatus?: boolean;
   showHoldStatus?: boolean;
+  showInvoiceDetails?: boolean;
+  worksheetMode?: boolean;
+  bulkPrintUnprinted?: boolean;
+  showEmptyWorksheet?: boolean;
   children?: React.ReactNode;
 }
 
@@ -53,6 +66,10 @@ export function FulfillmentOrderSelector({
   currentStage,
   showPrintStatus = false,
   showHoldStatus = false,
+  showInvoiceDetails = true,
+  worksheetMode = false,
+  bulkPrintUnprinted = false,
+  showEmptyWorksheet = false,
   children,
 }: FulfillmentOrderSelectorProps) {
   const [orders, setOrders] = useState<FulfillmentOrder[]>([]);
@@ -60,8 +77,10 @@ export function FulfillmentOrderSelector({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(5);
+  const [limit, setLimit] = useState(bulkPrintUnprinted ? 100 : 5);
   const [total, setTotal] = useState(0);
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [selectionLoading, setSelectionLoading] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 500);
@@ -70,11 +89,8 @@ export function FulfillmentOrderSelector({
 
   const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [effectiveSearch, refreshTrigger]);
-
   const fetchOrders = useCallback(async () => {
+    setLoading(true);
     const params = new URLSearchParams();
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
@@ -84,6 +100,7 @@ export function FulfillmentOrderSelector({
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load orders");
+      setLoading(false);
       return;
     }
     const data = (await res.json()) as {
@@ -92,22 +109,21 @@ export function FulfillmentOrderSelector({
     };
     setOrders(data.orders ?? []);
     setTotal(data.total ?? 0);
-  }, [effectiveSearch, stages, refreshTrigger, page, limit]);
+    setLoading(false);
+  }, [effectiveSearch, stages, page, limit]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    fetchOrders()
-      .then(() => {
-        if (!cancelled) setLoading(false);
-      })
-      .catch(() => {
+    const timeout = window.setTimeout(() => {
+      fetchOrders().catch(() => {
         if (!cancelled) setLoading(false);
       });
+    }, 0);
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, refreshTrigger]);
 
   function formatPrice(val: string, currency?: string | null): string {
     const n = parseFloat(val);
@@ -118,6 +134,133 @@ export function FulfillmentOrderSelector({
   function formatDate(val: string): string {
     const d = new Date(val);
     return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+  }
+
+  if (worksheetMode) {
+    const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
+    const unprintedOrders = bulkPrintUnprinted
+      ? orders.filter((order) => (order.printCount ?? 0) === 0)
+      : [];
+
+    const handleWorksheetSelect = (order: FulfillmentOrder) => {
+      setSelectionLoading(true);
+      onSelectOrder(order);
+      setOrderOpen(false);
+      window.setTimeout(() => setSelectionLoading(false), 450);
+    };
+
+    const handleBulkPrintUnprinted = () => {
+      if (unprintedOrders.length === 0) {
+        notify.info("No unprinted orders found in the loaded print queue.");
+        return;
+      }
+
+      const ids = unprintedOrders.map((order) => order.id).join(",");
+      window.open(`/api/admin/orders/bulk-print?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
+      notify.success(`Opened one bulk print tab for ${unprintedOrders.length} invoice(s).`);
+      window.setTimeout(() => {
+        void fetchOrders();
+      }, 1500);
+    };
+
+    return (
+      <Card className="border-border/70 bg-background shadow-xs">
+        <CardContent className="space-y-4 p-4">
+          <div>
+            <div className="grid gap-2 sm:grid-cols-[130px_minmax(260px,520px)_auto] sm:items-center">
+              <label className="text-sm font-medium">Order number</label>
+              <Popover open={orderOpen} onOpenChange={setOrderOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={orderOpen}
+                    className="h-10 justify-between border-border/70 bg-background text-left font-normal"
+                  >
+                    {selectedOrder?.name ?? selectedOrder?.orderNumber ?? "Please Select an Option"}
+                    <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[520px] border-border/70 p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder="Search by order number..."
+                      value={search}
+                      onValueChange={(value) => {
+                        setSearch(value);
+                        setPage(1);
+                      }}
+                    />
+                    <CommandList>
+                      <CommandEmpty>{loading ? "Loading orders..." : "No order found."}</CommandEmpty>
+                      <CommandGroup>
+                        {orders.map((order) => (
+                          <CommandItem
+                            key={order.id}
+                            value={`${order.name ?? ""} ${order.orderNumber ?? ""}`}
+                            onSelect={() => handleWorksheetSelect(order)}
+                            className="flex items-center justify-between gap-3"
+                          >
+                            <span className="min-w-0">
+                              <span className="font-medium">{order.name ?? order.orderNumber ?? order.id}</span>
+                              <span className="text-muted-foreground ml-2 text-xs">
+                                {order.customerPhone ?? order.customerEmail ?? ""}
+                              </span>
+                            </span>
+                            {selectedOrderId === order.id && <Check className="size-4" aria-hidden />}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {bulkPrintUnprinted && (
+                <Button
+                  type="button"
+                  onClick={handleBulkPrintUnprinted}
+                  disabled={loading || unprintedOrders.length === 0}
+                  className="bg-amber-500 text-white hover:bg-amber-600"
+                >
+                  Print all unprinted ({unprintedOrders.length})
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {selectedOrderId ? (
+            <div className="border-t border-border/70 pt-4">
+              {selectionLoading ? (
+                <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 py-12 text-sm text-muted-foreground">
+                  <Loader2 className="size-5 animate-spin" aria-hidden />
+                  Loading selected order...
+                </div>
+              ) : (
+                <>
+                  {showInvoiceDetails && (
+                    <FulfillmentOrderInvoiceDetails
+                      orderId={selectedOrderId}
+                      refreshTrigger={invoiceRefreshTrigger}
+                      currentStage={currentStage}
+                    />
+                  )}
+                  {children}
+                </>
+              )}
+            </div>
+          ) : showEmptyWorksheet ? (
+            <div className="border-t border-border/70 pt-4">
+              {children}
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-border/70 py-10 text-center text-sm text-muted-foreground">
+              Select an order number to add samples or free issues.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -134,7 +277,10 @@ export function FulfillmentOrderSelector({
               <Input
                 placeholder="Search by order number or name..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 className="border-border/70 bg-background/90 pl-9"
               />
             </div>
@@ -245,11 +391,13 @@ export function FulfillmentOrderSelector({
 
       {selectedOrderId && (
         <>
-          <FulfillmentOrderInvoiceDetails
-            orderId={selectedOrderId}
-            refreshTrigger={invoiceRefreshTrigger}
-            currentStage={currentStage}
-          />
+          {showInvoiceDetails && (
+            <FulfillmentOrderInvoiceDetails
+              orderId={selectedOrderId}
+              refreshTrigger={invoiceRefreshTrigger}
+              currentStage={currentStage}
+            />
+          )}
           {children}
         </>
       )}

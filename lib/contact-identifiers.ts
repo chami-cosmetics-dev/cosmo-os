@@ -170,7 +170,7 @@ export async function listContactEmails(contactId: string, primaryEmail?: string
 
   for (const row of rows) {
     const normalized = normalizeContactEmail(row.email);
-    if (normalized) values.add(normalized);
+    if (normalized && normalized !== normalizedPrimary) values.add(normalized);
   }
 
   return [...values];
@@ -179,8 +179,9 @@ export async function listContactEmails(contactId: string, primaryEmail?: string
 export async function listContactPhones(contactId: string, primaryPhone?: string | null) {
   const values = new Set<string>();
   const normalizedPrimary = normalizeContactPhone(primaryPhone);
+  const primaryVariants = normalizedPrimary ? buildPhoneLookupVariants(normalizedPrimary) : [];
   if (normalizedPrimary) {
-    for (const variant of buildPhoneLookupVariants(normalizedPrimary)) {
+    for (const variant of primaryVariants) {
       values.add(variant);
     }
   }
@@ -198,7 +199,9 @@ export async function listContactPhones(contactId: string, primaryPhone?: string
   for (const row of rows) {
     const normalized = normalizeContactPhone(row.phoneNumber);
     if (!normalized) continue;
-    for (const variant of buildPhoneLookupVariants(normalized)) {
+    const variants = buildPhoneLookupVariants(normalized);
+    if (primaryVariants.some((variant) => variants.includes(variant))) continue;
+    for (const variant of variants) {
       values.add(variant);
     }
   }
@@ -239,12 +242,14 @@ export async function ensureSecondaryContactIdentifiers(input: {
   }
 
   const phoneModel = getContactPhoneModel(db);
-  if (phoneNumber && phoneModel && phoneNumber !== primaryPhoneNumber) {
-    const variants = buildPhoneLookupVariants(phoneNumber);
+  const primaryPhoneVariants = primaryPhoneNumber ? buildPhoneLookupVariants(primaryPhoneNumber) : [];
+  const phoneVariants = phoneNumber ? buildPhoneLookupVariants(phoneNumber) : [];
+  const matchesPrimaryPhone = phoneVariants.some((variant) => primaryPhoneVariants.includes(variant));
+  if (phoneNumber && phoneModel && !matchesPrimaryPhone) {
     const exists = await phoneModel.findFirst({
       where: {
         contactId: input.contactId,
-        OR: variants.map((variant) => ({ phoneNumber: variant })),
+        OR: phoneVariants.map((variant) => ({ phoneNumber: variant })),
       },
       select: { id: true },
     });
