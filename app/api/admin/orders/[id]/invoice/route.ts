@@ -496,6 +496,21 @@ export async function GET(
       max-width: 640px;
       margin: 0 auto;
     }
+    .invoice-policy-notes {
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 10px;
+      color: #1a1a1a;
+      line-height: 1.7;
+    }
+    .invoice-policy-notes p {
+      margin: 6px 0;
+    }
+    .invoice-policy-notes .return-policy {
+      text-align: center;
+      font-weight: 700;
+    }
     @media print {
       body { padding: 16px; }
       .top-accent { margin: -16px -16px 20px -16px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -640,6 +655,11 @@ export async function GET(
       <p><strong>Call Center Notes:</strong> ${internalRemarks.length > 0 ? escapeHtml(internalRemarks.join("; ")) : "—"}</p>
       <p><strong>Original Del Date:</strong> ${invoiceDate}</p>
       <p><strong>Payment Description:</strong> ${escapeHtml(getPaymentDescription(order.financialStatus))}</p>
+    </div>
+
+    <div class="invoice-policy-notes">
+      <p>• NOTE- Please check and confirm product(s) with the invoice at the time of receiving and in case of an exchange should be within 3 days of the delivery, complains receiving afterward will not be accepted</p>
+      <p class="return-policy">• Return Policy is applied. For more info please visit : https://cosmetics.lk/pages/return-policy</p>
     </div>
 
     ${loc.invoiceFooter || loc.invoiceHeader ? `

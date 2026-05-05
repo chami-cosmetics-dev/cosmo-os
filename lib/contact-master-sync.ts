@@ -62,6 +62,45 @@ function isBlank(value: string | null | undefined) {
   return !value || !value.trim();
 }
 
+async function updatePurchaseSnapshotForContacts(input: {
+  contactIds: string[];
+  occurredAt: Date;
+  recentMerchant: string | null;
+}) {
+  const uniqueIds = [...new Set(input.contactIds)];
+  if (uniqueIds.length === 0) return 0;
+
+  const purchaseDateResult = await prisma.contactMaster.updateMany({
+    where: {
+      id: { in: uniqueIds },
+      OR: [
+        { lastPurchaseAt: null },
+        { lastPurchaseAt: { lt: input.occurredAt } },
+      ],
+    },
+    data: {
+      ...(input.recentMerchant ? { recentMerchant: input.recentMerchant } : {}),
+      lastPurchaseAt: input.occurredAt,
+    },
+  });
+
+  if (!input.recentMerchant) {
+    return purchaseDateResult.count;
+  }
+
+  const merchantResult = await prisma.contactMaster.updateMany({
+    where: {
+      id: { in: uniqueIds },
+      recentMerchant: null,
+    },
+    data: {
+      recentMerchant: input.recentMerchant,
+    },
+  });
+
+  return purchaseDateResult.count + merchantResult.count;
+}
+
 function pickBestCustomerName(order: ShopifyOrderWebhookPayload) {
   const shippingName = normalizeName(order.shipping_address?.name);
   if (shippingName) return shippingName;
@@ -220,6 +259,16 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
 
   if (emailMatches.length > 1 || phoneMatches.length > 1) {
+    const purchaseSnapshotContactIds = [
+      ...emailMatches.map((contact) => contact.id),
+      ...phoneMatches.map((contact) => contact.id),
+    ];
+    const purchaseSnapshotUpdatedCount = await updatePurchaseSnapshotForContacts({
+      contactIds: purchaseSnapshotContactIds,
+      occurredAt: input.occurredAt,
+      recentMerchant,
+    });
+
     if (auditBehavior === "full") {
       await writeAuditLog({
         companyId: input.companyId,
@@ -227,7 +276,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
         action: "contact_auto_sync_conflict",
         entityType: "ContactMaster",
         entityId: null,
-        summary: `Skipped contact sync for ${input.sourceLabel} ${orderLabel} due to duplicate contact matches`,
+        summary: `Skipped contact identity sync for ${input.sourceLabel} ${orderLabel} due to duplicate contact matches`,
         metadata: {
           sourceType: input.sourceType ?? "shopify_order",
           sourceId: input.sourceId,
@@ -236,6 +285,8 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
           phoneNumber,
           emailMatchIds: emailMatches.map((contact) => contact.id),
           phoneMatchIds: phoneMatches.map((contact) => contact.id),
+          purchaseSnapshotContactIds: [...new Set(purchaseSnapshotContactIds)],
+          purchaseSnapshotUpdatedCount,
           reason: "duplicate_matches",
         },
       });

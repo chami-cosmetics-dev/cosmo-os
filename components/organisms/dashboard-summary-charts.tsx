@@ -77,6 +77,7 @@ export function DashboardSummaryCharts({
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <SummaryChartCard
+        chartId={`dashboard-summary-${analysisType}-total`}
         title="Grand Total"
         total={formatMetric(grandTotal)}
         centerLabel={leftCenter.shop}
@@ -84,6 +85,7 @@ export function DashboardSummaryCharts({
         segments={totals}
       />
       <SummaryChartCard
+        chartId={`dashboard-summary-${analysisType}-agent-total`}
         title={`Grand Total - ${analysisType === "merchant" ? "Merchant Wise" : "Payment Gateway Wise"}`}
         total={formatMetric(grandTotal)}
         centerLabel={rightCenter.agent}
@@ -95,12 +97,14 @@ export function DashboardSummaryCharts({
 }
 
 function SummaryChartCard({
+  chartId,
   title,
   total,
   centerLabel,
   centerValue,
   segments,
 }: {
+  chartId: string;
   title: string;
   total: string;
   centerLabel: string;
@@ -134,7 +138,7 @@ function SummaryChartCard({
       </CardHeader>
       <CardContent className="pb-8 pt-4">
         <div className="mx-auto mt-2 h-[23rem] w-[23rem] max-w-full">
-          <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
+          <ChartContainer id={chartId} config={chartConfig} className="mx-auto aspect-square h-full w-full">
             <PieChart>
               <ChartTooltip
                 cursor={false}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
+import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
 interface FulfillmentSampleFreeIssuePanelProps {
@@ -49,6 +50,15 @@ type SampleOrderDetail = {
     sampleFreeIssueItem: { id: string; name: string; type: string };
     quantity: number;
   }>;
+  remarks?: Array<{
+    id: string;
+    content: string;
+    createdAt: string;
+    stage: string;
+    type: string;
+    showOnInvoice?: boolean;
+    addedBy: { id: string; name: string | null; email: string | null } | null;
+  }>;
 };
 
 function formatPrice(value?: string | null, currency?: string | null) {
@@ -71,6 +81,16 @@ function formatAddress(addr: unknown) {
   return parts.join(", ") || "-";
 }
 
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 export function FulfillmentSampleFreeIssuePanel({
   orderId,
   order,
@@ -83,6 +103,10 @@ export function FulfillmentSampleFreeIssuePanel({
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState<SampleOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [remarkContent, setRemarkContent] = useState("");
+  const [editingRemarkId, setEditingRemarkId] = useState<string | null>(null);
+  const [remarkBusy, setRemarkBusy] = useState(false);
+  const [sendLaterDate, setSendLaterDate] = useState("");
 
   const isBusy = busyKey !== null;
 
@@ -97,6 +121,9 @@ export function FulfillmentSampleFreeIssuePanel({
     if (!orderId) {
       setDetail(null);
       setSelectedSamples([]);
+      setRemarkContent("");
+      setEditingRemarkId(null);
+      setSendLaterDate("");
       return;
     }
 
@@ -129,6 +156,121 @@ export function FulfillmentSampleFreeIssuePanel({
       setDetail(null);
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  function resetRemarkForm() {
+    setRemarkContent("");
+    setEditingRemarkId(null);
+  }
+
+  async function saveRemark() {
+    if (!orderId) return;
+    const content = remarkContent.trim();
+    if (!content) return;
+
+    setRemarkBusy(true);
+    try {
+      const response = await fetch(
+        editingRemarkId
+          ? `/api/admin/orders/${orderId}/remarks/${editingRemarkId}`
+          : `/api/admin/orders/${orderId}/remarks`,
+        {
+          method: editingRemarkId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            editingRemarkId
+              ? { content, showOnInvoice: false }
+              : {
+                  stage: "sample_free_issue",
+                  type: "internal",
+                  content,
+                  showOnInvoice: false,
+                }
+          ),
+        }
+      );
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        notify.error(data.error ?? "Failed to save remark");
+        return;
+      }
+
+      notify.success(editingRemarkId ? "Remark updated." : "Remark added.");
+      resetRemarkForm();
+      await reloadDetail();
+    } catch {
+      notify.error("Failed to save remark");
+    } finally {
+      setRemarkBusy(false);
+    }
+  }
+
+  async function deleteRemark(remarkId: string) {
+    if (!orderId) return;
+    setRemarkBusy(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/remarks/${remarkId}`, {
+        method: "DELETE",
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        notify.error(data.error ?? "Failed to delete remark");
+        return;
+      }
+
+      notify.success("Remark deleted.");
+      if (editingRemarkId === remarkId) resetRemarkForm();
+      await reloadDetail();
+    } catch {
+      notify.error("Failed to delete remark");
+    } finally {
+      setRemarkBusy(false);
+    }
+  }
+
+  async function createInternalRemark(content: string) {
+    if (!orderId) return false;
+    const response = await fetch(`/api/admin/orders/${orderId}/remarks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stage: "sample_free_issue",
+        type: "internal",
+        content,
+        showOnInvoice: false,
+      }),
+    });
+    const data = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      notify.error(data.error ?? "Failed to save remark");
+      return false;
+    }
+    return true;
+  }
+
+  async function saveSendLaterDate() {
+    if (!orderId || !order || !sendLaterDate) return;
+
+    const orderDate = new Date(order.createdAt);
+    const minDate = toDateInputValue(orderDate);
+    const maxDate = toDateInputValue(addDays(orderDate, 3));
+    if (sendLaterDate < minDate || sendLaterDate > maxDate) {
+      notify.error("Send later date must be within 3 days from the order date.");
+      return;
+    }
+
+    setRemarkBusy(true);
+    try {
+      const saved = await createInternalRemark(`Send later date: ${sendLaterDate}`);
+      if (!saved) return;
+      notify.success("Send later date saved.");
+      setSendLaterDate("");
+      await reloadDetail();
+    } catch {
+      notify.error("Failed to save send later date");
+    } finally {
+      setRemarkBusy(false);
     }
   }
 
@@ -172,6 +314,10 @@ export function FulfillmentSampleFreeIssuePanel({
   const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
   const isDetailPending = detailLoading && !detail;
+  const remarks = detail?.remarks ?? [];
+  const orderDate = order ? new Date(order.createdAt) : null;
+  const sendLaterMin = orderDate ? toDateInputValue(orderDate) : "";
+  const sendLaterMax = orderDate ? toDateInputValue(addDays(orderDate, 3)) : "";
 
   return (
     <div className="space-y-4">
@@ -245,11 +391,105 @@ export function FulfillmentSampleFreeIssuePanel({
             </div>
           </>
 
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.85fr)]">
+        <div className="rounded-md border border-border/70 p-2.5">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-medium">Remarks</h3>
+            <span className="text-muted-foreground text-xs">Visible throughout the order process</span>
+          </div>
+          {remarks.length > 0 ? (
+            <div className="mb-2 max-h-24 space-y-1.5 overflow-y-auto">
+              {remarks.map((remark) => (
+                <div key={remark.id} className="flex items-start justify-between gap-2 rounded-md border border-border/60 px-2 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm">{remark.content}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {remark.stage.replaceAll("_", " ")}
+                      {remark.showOnInvoice ? " - On invoice" : ""}
+                    </p>
+                  </div>
+                  {perms.canManageRemarks && (
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        disabled={remarkBusy}
+                        onClick={() => {
+                          setEditingRemarkId(remark.id);
+                          setRemarkContent(remark.content);
+                        }}
+                        aria-label="Edit remark"
+                      >
+                        <Pencil className="size-4" aria-hidden />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 text-destructive hover:text-destructive"
+                        disabled={remarkBusy}
+                        onClick={() => void deleteRemark(remark.id)}
+                        aria-label="Delete remark"
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground mb-2 rounded-md border border-dashed border-border/70 px-2 py-2 text-sm">
+              {orderId ? "No remarks yet." : "Select an order to view or add remarks."}
+            </p>
+          )}
+          {perms.canManageRemarks && (
+            <div className="space-y-2">
+              <textarea
+                value={remarkContent}
+                onChange={(event) => setRemarkContent(event.target.value)}
+                maxLength={LIMITS.orderRemarkContent.max}
+                rows={2}
+                disabled={!orderId || remarkBusy}
+                placeholder="Add remark for this order..."
+                className="w-full rounded-md border border-border/70 bg-background px-3 py-2 text-sm"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-muted-foreground text-xs">
+                  Internal process remark only.
+                </p>
+                <div className="flex gap-2">
+                  {editingRemarkId && (
+                    <Button type="button" variant="outline" onClick={resetRemarkForm} disabled={remarkBusy}>
+                      Cancel
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    onClick={() => void saveRemark()}
+                    disabled={!orderId || remarkBusy || !remarkContent.trim()}
+                  >
+                    {remarkBusy ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                    ) : editingRemarkId ? (
+                      "Update Remark"
+                    ) : (
+                      "Add Remark"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {lookups && perms.canManageSampleFreeIssue && (
-          <>
-            <div className="grid gap-3 rounded-md border border-border/70 p-3 lg:grid-cols-[minmax(260px,1fr)_110px_auto]">
+          <div className="space-y-2 rounded-md border border-border/70 p-2.5">
+            <div className="grid gap-2 lg:grid-cols-[minmax(220px,1fr)_82px_auto]">
               <div>
-                <label className="mb-2 block text-sm font-medium">Sample / Free issue</label>
+                <label className="mb-1.5 block text-sm font-medium">Sample / Free issue</label>
                 <Popover open={addOpen} onOpenChange={setAddOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -291,7 +531,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 </Popover>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium">Qty</label>
+                <label className="mb-1.5 block text-sm font-medium">Qty</label>
                 <Input
                   type="number"
                   value={selectedSamples.at(-1)?.qty ?? 1}
@@ -304,7 +544,7 @@ export function FulfillmentSampleFreeIssuePanel({
                       prev.map((sample, index) => (index === prev.length - 1 ? { ...sample, qty } : sample))
                     );
                   }}
-                  className="border-border/70 bg-background/90"
+                  className="h-10 border-border/70 bg-background/90"
                 />
               </div>
               <div className="flex items-end">
@@ -334,7 +574,7 @@ export function FulfillmentSampleFreeIssuePanel({
             </div>
 
             {(detail?.sampleFreeIssues?.length || selectedSampleRows.length > 0) && (
-              <div className="overflow-hidden rounded-md border border-border/70">
+              <div className="max-h-40 overflow-auto rounded-md border border-border/70">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/40">
                     <tr className="border-b border-border/70">
@@ -391,7 +631,38 @@ export function FulfillmentSampleFreeIssuePanel({
                 </table>
               </div>
             )}
+            <div className="grid gap-2 border-t border-border/70 pt-2 sm:grid-cols-[1fr_auto]">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">Send later date</label>
+                <Input
+                  type="date"
+                  value={sendLaterDate}
+                  min={sendLaterMin}
+                  max={sendLaterMax}
+                  disabled={!orderId || remarkBusy}
+                  onChange={(event) => setSendLaterDate(event.target.value)}
+                  className="h-10 border-border/70 bg-background/90"
+                />
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {order ? `Allowed: ${sendLaterMin} to ${sendLaterMax}` : "Select order first"}
+                </p>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!orderId || !sendLaterDate || remarkBusy}
+                  onClick={() => void saveSendLaterDate()}
+                >
+                  Save Date
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        </div>
 
+        {lookups && perms.canManageSampleFreeIssue && (
             <div className="flex justify-end">
               <Button
                 onClick={() => doAction("advance_to_print")}
@@ -406,7 +677,6 @@ export function FulfillmentSampleFreeIssuePanel({
                 Confirm Sample
               </Button>
             </div>
-          </>
         )}
 
         {lookups && !perms.canManageSampleFreeIssue && (

@@ -198,7 +198,7 @@ function DashboardDonutGrid({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
+        {stats.map((stat, index) => (
           <Card
             key={stat.shop}
             className="overflow-visible rounded-xl border border-slate-200 bg-white shadow-[0_8px_24px_-18px_rgba(15,23,42,0.28)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_18px_34px_-22px_rgba(15,23,42,0.35)] dark:border-border dark:bg-card"
@@ -214,6 +214,7 @@ function DashboardDonutGrid({
                 </p>
               </div>
               <DonutChartCard
+                chartId={`dashboard-main-donut-${index}`}
                 name={stat.agent}
                 value={stat.agentValue}
                 segments={stat.segments}
@@ -255,10 +256,12 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 }
 
 function DonutChartCard({
+  chartId,
   name,
   value,
   segments,
 }: {
+  chartId: string;
   name: string;
   value: string;
   segments: Array<{ value: number; color: string }>;
@@ -280,7 +283,7 @@ function DonutChartCard({
 
   return (
     <div className="mx-auto mt-6 h-[14.5rem] w-[14.5rem] max-w-full">
-      <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
+      <ChartContainer id={chartId} config={chartConfig} className="mx-auto aspect-square h-full w-full">
         <PieChart>
           <ChartTooltip
             cursor={false}
