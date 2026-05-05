@@ -132,6 +132,7 @@ export type FulfillmentNavPermissions = {
   canViewOrderPrint: boolean;
   canViewReadyDispatch: boolean;
   canViewDeliveryInvoice: boolean;
+  canViewFalconUpload: boolean;
 };
 
 export function buildFulfillmentNavPermissions(
@@ -143,6 +144,7 @@ export function buildFulfillmentNavPermissions(
       canViewOrderPrint: false,
       canViewReadyDispatch: false,
       canViewDeliveryInvoice: false,
+      canViewFalconUpload: false,
     };
   }
   return {
@@ -156,6 +158,9 @@ export function buildFulfillmentNavPermissions(
       hasPermission(context, "orders.read") ||
       hasPermission(context, "fulfillment.ready_dispatch.read"),
     canViewDeliveryInvoice:
+      hasPermission(context, "orders.read") ||
+      hasPermission(context, "fulfillment.delivery_invoice.read"),
+    canViewFalconUpload:
       hasPermission(context, "orders.read") ||
       hasPermission(context, "fulfillment.delivery_invoice.read"),
   };
