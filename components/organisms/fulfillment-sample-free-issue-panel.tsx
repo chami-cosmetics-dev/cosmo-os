@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
@@ -50,6 +50,7 @@ type SampleOrderDetail = {
     sampleFreeIssueItem: { id: string; name: string; type: string };
     quantity: number;
   }>;
+  sampleFreeIssueSendLaterDate?: string | null;
   remarks?: Array<{
     id: string;
     content: string;
@@ -85,6 +86,10 @@ function toDateInputValue(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function todayDateInputValue() {
+  return toDateInputValue(new Date());
+}
+
 function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -107,6 +112,7 @@ export function FulfillmentSampleFreeIssuePanel({
   const [editingRemarkId, setEditingRemarkId] = useState<string | null>(null);
   const [remarkBusy, setRemarkBusy] = useState(false);
   const [sendLaterDate, setSendLaterDate] = useState("");
+  const sendLaterInputRef = useRef<HTMLInputElement | null>(null);
 
   const isBusy = busyKey !== null;
 
@@ -229,26 +235,6 @@ export function FulfillmentSampleFreeIssuePanel({
     }
   }
 
-  async function createInternalRemark(content: string) {
-    if (!orderId) return false;
-    const response = await fetch(`/api/admin/orders/${orderId}/remarks`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        stage: "sample_free_issue",
-        type: "internal",
-        content,
-        showOnInvoice: false,
-      }),
-    });
-    const data = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      notify.error(data.error ?? "Failed to save remark");
-      return false;
-    }
-    return true;
-  }
-
   async function saveSendLaterDate() {
     if (!orderId || !order || !sendLaterDate) return;
 
@@ -262,11 +248,29 @@ export function FulfillmentSampleFreeIssuePanel({
 
     setRemarkBusy(true);
     try {
-      const saved = await createInternalRemark(`Send later date: ${sendLaterDate}`);
-      if (!saved) return;
+      const response = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_sample_send_later_date",
+          sendLaterDate,
+        }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        notify.error(data.error ?? "Failed to save send later date");
+        return;
+      }
+
       notify.success("Send later date saved.");
+      const savedDate = sendLaterDate;
       setSendLaterDate("");
-      await reloadDetail();
+      if (savedDate > todayDateInputValue()) {
+        onRefresh(true);
+      } else {
+        await reloadDetail();
+        onRefresh(false);
+      }
     } catch {
       notify.error("Failed to save send later date");
     } finally {
@@ -318,6 +322,11 @@ export function FulfillmentSampleFreeIssuePanel({
   const orderDate = order ? new Date(order.createdAt) : null;
   const sendLaterMin = orderDate ? toDateInputValue(orderDate) : "";
   const sendLaterMax = orderDate ? toDateInputValue(addDays(orderDate, 3)) : "";
+  const savedSendLaterDate = detail?.sampleFreeIssueSendLaterDate
+    ? toDateInputValue(new Date(detail.sampleFreeIssueSendLaterDate))
+    : order?.sampleFreeIssueSendLaterDate
+      ? toDateInputValue(new Date(order.sampleFreeIssueSendLaterDate))
+      : null;
 
   return (
     <div className="space-y-4">
@@ -635,16 +644,21 @@ export function FulfillmentSampleFreeIssuePanel({
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Send later date</label>
                 <Input
+                  ref={sendLaterInputRef}
                   type="date"
                   value={sendLaterDate}
                   min={sendLaterMin}
                   max={sendLaterMax}
                   disabled={!orderId || remarkBusy}
+                  onClick={() => sendLaterInputRef.current?.showPicker?.()}
+                  onFocus={() => sendLaterInputRef.current?.showPicker?.()}
                   onChange={(event) => setSendLaterDate(event.target.value)}
                   className="h-10 border-border/70 bg-background/90"
                 />
                 <p className="text-muted-foreground mt-1 text-xs">
-                  {order ? `Allowed: ${sendLaterMin} to ${sendLaterMax}` : "Select order first"}
+                  {order
+                    ? `Allowed: ${sendLaterMin} to ${sendLaterMax}${savedSendLaterDate ? ` | Saved: ${savedSendLaterDate}` : ""}`
+                    : "Select order first"}
                 </p>
               </div>
               <div className="flex items-end">

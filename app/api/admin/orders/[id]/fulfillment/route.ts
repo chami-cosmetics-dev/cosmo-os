@@ -23,6 +23,10 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     action: z.literal("advance_to_print"),
   }),
   z.object({
+    action: z.literal("set_sample_send_later_date"),
+    sendLaterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  z.object({
     action: z.literal("put_on_hold"),
     holdReasonId: cuidSchema,
   }),
@@ -71,6 +75,7 @@ function getRequiredPermissionsForAction(action: string): string[] {
   switch (action) {
     case "add_samples":
     case "advance_to_print":
+    case "set_sample_send_later_date":
       return ["fulfillment.sample_free_issue.manage"];
     case "put_on_hold":
       return ["fulfillment.ready_dispatch.put_on_hold"];
@@ -126,6 +131,21 @@ function getRequiredRevertPermissions(
     perms.push(`fulfillment.revert_to.${stageToPermissionKey(FULFILLMENT_STAGE_ORDER[i])}`);
   }
   return perms;
+}
+
+function dateOnlyUtc(value: string) {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+}
+
+function dateInputValueUtc(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysUtc(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }
 
 
@@ -287,6 +307,41 @@ export async function PATCH(
         beforeStage: order.fulfillmentStage,
         afterStage: "print",
         metadata: { action: data.action },
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "set_sample_send_later_date") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Send later date can only be set at sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+
+      const orderDate = dateOnlyUtc(dateInputValueUtc(order.createdAt));
+      const minDate = dateInputValueUtc(orderDate);
+      const maxDate = dateInputValueUtc(addDaysUtc(orderDate, 3));
+      if (data.sendLaterDate < minDate || data.sendLaterDate > maxDate) {
+        return NextResponse.json(
+          { error: "Send later date must be within 3 days from the order date." },
+          { status: 400 }
+        );
+      }
+
+      const sendLaterDate = dateOnlyUtc(data.sendLaterDate);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { sampleFreeIssueSendLaterDate: sendLaterDate },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Set send later date for order ${order.orderNumber ?? order.name ?? order.id} to ${data.sendLaterDate}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage,
+        metadata: { action: data.action, sendLaterDate: data.sendLaterDate },
       });
       return NextResponse.json({ success: true });
     }

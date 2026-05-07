@@ -72,6 +72,14 @@ const DEFAULT_PERMISSIONS = [
     description: "View order fulfillment timeline in modal",
   },
   {
+    key: "failed_webhooks.read",
+    description: "View failed Shopify order webhooks",
+  },
+  {
+    key: "failed_webhooks.retry",
+    description: "Retry failed Shopify order webhooks",
+  },
+  {
     key: "complaints.create",
     description: "Create merchant complaints",
   },
@@ -288,6 +296,8 @@ const DEFAULT_ROLES = [
       "orders.manage",
       "orders.create_manual",
       "orders.view_timeline",
+      "failed_webhooks.read",
+      "failed_webhooks.retry",
       "complaints.create",
       "complaints.read",
       "complaints.manage",

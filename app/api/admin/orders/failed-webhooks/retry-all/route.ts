@@ -8,7 +8,7 @@ import { processOrderWebhook } from "@/lib/order-webhook-process";
 export const maxDuration = 60;
 
 export async function POST() {
-  const auth = await requirePermission("orders.manage");
+  const auth = await requirePermission("failed_webhooks.retry");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

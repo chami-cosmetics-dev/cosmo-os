@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
+import { CalendarClock, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,7 @@ export type FulfillmentOrder = {
   printCount?: number;
   packageOnHoldAt?: string | null;
   packageHoldReason?: { id: string; name: string } | null;
+  sampleFreeIssueSendLaterDate?: string | null;
   fulfillmentStage?: string | null;
 };
 
@@ -52,6 +53,7 @@ interface FulfillmentOrderSelectorProps {
   worksheetMode?: boolean;
   bulkPrintUnprinted?: boolean;
   showEmptyWorksheet?: boolean;
+  allowFutureSendLater?: boolean;
   children?: React.ReactNode;
 }
 
@@ -70,6 +72,7 @@ export function FulfillmentOrderSelector({
   worksheetMode = false,
   bulkPrintUnprinted = false,
   showEmptyWorksheet = false,
+  allowFutureSendLater = false,
   children,
 }: FulfillmentOrderSelectorProps) {
   const [orders, setOrders] = useState<FulfillmentOrder[]>([]);
@@ -81,6 +84,7 @@ export function FulfillmentOrderSelector({
   const [total, setTotal] = useState(0);
   const [orderOpen, setOrderOpen] = useState(false);
   const [selectionLoading, setSelectionLoading] = useState(false);
+  const [showFutureSendLater, setShowFutureSendLater] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 500);
@@ -95,6 +99,9 @@ export function FulfillmentOrderSelector({
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
     params.set("limit", String(limit));
+    if (allowFutureSendLater) {
+      params.set("sample_send_later", showFutureSendLater ? "future" : "available");
+    }
     if (effectiveSearch) params.set("search", effectiveSearch);
     const res = await fetch(`/api/admin/orders/page-data?${params}`);
     if (!res.ok) {
@@ -110,7 +117,7 @@ export function FulfillmentOrderSelector({
     setOrders(data.orders ?? []);
     setTotal(data.total ?? 0);
     setLoading(false);
-  }, [effectiveSearch, stages, page, limit]);
+  }, [allowFutureSendLater, effectiveSearch, showFutureSendLater, stages, page, limit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +141,10 @@ export function FulfillmentOrderSelector({
   function formatDate(val: string): string {
     const d = new Date(val);
     return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+  }
+
+  function merchantLabel(order: FulfillmentOrder) {
+    return order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "No merchant";
   }
 
   if (worksheetMode) {
@@ -193,7 +204,7 @@ export function FulfillmentOrderSelector({
                       }}
                     />
                     <CommandList>
-                      <CommandEmpty>{loading ? "Loading orders..." : "No order found."}</CommandEmpty>
+                      <CommandEmpty>{loading ? "Loading orders..." : showFutureSendLater ? "No future order found." : "No order found."}</CommandEmpty>
                       <CommandGroup>
                         {orders.map((order) => (
                           <CommandItem
@@ -202,11 +213,21 @@ export function FulfillmentOrderSelector({
                             onSelect={() => handleWorksheetSelect(order)}
                             className="flex items-center justify-between gap-3"
                           >
-                            <span className="min-w-0">
-                              <span className="font-medium">{order.name ?? order.orderNumber ?? order.id}</span>
-                              <span className="text-muted-foreground ml-2 text-xs">
-                                {order.customerPhone ?? order.customerEmail ?? ""}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate">
+                                <span className="font-medium">{order.name ?? order.orderNumber ?? order.id}</span>
+                                <span className="text-muted-foreground ml-2 text-xs">
+                                  {merchantLabel(order)}
+                                </span>
                               </span>
+                              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                {order.companyLocation?.name ?? "No location"}
+                              </span>
+                              {showFutureSendLater && order.sampleFreeIssueSendLaterDate && (
+                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                  Send {new Date(order.sampleFreeIssueSendLaterDate).toISOString().slice(0, 10)}
+                                </span>
+                              )}
                             </span>
                             {selectedOrderId === order.id && <Check className="size-4" aria-hidden />}
                           </CommandItem>
@@ -216,6 +237,22 @@ export function FulfillmentOrderSelector({
                   </Command>
                 </PopoverContent>
               </Popover>
+              {allowFutureSendLater && (
+                <Button
+                  type="button"
+                  variant={showFutureSendLater ? "default" : "outline"}
+                  onClick={() => {
+                    onSelectOrder(null);
+                    setOrderOpen(false);
+                    setPage(1);
+                    setShowFutureSendLater((current) => !current);
+                  }}
+                  className="gap-2"
+                >
+                  <CalendarClock className="size-4" aria-hidden />
+                  {showFutureSendLater ? "Today Queue" : "Future Orders"}
+                </Button>
+              )}
               {bulkPrintUnprinted && (
                 <Button
                   type="button"

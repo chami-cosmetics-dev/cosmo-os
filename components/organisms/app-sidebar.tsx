@@ -2,7 +2,6 @@
 
 import packageJson from "@/package.json";
 import {
-  AlertCircle,
   ContactRound,
   LayoutDashboard,
   Mail,
@@ -332,19 +331,6 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
                     <Link href={fulfillmentHref}>
                       <PackageCheck className="size-4" />
                       <span>Fulfillment</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-              {canViewOrders && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === "/dashboard/orders/failed-webhooks"}
-                  >
-                    <Link href="/dashboard/orders/failed-webhooks">
-                      <AlertCircle className="size-4" />
-                      <span>Failed Webhooks</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

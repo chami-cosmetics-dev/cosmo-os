@@ -42,6 +42,7 @@ export function SampleFreeIssueFulfillmentPage({
         showInvoiceDetails={false}
         worksheetMode
         showEmptyWorksheet
+        allowFutureSendLater
       >
         <FulfillmentSampleFreeIssuePanel
           orderId={selectedOrder?.id ?? null}
