@@ -217,6 +217,15 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.delivery_invoice.mark_complete",
     description: "Mark invoice complete",
   },
+  // Fulfillment - Falcon Upload
+  {
+    key: "fulfillment.falcon_upload.read",
+    description: "View Falcon upload page",
+  },
+  {
+    key: "fulfillment.falcon_upload.export",
+    description: "Generate Falcon upload files",
+  },
   // Fulfillment - Remarks (all stages)
   {
     key: "fulfillment.remarks.manage",
@@ -313,6 +322,8 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.read",
       "fulfillment.delivery_invoice.mark_delivered",
       "fulfillment.delivery_invoice.mark_complete",
+      "fulfillment.falcon_upload.read",
+      "fulfillment.falcon_upload.export",
       "fulfillment.remarks.manage",
       "fulfillment.revert_to.order_received",
       "fulfillment.revert_to.sample_free_issue",
@@ -338,6 +349,7 @@ const DEFAULT_ROLES = [
       "fulfillment.order_print.read",
       "fulfillment.ready_dispatch.read",
       "fulfillment.delivery_invoice.read",
+      "fulfillment.falcon_upload.read",
     ],
   },
   {

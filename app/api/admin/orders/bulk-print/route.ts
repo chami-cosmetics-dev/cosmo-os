@@ -7,7 +7,7 @@ function escapeScriptJson(value: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAnyPermission(["orders.read", "fulfillment.order_print.print"]);
+  const auth = await requireAnyPermission(["fulfillment.order_print.print"]);
   if (!auth.ok) {
     return new NextResponse("Unauthorized", { status: 401 });
   }

@@ -63,11 +63,8 @@ function isCitypakCourier(name: string | null | undefined) {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-async function requireFalconExportAuth() {
-  const auth = await requireAnyPermission([
-    "orders.read",
-    "fulfillment.delivery_invoice.read",
-  ]);
+async function requireFalconExportAuth(permissionKey: "fulfillment.falcon_upload.read" | "fulfillment.falcon_upload.export") {
+  const auth = await requireAnyPermission([permissionKey]);
   if (!auth.ok) {
     return { ok: false as const, response: NextResponse.json({ error: auth.error }, { status: auth.status }) };
   }
@@ -157,7 +154,7 @@ async function getCitypakWaybillRows(
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireFalconExportAuth();
+  const auth = await requireFalconExportAuth("fulfillment.falcon_upload.read");
   if (!auth.ok) return auth.response;
 
   const dispatchDate = parseDispatchDate(request.nextUrl.searchParams.get("dispatchDate"));
@@ -186,7 +183,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireFalconExportAuth();
+  const auth = await requireFalconExportAuth("fulfillment.falcon_upload.export");
   if (!auth.ok) return auth.response;
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;

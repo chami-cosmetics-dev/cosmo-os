@@ -130,7 +130,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
       <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-6 shadow-[0_18px_40px_-28px_var(--primary)]">
         <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Administration</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Audit Trail</h1>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Audit Logs</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground sm:text-base">
           Categorized activity history for report downloads, user operations, and role changes across the system.
         </p>

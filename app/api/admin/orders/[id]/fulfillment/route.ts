@@ -71,22 +71,30 @@ function getRequiredPermissionsForAction(action: string): string[] {
   switch (action) {
     case "add_samples":
     case "advance_to_print":
-      return ["orders.manage", "fulfillment.sample_free_issue.manage"];
+      return ["fulfillment.sample_free_issue.manage"];
     case "put_on_hold":
-      return ["orders.manage", "fulfillment.ready_dispatch.put_on_hold"];
+      return ["fulfillment.ready_dispatch.put_on_hold"];
     case "mark_ready":
-      return ["orders.manage", "fulfillment.ready_dispatch.package_ready"];
+      return ["fulfillment.ready_dispatch.package_ready"];
     case "revert_hold":
-      return ["orders.manage", "fulfillment.ready_dispatch.revert_hold"];
+      return ["fulfillment.ready_dispatch.revert_hold"];
     case "dispatch":
-      return ["orders.manage", "fulfillment.ready_dispatch.dispatch"];
+      return ["fulfillment.ready_dispatch.dispatch"];
     case "mark_delivered":
-      return ["orders.manage", "fulfillment.delivery_invoice.mark_delivered"];
+      return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
-      return ["orders.manage", "fulfillment.delivery_invoice.mark_complete"];
+      return ["fulfillment.delivery_invoice.mark_complete"];
     case "complete_pos":
-    case "revert_to_stage":
       return ["orders.manage"];
+    case "revert_to_stage":
+      return [
+        "fulfillment.revert_to.order_received",
+        "fulfillment.revert_to.sample_free_issue",
+        "fulfillment.revert_to.print",
+        "fulfillment.revert_to.ready_dispatch",
+        "fulfillment.revert_to.dispatched",
+        "fulfillment.revert_to.delivery_complete",
+      ];
     default:
       return ["orders.manage"];
   }

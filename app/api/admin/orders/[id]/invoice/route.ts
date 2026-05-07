@@ -147,8 +147,8 @@ export async function GET(
   const shouldIncrementPrint = printParam === "1" || printParam === "true";
   const auth = await requireAnyPermission(
     shouldIncrementPrint
-      ? ["orders.read", "fulfillment.order_print.print"]
-      : ["orders.read", "fulfillment.order_print.read"]
+      ? ["fulfillment.order_print.print"]
+      : ["fulfillment.order_print.read"]
   );
   if (!auth.ok) {
     return new NextResponse("Unauthorized", { status: 401 });
