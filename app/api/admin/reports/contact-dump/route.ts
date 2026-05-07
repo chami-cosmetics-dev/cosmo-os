@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { CONTACT_DUMP_PARTS, type ContactDumpPartKey, buildContactDumpCsv } from "@/lib/reports/contact-dump";
+import { getContactDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ function getRequestedPart(value: string | null): ContactDumpPartKey {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("orders.read");
+  const part = getRequestedPart(request.nextUrl.searchParams.get("part"));
+  const auth = await requirePermission(getContactDumpPermission(part));
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -23,7 +25,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const part = getRequestedPart(request.nextUrl.searchParams.get("part"));
   const config = CONTACT_DUMP_PARTS[part];
 
   const contacts = await prisma.contactMaster.findMany({

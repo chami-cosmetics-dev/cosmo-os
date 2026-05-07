@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Truck } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { notify } from "@/lib/notify";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -13,6 +12,26 @@ type OrderPackageStatus = {
   packageReadyAt: string | null;
   packageOnHoldAt: string | null;
   packageHoldReason: { id: string; name: string } | null;
+};
+
+type DispatchOrderDetail = {
+  id: string;
+  name: string | null;
+  orderNumber: string | null;
+  totalPrice: string;
+  currency: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  shippingAddress: unknown;
+  lineItems: Array<{
+    id: string;
+    productTitle: string;
+    variantTitle: string | null;
+    sku: string | null;
+    quantity: number;
+    price: string;
+    total: string;
+  }>;
 };
 
 interface FulfillmentDispatchPanelProps {
@@ -37,6 +56,8 @@ export function FulfillmentDispatchPanel({
   const [dispatchRiderId, setDispatchRiderId] = useState("");
   const [dispatchCourierId, setDispatchCourierId] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [detail, setDetail] = useState<DispatchOrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const isBusy = busyKey !== null;
   const isOnHold = !!packageStatus?.packageOnHoldAt;
@@ -52,19 +73,26 @@ export function FulfillmentDispatchPanel({
   useEffect(() => {
     if (!orderId) {
       setPackageStatus(null);
+      setDetail(null);
       return;
     }
+    setDetailLoading(true);
     fetch(`/api/admin/orders/${orderId}`)
       .then((r) => r.json())
-      .then((data) =>
+      .then((data) => {
+        setDetail(data);
         setPackageStatus({
           packageReadyAt: data.packageReadyAt ?? null,
           packageOnHoldAt: data.packageOnHoldAt ?? null,
           packageHoldReason: data.packageHoldReason ?? null,
-        })
-      )
-      .catch(() => setPackageStatus(null));
-  }, [orderId]); // Only refetch when orderId changes; local updates for hold/ready avoid refreshTrigger
+        });
+      })
+      .catch(() => {
+        setDetail(null);
+        setPackageStatus(null);
+      })
+      .finally(() => setDetailLoading(false));
+  }, [orderId]);
 
   async function doAction(action: string, body?: Record<string, unknown>) {
     if (!orderId || !lookups) return;
@@ -75,7 +103,7 @@ export function FulfillmentDispatchPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? { action }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as { error?: string };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return;
@@ -86,29 +114,21 @@ export function FulfillmentDispatchPanel({
       setDispatchCourierId("");
       if (action === "dispatch") {
         onRefresh(true);
-      } else {
-        // Optimistic local update — avoid parent re-render and order list refetch
-        const now = new Date().toISOString();
-        if (action === "put_on_hold" && body?.holdReasonId) {
-          const reason = lookups.packageHoldReasons.find((r) => r.id === body.holdReasonId);
-          setPackageStatus({
-            packageReadyAt: null,
-            packageOnHoldAt: now,
-            packageHoldReason: reason ? { id: reason.id, name: reason.name } : null,
-          });
-        } else if (action === "revert_hold") {
-          setPackageStatus({
-            packageReadyAt: null,
-            packageOnHoldAt: null,
-            packageHoldReason: null,
-          });
-        } else if (action === "mark_ready") {
-          setPackageStatus({
-            packageReadyAt: now,
-            packageOnHoldAt: null,
-            packageHoldReason: null,
-          });
-        }
+        return;
+      }
+
+      const now = new Date().toISOString();
+      if (action === "put_on_hold" && body?.holdReasonId) {
+        const reason = lookups.packageHoldReasons.find((r) => r.id === body.holdReasonId);
+        setPackageStatus({
+          packageReadyAt: null,
+          packageOnHoldAt: now,
+          packageHoldReason: reason ? { id: reason.id, name: reason.name } : null,
+        });
+      } else if (action === "revert_hold") {
+        setPackageStatus({ packageReadyAt: null, packageOnHoldAt: null, packageHoldReason: null });
+      } else if (action === "mark_ready") {
+        setPackageStatus({ packageReadyAt: now, packageOnHoldAt: null, packageHoldReason: null });
       }
     } catch {
       notify.error("Action failed");
@@ -117,31 +137,106 @@ export function FulfillmentDispatchPanel({
     }
   }
 
-  if (!orderId || !order) return null;
+  function formatPrice(value?: string | null, currency?: string | null) {
+    if (value == null) return "-";
+    const amount = Number.parseFloat(value);
+    if (Number.isNaN(amount)) return value;
+    return amount.toLocaleString("en-LK", { minimumFractionDigits: 2 }) + (currency ? ` ${currency}` : "");
+  }
+
+  function formatAddress(addr: unknown) {
+    if (!addr || typeof addr !== "object") return "-";
+    const a = addr as Record<string, unknown>;
+    const parts = [
+      a.address1,
+      a.address2,
+      [a.city, a.province_code].filter(Boolean).join(", "),
+      a.country,
+      a.zip,
+    ].filter(Boolean) as string[];
+    return parts.join(", ") || "-";
+  }
+
+  const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
+  const currency = detail?.currency ?? order?.currency;
 
   return (
-    <Card className="overflow-hidden border-border/70 shadow-xs">
-      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
-        <CardTitle className="flex items-center gap-2">
-          <Truck className="size-5 text-muted-foreground" />
-          Ready to Dispatch & Dispatch — Order {order.name ?? order.orderNumber ?? order.id}
-        </CardTitle>
+    <div className="space-y-4">
+      <div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Truck className="size-5 text-muted-foreground" aria-hidden />
+          Dispatch
+        </h2>
         <p className="text-muted-foreground text-sm">
-          Put package on hold if needed, or dispatch via rider or courier.
+          {order ? `Order ${orderLabel}` : "Select an order to fill details"}
         </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {packageStatus === null && lookups && (
-          <p className="text-muted-foreground text-sm">Loading package status…</p>
+      </div>
+
+      <div className="relative grid gap-3 rounded-md border border-border/70 p-3 text-sm lg:grid-cols-2">
+        {detailLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/70">
+            <div className="flex items-center gap-2 rounded-md border border-border/70 bg-background px-3 py-2 text-xs text-muted-foreground shadow-sm">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading order details...
+            </div>
+          </div>
         )}
-        {lookups && packageStatus !== null && (
-          <>
-            {!isPackageReady && (perms.canPutOnHold || perms.canRevertHold || perms.canMarkReady) && (
-              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-                {isOnHold ? (
+        <div className="space-y-1">
+          <p><span className="font-medium">Invoice:</span> {orderLabel}</p>
+          <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
+          <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? "-"}</p>
+          <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
+        </div>
+        <div className="space-y-1">
+          <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
+          <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
+          <p><span className="font-medium">Status:</span> {isOnHold ? `On hold: ${packageStatus?.packageHoldReason?.name ?? "-"}` : isPackageReady ? "Ready" : "-"}</p>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-md border border-border/70">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40">
+            <tr className="border-b border-border/70">
+              <th className="px-3 py-2 text-left font-medium">Item</th>
+              <th className="px-3 py-2 text-left font-medium">SKU</th>
+              <th className="px-3 py-2 text-right font-medium">Qty</th>
+              <th className="px-3 py-2 text-right font-medium">Price</th>
+              <th className="px-3 py-2 text-right font-medium">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(detail?.lineItems ?? []).map((item) => (
+              <tr key={item.id} className="border-b border-border/50 last:border-0">
+                <td className="px-3 py-2 font-medium">
+                  {item.productTitle}
+                  {item.variantTitle && <span className="text-muted-foreground"> / {item.variantTitle}</span>}
+                </td>
+                <td className="px-3 py-2 text-muted-foreground">{item.sku ?? "-"}</td>
+                <td className="px-3 py-2 text-right">{item.quantity}</td>
+                <td className="px-3 py-2 text-right">{formatPrice(item.price, currency)}</td>
+                <td className="px-3 py-2 text-right">{formatPrice(item.total, currency)}</td>
+              </tr>
+            ))}
+            {(!detail || detail.lineItems.length === 0) && (
+              <tr>
+                <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                  {order ? "No invoice items loaded." : "Select an order to view items."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {lookups && (!orderId || packageStatus !== null) && (
+        <div className="space-y-3">
+          {!isPackageReady && (perms.canPutOnHold || perms.canRevertHold || perms.canMarkReady) && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-3">
+              {isOnHold ? (
                 <>
                   <p className="text-muted-foreground text-sm">
-                    On hold: {packageStatus.packageHoldReason?.name ?? "—"}
+                    On hold: {packageStatus.packageHoldReason?.name ?? "-"}
                   </p>
                   {perms.canRevertHold && (
                     <Button
@@ -149,11 +244,7 @@ export function FulfillmentDispatchPanel({
                       onClick={() => doAction("revert_hold", { action: "revert_hold" })}
                       disabled={isBusy}
                     >
-                      {busyKey === "revert_hold" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        "Revert Hold"
-                      )}
+                      {busyKey === "revert_hold" ? <Loader2 className="size-4 animate-spin" /> : "Revert Hold"}
                     </Button>
                   )}
                 </>
@@ -164,112 +255,87 @@ export function FulfillmentDispatchPanel({
                       <select
                         value={holdReasonId}
                         onChange={(e) => setHoldReasonId(e.target.value)}
+                        disabled={!orderId}
                         className="h-9 w-[200px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                       >
-                        <option value="">Put on hold...</option>
-                        {lookups.packageHoldReasons.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
+                        <option value="">Hold reason...</option>
+                        {lookups.packageHoldReasons.map((reason) => (
+                          <option key={reason.id} value={reason.id}>{reason.name}</option>
                         ))}
                       </select>
                       <Button
                         variant="outline"
-                        className="border-border/70 bg-background/85 hover:bg-secondary/10"
-                        onClick={() =>
-                          doAction("put_on_hold", {
-                            action: "put_on_hold",
-                            holdReasonId,
-                          })
-                        }
-                        disabled={isBusy || !holdReasonId}
+                        onClick={() => doAction("put_on_hold", { action: "put_on_hold", holdReasonId })}
+                        disabled={!orderId || isBusy || !holdReasonId}
                       >
                         Put on Hold
                       </Button>
                     </>
                   )}
                   {perms.canMarkReady && (
-                    <Button
-                      onClick={() => doAction("mark_ready")}
-                      disabled={isBusy}
-                      className="shadow-[0_10px_24px_-18px_var(--primary)]"
-                    >
-                      {busyKey === "mark_ready" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        "Package is Ready"
-                      )}
+                    <Button onClick={() => doAction("mark_ready")} disabled={!orderId || isBusy}>
+                      {busyKey === "mark_ready" ? <Loader2 className="size-4 animate-spin" /> : "Package is Ready"}
                     </Button>
                   )}
                 </>
               )}
-              </div>
-            )}
-            <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4">
-              {isPackageReady && perms.canDispatch ? (
-                <div className="flex flex-wrap gap-2">
-                  <select
-                    value={dispatchRiderId}
-                    onChange={(e) => {
-                      setDispatchRiderId(e.target.value);
-                      setDispatchCourierId("");
-                    }}
-                    className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                  >
-                    <option value="">Select rider</option>
-                    {lookups.riders.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name ?? r.mobile ?? r.id}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={dispatchCourierId}
-                    onChange={(e) => {
-                      setDispatchCourierId(e.target.value);
-                      setDispatchRiderId("");
-                    }}
-                    className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                  >
-                    <option value="">Or courier</option>
-                    {lookups.courierServices.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    onClick={() =>
-                      doAction("dispatch", {
-                        action: "dispatch",
-                        riderId: dispatchRiderId || undefined,
-                        courierServiceId: dispatchCourierId || undefined,
-                      })
-                    }
-                    disabled={isBusy || (!dispatchRiderId && !dispatchCourierId)}
-                    className="shadow-[0_10px_24px_-18px_var(--primary)]"
-                  >
-                    {busyKey === "dispatch" ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <Truck className="size-4" />
-                    )}
-                    Dispatch
-                  </Button>
-                </div>
-              ) : isPackageReady && !perms.canDispatch ? (
-                <p className="text-muted-foreground text-sm">
-                  You do not have permission to dispatch orders.
-                </p>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  To dispatch you need to mark the package readiness.
-                </p>
-              )}
             </div>
-          </>
-        )}
-      </CardContent>
-    </Card>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-3">
+            {isPackageReady && perms.canDispatch ? (
+              <>
+                <select
+                  value={dispatchRiderId}
+                  onChange={(e) => {
+                    setDispatchRiderId(e.target.value);
+                    setDispatchCourierId("");
+                  }}
+                  disabled={!orderId}
+                  className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+                >
+                  <option value="">Select rider</option>
+                  {lookups.riders.map((rider) => (
+                    <option key={rider.id} value={rider.id}>{rider.name ?? rider.mobile ?? rider.id}</option>
+                  ))}
+                </select>
+                <select
+                  value={dispatchCourierId}
+                  onChange={(e) => {
+                    setDispatchCourierId(e.target.value);
+                    setDispatchRiderId("");
+                  }}
+                  disabled={!orderId}
+                  className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+                >
+                  <option value="">Or courier</option>
+                  {lookups.courierServices.map((courier) => (
+                    <option key={courier.id} value={courier.id}>{courier.name}</option>
+                  ))}
+                </select>
+                <Button
+                  onClick={() =>
+                    doAction("dispatch", {
+                      action: "dispatch",
+                      riderId: dispatchRiderId || undefined,
+                      courierServiceId: dispatchCourierId || undefined,
+                    })
+                  }
+                  disabled={!orderId || isBusy || (!dispatchRiderId && !dispatchCourierId)}
+                  className="gap-2"
+                >
+                  {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
+                  Dispatch
+                </Button>
+              </>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                {isPackageReady ? "You do not have permission to dispatch orders." : "Mark package ready before dispatch."}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

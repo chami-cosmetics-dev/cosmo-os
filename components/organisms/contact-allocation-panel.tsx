@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Clock3, Loader2, Search } from "lucide-react";
+import { CheckCircle2, Clock3, Loader2, Search, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 
 type ContactItem = {
   id: string;
@@ -59,6 +60,16 @@ type ContactAllocationPanelInitialData = {
   };
 };
 
+type ContactFollowUpItem = {
+  id: string;
+  name: string;
+  email: string | null;
+  phoneNumber: string | null;
+  lastPurchaseAt: string | null;
+  recentMerchant: string | null;
+  lastContactedAt: string | null;
+};
+
 type DetailForm = {
   remarks: string;
   serviceProvider: string;
@@ -83,65 +94,6 @@ type DetailForm = {
   remindTime: string;
 };
 
-const MOCK_CONTACT: ContactItem = {
-  id: "mock-contact-allocation",
-  name: "Tharanga Dissanayake",
-  email: "tharangauae@gmail.com",
-  phoneNumber: "0717164237",
-  status: "active",
-  lastPurchaseAt: "2026-02-27T10:30:00.000Z",
-  recentMerchant: "Pepiliyana Outlet",
-  updatedAt: "2026-03-02T09:00:00.000Z",
-  createdAt: "2025-11-12T08:00:00.000Z",
-};
-
-const MOCK_ORDERS: ContactPurchaseOrder[] = [
-  {
-    id: "mock-order-1",
-    shopifyOrderId: "MIE02-1",
-    orderNumber: "MIE02-1",
-    name: "Mielle Rosemary Mint Scalp and Hair Strengthening Oil 59ml #1 - MIE02-1",
-    totalPrice: "1790.00",
-    currency: "LKR",
-    financialStatus: "paid",
-    fulfillmentStatus: "fulfilled",
-    createdAt: "2026-01-16T08:30:00.000Z",
-  },
-  {
-    id: "mock-order-2",
-    shopifyOrderId: "LAR07-1",
-    orderNumber: "LAR07-1",
-    name: "La Roche-Posay Anthelios Ultra Fluid SPF50+ Facial Sunscreen 50ml #1 - LAR07-1",
-    totalPrice: "2200.00",
-    currency: "LKR",
-    financialStatus: "paid",
-    fulfillmentStatus: "fulfilled",
-    createdAt: "2026-02-27T09:10:00.000Z",
-  },
-  {
-    id: "mock-order-3",
-    shopifyOrderId: "LAR11-1",
-    orderNumber: "LAR11-1",
-    name: "La Roche-Posay Dry Touch Gel Cream SPF 60 50ml #1 - LAR11-1",
-    totalPrice: "1650.00",
-    currency: "LKR",
-    financialStatus: "paid",
-    fulfillmentStatus: "fulfilled",
-    createdAt: "2026-01-08T11:45:00.000Z",
-  },
-  {
-    id: "mock-order-4",
-    shopifyOrderId: "ORD60-1",
-    orderNumber: "ORD60-1",
-    name: "The Ordinary Squalane + Amino Acids Lip Balm 15ml #1 - ORD60-1",
-    totalPrice: "980.00",
-    currency: "LKR",
-    financialStatus: "paid",
-    fulfillmentStatus: "fulfilled",
-    createdAt: "2026-03-10T14:00:00.000Z",
-  },
-];
-
 function formatDateTime(value?: string | null) {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -163,56 +115,70 @@ function formatAmount(value: string, currency?: string | null) {
   return currency ? `${formatted} ${currency}` : formatted;
 }
 
+function phoneDigits(value: string | null | undefined) {
+  return value?.replace(/\D/g, "") ?? "";
+}
+
+function phoneMatchesQuery(phoneNumber: string | null, query: string) {
+  const normalizedQuery = query.trim();
+  if (!phoneNumber || !normalizedQuery) return false;
+
+  const queryDigits = phoneDigits(normalizedQuery);
+  const phoneVariantSet = new Set(buildPhoneLookupVariants(phoneNumber));
+  if (phoneVariantSet.has(normalizedQuery)) return true;
+  if (queryDigits && phoneVariantSet.has(queryDigits)) return true;
+
+  if ([3, 4, 6].includes(queryDigits.length)) {
+    return [...phoneVariantSet].some((variant) => phoneDigits(variant).endsWith(queryDigits));
+  }
+
+  return false;
+}
+
 function buildInitialForm(contact: ContactItem | null): DetailForm {
   return {
-    remarks:
-      contact?.id === MOCK_CONTACT.id
-        ? "Loyal customer interested in skincare follow-ups and WhatsApp reminders."
-        : "-",
-    serviceProvider: contact?.id === MOCK_CONTACT.id ? "Dialog" : "N/A",
-    district: contact?.id === MOCK_CONTACT.id ? "Gampaha" : "N/A",
-    town: contact?.id === MOCK_CONTACT.id ? "Ragama" : "N/A",
-    origin: contact?.id === MOCK_CONTACT.id ? "Website" : "N/A",
+    remarks: "-",
+    serviceProvider: "N/A",
+    district: "N/A",
+    town: "N/A",
+    origin: "N/A",
     customerType: contact?.status === "active" ? "Loyalty Customer" : "N/A",
-    gender: contact?.id === MOCK_CONTACT.id ? "Female" : "N/A",
+    gender: "N/A",
     name: contact?.name ?? "",
-    workPlace: contact?.id === MOCK_CONTACT.id ? "Head Office - Pepiliyana" : "-",
-    occupation: contact?.id === MOCK_CONTACT.id ? "Executive" : "-",
-    address:
-      contact?.id === MOCK_CONTACT.id
-        ? "No.314/4, Batuwatta, Ragama"
-        : "-",
-    birthYear: contact?.id === MOCK_CONTACT.id ? "1994" : "0",
-    birthMonth: contact?.id === MOCK_CONTACT.id ? "08" : "0",
-    birthDay: contact?.id === MOCK_CONTACT.id ? "17" : "0",
+    workPlace: "-",
+    occupation: "-",
+    address: "-",
+    birthYear: "0",
+    birthMonth: "0",
+    birthDay: "0",
     email: contact?.email ?? "",
     category: contact?.status === "active" ? "Interested" : "N/A",
-    contactSaved: contact?.id === MOCK_CONTACT.id ? "YES" : "NO",
+    contactSaved: "NO",
     whatsappAllowed: contact?.phoneNumber ? "YES" : "NO",
     mainProfileNo: contact?.phoneNumber ?? "",
-    remindDate: contact?.id === MOCK_CONTACT.id ? "2026-04-05" : "",
+    remindDate: "",
     remindTime: "03:30 PM",
   };
 }
 
 export function ContactAllocationPanel({
   initialData,
+  initialFollowUps = [],
   canManage,
 }: {
   initialData: ContactAllocationPanelInitialData;
+  initialFollowUps?: ContactFollowUpItem[];
   canManage: boolean;
 }) {
-  const contactsForDisplay =
-    initialData.contacts.length > 0 ? initialData.contacts : [MOCK_CONTACT];
+  const contactsForDisplay = initialData.contacts;
 
-  const [phoneSearch, setPhoneSearch] = useState(
-    contactsForDisplay[0]?.phoneNumber ?? ""
-  );
-  const [selectedContactId, setSelectedContactId] = useState(
-    contactsForDisplay[0]?.id ?? ""
-  );
+  const [phoneSearch, setPhoneSearch] = useState("");
+  const [selectedContactId, setSelectedContactId] = useState("");
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [orders, setOrders] = useState<ContactPurchaseOrder[]>([]);
+  const [followUps, setFollowUps] = useState(initialFollowUps);
+  const [showFollowUps, setShowFollowUps] = useState(false);
+  const [markingContactId, setMarkingContactId] = useState<string | null>(null);
   const [form, setForm] = useState<DetailForm>(() =>
     buildInitialForm(contactsForDisplay[0] ?? null)
   );
@@ -234,12 +200,6 @@ export function ContactAllocationPanel({
   useEffect(() => {
     if (!selectedContact) {
       setOrders([]);
-      return;
-    }
-
-    if (selectedContact.id === MOCK_CONTACT.id) {
-      setOrders(MOCK_ORDERS);
-      setOrdersLoading(false);
       return;
     }
 
@@ -292,22 +252,49 @@ export function ContactAllocationPanel({
       return;
     }
 
-    const exactMatch = contactsForDisplay.find(
-      (contact) => (contact.phoneNumber ?? "").trim() === normalizedQuery
+    const matches = contactsForDisplay.filter((contact) =>
+      phoneMatchesQuery(contact.phoneNumber, normalizedQuery)
     );
 
-    if (!exactMatch) {
+    if (matches.length === 0) {
       notify.error("No customer found for that phone number");
       return;
     }
 
-    setSelectedContactId(exactMatch.id);
-    notify.success(`Loaded ${exactMatch.name}`);
+    if (matches.length > 1 && [3, 4, 6].includes(phoneDigits(normalizedQuery).length)) {
+      notify.error(`Found ${matches.length} matches. Enter more digits to choose one customer.`);
+      return;
+    }
+
+    const matchedContact = matches[0]!;
+    setSelectedContactId(matchedContact.id);
+    notify.success(`Loaded ${matchedContact.name}`);
   }
 
   function handleUpdate() {
     if (!selectedContact) return;
     notify.success(`Contact allocation updated for ${selectedContact.name}`);
+  }
+
+  async function markContacted(contact: ContactFollowUpItem) {
+    try {
+      setMarkingContactId(contact.id);
+      const response = await fetch(`/api/admin/contacts/${contact.id}/follow-up`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: "Marked contacted from contact allocation queue" }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to mark contacted");
+      }
+      setFollowUps((current) => current.filter((item) => item.id !== contact.id));
+      notify.success(`${contact.name} marked as contacted.`);
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to mark contacted");
+    } finally {
+      setMarkingContactId(null);
+    }
   }
 
   function updateForm<K extends keyof DetailForm>(key: K, value: DetailForm[K]) {
@@ -316,6 +303,82 @@ export function ContactAllocationPanel({
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader className={showFollowUps ? "border-b" : ""}>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <CardTitle>Merchant Follow-up Queue</CardTitle>
+              <CardDescription>
+                Contacts with no purchase in the last 60 days.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowFollowUps((current) => !current)}
+              className="w-full lg:w-auto"
+            >
+              <Users className="mr-2 size-4" />
+              {showFollowUps ? "Hide list" : `Show list (${followUps.length})`}
+            </Button>
+          </div>
+        </CardHeader>
+        {showFollowUps && (
+          <CardContent className="p-0">
+            {followUps.length === 0 ? (
+              <div className="p-6 text-sm text-muted-foreground">
+                No stale contacts are waiting for follow-up.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="border-b bg-muted/35 text-left text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Contact</th>
+                      <th className="px-4 py-3 font-medium">Phone</th>
+                      <th className="px-4 py-3 font-medium">Last Purchase</th>
+                      <th className="px-4 py-3 font-medium">Merchant</th>
+                      <th className="px-4 py-3 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {followUps.map((contact) => (
+                      <tr key={contact.id} className="border-b last:border-0">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{contact.name}</div>
+                          <div className="text-xs text-muted-foreground">{contact.email ?? "No email"}</div>
+                        </td>
+                        <td className="px-4 py-3">{contact.phoneNumber ?? "N/A"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {formatDateTime(contact.lastPurchaseAt)}
+                        </td>
+                        <td className="px-4 py-3">{contact.recentMerchant ?? "N/A"}</td>
+                        <td className="px-4 py-3">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => markContacted(contact)}
+                            disabled={markingContactId === contact.id}
+                          >
+                            {markingContactId === contact.id ? (
+                              <Loader2 className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="mr-2 size-4" />
+                            )}
+                            Mark Contacted
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       <Card>
         <CardHeader className="border-b">
           <CardTitle>Contact Allocation</CardTitle>

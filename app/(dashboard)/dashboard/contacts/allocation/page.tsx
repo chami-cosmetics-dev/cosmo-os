@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { ContactAllocationPanel } from "@/components/organisms/contact-allocation-panel";
+import { fetchContactFollowUps } from "@/lib/page-data/contact-follow-ups";
 import { fetchContactsPageData } from "@/lib/page-data/contacts";
 import { requirePermission } from "@/lib/rbac";
 
@@ -20,16 +21,26 @@ export default async function ContactAllocationPage() {
     redirect("/dashboard");
   }
 
-  const initialData = await fetchContactsPageData(companyId, {
-    page: 1,
-    limit: 24,
-    sortOrder: "desc",
-  });
+  const canManage = auth.context!.permissionKeys.includes("orders.manage");
+  const [initialData, followUps] = await Promise.all([
+    fetchContactsPageData(companyId, {
+      page: 1,
+      limit: 24,
+      sortOrder: "desc",
+    }),
+    fetchContactFollowUps({
+      companyId,
+      merchantName: canManage ? null : auth.context!.user?.name,
+      merchantEmail: canManage ? null : auth.context!.user?.email,
+      limit: 30,
+    }),
+  ]);
 
   return (
     <ContactAllocationPanel
       initialData={initialData}
-      canManage={auth.context!.permissionKeys.includes("orders.manage")}
+      initialFollowUps={followUps}
+      canManage={canManage}
     />
   );
 }

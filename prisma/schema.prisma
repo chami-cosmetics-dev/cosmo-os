@@ -44,6 +44,7 @@ model Company {
   users                  User[]                  @relation("CompanyMembers")
   vendors                Vendor[]
   contacts               ContactMaster[]
+  complaints             Complaint[]
   shippingChargeOptions  ShippingChargeOption[]
 }
 
@@ -197,6 +198,8 @@ model User {
   deliveryPayments               DeliveryPayment[]
   mobileSessions                 RiderMobileSession[]
   merchantOrderReviews           MerchantOrderReview[]  @relation("MerchantOrderReviewUser")
+  complaintsCreated              Complaint[]            @relation("ComplaintCreatedBy")
+  complaintsResolved             Complaint[]            @relation("ComplaintResolvedBy")
   receivedCashHandovers          RiderCashHandover[]     @relation("RiderCashHandoverReceivedBy")
   riderCashHandovers             RiderCashHandover[]     @relation("RiderCashHandovers")
   riderDeliveryTasks             RiderDeliveryTask[]
@@ -869,4 +872,24 @@ model ContactPhone {
   @@unique([contactId, phoneNumber])
   @@index([phoneNumber])
   @@index([contactId])
+}
+
+model Complaint {
+  id           String    @id @default(cuid())
+  companyId    String
+  createdById  String
+  title        String
+  description  String
+  status       String    @default("open")
+  resolvedById String?
+  resolvedAt   DateTime?
+  resolution   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy    User      @relation("ComplaintCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  resolvedBy   User?     @relation("ComplaintResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status, createdAt(sort: Desc)])
+  @@index([companyId, createdById, createdAt(sort: Desc)])
 }

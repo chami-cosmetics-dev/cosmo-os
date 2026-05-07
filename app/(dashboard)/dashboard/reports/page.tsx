@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { DumpReportsPanel } from "@/components/organisms/dump-reports-panel";
 import { fetchRecentReportDownloadLogs } from "@/lib/report-download-log";
-import { requirePermission } from "@/lib/rbac";
+import { ALL_REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ function getHistoricalYears() {
 }
 
 export default async function ReportsPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission(ALL_REPORT_DUMP_PERMISSIONS);
   if (!auth.ok) {
     if (auth.status === 401) {
       redirect("/login");
@@ -32,5 +33,11 @@ export default async function ReportsPage() {
 
   const recentLogs = await fetchRecentReportDownloadLogs(companyId, 12);
 
-  return <DumpReportsPanel historicalYears={getHistoricalYears()} recentLogs={recentLogs} />;
+  return (
+    <DumpReportsPanel
+      historicalYears={getHistoricalYears()}
+      permissionKeys={auth.context.permissionKeys}
+      recentLogs={recentLogs}
+    />
+  );
 }

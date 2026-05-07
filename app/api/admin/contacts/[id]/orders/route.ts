@@ -1,10 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
 type Params = { params: Promise<{ id: string }> };
+
+function uniqueDisplayPhones(values: Array<string | null>) {
+  const phones: string[] = [];
+  const seenVariants = new Set<string>();
+
+  for (const value of values) {
+    const phone = value?.trim();
+    if (!phone) continue;
+
+    const variants = buildPhoneLookupVariants(phone);
+    if (variants.some((variant) => seenVariants.has(variant))) continue;
+
+    phones.push(phone);
+    for (const variant of variants) {
+      seenVariants.add(variant);
+    }
+  }
+
+  return phones;
+}
 
 export async function GET(_request: NextRequest, { params }: Params) {
   const auth = await requirePermission("orders.read");
@@ -27,7 +48,20 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   const contact = await prisma.contactMaster.findFirst({
     where: { id, companyId },
-    select: { id: true, name: true, email: true, phoneNumber: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phoneNumber: true,
+      emails: {
+        orderBy: { createdAt: "asc" },
+        select: { email: true },
+      },
+      phones: {
+        orderBy: { createdAt: "asc" },
+        select: { phoneNumber: true },
+      },
+    },
   });
   if (!contact) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
@@ -39,6 +73,17 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
+  const displayEmails = [
+    contact.email,
+    ...contact.emails.map((row) => row.email),
+  ].filter((value, index, arr): value is string => {
+    const normalized = value?.trim().toLowerCase();
+    return !!normalized && arr.findIndex((item) => item?.trim().toLowerCase() === normalized) === index;
+  });
+  const displayPhones = uniqueDisplayPhones([
+    contact.phoneNumber,
+    ...contact.phones.map((row) => row.phoneNumber),
+  ]);
 
   const orders = await prisma.order.findMany({
     where: {
@@ -80,7 +125,14 @@ export async function GET(_request: NextRequest, { params }: Params) {
   });
 
   return NextResponse.json({
-    contact,
+    contact: {
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+      phoneNumber: contact.phoneNumber,
+      emails: displayEmails,
+      phoneNumbers: displayPhones,
+    },
     orders: orders.map((order) => ({
       totalPrice: order.totalPrice.toString(),
       createdAt: order.createdAt.toISOString(),

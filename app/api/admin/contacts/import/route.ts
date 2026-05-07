@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import {
+  findMatchingContacts,
+  normalizeContactEmail,
+  normalizeContactPhone,
+} from "@/lib/contact-identifiers";
 import { getLatestOrderPurchaseAt } from "@/lib/orders-last-purchase";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -130,8 +135,8 @@ export async function POST(request: NextRequest) {
   const normalizedRows = rows
     .map((row) => ({
       name: pickValue(row, ["name", "full_name", "customer_name"]).trim(),
-      email: normalizeNullable(pickValue(row, ["email", "email_address"]).toLowerCase()),
-      phoneNumber: normalizeNullable(pickValue(row, ["phone", "phone_number", "mobile"])),
+      email: normalizeContactEmail(pickValue(row, ["email", "email_address"])),
+      phoneNumber: normalizeContactPhone(pickValue(row, ["phone", "phone_number", "mobile"])),
       recentMerchant: normalizeNullable(
         pickValue(row, ["recent_merchant", "recent_merchant_name", "merchant", "agent"])
       ),
@@ -144,33 +149,8 @@ export async function POST(request: NextRequest) {
       return true;
     });
 
-  const uniqueEmails = Array.from(
-    new Set(normalizedRows.map((row) => row.email).filter((v): v is string => Boolean(v)))
-  );
-  const uniquePhones = Array.from(
-    new Set(normalizedRows.map((row) => row.phoneNumber).filter((v): v is string => Boolean(v)))
-  );
-
-  const existingCandidates =
-    uniqueEmails.length > 0 || uniquePhones.length > 0
-      ? await prisma.contactMaster.findMany({
-          where: {
-            companyId,
-            OR: [
-              ...(uniqueEmails.length > 0 ? [{ email: { in: uniqueEmails } }] : []),
-              ...(uniquePhones.length > 0 ? [{ phoneNumber: { in: uniquePhones } }] : []),
-            ],
-          },
-          select: { id: true, email: true, phoneNumber: true },
-        })
-      : [];
-
   const contactIdByEmail = new Map<string, string>();
   const contactIdByPhone = new Map<string, string>();
-  for (const row of existingCandidates) {
-    if (row.email) contactIdByEmail.set(row.email.toLowerCase(), row.id);
-    if (row.phoneNumber) contactIdByPhone.set(row.phoneNumber, row.id);
-  }
 
   const purchaseCache = new Map<string, Date | null>();
 
@@ -188,16 +168,8 @@ export async function POST(request: NextRequest) {
       (row.phoneNumber ? contactIdByPhone.get(row.phoneNumber) : undefined);
 
     if (!existingId) {
-      const fallback = await prisma.contactMaster.findFirst({
-        where: {
-          companyId,
-          OR: [
-            ...(row.email ? [{ email: { equals: row.email, mode: "insensitive" as const } }] : []),
-            ...(row.phoneNumber ? [{ phoneNumber: row.phoneNumber }] : []),
-          ],
-        },
-        select: { id: true, email: true, phoneNumber: true },
-      });
+      const matches = await findMatchingContacts(companyId, row.email, row.phoneNumber);
+      const fallback = matches.emailMatches[0] ?? matches.phoneMatches[0] ?? null;
       if (fallback) {
         existingId = fallback.id;
         if (fallback.email) contactIdByEmail.set(fallback.email.toLowerCase(), fallback.id);

@@ -4,6 +4,7 @@ import { auth0 } from "@/lib/auth0";
 import { isDatabaseUnavailableError } from "@/lib/dbObservability";
 import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
+import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 
 const DEFAULT_PERMISSIONS = [
   {
@@ -29,6 +30,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "roles.manage",
     description: "Create and delete roles",
+  },
+  {
+    key: "seo.welcome",
+    description: "View SEO team welcome page only",
   },
   {
     key: "settings.company",
@@ -65,6 +70,71 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "orders.view_timeline",
     description: "View order fulfillment timeline in modal",
+  },
+  {
+    key: "complaints.create",
+    description: "Create merchant complaints",
+  },
+  {
+    key: "complaints.read",
+    description: "View merchant complaints",
+  },
+  {
+    key: "complaints.manage",
+    description: "Update complaint status and resolution",
+  },
+  // Reports - Dump downloads
+  {
+    key: REPORT_DUMP_PERMISSIONS.contactListPart1,
+    description: "Download Dump 1 contact list part 1",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.contactListPart1_1,
+    description: "Download Dump 1 contact list part 1_1",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.contactListPart2,
+    description: "Download Dump 1 contact list part 2",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.contactListAll,
+    description: "Download all contact dump records",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.invoice90,
+    description: "Download Dump 2 invoice-wise last 90 days",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.invoiceItem90,
+    description: "Download Dump 3 invoice item-wise last 90 days",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.contactLastPurchased,
+    description: "Download Dump 4 contacts with last purchased date",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.contactLog,
+    description: "Download Dump 5 contact log details",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.loyaltyCustomers,
+    description: "Download loyalty customer list",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.warehouseInvoice,
+    description: "Download warehouse invoice-wise 360 day dump",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.warehouseInvoiceItem,
+    description: "Download warehouse invoice item-wise 360 day dump",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.historicalInvoice,
+    description: "Download historical invoice details by year",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.historicalInvoiceItem,
+    description: "Download historical invoice item details by year",
   },
   {
     key: "settings.fulfillment",
@@ -209,6 +279,22 @@ const DEFAULT_ROLES = [
       "orders.manage",
       "orders.create_manual",
       "orders.view_timeline",
+      "complaints.create",
+      "complaints.read",
+      "complaints.manage",
+      REPORT_DUMP_PERMISSIONS.contactListPart1,
+      REPORT_DUMP_PERMISSIONS.contactListPart1_1,
+      REPORT_DUMP_PERMISSIONS.contactListPart2,
+      REPORT_DUMP_PERMISSIONS.contactListAll,
+      REPORT_DUMP_PERMISSIONS.invoice90,
+      REPORT_DUMP_PERMISSIONS.invoiceItem90,
+      REPORT_DUMP_PERMISSIONS.contactLastPurchased,
+      REPORT_DUMP_PERMISSIONS.contactLog,
+      REPORT_DUMP_PERMISSIONS.loyaltyCustomers,
+      REPORT_DUMP_PERMISSIONS.warehouseInvoice,
+      REPORT_DUMP_PERMISSIONS.warehouseInvoiceItem,
+      REPORT_DUMP_PERMISSIONS.historicalInvoice,
+      REPORT_DUMP_PERMISSIONS.historicalInvoiceItem,
       "stickers.batch.read",
       "stickers.batch.manage",
       "stickers.print.read",
@@ -253,6 +339,11 @@ const DEFAULT_ROLES = [
       "fulfillment.ready_dispatch.read",
       "fulfillment.delivery_invoice.read",
     ],
+  },
+  {
+    name: "seo_team",
+    description: "SEO team welcome-only access",
+    permissionKeys: ["seo.welcome"],
   },
 ] as const;
 

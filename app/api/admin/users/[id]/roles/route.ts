@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
+const SEO_WELCOME_PERMISSION = "seo.welcome";
+
 const updateUserRolesSchema = z.object({
   roleIds: z.array(cuidSchema).max(20).default([]),
 });
@@ -47,8 +49,23 @@ export async function PUT(
     const uniqueRoleIds = Array.from(new Set(parsed.data.roleIds));
     const requestedRoles = await prisma.role.findMany({
       where: { id: { in: uniqueRoleIds } },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        rolePermissions: {
+          select: {
+            permission: {
+              select: { key: true },
+            },
+          },
+        },
+      },
     });
+    const isSeoRole = (role: (typeof requestedRoles)[number]) =>
+      role.name !== "admin" &&
+      role.name !== "super_admin" &&
+      role.rolePermissions.length === 1 &&
+      role.rolePermissions.some((entry) => entry.permission.key === SEO_WELCOME_PERMISSION);
 
     const superAdminRequested = requestedRoles.find(
       (r) => r.name === "super_admin"
@@ -64,9 +81,17 @@ export async function PUT(
       );
     }
 
-    let validRoleIds = requestedRoles
+    const assignableRequestedRoles = requestedRoles
       .filter((r) => r.name !== "super_admin")
-      .map((r) => r.id);
+      .filter((role) => {
+        const seoRole = isSeoRole(role);
+        const hasNormalRole = requestedRoles.some(
+          (candidate) => candidate.name !== "super_admin" && !isSeoRole(candidate)
+        );
+        return !(seoRole && hasNormalRole);
+      });
+
+    let validRoleIds = assignableRequestedRoles.map((r) => r.id);
 
     if (userIsSuperAdmin) {
       const superAdminRole = await prisma.role.findUnique({

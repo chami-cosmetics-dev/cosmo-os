@@ -11,12 +11,14 @@ import {
   trimmedString,
 } from "@/lib/validation";
 
+const SEO_WELCOME_PERMISSION = "seo.welcome";
+
 const updateRoleSchema = z.object({
   name: trimmedString(2, LIMITS.roleName.max),
   description: z.string().max(LIMITS.description.max).optional(),
   permissionKeys: z
     .array(z.string().max(LIMITS.permissionKey.max))
-    .max(50)
+    .max(200)
     .default([]),
 });
 
@@ -75,6 +77,13 @@ export async function PUT(
   }
 
   const uniquePermissionKeys = Array.from(new Set(parsed.data.permissionKeys));
+  if (uniquePermissionKeys.includes(SEO_WELCOME_PERMISSION) && uniquePermissionKeys.length > 1) {
+    return NextResponse.json(
+      { error: "SEO welcome permission must be used alone." },
+      { status: 400 }
+    );
+  }
+
   const permissions = await prisma.permission.findMany({
     where: { key: { in: uniquePermissionKeys } },
     select: { id: true },

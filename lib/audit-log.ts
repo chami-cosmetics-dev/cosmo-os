@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff"] as const;
+export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints"] as const;
 
 export const AUDIT_LOG_ACTIONS = [
   "download",
@@ -24,6 +24,7 @@ export const AUDIT_LOG_ACTIONS = [
   "remark_deleted",
   "contact_created",
   "contact_imported",
+  "contact_follow_up_contacted",
   "contact_auto_created",
   "contact_auto_enriched",
   "contact_auto_sync_conflict",
@@ -33,6 +34,8 @@ export const AUDIT_LOG_ACTIONS = [
   "setting_deleted",
   "staff_updated",
   "staff_resigned",
+  "complaint_created",
+  "complaint_updated",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -73,6 +76,7 @@ type AuditLogQueryInput = {
   action?: string;
   query?: string;
   limit?: number;
+  offset?: number;
 };
 
 const MASKED_KEY_PATTERN = /password|secret|token/i;
@@ -162,6 +166,9 @@ export async function writeAuditLog(input: AuditLogWriteInput) {
 
 export async function fetchAuditLogs(input: AuditLogQueryInput) {
   const safeLimit = Number.isFinite(input.limit) ? Math.max(1, Math.min(input.limit ?? 50, 100)) : 50;
+  const safeOffset = Number.isFinite(input.offset)
+    ? Math.max(0, input.offset ?? 0)
+    : 0;
   const queryLike = input.query?.trim() ? `%${input.query.trim()}%` : null;
 
   try {
@@ -206,9 +213,10 @@ export async function fetchAuditLogs(input: AuditLogQueryInput) {
             OR COALESCE(u."email", '') ILIKE ${queryLike}
             OR a."summary" ILIKE ${queryLike}
             OR COALESCE(a."entityId", '') ILIKE ${queryLike}
-          )
+        )
         ORDER BY a."createdAt" DESC
         LIMIT ${safeLimit}
+        OFFSET ${safeOffset}
       `
     );
 
@@ -221,6 +229,37 @@ export async function fetchAuditLogs(input: AuditLogQueryInput) {
       console.error("Failed to read audit logs:", error);
     }
     return [] satisfies AuditLogEntry[];
+  }
+}
+
+export async function countAuditLogs(input: Omit<AuditLogQueryInput, "limit" | "offset">) {
+  const queryLike = input.query?.trim() ? `%${input.query.trim()}%` : null;
+
+  try {
+    const rows = await prisma.$queryRaw<Array<{ count: bigint }>>(
+      Prisma.sql`
+        SELECT COUNT(*)::bigint AS "count"
+        FROM "AuditLog" a
+        LEFT JOIN "User" u ON u."id" = a."actorUserId"
+        WHERE (${input.companyId ?? null}::text IS NULL OR a."companyId" = ${input.companyId ?? null})
+          AND (${input.module ?? null}::text IS NULL OR a."module" = ${input.module ?? null})
+          AND (${input.action ?? null}::text IS NULL OR a."action" = ${input.action ?? null})
+          AND (
+            ${queryLike}::text IS NULL
+            OR COALESCE(u."name", '') ILIKE ${queryLike}
+            OR COALESCE(u."email", '') ILIKE ${queryLike}
+            OR a."summary" ILIKE ${queryLike}
+            OR COALESCE(a."entityId", '') ILIKE ${queryLike}
+          )
+      `
+    );
+
+    return Number(rows[0]?.count ?? 0);
+  } catch (error) {
+    if (!isKnownMissingAuditTableError(error)) {
+      console.error("Failed to count audit logs:", error);
+    }
+    return 0;
   }
 }
 

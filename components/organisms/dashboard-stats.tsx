@@ -349,7 +349,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {displayedStats.map((stat) => (
+        {displayedStats.map((stat, index) => (
           <Card
             key={stat.shop}
             className="overflow-visible rounded-2xl border border-border/70 bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
@@ -365,6 +365,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
             </CardHeader>
             <CardContent className="bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--secondary)_6%,transparent))] pb-5 pt-10">
               <DonutChartCard
+                chartId={`dashboard-stats-donut-${analysisType}-${index}`}
                 name={stat.agent}
                 value={stat.agentValue}
                 segments={stat.segments}
@@ -462,10 +463,12 @@ function PresetButton({
 }
 
 function DonutChartCard({
+  chartId,
   name,
   value,
   segments,
 }: {
+  chartId: string;
   name: string;
   value: string;
   segments: Array<{ value: number; color: string }>;
@@ -487,7 +490,7 @@ function DonutChartCard({
 
   return (
     <div className="mx-auto mt-10 h-48 w-48 max-w-full">
-      <ChartContainer config={chartConfig} className="mx-auto aspect-square h-full w-full">
+      <ChartContainer id={chartId} config={chartConfig} className="mx-auto aspect-square h-full w-full">
         <PieChart>
           <ChartTooltip
             cursor={false}

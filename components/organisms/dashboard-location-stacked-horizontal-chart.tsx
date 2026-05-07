@@ -225,7 +225,11 @@ export function DashboardLocationStackedHorizontalChart({
       </CardHeader>
       <CardContent className="pt-6">
         <div style={{ height: chartHeight }} className="w-full min-h-[280px]">
-          <ChartContainer config={chartConfig} className="aspect-auto h-full w-full">
+          <ChartContainer
+            id={`dashboard-location-stacked-${breakdownVariant}`}
+            config={chartConfig}
+            className="aspect-auto h-full w-full"
+          >
             <BarChart
               accessibilityLayer
               data={chartData}

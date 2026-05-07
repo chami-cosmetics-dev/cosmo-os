@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
+import { getContactReportPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
 type ContactReportKind = "last-purchased" | "log" | "loyalty";
@@ -16,7 +17,8 @@ function parseContactReport(value: string | null): ContactReportKind {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("orders.read");
+  const report = parseContactReport(request.nextUrl.searchParams.get("report"));
+  const auth = await requirePermission(getContactReportPermission(report));
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -26,7 +28,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const report = parseContactReport(request.nextUrl.searchParams.get("report"));
   const contacts = await prisma.contactMaster.findMany({
     where: {
       companyId,
