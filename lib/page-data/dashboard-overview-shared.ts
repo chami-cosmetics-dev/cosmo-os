@@ -14,15 +14,28 @@ export type DashboardOverviewInitialState = {
       total: number;
       orderCount: number;
     }>;
+    sources: Array<{
+      sourceName: string;
+      total: number;
+      orderCount: number;
+    }>;
   }>;
 };
 
+function getColomboDateKey(date: Date = new Date()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 export function getDefaultDashboardOverviewRange(now = new Date()) {
-  const to = new Date(now);
-  const from = new Date(now);
+  const today = getColomboDateKey(now);
 
   return {
-    fromDate: from.toISOString().slice(0, 10),
-    toDate: to.toISOString().slice(0, 10),
+    fromDate: today,
+    toDate: today,
   };
 }

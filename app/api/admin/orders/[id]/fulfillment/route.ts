@@ -27,6 +27,12 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     sendLaterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }),
   z.object({
+    action: z.literal("send_sample_now"),
+  }),
+  z.object({
+    action: z.literal("cancel_sample_send_later"),
+  }),
+  z.object({
     action: z.literal("put_on_hold"),
     holdReasonId: cuidSchema,
   }),
@@ -76,6 +82,8 @@ function getRequiredPermissionsForAction(action: string): string[] {
     case "add_samples":
     case "advance_to_print":
     case "set_sample_send_later_date":
+    case "send_sample_now":
+    case "cancel_sample_send_later":
       return ["fulfillment.sample_free_issue.manage"];
     case "put_on_hold":
       return ["fulfillment.ready_dispatch.put_on_hold"];
@@ -342,6 +350,72 @@ export async function PATCH(
         beforeStage: order.fulfillmentStage,
         afterStage: order.fulfillmentStage,
         metadata: { action: data.action, sendLaterDate: data.sendLaterDate },
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "send_sample_now") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Send now is only available at sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+      if (!order.sampleFreeIssueSendLaterDate) {
+        return NextResponse.json(
+          { error: "This order is not scheduled for a future date." },
+          { status: 400 }
+        );
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { sampleFreeIssueSendLaterDate: null },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Released scheduled order ${order.orderNumber ?? order.name ?? order.id} into today's queue`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage,
+        metadata: {
+          action: data.action,
+          previousSendLaterDate: order.sampleFreeIssueSendLaterDate.toISOString(),
+        },
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "cancel_sample_send_later") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Cancel schedule is only available at sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+      if (!order.sampleFreeIssueSendLaterDate) {
+        return NextResponse.json(
+          { error: "This order does not have a saved future schedule." },
+          { status: 400 }
+        );
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { sampleFreeIssueSendLaterDate: null },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Cancelled future schedule for order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage,
+        metadata: {
+          action: data.action,
+          previousSendLaterDate: order.sampleFreeIssueSendLaterDate.toISOString(),
+        },
       });
       return NextResponse.json({ success: true });
     }

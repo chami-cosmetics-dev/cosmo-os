@@ -79,13 +79,44 @@ export function DashboardMainSlot() {
       const locationMerchantTotal = merchantTotals
         .filter((merchant) => merchant.merchantId === location.defaultMerchantId)
         .reduce((sum, merchant) => sum + merchant.total, 0);
+      const topAssignedMerchant =
+        merchantTotals.find((merchant) => merchant.merchantId != null) ?? null;
+      const assignmentSegments = buildAssignmentSegmentsFromRows(
+        merchantTotals,
+        location.defaultMerchantId,
+      );
+      const sourceBreakdown = buildSourceBreakdown(location.sources);
+      const topSource =
+        [...sourceBreakdown].sort((a, b) => b.rawTotal - a.rawTotal)[0] ?? null;
+      const useSourcePie =
+        assignmentSegments.length === 1 && assignmentSegments[0]?.label === "Unassigned";
 
       return {
         shop: location.name,
         total: formatMetric(total),
-        agent: location.defaultMerchantName ?? "Unassigned",
-        agentValue: formatMetric(locationMerchantTotal),
-        segments: buildSegmentsFromRows(merchantTotals, location.defaultMerchantId),
+        donutTitle: useSourcePie ? "Primary Source" : "Primary Agent",
+        agent: useSourcePie
+          ? topSource?.label ?? "Unassigned"
+          : location.defaultMerchantName ??
+            topAssignedMerchant?.merchantName ??
+            "Unassigned",
+        agentValue: formatMetric(
+          useSourcePie
+            ? (topSource?.rawTotal ?? 0)
+            : location.defaultMerchantId
+              ? locationMerchantTotal
+              : (topAssignedMerchant?.total ?? 0),
+        ),
+        segments: useSourcePie
+          ? sourceBreakdown
+              .filter((source) => source.rawTotal > 0)
+              .map((source) => ({
+                label: source.label,
+                value: source.percent,
+                color: source.color,
+              }))
+          : assignmentSegments,
+        sources: sourceBreakdown,
       };
     })
     .sort((a, b) => parseMetric(b.total) - parseMetric(a.total));
@@ -173,9 +204,18 @@ function DashboardDonutGrid({
   stats: Array<{
     shop: string;
     total: string;
+    donutTitle: string;
     agent: string;
     agentValue: string;
     segments: Array<{ label: string; value: number; color: string }>;
+    sources: Array<{
+      label: string;
+      total: string;
+      orders: number;
+      color: string;
+      rawTotal: number;
+      percent: number;
+    }>;
   }>;
 }) {
   if (stats.length === 0) return null;
@@ -217,6 +257,7 @@ function DashboardDonutGrid({
               </div>
               <DonutChartCard
                 chartId={`dashboard-main-donut-${index}`}
+                title={stat.donutTitle}
                 name={stat.agent}
                 value={stat.agentValue}
                 segments={stat.segments}
@@ -233,6 +274,22 @@ function DashboardDonutGrid({
                     />
                     <p className="text-muted-foreground">{segment.label}</p>
                     <p className="font-semibold text-slate-800 dark:text-foreground">{segment.value}%</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px]">
+                {stat.sources.map((source) => (
+                  <div
+                    key={`${stat.shop}-${source.label}`}
+                    className="rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1.5 dark:border-border dark:bg-background/60"
+                  >
+                    <div
+                      className="mx-auto mb-1.5 h-1.5 w-10 rounded-full"
+                      style={{ backgroundColor: source.color }}
+                    />
+                    <p className="text-muted-foreground">{source.label}</p>
+                    <p className="font-semibold text-slate-800 dark:text-foreground">{source.total}</p>
+                    <p className="text-muted-foreground">{source.orders} orders</p>
                   </div>
                 ))}
               </div>
@@ -259,11 +316,13 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 
 function DonutChartCard({
   chartId,
+  title,
   name,
   value,
   segments,
 }: {
   chartId: string;
+  title: string;
   name: string;
   value: string;
   segments: Array<{ label: string; value: number; color: string }>;
@@ -339,7 +398,7 @@ function DonutChartCard({
                         y={(viewBox.cy || 0) - 26}
                         className="fill-slate-500 text-[10px] uppercase dark:fill-muted-foreground"
                       >
-                        Primary Agent
+                        {title}
                       </tspan>
                       <tspan
                         x={viewBox.cx}
@@ -367,7 +426,7 @@ function DonutChartCard({
   );
 }
 
-function buildSegmentsFromRows(
+function buildAssignmentSegmentsFromRows(
   rows: Array<{ merchantId: string | null; total: number }>,
   defaultMerchantId: string | null,
 ) {
@@ -415,6 +474,56 @@ function buildSegmentsFromRows(
       label: bucket.label,
       value,
       color: bucket.color,
+    };
+  });
+}
+
+function buildSourceBreakdown(
+  rows: Array<{ sourceName: string; total: number; orderCount: number }>
+) {
+  const buckets = {
+    Web: { total: 0, orders: 0, color: "#4f95bf" },
+    POS: { total: 0, orders: 0, color: "#8b5cf6" },
+    Manual: { total: 0, orders: 0, color: "#f06a57" },
+  };
+
+  for (const row of rows) {
+    const normalized = row.sourceName.trim().toLowerCase();
+    if (normalized === "pos") {
+      buckets.POS.total += row.total;
+      buckets.POS.orders += row.orderCount;
+      continue;
+    }
+    if (normalized === "manual") {
+      buckets.Manual.total += row.total;
+      buckets.Manual.orders += row.orderCount;
+      continue;
+    }
+
+    buckets.Web.total += row.total;
+    buckets.Web.orders += row.orderCount;
+  }
+
+  const total = Object.values(buckets).reduce((sum, bucket) => sum + bucket.total, 0);
+  let assignedPercent = 0;
+  const entries = Object.entries(buckets);
+
+  return entries.map(([label, bucket], index) => {
+    const percent =
+      total <= 0
+        ? 0
+        : index === entries.length - 1
+          ? Math.max(0, 100 - assignedPercent)
+          : Math.round((bucket.total / total) * 100);
+    assignedPercent += percent;
+
+    return {
+      label,
+      total: formatMetric(bucket.total),
+      orders: bucket.orders,
+      color: bucket.color,
+      rawTotal: bucket.total,
+      percent,
     };
   });
 }

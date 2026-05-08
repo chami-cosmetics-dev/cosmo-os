@@ -27,6 +27,11 @@ export type DashboardSalesLocation = {
     total: number;
     orderCount: number;
   }>;
+  sources: Array<{
+    sourceName: string;
+    total: number;
+    orderCount: number;
+  }>;
 };
 
 type DashboardOverviewContextValue = {
@@ -133,6 +138,11 @@ export function DashboardOverviewProvider({
             total: number;
             orderCount: number;
           }>;
+          sources: Array<{
+            sourceName: string;
+            total: number;
+            orderCount: number;
+          }>;
         }>;
       };
       if (id !== fetchIdRef.current) return;
@@ -150,6 +160,11 @@ export function DashboardOverviewProvider({
             merchantName: m.merchantName,
             total: m.total,
             orderCount: m.orderCount,
+          })),
+          sources: loc.sources.map((source) => ({
+            sourceName: source.sourceName,
+            total: source.total,
+            orderCount: source.orderCount,
           })),
         })),
       );
