@@ -96,33 +96,15 @@ export function buildFulfillmentPermissions(
     };
   }
   return {
-    canManageSampleFreeIssue:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.sample_free_issue.manage"),
-    canPrint:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.order_print.print"),
-    canPutOnHold:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.ready_dispatch.put_on_hold"),
-    canMarkReady:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.ready_dispatch.package_ready"),
-    canRevertHold:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.ready_dispatch.revert_hold"),
-    canDispatch:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.ready_dispatch.dispatch"),
-    canMarkDelivered:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.delivery_invoice.mark_delivered"),
-    canMarkInvoiceComplete:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.delivery_invoice.mark_complete"),
-    canManageRemarks:
-      hasPermission(context, "orders.manage") ||
-      hasPermission(context, "fulfillment.remarks.manage"),
+    canManageSampleFreeIssue: hasPermission(context, "fulfillment.sample_free_issue.manage"),
+    canPrint: hasPermission(context, "fulfillment.order_print.print"),
+    canPutOnHold: hasPermission(context, "fulfillment.ready_dispatch.put_on_hold"),
+    canMarkReady: hasPermission(context, "fulfillment.ready_dispatch.package_ready"),
+    canRevertHold: hasPermission(context, "fulfillment.ready_dispatch.revert_hold"),
+    canDispatch: hasPermission(context, "fulfillment.ready_dispatch.dispatch"),
+    canMarkDelivered: hasPermission(context, "fulfillment.delivery_invoice.mark_delivered"),
+    canMarkInvoiceComplete: hasPermission(context, "fulfillment.delivery_invoice.mark_complete"),
+    canManageRemarks: hasPermission(context, "fulfillment.remarks.manage"),
     canResendRiderSms: hasPermission(context, "orders.manage"),
   };
 }
@@ -148,20 +130,10 @@ export function buildFulfillmentNavPermissions(
     };
   }
   return {
-    canViewSampleFreeIssue:
-      hasPermission(context, "orders.read") ||
-      hasPermission(context, "fulfillment.sample_free_issue.read"),
-    canViewOrderPrint:
-      hasPermission(context, "orders.read") ||
-      hasPermission(context, "fulfillment.order_print.read"),
-    canViewReadyDispatch:
-      hasPermission(context, "orders.read") ||
-      hasPermission(context, "fulfillment.ready_dispatch.read"),
-    canViewDeliveryInvoice:
-      hasPermission(context, "orders.read") ||
-      hasPermission(context, "fulfillment.delivery_invoice.read"),
-    canViewFalconUpload:
-      hasPermission(context, "orders.read") ||
-      hasPermission(context, "fulfillment.delivery_invoice.read"),
+    canViewSampleFreeIssue: hasPermission(context, "fulfillment.sample_free_issue.read"),
+    canViewOrderPrint: hasPermission(context, "fulfillment.order_print.read"),
+    canViewReadyDispatch: hasPermission(context, "fulfillment.ready_dispatch.read"),
+    canViewDeliveryInvoice: hasPermission(context, "fulfillment.delivery_invoice.read"),
+    canViewFalconUpload: hasPermission(context, "fulfillment.falcon_upload.read"),
   };
 }

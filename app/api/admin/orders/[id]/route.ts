@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
 const orderSelect = {
@@ -36,6 +36,7 @@ const orderSelect = {
   deliveryCompleteAt: true,
   lastPrintedAt: true,
   sampleFreeIssueCompleteAt: true,
+  sampleFreeIssueSendLaterDate: true,
   companyLocation: {
     select: { id: true, name: true, shopifyShopName: true, shopifyAdminStoreHandle: true },
   },
@@ -79,7 +80,13 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission([
+    "orders.read",
+    "fulfillment.sample_free_issue.read",
+    "fulfillment.order_print.read",
+    "fulfillment.ready_dispatch.read",
+    "fulfillment.delivery_invoice.read",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -221,6 +228,7 @@ export async function GET(
         }
       : null,
     sampleFreeIssueCompleteAt: details.sampleFreeIssueCompleteAt?.toISOString() ?? null,
+    sampleFreeIssueSendLaterDate: details.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
     sampleFreeIssueCompleteBy: details.sampleFreeIssueCompleteBy
       ? {
           id: details.sampleFreeIssueCompleteBy.id,

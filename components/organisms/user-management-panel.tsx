@@ -1465,6 +1465,10 @@ const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
   revert_to: "Revert to Stage",
 };
 
+const PERMISSION_GROUP_LABELS: Record<string, string> = {
+  failed_webhooks: "Failed Webhooks",
+};
+
 type PermissionGroupItem =
   | { group: string; permissions: Permission[]; subGroups?: undefined }
   | {
@@ -1481,11 +1485,12 @@ function groupPermissionsByPrefix(permissions: Permission[]): PermissionGroupIte
     const parts = p.key.split(".");
     const prefix = parts[0] ?? "other";
     const group =
+      PERMISSION_GROUP_LABELS[prefix] ??
       prefix.charAt(0).toUpperCase() + prefix.slice(1).replace(/_/g, " ");
     if (!map.has(group)) map.set(group, []);
     map.get(group)!.push(p);
   }
-  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Orders", "Stickers", "Fulfillment"];
+  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Orders", "Failed Webhooks", "Stickers", "Fulfillment"];
   return order
     .filter((g) => map.has(g))
     .map((group) => {

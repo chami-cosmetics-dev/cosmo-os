@@ -7,7 +7,7 @@ import { requirePermission } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 
 export default async function FailedOrderWebhooksPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("failed_webhooks.read");
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
     return <PermissionDeniedCard />;

@@ -10,6 +10,9 @@ import { processOrderWebhook } from "@/lib/order-webhook-process";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+const WEBHOOK_PROCESS_ATTEMPTS = 3;
+const WEBHOOK_RETRY_DELAYS_MS = [300, 1200];
+
 function getWebhookLogMeta(request: NextRequest) {
   return {
     topic: request.headers.get("x-shopify-topic"),
@@ -17,6 +20,52 @@ function getWebhookLogMeta(request: NextRequest) {
     shopDomain: request.headers.get("x-shopify-shop-domain"),
     locationId: request.nextUrl.searchParams.get("location_id"),
   };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function processOrderWebhookWithImmediateRetry(
+  input: {
+    data: Parameters<typeof processOrderWebhook>[0];
+    location: Parameters<typeof processOrderWebhook>[1];
+    rawPayload: Parameters<typeof processOrderWebhook>[2];
+    shopifyOrderId: string;
+    webhookMeta: ReturnType<typeof getWebhookLogMeta>;
+  }
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= WEBHOOK_PROCESS_ATTEMPTS; attempt += 1) {
+    try {
+      await processOrderWebhook(input.data, input.location, input.rawPayload);
+      if (attempt > 1) {
+        console.warn("[Order webhook] Processed after retry", {
+          ...input.webhookMeta,
+          shopifyOrderId: input.shopifyOrderId,
+          attempt,
+        });
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      console.error("[Order webhook] Processing attempt failed", {
+        ...input.webhookMeta,
+        shopifyOrderId: input.shopifyOrderId,
+        attempt,
+        maxAttempts: WEBHOOK_PROCESS_ATTEMPTS,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      const delayMs = WEBHOOK_RETRY_DELAYS_MS[attempt - 1];
+      if (delayMs) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 async function resolveLocationByOrderSeries(
@@ -233,7 +282,13 @@ export async function POST(request: NextRequest) {
   const shopifyOrderId = String(data.id);
 
   try {
-    await processOrderWebhook(data, resolvedLocation, rawPayload);
+    await processOrderWebhookWithImmediateRetry({
+      data,
+      location: resolvedLocation,
+      rawPayload,
+      shopifyOrderId,
+      webhookMeta,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

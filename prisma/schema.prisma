@@ -326,6 +326,7 @@ model Order {
   riderDeliveryToken           String?                @unique
   sampleFreeIssueCompleteAt    DateTime?
   sampleFreeIssueCompleteById  String?
+  sampleFreeIssueSendLaterDate DateTime?
   deliveryCompleteById         String?
   dispatchedById               String?
   invoiceCompleteById          String?
@@ -355,6 +356,7 @@ model Order {
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
+  @@index([companyId, fulfillmentStage, sampleFreeIssueSendLaterDate])
   @@index([companyId, companyLocationId, createdAt(sort: Desc)])
   @@index([companyId, assignedMerchantId, createdAt(sort: Desc)])
   @@index([companyId, customerEmail, createdAt(sort: Desc)])

@@ -1033,7 +1033,7 @@ export function LocationsSettingsForm({
                     </SelectContent>
                   </Select>
                   <p className="text-muted-foreground text-xs">
-                    Web orders without a coupon match will be assigned to this merchant.
+                    Only Sales & Marketing or Digital Marketing staff can be selected.
                   </p>
                 </div>
               </div>

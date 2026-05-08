@@ -4,6 +4,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { getCompanyLocationInvoiceFields } from "@/lib/company-location-invoice-fields";
+import {
+  assertEligibleMerchantUser,
+  eligibleMerchantUserWhere,
+} from "@/lib/merchant-eligibility";
 import { cuidSchema, emailSchema, limitSchema, LIMITS, pageSchema, trimmedString } from "@/lib/validation";
 
 const createLocationSchema = z.object({
@@ -74,7 +78,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.user.findMany({
-      where: { companyId },
+      where: eligibleMerchantUserWhere(companyId),
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true },
     }),
@@ -123,15 +127,13 @@ export async function POST(request: NextRequest) {
 
   const d = parsed.data;
   if (d.defaultMerchantUserId) {
-    const merchant = await prisma.user.findFirst({
-      where: {
-        id: d.defaultMerchantUserId,
-        companyId,
-      },
+    const isEligible = await assertEligibleMerchantUser(prisma, {
+      userId: d.defaultMerchantUserId,
+      companyId,
     });
-    if (!merchant) {
+    if (!isEligible) {
       return NextResponse.json(
-        { error: "Default merchant must be a user in your company" },
+        { error: "Default merchant must be Sales & Marketing or Digital Marketing staff" },
         { status: 400 }
       );
     }

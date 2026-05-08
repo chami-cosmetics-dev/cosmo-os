@@ -72,6 +72,14 @@ const DEFAULT_PERMISSIONS = [
     description: "View order fulfillment timeline in modal",
   },
   {
+    key: "failed_webhooks.read",
+    description: "View failed Shopify order webhooks",
+  },
+  {
+    key: "failed_webhooks.retry",
+    description: "Retry failed Shopify order webhooks",
+  },
+  {
     key: "complaints.create",
     description: "Create merchant complaints",
   },
@@ -217,6 +225,15 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.delivery_invoice.mark_complete",
     description: "Mark invoice complete",
   },
+  // Fulfillment - Falcon Upload
+  {
+    key: "fulfillment.falcon_upload.read",
+    description: "View Falcon upload page",
+  },
+  {
+    key: "fulfillment.falcon_upload.export",
+    description: "Generate Falcon upload files",
+  },
   // Fulfillment - Remarks (all stages)
   {
     key: "fulfillment.remarks.manage",
@@ -279,6 +296,8 @@ const DEFAULT_ROLES = [
       "orders.manage",
       "orders.create_manual",
       "orders.view_timeline",
+      "failed_webhooks.read",
+      "failed_webhooks.retry",
       "complaints.create",
       "complaints.read",
       "complaints.manage",
@@ -313,6 +332,8 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.read",
       "fulfillment.delivery_invoice.mark_delivered",
       "fulfillment.delivery_invoice.mark_complete",
+      "fulfillment.falcon_upload.read",
+      "fulfillment.falcon_upload.export",
       "fulfillment.remarks.manage",
       "fulfillment.revert_to.order_received",
       "fulfillment.revert_to.sample_free_issue",
@@ -338,6 +359,7 @@ const DEFAULT_ROLES = [
       "fulfillment.order_print.read",
       "fulfillment.ready_dispatch.read",
       "fulfillment.delivery_invoice.read",
+      "fulfillment.falcon_upload.read",
     ],
   },
   {

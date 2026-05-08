@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
@@ -51,6 +52,53 @@ const updateStaffSchema = z.object({
     .optional()
     .transform((v) => v ?? []),
 });
+
+type StaffUserWithDetails = Prisma.UserGetPayload<{
+  include: {
+    userRoles: { include: { role: true } };
+    employeeProfile: {
+      include: {
+        location: true;
+        department: true;
+        designation: true;
+      };
+    };
+  };
+}>;
+
+function serializeStaffUser(user: StaffUserWithDetails) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    nicNo: user.nicNo,
+    gender: user.gender,
+    dateOfBirth: user.dateOfBirth?.toISOString() ?? null,
+    mobile: user.mobile,
+    knownName: user.knownName,
+    shopifyUserIds: user.shopifyUserIds,
+    couponCodes: user.couponCodes,
+    companyId: user.companyId,
+    userRoles: user.userRoles.map((ur) => ur.role),
+    employeeProfile: user.employeeProfile
+      ? {
+          id: user.employeeProfile.id,
+          employeeNumber: user.employeeProfile.employeeNumber,
+          epfNumber: user.employeeProfile.epfNumber,
+          locationId: user.employeeProfile.locationId,
+          location: user.employeeProfile.location,
+          departmentId: user.employeeProfile.departmentId,
+          department: user.employeeProfile.department,
+          designationId: user.employeeProfile.designationId,
+          designation: user.employeeProfile.designation,
+          appointmentDate: user.employeeProfile.appointmentDate?.toISOString() ?? null,
+          status: user.employeeProfile.status,
+          resignedAt: user.employeeProfile.resignedAt?.toISOString() ?? null,
+          isRider: user.employeeProfile.isRider,
+        }
+      : null,
+  };
+}
 
 export async function GET(
   _request: NextRequest,
@@ -117,19 +165,7 @@ export async function GET(
   const [locations, departments, designations] = lookups ?? [[], [], []];
 
   return NextResponse.json({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    nicNo: user.nicNo,
-    gender: user.gender,
-    dateOfBirth: user.dateOfBirth,
-    mobile: user.mobile,
-    knownName: user.knownName,
-    shopifyUserIds: user.shopifyUserIds,
-    couponCodes: user.couponCodes,
-    companyId: user.companyId,
-    userRoles: user.userRoles.map((ur) => ur.role),
-    employeeProfile: user.employeeProfile,
+    ...serializeStaffUser(user),
     ...(lookups && {
       locations,
       departments,
@@ -228,9 +264,9 @@ export async function PATCH(
     const profileData = {
       employeeNumber: data.employeeNumber?.trim() || null,
       epfNumber: data.epfNumber?.trim() || null,
-      locationId: data.locationId ?? undefined,
-      departmentId: data.departmentId ?? undefined,
-      designationId: data.designationId ?? undefined,
+      ...(data.locationId !== undefined && { locationId: data.locationId }),
+      ...(data.departmentId !== undefined && { departmentId: data.departmentId }),
+      ...(data.designationId !== undefined && { designationId: data.designationId }),
       appointmentDate: validAppointment ?? undefined,
       ...(data.isRider !== undefined && { isRider: data.isRider }),
     };
@@ -277,5 +313,5 @@ export async function PATCH(
     afterData: updated,
   });
 
-  return NextResponse.json(updated);
+  return NextResponse.json(updated ? serializeStaffUser(updated) : null);
 }

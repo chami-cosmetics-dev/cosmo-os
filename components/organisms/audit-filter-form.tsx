@@ -17,10 +17,7 @@ const ALL_OPTION = "__all__";
 
 type AuditFilterFormProps = {
   moduleOptions: readonly string[];
-  actionOptions: readonly string[];
-  actionLabels: Record<string, string>;
   initialModule?: string;
-  initialAction?: string;
   initialQuery?: string;
 };
 
@@ -33,15 +30,11 @@ function toTitleCase(value: string) {
 
 export function AuditFilterForm({
   moduleOptions,
-  actionOptions,
-  actionLabels,
   initialModule,
-  initialAction,
   initialQuery,
 }: AuditFilterFormProps) {
   const router = useRouter();
   const [moduleValue, setModuleValue] = useState(initialModule ?? ALL_OPTION);
-  const [actionValue, setActionValue] = useState(initialAction ?? ALL_OPTION);
   const [queryValue, setQueryValue] = useState(initialQuery ?? "");
 
   function applyFilters() {
@@ -49,9 +42,6 @@ export function AuditFilterForm({
 
     if (moduleValue !== ALL_OPTION) {
       params.set("module", moduleValue);
-    }
-    if (actionValue !== ALL_OPTION) {
-      params.set("action", actionValue);
     }
     if (queryValue.trim()) {
       params.set("q", queryValue.trim());
@@ -63,13 +53,12 @@ export function AuditFilterForm({
 
   function clearFilters() {
     setModuleValue(ALL_OPTION);
-    setActionValue(ALL_OPTION);
     setQueryValue("");
     router.push("/dashboard/audit");
   }
 
   return (
-    <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.6fr_auto_auto]">
+    <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto_auto]">
       <Select value={moduleValue} onValueChange={setModuleValue}>
         <SelectTrigger>
           <SelectValue placeholder="All modules" />
@@ -79,20 +68,6 @@ export function AuditFilterForm({
           {moduleOptions.map((moduleName) => (
             <SelectItem key={moduleName} value={moduleName}>
               {toTitleCase(moduleName)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <Select value={actionValue} onValueChange={setActionValue}>
-        <SelectTrigger>
-          <SelectValue placeholder="All actions" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL_OPTION}>All actions</SelectItem>
-          {actionOptions.map((actionName) => (
-            <SelectItem key={actionName} value={actionName}>
-              {actionLabels[actionName] ?? toTitleCase(actionName)}
             </SelectItem>
           ))}
         </SelectContent>
