@@ -207,8 +207,8 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <CardTitle>Company Information</CardTitle>
         </CardHeader>
         <CardContent>
@@ -223,8 +223,8 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
 
   if (!company) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           <CardTitle>Company Information</CardTitle>
         </CardHeader>
         <CardContent>
@@ -238,8 +238,8 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
   }
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader>
+    <Card className="overflow-hidden border-border/70 shadow-xs">
+      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
         <CardTitle className="flex items-center gap-2">
           <Building2 className="size-4 text-muted-foreground" aria-hidden />
           Company Information
@@ -251,7 +251,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           {canEdit && (
-            <section className="space-y-3 rounded-xl border bg-muted/20 p-4">
+            <section className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
               <div className="space-y-1">
                 <h3 className="flex items-center gap-2 text-sm font-semibold">
                   <ImageIcon className="size-4 text-muted-foreground" aria-hidden />
@@ -262,7 +262,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
                 </p>
               </div>
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border bg-background p-3">
+                <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
                   <LogoUpload
                     value={logoUrl}
                     onChange={handleLogoChange}
@@ -271,7 +271,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
                     label="Company logo"
                   />
                 </div>
-                <div className="rounded-lg border bg-background p-3">
+                <div className="rounded-2xl border border-border/70 bg-background/80 p-4">
                   <LogoUpload
                     value={faviconUrl}
                     onChange={handleFaviconChange}
@@ -284,7 +284,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
             </section>
           )}
           {!canEdit && (logoUrl || faviconUrl) && (
-            <section className="space-y-3 rounded-xl border bg-muted/20 p-4">
+            <section className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <ImageIcon className="size-4 text-muted-foreground" aria-hidden />
                 Brand Assets
@@ -293,7 +293,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
               {logoUrl && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Company logo</label>
-                  <div className="flex size-20 overflow-hidden rounded-lg border bg-muted">
+                  <div className="flex size-20 overflow-hidden rounded-xl border border-border/70 bg-background/70">
                     <CloudinaryLogo src={logoUrl} alt="Company logo" className="size-full object-contain" />
                   </div>
                 </div>
@@ -301,7 +301,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
               {faviconUrl && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Favicon</label>
-                  <div className="flex size-10 overflow-hidden rounded border bg-muted">
+                  <div className="flex size-12 overflow-hidden rounded-lg border border-border/70 bg-background/70">
                     <CloudinaryLogo src={faviconUrl} alt="Favicon" width={32} height={32} className="size-full object-contain" />
                   </div>
                 </div>
@@ -310,7 +310,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
             </section>
           )}
 
-          <section className="space-y-3 rounded-xl border bg-muted/20 p-4">
+          <section className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
             <div className="space-y-1">
               <h3 className="flex items-center gap-2 text-sm font-semibold">
                 <Sparkles className="size-4 text-muted-foreground" aria-hidden />
@@ -332,6 +332,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
                   required
                   disabled={!canEdit || isBusy}
                   maxLength={200}
+                  className="rounded-lg border-border/80 bg-background/80"
                 />
                 <p className="text-muted-foreground text-xs">{name.length}/200 characters</p>
               </div>
@@ -345,7 +346,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
                   onValueChange={(value) => setEmployeeSize(value === "__none" ? "" : value)}
                   disabled={!canEdit || isBusy}
                 >
-                  <SelectTrigger id="employee-size" className="w-full bg-background">
+                  <SelectTrigger id="employee-size" className="w-full rounded-lg border-border/80 bg-background/80">
                     <SelectValue placeholder="Select size" />
                   </SelectTrigger>
                   <SelectContent>
@@ -370,6 +371,7 @@ export function CompanySettingsForm({ canEdit, initialCompany }: CompanySettings
                   disabled={!canEdit || isBusy}
                   rows={3}
                   maxLength={500}
+                  className="rounded-lg border-border/80 bg-background/80"
                 />
                 <p className="text-muted-foreground text-xs">{address.length}/500 characters</p>
               </div>

@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CloudinaryLogo } from "@/components/molecules/cloudinary-logo";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 interface LogoUploadProps {
@@ -38,6 +39,7 @@ export function LogoUpload({
   disabled = false,
   label = "Logo",
 }: LogoUploadProps) {
+  const { confirm } = useConfirmationDialog();
   const inputRef = useRef<HTMLInputElement>(null);
   const cropperRef = useRef<CropperRef>(null);
   const [uploading, setUploading] = useState(false);
@@ -123,7 +125,14 @@ export function LogoUpload({
     setImageToCrop(null);
   }
 
-  function handleRemove() {
+  async function handleRemove() {
+    const confirmed = await confirm({
+      title: `Remove ${label.toLowerCase()}?`,
+      description: `This will remove the current ${label.toLowerCase()}.`,
+      confirmLabel: "Remove",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     onChange(null);
   }
 
@@ -133,7 +142,7 @@ export function LogoUpload({
     <div className="space-y-2">
       <label className="text-sm font-medium">{label}</label>
       <div className="flex items-start gap-4">
-        <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+        <div className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
           {value ? (
             <CloudinaryLogo
               src={value}
@@ -160,6 +169,7 @@ export function LogoUpload({
               type="button"
               variant="outline"
               size="sm"
+              className="border-border/70 bg-background/70 hover:bg-secondary/15"
               onClick={() => inputRef.current?.click()}
               disabled={isBusy}
             >
@@ -177,6 +187,7 @@ export function LogoUpload({
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="hover:bg-secondary/15"
                 onClick={handleRemove}
                 disabled={isBusy}
               >
@@ -193,13 +204,13 @@ export function LogoUpload({
 
       <Dialog open={cropOpen} onOpenChange={(open) => !open && handleCropCancel()}>
         <DialogContent
-          className="max-h-[90vh] max-w-[min(90vw,500px)] overflow-hidden p-0 data-[state=closed]:scale-100 data-[state=open]:scale-100"
+          className="max-h-[90vh] max-w-[min(90vw,500px)] overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-0 data-[state=closed]:scale-100 data-[state=open]:scale-100"
           showCloseButton={true}
         >
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>Crop logo</DialogTitle>
           </DialogHeader>
-          <div className="relative h-[400px] w-full shrink-0 overflow-hidden bg-muted">
+          <div className="relative h-[400px] w-full shrink-0 overflow-hidden bg-muted/50">
             {imageToCrop && (
               <LazyCropper
                 ref={cropperRef}

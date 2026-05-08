@@ -5,7 +5,6 @@ import {
   Check,
   Loader2,
   MessageSquare,
-  Package,
   Printer,
   Send,
   Truck,
@@ -58,6 +57,8 @@ type OrderDetail = {
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  deliveryOutcome?: "pending" | "delivered" | "failed" | null;
+  deliveryFailedReason?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -86,6 +87,35 @@ type OrderDetail = {
   dispatchedByCourierService?: { id: string; name: string } | null;
   invoiceCompleteAt?: string | null;
   deliveryCompleteAt?: string | null;
+  lastRiderUpdateAt?: string | null;
+  riderDeliveryTask?: {
+    id: string;
+    status: string;
+    assignedAt: string;
+    acceptedAt?: string | null;
+    arrivedAt?: string | null;
+    completedAt?: string | null;
+    failedAt?: string | null;
+    failureReason?: string | null;
+    latestSyncAt?: string | null;
+  } | null;
+  deliveryPayment?: {
+    id: string;
+    expectedAmount: string;
+    collectedAmount: string;
+    paymentMethod: string;
+    collectionStatus: string;
+    referenceNote?: string | null;
+    bankReference?: string | null;
+    cardReference?: string | null;
+    collectedAt?: string | null;
+    cashHandover?: {
+      id: string;
+      handoverDate: string;
+      status: string;
+      totalHandedOverCash: string;
+    } | null;
+  } | null;
   sampleFreeIssues?: Array<{
     id: string;
     sampleFreeIssueItem: { id: string; name: string; type: string };
@@ -134,8 +164,9 @@ export function OrderFulfillmentDetail({
   formatAddress,
   getCustomerName,
   getAddressPhone,
-  addressesEqual,
+  addressesEqual: _addressesEqual,
 }: OrderFulfillmentDetailProps) {
+  void _addressesEqual;
   const [lookups, setLookups] = useState<FulfillmentLookups | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedSamples, setSelectedSamples] = useState<Array<{ id: string; qty: number }>>([]);
@@ -558,6 +589,59 @@ export function OrderFulfillmentDetail({
                     Mark Invoice Complete
                   </Button>
                 )}
+              </div>
+            )}
+
+            {(orderDetail.riderDeliveryTask || orderDetail.deliveryPayment || orderDetail.deliveryOutcome) && (
+              <div className="rounded-lg border p-4">
+                <h4 className="mb-2 text-sm font-medium">Rider Update</h4>
+                <div className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <p className="text-muted-foreground">Delivery outcome</p>
+                    <p>{orderDetail.deliveryOutcome ?? "pending"}</p>
+                    {orderDetail.deliveryFailedReason && (
+                      <p className="text-muted-foreground mt-1">
+                        Reason: {orderDetail.deliveryFailedReason}
+                      </p>
+                    )}
+                  </div>
+                  {orderDetail.riderDeliveryTask && (
+                    <div>
+                      <p className="text-muted-foreground">Task status</p>
+                      <p>{orderDetail.riderDeliveryTask.status}</p>
+                      {orderDetail.riderDeliveryTask.latestSyncAt && (
+                        <p className="text-muted-foreground mt-1">
+                          Last sync: {formatDate(orderDetail.riderDeliveryTask.latestSyncAt)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {orderDetail.deliveryPayment && (
+                    <div>
+                      <p className="text-muted-foreground">Payment</p>
+                      <p>
+                        {orderDetail.deliveryPayment.paymentMethod} / {orderDetail.deliveryPayment.collectionStatus}
+                      </p>
+                      <p>
+                        {formatPrice(orderDetail.deliveryPayment.collectedAmount, orderDetail.currency)} collected
+                      </p>
+                      {orderDetail.deliveryPayment.collectedAt && (
+                        <p className="text-muted-foreground mt-1">
+                          Collected: {formatDate(orderDetail.deliveryPayment.collectedAt)}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {orderDetail.deliveryPayment?.cashHandover && (
+                    <div>
+                      <p className="text-muted-foreground">Finance handover</p>
+                      <p>{orderDetail.deliveryPayment.cashHandover.status}</p>
+                      <p>
+                        Date: {formatDate(orderDetail.deliveryPayment.cashHandover.handoverDate)}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

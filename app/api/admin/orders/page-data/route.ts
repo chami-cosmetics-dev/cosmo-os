@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { createPerfLogger } from "@/lib/perf";
 import { fetchOrdersPageData } from "@/lib/page-data/orders";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import {
   limitSchema,
   optionalIsoDateTimeQuerySchema,
@@ -15,7 +15,14 @@ export async function GET(request: NextRequest) {
   const perf = createPerfLogger("api.admin.orders.page-data.GET", {
     path: request.nextUrl.pathname,
   });
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission([
+    "orders.read",
+    "fulfillment.sample_free_issue.read",
+    "fulfillment.order_print.read",
+    "fulfillment.ready_dispatch.read",
+    "fulfillment.delivery_invoice.read",
+    "fulfillment.falcon_upload.read",
+  ]);
   perf.mark("auth");
   if (!auth.ok) {
     perf.end({ status: auth.status, ok: false });
@@ -45,6 +52,13 @@ export async function GET(request: NextRequest) {
   const paymentGatewayResult = orderPaymentGatewayFilterSchema.safeParse(
     searchParams.get("payment_gateway") ?? undefined
   );
+  const sampleSendLaterParam = searchParams.get("sample_send_later");
+  const sampleSendLater =
+    sampleSendLaterParam === "future" || sampleSendLaterParam === "all"
+      ? sampleSendLaterParam
+      : sampleSendLaterParam === "available"
+        ? "available"
+        : undefined;
 
   const data = await fetchOrdersPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -59,6 +73,7 @@ export async function GET(request: NextRequest) {
     createdFrom: createdFromResult.success ? createdFromResult.data : undefined,
     createdTo: createdToResult.success ? createdToResult.data : undefined,
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
+    sampleSendLater,
   });
   perf.mark("query");
 

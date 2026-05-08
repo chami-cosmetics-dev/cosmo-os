@@ -68,14 +68,29 @@ export async function POST(
   const now = new Date();
 
   if (confirmed) {
-    const updated = await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        fulfillmentStage: "delivery_complete",
-        deliveryCompleteAt: now,
-        riderDeliveryToken: null,
-      },
-      include: { companyLocation: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.riderDeliveryTask.updateMany({
+        where: { orderId: order.id },
+        data: {
+          status: "completed",
+          completedAt: now,
+          failedAt: null,
+          failureReason: null,
+          latestSyncAt: now,
+        },
+      });
+      return tx.order.update({
+        where: { id: order.id },
+        data: {
+          fulfillmentStage: "delivery_complete",
+          deliveryCompleteAt: now,
+          deliveryOutcome: "delivered",
+          deliveryFailedReason: null,
+          lastRiderUpdateAt: now,
+          riderDeliveryToken: null,
+        },
+        include: { companyLocation: true },
+      });
     });
     sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
       orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,

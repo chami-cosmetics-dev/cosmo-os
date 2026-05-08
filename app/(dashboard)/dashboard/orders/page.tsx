@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { OrdersPanel } from "@/components/organisms/orders-panel";
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import {
   getRevertPermissionKeys,
   buildFulfillmentPermissions,
@@ -14,12 +15,12 @@ export default async function OrdersPage() {
   const auth = await requirePermission("orders.read");
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
-    redirect("/dashboard");
+    return <PermissionDeniedCard />;
   }
 
   const permissions = buildFulfillmentPermissions(auth.context);

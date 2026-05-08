@@ -1,5 +1,7 @@
 "use client";
 
+import { Loader2, RefreshCw } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -47,15 +49,47 @@ export function DashboardFiltersSlot() {
     setAnalysisType,
     initialRange,
     hasInvalidRange,
+    refreshSales,
+    salesLoading,
+    lastUpdatedAt,
   } = useDashboardOverview();
+
+  const lastUpdatedLabel = lastUpdatedAt
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(lastUpdatedAt))
+    : "Waiting for first refresh";
 
   return (
     <Card className="border-border/70 bg-card shadow-xs">
       <CardHeader className="space-y-1 border-b pb-4">
-        <p className="text-sm font-semibold tracking-wide">Filters</p>
-        <p className="text-muted-foreground text-sm">
-          Adjust date range, date source, and analysis mode for dashboard results.
-        </p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold tracking-wide">Filters</p>
+            <p className="text-muted-foreground text-sm">
+              Adjust date range, date source, and analysis mode for dashboard results.
+            </p>
+            <p className="text-muted-foreground text-xs">
+              Background refresh every 60 seconds. Last updated: {lastUpdatedLabel}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2 self-start"
+            onClick={() => void refreshSales()}
+            disabled={salesLoading || hasInvalidRange}
+          >
+            {salesLoading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="space-y-2">

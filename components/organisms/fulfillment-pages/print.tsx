@@ -25,7 +25,7 @@ export function PrintFulfillmentPage({
 
   return (
     <FulfillmentPermissionsProvider permissions={permissions}>
-      <div className="space-y-6">
+      <div className="space-y-4">
         <FulfillmentOrderSelector
         title="Order Print"
         description="Select an order to print the invoice. Shows all orders past sample/free issue stage for printing or duplicate copies."
@@ -35,6 +35,10 @@ export function PrintFulfillmentPage({
         refreshTrigger={refreshTrigger}
         currentStage="print"
         showPrintStatus
+        showInvoiceDetails={false}
+        worksheetMode
+        bulkPrintUnprinted
+        showEmptyWorksheet
       >
         <FulfillmentPrintPanel
           orderId={selectedOrder?.id ?? null}

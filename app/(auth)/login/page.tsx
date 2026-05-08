@@ -4,7 +4,15 @@ import { SuperAdminInviteForm } from "@/components/molecules/super-admin-invite-
 import { prisma } from "@/lib/prisma";
 import { ShieldCheck, Sparkles } from "lucide-react";
 
-export default async function LoginPage() {
+type Props = {
+  searchParams?: Promise<{ activated?: string; email?: string }>;
+};
+
+export default async function LoginPage({ searchParams }: Props) {
+  const sp = (await searchParams) ?? {};
+  const isActivated = sp.activated === "1";
+  const activatedEmail = sp.email?.trim() || null;
+
   const userCount = await prisma.user.count();
 
   if (userCount === 0) {
@@ -33,6 +41,18 @@ export default async function LoginPage() {
       description="Sign in to continue to your dashboard"
     >
       <div className="space-y-5">
+        {isActivated && (
+          <div className="rounded-lg border bg-muted/40 p-4">
+            <p className="text-sm font-medium">
+              You have successfully Sign-in to Cosmo-Os
+            </p>
+            {activatedEmail && (
+              <p className="text-muted-foreground mt-1 text-sm">
+                Continue with <span className="font-medium">{activatedEmail}</span>.
+              </p>
+            )}
+          </div>
+        )}
         <div className="grid gap-2">
           <div className="flex items-start gap-2 rounded-lg border p-3">
             <ShieldCheck

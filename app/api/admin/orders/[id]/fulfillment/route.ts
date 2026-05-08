@@ -3,6 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/lib/audit-log";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
@@ -20,6 +21,10 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("advance_to_print"),
+  }),
+  z.object({
+    action: z.literal("set_sample_send_later_date"),
+    sendLaterDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }),
   z.object({
     action: z.literal("put_on_hold"),
@@ -70,22 +75,31 @@ function getRequiredPermissionsForAction(action: string): string[] {
   switch (action) {
     case "add_samples":
     case "advance_to_print":
-      return ["orders.manage", "fulfillment.sample_free_issue.manage"];
+    case "set_sample_send_later_date":
+      return ["fulfillment.sample_free_issue.manage"];
     case "put_on_hold":
-      return ["orders.manage", "fulfillment.ready_dispatch.put_on_hold"];
+      return ["fulfillment.ready_dispatch.put_on_hold"];
     case "mark_ready":
-      return ["orders.manage", "fulfillment.ready_dispatch.package_ready"];
+      return ["fulfillment.ready_dispatch.package_ready"];
     case "revert_hold":
-      return ["orders.manage", "fulfillment.ready_dispatch.revert_hold"];
+      return ["fulfillment.ready_dispatch.revert_hold"];
     case "dispatch":
-      return ["orders.manage", "fulfillment.ready_dispatch.dispatch"];
+      return ["fulfillment.ready_dispatch.dispatch"];
     case "mark_delivered":
-      return ["orders.manage", "fulfillment.delivery_invoice.mark_delivered"];
+      return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
-      return ["orders.manage", "fulfillment.delivery_invoice.mark_complete"];
+      return ["fulfillment.delivery_invoice.mark_complete"];
     case "complete_pos":
-    case "revert_to_stage":
       return ["orders.manage"];
+    case "revert_to_stage":
+      return [
+        "fulfillment.revert_to.order_received",
+        "fulfillment.revert_to.sample_free_issue",
+        "fulfillment.revert_to.print",
+        "fulfillment.revert_to.ready_dispatch",
+        "fulfillment.revert_to.dispatched",
+        "fulfillment.revert_to.delivery_complete",
+      ];
     default:
       return ["orders.manage"];
   }
@@ -119,6 +133,44 @@ function getRequiredRevertPermissions(
   return perms;
 }
 
+function dateOnlyUtc(value: string) {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+}
+
+function dateInputValueUtc(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysUtc(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+
+async function logOrderFulfillmentAudit(input: {
+  companyId: string;
+  actorUserId: string;
+  orderId: string;
+  summary: string;
+  beforeStage: FulfillmentStage;
+  afterStage: FulfillmentStage;
+  metadata?: Record<string, unknown>;
+}) {
+  await writeAuditLog({
+    companyId: input.companyId,
+    actorUserId: input.actorUserId,
+    module: "orders",
+    action: "fulfillment_updated",
+    entityType: "Order",
+    entityId: input.orderId,
+    summary: input.summary,
+    beforeData: { fulfillmentStage: input.beforeStage },
+    afterData: { fulfillmentStage: input.afterStage },
+    metadata: input.metadata,
+  });
+}
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -219,6 +271,16 @@ export async function PATCH(
         });
       }
 
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Added samples/free issues to order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage === "order_received" ? "sample_free_issue" : order.fulfillmentStage,
+        metadata: { action: data.action, sampleCount: data.samples.length },
+      });
+
       return NextResponse.json({ success: true });
     }
 
@@ -236,6 +298,50 @@ export async function PATCH(
           sampleFreeIssueCompleteAt: now,
           sampleFreeIssueCompleteById: auth.context!.user!.id,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Advanced order ${order.orderNumber ?? order.name ?? order.id} to print`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "print",
+        metadata: { action: data.action },
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "set_sample_send_later_date") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Send later date can only be set at sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+
+      const orderDate = dateOnlyUtc(dateInputValueUtc(order.createdAt));
+      const minDate = dateInputValueUtc(orderDate);
+      const maxDate = dateInputValueUtc(addDaysUtc(orderDate, 3));
+      if (data.sendLaterDate < minDate || data.sendLaterDate > maxDate) {
+        return NextResponse.json(
+          { error: "Send later date must be within 3 days from the order date." },
+          { status: 400 }
+        );
+      }
+
+      const sendLaterDate = dateOnlyUtc(data.sendLaterDate);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { sampleFreeIssueSendLaterDate: sendLaterDate },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Set send later date for order ${order.orderNumber ?? order.name ?? order.id} to ${data.sendLaterDate}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage,
+        metadata: { action: data.action, sendLaterDate: data.sendLaterDate },
       });
       return NextResponse.json({ success: true });
     }
@@ -261,6 +367,15 @@ export async function PATCH(
           packageHoldReasonId: data.holdReasonId,
           packageReadyAt: null,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Put order ${order.orderNumber ?? order.name ?? order.id} on hold`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "ready_to_dispatch",
+        metadata: { action: data.action, holdReasonId: data.holdReasonId },
       });
       return NextResponse.json({ success: true });
     }
@@ -288,6 +403,15 @@ export async function PATCH(
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] package_ready failed:", err));
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as package ready`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "ready_to_dispatch",
+        metadata: { action: data.action },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -310,6 +434,15 @@ export async function PATCH(
           packageOnHoldAt: null,
           packageHoldReasonId: null,
         },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Reverted hold on order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: order.fulfillmentStage,
+        metadata: { action: data.action },
       });
       return NextResponse.json({ success: true });
     }
@@ -370,6 +503,9 @@ export async function PATCH(
           dispatchedById: auth.context!.user!.id,
           dispatchedByRiderId: data.riderId ?? null,
           dispatchedByCourierServiceId: data.courierServiceId ?? null,
+          deliveryOutcome: "pending",
+          deliveryFailedReason: null,
+          lastRiderUpdateAt: data.riderId ? now : null,
           riderDeliveryToken,
         },
         include: {
@@ -377,6 +513,33 @@ export async function PATCH(
           dispatchedByRider: { select: { name: true, mobile: true } },
         },
       });
+      if (data.riderId) {
+        await prisma.riderDeliveryTask.upsert({
+          where: { orderId: order.id },
+          create: {
+            orderId: order.id,
+            riderId: data.riderId,
+            status: "assigned",
+            assignedAt: now,
+            latestSyncAt: now,
+          },
+          update: {
+            riderId: data.riderId,
+            status: "assigned",
+            assignedAt: now,
+            acceptedAt: null,
+            arrivedAt: null,
+            completedAt: null,
+            failedAt: null,
+            failureReason: null,
+            latestSyncAt: now,
+          },
+        });
+      } else {
+        await prisma.riderDeliveryTask.deleteMany({
+          where: { orderId: order.id },
+        });
+      }
       const orderNum = updated.orderNumber ?? updated.name ?? updated.shopifyOrderId;
       sendOrderSms(companyId, order.id, "dispatched", {
         orderNumber: orderNum,
@@ -393,6 +556,15 @@ export async function PATCH(
           deliveryUrl,
         }).catch((err) => console.error("[Order SMS] rider_dispatched failed:", err));
       }
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Dispatched order ${orderNum}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "dispatched",
+        metadata: { action: data.action, riderId: data.riderId ?? null, courierServiceId: data.courierServiceId ?? null },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -412,6 +584,15 @@ export async function PATCH(
           invoiceCompleteById: auth.context!.user!.id,
         },
       });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Marked invoice complete for order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "invoice_complete",
+        metadata: { action: data.action },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -428,15 +609,37 @@ export async function PATCH(
           fulfillmentStage: "delivery_complete",
           deliveryCompleteAt: now,
           deliveryCompleteById: auth.context!.user!.id,
+          deliveryOutcome: "delivered",
+          deliveryFailedReason: null,
+          lastRiderUpdateAt: now,
           riderDeliveryToken: null,
         },
         include: { companyLocation: true },
+      });
+      await prisma.riderDeliveryTask.updateMany({
+        where: { orderId: order.id },
+        data: {
+          status: "completed",
+          completedAt: now,
+          failedAt: null,
+          failureReason: null,
+          latestSyncAt: now,
+        },
       });
       sendOrderSms(companyId, order.id, "delivery_complete", {
         orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "delivery_complete",
+        metadata: { action: data.action },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -466,6 +669,11 @@ export async function PATCH(
       };
       if (currentStage === "invoice_complete" && targetStage !== "invoice_complete") {
         updateData.fulfillmentStatus = "unfulfilled";
+      }
+      if (targetIdx <= FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
+        updateData.deliveryOutcome = "pending";
+        updateData.deliveryFailedReason = null;
+        updateData.lastRiderUpdateAt = null;
       }
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("sample_free_issue")) {
         updateData.sampleFreeIssueCompleteAt = null;
@@ -501,6 +709,33 @@ export async function PATCH(
         where: { id: order.id },
         data: updateData,
       });
+      if (targetIdx < FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
+        await prisma.riderDeliveryTask.deleteMany({
+          where: { orderId: order.id },
+        });
+      } else {
+        await prisma.riderDeliveryTask.updateMany({
+          where: { orderId: order.id },
+          data: {
+            status: "assigned",
+            acceptedAt: null,
+            arrivedAt: null,
+            completedAt: null,
+            failedAt: null,
+            failureReason: null,
+            latestSyncAt: null,
+          },
+        });
+      }
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: targetStage,
+        metadata: { action: data.action, targetStage },
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -527,12 +762,27 @@ export async function PATCH(
           dispatchedById: userId,
           dispatchedByRiderId: null,
           dispatchedByCourierServiceId: null,
+          deliveryOutcome: "delivered",
+          deliveryFailedReason: null,
           invoiceCompleteAt: isPaid ? now : now,
           invoiceCompleteById: userId,
           deliveryCompleteAt: now,
           deliveryCompleteById: userId,
+          lastRiderUpdateAt: null,
           riderDeliveryToken: null,
         },
+      });
+      await prisma.riderDeliveryTask.deleteMany({
+        where: { orderId: order.id },
+      });
+      await logOrderFulfillmentAudit({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        orderId: order.id,
+        summary: `Completed POS order ${order.orderNumber ?? order.name ?? order.id}`,
+        beforeStage: order.fulfillmentStage,
+        afterStage: "delivery_complete",
+        metadata: { action: data.action },
       });
       return NextResponse.json({ success: true });
     }
@@ -546,3 +796,12 @@ export async function PATCH(
 
   return NextResponse.json({ success: true });
 }
+
+
+
+
+
+
+
+
+

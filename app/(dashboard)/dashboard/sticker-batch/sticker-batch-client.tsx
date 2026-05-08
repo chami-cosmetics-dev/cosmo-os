@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { notify } from "@/lib/notify";
 
@@ -252,6 +253,7 @@ export function StickerBatchClient({
   initialTab = "batch",
   initialHistoryRows = [],
 }: StickerBatchClientProps) {
+  const { confirm } = useConfirmationDialog();
   const [activeTab, setActiveTab] = useState<"batch" | "history">(initialTab);
   const [supplierId, setSupplierId] = useState("");
   const [supplierOpen, setSupplierOpen] = useState(false);
@@ -543,7 +545,14 @@ export function StickerBatchClient({
     setRows((prev) => [...prev, ...newRows]);
   }
 
-  function handleRemoveAllRows() {
+  async function handleRemoveAllRows() {
+    const confirmed = await confirm({
+      title: "Remove all rows?",
+      description: "This will clear all sticker batch item rows currently in the table.",
+      confirmLabel: "Remove All",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     nextRowIdRef.current = 1;
     setRows([]);
     setActiveRowId(null);
@@ -574,7 +583,14 @@ export function StickerBatchClient({
     }
   }
 
-  function handleRemoveRow(rowId: string) {
+  async function handleRemoveRow(rowId: string) {
+    const confirmed = await confirm({
+      title: "Remove row?",
+      description: "This sticker batch row will be removed.",
+      confirmLabel: "Remove",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
     setRows((prev) => {
       const removedIndex = prev.findIndex((row) => row.id === rowId);
       const nextRows = prev.filter((row) => row.id !== rowId);
@@ -926,13 +942,27 @@ export function StickerBatchClient({
   }, [selectedBatchId, selectedLocationId, rowsToAdd, rows]);
 
   return (
-    <div className="space-y-4">
-      <div className="inline-flex rounded-md border bg-muted/30 p-1">
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
+        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
+          Inventory
+        </p>
+        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          Sticker Batch
+        </h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
+          Create sticker batches, manage item rows, and reopen recent batches before sending them to print.
+        </p>
+      </section>
+
+      <div className="inline-flex rounded-xl border border-border/70 bg-background/70 p-1 shadow-xs">
         <Button
           type="button"
           size="sm"
           variant={activeTab === "batch" ? "default" : "ghost"}
           onClick={() => setActiveTab("batch")}
+          className={activeTab === "batch" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
         >
           Sticker Batch
         </Button>
@@ -941,6 +971,7 @@ export function StickerBatchClient({
           size="sm"
           variant={activeTab === "history" ? "default" : "ghost"}
           onClick={() => setActiveTab("history")}
+          className={activeTab === "history" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
         >
           Batch History
         </Button>
@@ -948,12 +979,12 @@ export function StickerBatchClient({
 
       {activeTab === "batch" ? (
         <div className="space-y-6">
-      <Card>
-        <CardHeader className="space-y-1">
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="space-y-1 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle>Sticker Batch</CardTitle>
             <div className="flex flex-wrap gap-2">
-              <Button asChild variant="outline" size="sm" type="button">
+              <Button asChild variant="outline" size="sm" type="button" className="border-border/70 bg-background/85 hover:bg-secondary/10">
                 <Link href="/dashboard/sticker-print">Sticker Print</Link>
               </Button>
             </div>
@@ -973,7 +1004,7 @@ export function StickerBatchClient({
                     variant="outline"
                     role="combobox"
                     aria-expanded={supplierOpen}
-                    className={`h-9 w-full justify-between ${getInlineChangeClass(supplierId)}`}
+                    className={`h-9 w-full justify-between border-border/70 bg-background/90 ${getInlineChangeClass(supplierId)}`}
                   >
                     {supplierId
                       ? (() => {
@@ -984,7 +1015,7 @@ export function StickerBatchClient({
                     <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] border-border/70 p-0">
                   <Command>
                     <CommandInput placeholder="Search supplier..." />
                     <CommandList>
@@ -1017,7 +1048,7 @@ export function StickerBatchClient({
                 value={batchName}
                 onChange={(e) => setBatchName(e.target.value)}
                 placeholder="Enter unique batch name"
-                className={getInlineChangeClass(batchName)}
+                className={`border-border/70 bg-background/90 ${getInlineChangeClass(batchName)}`}
               />
             </div>
             <div className="space-y-2">
@@ -1027,7 +1058,7 @@ export function StickerBatchClient({
                 onChange={(e) => setBatchDate(formatDateTyping(e.target.value))}
                 placeholder="DD/MM/YYYY"
                 maxLength={10}
-                className={getInlineChangeClass(batchDate)}
+                className={`border-border/70 bg-background/90 ${getInlineChangeClass(batchDate)}`}
               />
             </div>
           </div>
@@ -1035,7 +1066,7 @@ export function StickerBatchClient({
           <div className="space-y-2">
             <label className="text-sm font-medium">Remark</label>
             <Textarea
-              className={`${textareaClassName} ${getInlineChangeClass(remark)}`}
+              className={`${textareaClassName} border-border/70 bg-background/90 ${getInlineChangeClass(remark)}`}
               rows={4}
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
@@ -1043,15 +1074,15 @@ export function StickerBatchClient({
           </div>
 
           <div className="flex justify-end">
-            <Button type="button" onClick={handleCreateBatch} disabled={saving || !canSaveBatch}>
+            <Button type="button" onClick={handleCreateBatch} disabled={saving || !canSaveBatch} className="shadow-[0_10px_24px_-18px_var(--primary)]">
               {saving ? "Saving..." : "Save"}
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      <Card id="sticker-batch-items-section">
-        <CardHeader className="space-y-1">
+      <Card id="sticker-batch-items-section" className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="space-y-1 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <CardTitle>Sticker Batch Items</CardTitle>
           <p className="text-muted-foreground text-sm">
             Batch item details based on selected batch number and locations.
@@ -1067,7 +1098,7 @@ export function StickerBatchClient({
                 onValueChange={(value) => setSelectedBatchId(value)}
               >
                 <SelectTrigger
-                  className={`${selectClassName} ${getInlineChangeClass(
+                  className={`border-border/70 bg-background/90 ${selectClassName} ${getInlineChangeClass(
                     selectedBatchId,
                   )}`}
                 >
@@ -1089,7 +1120,7 @@ export function StickerBatchClient({
                 value={selectedLocationId || undefined}
                 onValueChange={(value) => handleLocationChange(value)}
               >
-                <SelectTrigger className={selectClassName}>
+                <SelectTrigger className={`border-border/70 bg-background/90 ${selectClassName}`}>
                   <SelectValue placeholder="Select default location" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1108,16 +1139,16 @@ export function StickerBatchClient({
                 min={1}
                 value={rowsToAdd}
                 onChange={(e) => setRowsToAdd(e.target.value)}
-                className={getInlineChangeClass(rowsToAdd)}
+                className={`border-border/70 bg-background/90 ${getInlineChangeClass(rowsToAdd)}`}
               />
             </div>
             <div className="shrink-0">
-              <Button type="button" onClick={handleAddRows} disabled={!canAddRows}>
+              <Button type="button" onClick={handleAddRows} disabled={!canAddRows} className="shadow-[0_10px_24px_-18px_var(--primary)]">
                 Add
               </Button>
             </div>
             <div className="shrink-0">
-              <Button type="button" variant="outline" onClick={handleRemoveAllRows}>
+              <Button type="button" variant="outline" onClick={handleRemoveAllRows} className="border-border/70 bg-background/85 hover:bg-secondary/10">
               Remove All
               </Button>
             </div>
@@ -1125,6 +1156,7 @@ export function StickerBatchClient({
               <Button
                 type="button"
                 variant="outline"
+                className="border-border/70 bg-background/85 hover:bg-secondary/10"
                 onClick={applySelectedLocationToAllRows}
                 disabled={!selectedLocationId || rows.length === 0}
               >
@@ -1135,6 +1167,7 @@ export function StickerBatchClient({
               <Button
                 type="button"
                 variant="outline"
+                className="border-border/70 bg-background/85 hover:bg-secondary/10"
                 onClick={clearLoadedBatchItems}
                 disabled={!selectedBatchId && rows.length === 0}
               >
@@ -1149,10 +1182,10 @@ export function StickerBatchClient({
             ))}
           </datalist>
 
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
             <table className="w-full min-w-[1100px] text-sm">
               <thead>
-                <tr className="border-b text-left">
+                <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] text-left">
                   <th className="p-3 font-medium">Location</th>
                   <th className="p-3 font-medium">Item Code</th>
                   <th className="p-3 font-medium">Item Name</th>
@@ -1170,14 +1203,14 @@ export function StickerBatchClient({
                   <tr
                     key={row.id}
                     onClick={() => handleRowFocus(row.id)}
-                    className={`border-b last:border-b-0 ${activeRowId === row.id ? "bg-muted/50" : ""}`}
+                    className={`border-b border-border/50 last:border-b-0 ${activeRowId === row.id ? "bg-secondary/10" : "hover:bg-secondary/5"}`}
                   >
                     <td className="p-3">
                       <Select
                         value={row.locationId || undefined}
                         onValueChange={(value) => setRow(row.id, { locationId: value })}
                       >
-                        <SelectTrigger className={getInlineChangeClass(row.locationId)}>
+                        <SelectTrigger className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.locationId)}`}>
                           <SelectValue placeholder="Select location" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1198,14 +1231,14 @@ export function StickerBatchClient({
                         }
                         onFocus={() => handleRowFocus(row.id)}
                         placeholder="Type code"
-                        className={getInlineChangeClass(row.itemCode)}
+                        className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.itemCode)}`}
                       />
                     </td>
                     <td className="p-3">
-                      <Input value={row.itemName} readOnly />
+                      <Input value={row.itemName} readOnly className="border-border/70 bg-background/80" />
                     </td>
                     <td className="p-3">
-                      <Input value={row.unitPrice} readOnly />
+                      <Input value={row.unitPrice} readOnly className="border-border/70 bg-background/80" />
                     </td>
                     <td className="p-3">
                       <Input
@@ -1217,7 +1250,7 @@ export function StickerBatchClient({
                           setRow(row.id, { quantity: e.target.value })
                         }
                         onFocus={() => handleRowFocus(row.id)}
-                        className={getInlineChangeClass(row.quantity)}
+                        className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.quantity)}`}
                       />
                     </td>
                     <td className="p-3">
@@ -1233,7 +1266,7 @@ export function StickerBatchClient({
                         onFocus={() => handleRowFocus(row.id)}
                         placeholder="DD/MM/YYYY"
                         maxLength={10}
-                        className={getInlineChangeClass(row.manufactureDate)}
+                        className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.manufactureDate)}`}
                       />
                     </td>
                     <td className="p-3">
@@ -1249,16 +1282,17 @@ export function StickerBatchClient({
                         onFocus={() => handleRowFocus(row.id)}
                         placeholder="DD/MM/YYYY"
                         maxLength={10}
-                        className={getInlineChangeClass(row.expireDate)}
+                        className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.expireDate)}`}
                       />
                     </td>
                     <td className="p-3">
-                      <Input value={row.age} readOnly />
+                      <Input value={row.age} readOnly className="border-border/70 bg-background/80" />
                     </td>
                     <td className="p-3">
                       <Button
                         type="button"
                         variant="outline"
+                        className="border-border/70 bg-background/85 hover:bg-secondary/10"
                         onClick={() => handleRemoveRow(row.id)}
                       >
                         Remove
@@ -1266,7 +1300,7 @@ export function StickerBatchClient({
                     </td>
                     <td className="p-3">
                       {index === rows.length - 1 ? (
-                        <Button type="button" onClick={handleAddRows} disabled={!canAddRows}>
+                        <Button type="button" onClick={handleAddRows} disabled={!canAddRows} className="shadow-[0_10px_24px_-18px_var(--primary)]">
                           Add
                         </Button>
                       ) : null}
@@ -1279,7 +1313,7 @@ export function StickerBatchClient({
           {activeRow ? (
             <div
               onMouseEnter={() => setIsPreviewLifted((prev) => !prev)}
-              className={`fixed right-4 z-50 hidden rounded-lg border bg-background/80 p-3 shadow-md backdrop-blur-sm transition-all duration-200 ease-out md:block ${
+              className={`fixed right-4 z-50 hidden rounded-xl border border-border/70 bg-background/85 p-3 shadow-md backdrop-blur-sm transition-all duration-200 ease-out md:block ${
                 isPreviewLifted ? "bottom-35" : "bottom-4"
               }`}
             >
@@ -1307,6 +1341,7 @@ export function StickerBatchClient({
               type="button"
               onClick={handleSaveBatchItems}
               disabled={savingItems || !allRowsComplete || !canAddRows || loadedDataUnchanged}
+              className="shadow-[0_10px_24px_-18px_var(--primary)]"
             >
               {savingItems ? "Saving Items..." : "Save Items"}
             </Button>
@@ -1315,13 +1350,13 @@ export function StickerBatchClient({
       </Card>
         </div>
       ) : (
-        <Card>
-          <CardHeader className="space-y-3">
+        <Card className="overflow-hidden border-border/70 shadow-xs">
+          <CardHeader className="space-y-3 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
             <CardTitle>Sticker Batch History</CardTitle>
             <div
               role="alert"
               aria-live="polite"
-              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
+              className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2"
             >
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
               <p className="text-sm font-medium text-destructive">
@@ -1334,14 +1369,14 @@ export function StickerBatchClient({
           </CardHeader>
           <CardContent className="space-y-3">
             {historyRows.length === 0 ? (
-              <div className="rounded-md border p-4 text-sm text-muted-foreground">
+              <div className="rounded-xl border border-border/70 bg-background/85 p-4 text-sm text-muted-foreground">
                 No sticker batches found.
               </div>
             ) : (
               historyRows.map((row) => (
                 <div
                   key={row.id}
-                  className="flex flex-col gap-3 rounded-lg border p-4 md:flex-row md:items-center md:justify-between"
+                  className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/90 p-4 shadow-xs md:flex-row md:items-center md:justify-between"
                 >
                   <div className="space-y-1">
                     <p className="font-medium">{row.batchName}</p>
@@ -1357,12 +1392,13 @@ export function StickerBatchClient({
                     <Button
                       size="sm"
                       variant="outline"
+                      className="border-border/70 bg-background/85 hover:bg-secondary/10"
                       type="button"
                       onClick={() => handleLoadBatchFromHistory(row.id)}
                     >
                       Load to Sticker Batch Items
                     </Button>
-                    <Button asChild size="sm" variant="outline" type="button">
+                    <Button asChild size="sm" variant="outline" type="button" className="border-border/70 bg-background/85 hover:bg-secondary/10">
                       <Link href={`/dashboard/sticker-print?batchId=${row.id}`}>
                         Open Print Page
                       </Link>

@@ -22,7 +22,7 @@ const shopifyAddressSchema = z
 
 const shopifyCustomerSchema = z
   .object({
-    id: z.number(),
+    id: z.coerce.number(),
     email: z.string().optional().nullable(),
     first_name: z.string().optional().nullable(),
     last_name: z.string().optional().nullable(),
@@ -33,11 +33,17 @@ const shopifyCustomerSchema = z
   .optional()
   .nullable();
 
-const shopifyDiscountCodeSchema = z.object({
-  code: z.string().transform((s) => s.slice(0, LIMITS.couponCode.max)),
-  amount: z.string().optional(),
-  type: z.string().optional(),
-});
+const shopifyDiscountCodeSchema = z
+  .object({
+    code: z.union([z.string(), z.number()]).optional().nullable(),
+    amount: z.string().optional(),
+    type: z.string().optional(),
+  })
+  .passthrough()
+  .transform((row) => ({
+    ...row,
+    code: row.code != null ? String(row.code).slice(0, LIMITS.couponCode.max) : "",
+  }));
 
 const shopifyDiscountApplicationSchema = z.object({}).passthrough();
 
@@ -49,16 +55,21 @@ const shopifyShippingLineSchema = z.object({
   discounted_price: z.string().optional(),
 }).passthrough();
 
-const shopifyLineItemSchema = z.object({
-  id: z.union([z.number(), z.string()]),
-  variant_id: z.number(),
-  product_id: z.union([z.number(), z.string()]).optional().nullable(),
-  sku: z.string().optional().nullable(),
-  title: z.string().optional().nullable(),
-  vendor: z.string().max(LIMITS.vendorName.max).optional().nullable(),
-  price: z.string(),
-  quantity: z.number().int().min(1),
-});
+const numericString = z.union([z.string(), z.number()]).transform((v) => String(v));
+
+const shopifyLineItemSchema = z
+  .object({
+    id: z.union([z.number(), z.string()]),
+    /** Shopify sends null for custom line items, some gift lines, etc. */
+    variant_id: z.union([z.number(), z.string()]).nullable().optional(),
+    product_id: z.union([z.number(), z.string()]).optional().nullable(),
+    sku: z.string().optional().nullable(),
+    title: z.string().optional().nullable(),
+    vendor: z.string().max(LIMITS.vendorName.max).optional().nullable(),
+    price: numericString,
+    quantity: z.coerce.number().int().min(1),
+  })
+  .passthrough();
 
 export const shopifyOrderWebhookSchema = z.object({
   id: z.number(),
@@ -72,7 +83,7 @@ export const shopifyOrderWebhookSchema = z.object({
   subtotal_price: z.string().optional().nullable(),
   total_discounts: z.string().optional().nullable(),
   total_tax: z.string().optional().nullable(),
-  total_price: z.string(),
+  total_price: numericString,
   current_subtotal_price: z.string().optional().nullable(),
   current_total_discounts: z.string().optional().nullable(),
   current_total_tax: z.string().optional().nullable(),

@@ -237,25 +237,25 @@ export function FailedOrderWebhooksPanel() {
     currentStatus: WebhookStatusFilter
   ) {
     return (
-      <div className="space-y-4 rounded-md border bg-muted/20 p-4">
+      <div className="space-y-4 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="text-muted-foreground text-xs">
               {currentStatus === "unresolved" ? "Failed webhook records" : "Resolved webhook records"}
             </p>
             <p className="mt-1 font-semibold text-lg">{currentSummary.totalWebhooks}</p>
           </div>
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="text-muted-foreground text-xs">Unique Shopify orders</p>
             <p className="mt-1 font-semibold text-lg">{currentSummary.uniqueOrders}</p>
           </div>
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="text-muted-foreground text-xs">Oldest failure</p>
             <p className="mt-1 text-sm">
               {currentSummary.oldestFailureAt ? formatDate(currentSummary.oldestFailureAt) : "—"}
             </p>
           </div>
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="text-muted-foreground text-xs">Latest failure</p>
             <p className="mt-1 text-sm">
               {currentSummary.newestFailureAt ? formatDate(currentSummary.newestFailureAt) : "—"}
@@ -263,7 +263,7 @@ export function FailedOrderWebhooksPanel() {
           </div>
         </div>
         <div className="grid gap-3 lg:grid-cols-3">
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="mb-2 font-medium text-sm">Top failure types</p>
             {currentSummary.topFailureTypes.length === 0 ? (
               <p className="text-muted-foreground text-xs">No data</p>
@@ -278,7 +278,7 @@ export function FailedOrderWebhooksPanel() {
               </ul>
             )}
           </div>
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="mb-2 font-medium text-sm">Top webhook topics</p>
             {currentSummary.topTopics.length === 0 ? (
               <p className="text-muted-foreground text-xs">No data</p>
@@ -293,7 +293,7 @@ export function FailedOrderWebhooksPanel() {
               </ul>
             )}
           </div>
-          <div className="rounded border bg-background p-3">
+          <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
             <p className="mb-2 font-medium text-sm">Top error messages</p>
             {currentSummary.topErrorMessages.length === 0 ? (
               <p className="text-muted-foreground text-xs">No data</p>
@@ -320,11 +320,25 @@ export function FailedOrderWebhooksPanel() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
+      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
+        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
+          Orders
+        </p>
+        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          <AlertCircle className="size-5 text-muted-foreground" />
+          Failed Webhooks
+        </h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
+          Review unresolved Shopify order failures, inspect payloads, and retry processing once the issue is fixed.
+        </p>
+      </section>
+
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <CardTitle className="flex items-center gap-2">
             <AlertCircle className="size-5 text-destructive" />
-            Failed Order Webhooks
+            Webhook Monitor
           </CardTitle>
           <p className="text-muted-foreground text-sm">
             Orders that failed to save or update. Check the error, fix any issues, then retry or
@@ -333,10 +347,10 @@ export function FailedOrderWebhooksPanel() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex rounded-md border p-1">
+            <div className="inline-flex rounded-xl border border-border/70 bg-background/70 p-1 shadow-xs">
               <button
                 type="button"
-                className={`rounded px-3 py-1 text-sm ${status === "unresolved" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+                className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${status === "unresolved" ? "bg-primary text-primary-foreground shadow-[0_10px_24px_-18px_var(--primary)]" : "text-muted-foreground hover:bg-secondary/10"}`}
                 onClick={() => {
                   setStatus("unresolved");
                   setPage(1);
@@ -346,7 +360,7 @@ export function FailedOrderWebhooksPanel() {
               </button>
               <button
                 type="button"
-                className={`rounded px-3 py-1 text-sm ${status === "resolved" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+                className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${status === "resolved" ? "bg-primary text-primary-foreground shadow-[0_10px_24px_-18px_var(--primary)]" : "text-muted-foreground hover:bg-secondary/10"}`}
                 onClick={() => {
                   setStatus("resolved");
                   setPage(1);
@@ -360,7 +374,7 @@ export function FailedOrderWebhooksPanel() {
               <Button
                 onClick={handleRetryAll}
                 disabled={retryingAll || retryingId !== null}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
               >
                 {retryingAll ? (
                   <>
@@ -415,10 +429,10 @@ export function FailedOrderWebhooksPanel() {
             <>
               {summary && renderSummaryBlock(summary, status)}
 
-              <div className="overflow-x-auto rounded-md border">
+              <div className="overflow-x-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b bg-muted/50">
+                    <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                       <th className="px-4 py-2 text-left font-medium">Shopify Order ID</th>
                       <th className="px-4 py-2 text-left font-medium">Topic</th>
                       <th className="px-4 py-2 text-left font-medium">Location</th>
@@ -430,7 +444,7 @@ export function FailedOrderWebhooksPanel() {
                   </thead>
                   <tbody>
                     {items.map((item) => (
-                      <tr key={item.id} className="border-b last:border-0">
+                      <tr key={item.id} className="border-b border-border/50 transition-colors hover:bg-secondary/10 last:border-0">
                         <td className="px-4 py-2 font-mono text-xs">{item.shopifyOrderId}</td>
                         <td className="px-4 py-2">{item.shopifyTopic ?? "—"}</td>
                         <td className="px-4 py-2">{item.companyLocation.name}</td>
@@ -446,6 +460,7 @@ export function FailedOrderWebhooksPanel() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="border-border/70 bg-background/80 hover:bg-secondary/10"
                               onClick={() => handleViewDetails(item.id)}
                             >
                               View
@@ -453,7 +468,7 @@ export function FailedOrderWebhooksPanel() {
                             {status === "unresolved" && (
                               <Button
                                 size="sm"
-                                className="flex items-center gap-2"
+                                className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
                                 onClick={() => handleRetry(item.id)}
                                 disabled={retryingId !== null || retryingAll}
                               >
@@ -504,7 +519,7 @@ export function FailedOrderWebhooksPanel() {
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))]">
           <DialogHeader>
             <DialogTitle>Failed Webhook Details</DialogTitle>
             <DialogDescription>
@@ -533,14 +548,14 @@ export function FailedOrderWebhooksPanel() {
               )}
               <div>
                 <h4 className="mb-1 text-sm font-medium">Error</h4>
-                <pre className="max-h-32 overflow-auto rounded bg-destructive/10 p-3 text-xs text-destructive">
+                <pre className="max-h-32 overflow-auto rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
                   {detail.errorMessage}
                 </pre>
               </div>
               {detail.errorStack && (
                 <div>
                   <h4 className="mb-1 text-sm font-medium">Stack trace</h4>
-                  <pre className="max-h-40 overflow-auto rounded bg-muted p-3 text-xs">
+                  <pre className="max-h-40 overflow-auto rounded-xl border border-border/70 bg-background/80 p-3 text-xs">
                     {detail.errorStack}
                   </pre>
                 </div>
@@ -553,7 +568,7 @@ export function FailedOrderWebhooksPanel() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="gap-2"
+                  className="gap-2 border-border/70 bg-background/85 hover:bg-secondary/10"
                   onClick={() => setShowJsonModal(true)}
                 >
                   <FileJson className="size-4" />
@@ -561,11 +576,11 @@ export function FailedOrderWebhooksPanel() {
                 </Button>
               </div>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setSelectedId(null)}>
+                <Button variant="outline" className="border-border/70 bg-background/85 hover:bg-secondary/10" onClick={() => setSelectedId(null)}>
                   Close
                 </Button>
                 <Button
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
                   onClick={() => handleRetry(selectedId)}
                   disabled={status !== "unresolved" || retryingId !== null || retryingAll}
                 >
@@ -588,7 +603,7 @@ export function FailedOrderWebhooksPanel() {
       </Dialog>
 
       <Dialog open={showJsonModal} onOpenChange={setShowJsonModal}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden flex flex-col">
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileJson className="size-5" />
@@ -600,12 +615,12 @@ export function FailedOrderWebhooksPanel() {
           </DialogHeader>
           <div className="flex-1 min-h-0 flex flex-col gap-3">
             <div className="flex justify-end">
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyJson}>
+              <Button variant="outline" size="sm" className="gap-2 border-border/70 bg-background/85 hover:bg-secondary/10" onClick={handleCopyJson}>
                 <Copy className="size-4" />
                 Copy to clipboard
               </Button>
             </div>
-            <pre className="flex-1 overflow-auto rounded-lg border bg-muted/50 p-4 text-xs font-mono">
+            <pre className="flex-1 overflow-auto rounded-xl border border-border/70 bg-background/85 p-4 text-xs font-mono">
               <code>
                 {detail?.rawPayload != null
                   ? JSON.stringify(detail.rawPayload, null, 2)
