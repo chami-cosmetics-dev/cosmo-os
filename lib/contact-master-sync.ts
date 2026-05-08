@@ -185,7 +185,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
 
   if (!matchedContact) {
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
       const existing = await tx.contactMaster.findFirst({
         where: {
           companyId: input.companyId,
@@ -325,7 +325,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
   if (!matchedContact) {
     const createResult = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
       const rechecked = await findMatchingContacts(input.companyId, email, phoneNumber, tx as never);
       if (rechecked.emailMatches.length > 1 || rechecked.phoneMatches.length > 1) {
         return { status: "conflict" as const };

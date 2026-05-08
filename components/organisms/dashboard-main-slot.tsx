@@ -76,14 +76,16 @@ export function DashboardMainSlot() {
     .map((location) => {
       const merchantTotals = [...location.merchants].sort((a, b) => b.total - a.total);
       const total = merchantTotals.reduce((sum, merchant) => sum + merchant.total, 0);
-      const topMerchant = merchantTotals[0];
+      const locationMerchantTotal = merchantTotals
+        .filter((merchant) => merchant.merchantId === location.defaultMerchantId)
+        .reduce((sum, merchant) => sum + merchant.total, 0);
 
       return {
         shop: location.name,
         total: formatMetric(total),
-        agent: topMerchant?.merchantName ?? "Unassigned",
-        agentValue: formatMetric(topMerchant?.total ?? 0),
-        segments: buildSegmentsFromRows(merchantTotals),
+        agent: location.defaultMerchantName ?? "Unassigned",
+        agentValue: formatMetric(locationMerchantTotal),
+        segments: buildSegmentsFromRows(merchantTotals, location.defaultMerchantId),
       };
     })
     .sort((a, b) => parseMetric(b.total) - parseMetric(a.total));
@@ -173,7 +175,7 @@ function DashboardDonutGrid({
     total: string;
     agent: string;
     agentValue: string;
-    segments: Array<{ value: number; color: string }>;
+    segments: Array<{ label: string; value: number; color: string }>;
   }>;
 }) {
   if (stats.length === 0) return null;
@@ -190,9 +192,9 @@ function DashboardDonutGrid({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <LegendDot color="#4f95bf" label="Primary Sales" />
-          <LegendDot color="#06b06c" label="Secondary Sales" />
-          <LegendDot color="#f06a57" label="Other Sources" />
+          <LegendDot color="#4f95bf" label="Location Merchant" />
+          <LegendDot color="#06b06c" label="Other Merchants" />
+          <LegendDot color="#f06a57" label="Unassigned" />
           <span className="text-muted-foreground ml-1">{stats.length} locations</span>
         </div>
       </div>
@@ -229,7 +231,7 @@ function DashboardDonutGrid({
                       className="mx-auto mb-1.5 h-1.5 w-10 rounded-full"
                       style={{ backgroundColor: segment.color }}
                     />
-                    <p className="text-muted-foreground">{getSegmentLabel(index)}</p>
+                    <p className="text-muted-foreground">{segment.label}</p>
                     <p className="font-semibold text-slate-800 dark:text-foreground">{segment.value}%</p>
                   </div>
                 ))}
@@ -264,12 +266,12 @@ function DonutChartCard({
   chartId: string;
   name: string;
   value: string;
-  segments: Array<{ value: number; color: string }>;
+  segments: Array<{ label: string; value: number; color: string }>;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const chartData = segments.map((segment, index) => ({
     key: `segment-${index + 1}`,
-    label: getSegmentLabel(index),
+    label: segment.label,
     value: segment.value,
     fill: segment.color,
   }));
@@ -365,25 +367,56 @@ function DonutChartCard({
   );
 }
 
-function getSegmentLabel(index: number) {
-  if (index === 0) return "Primary";
-  if (index === 1) return "Secondary";
-  return "Other";
-}
-
-function buildSegmentsFromRows(rows: Array<{ total: number }>) {
-  const total = rows.reduce((sum, row) => sum + row.total, 0) || 1;
-  const palette = ["#4f95bf", "#06b06c", "#f06a57"];
-  const topThree = rows.slice(0, 3).map((row, index) => ({
-    value: Math.max(1, Math.round((row.total / total) * 100)),
-    color: palette[index],
-  }));
-
-  if (topThree.length === 1) {
-    return [{ value: 100, color: palette[0] }];
+function buildSegmentsFromRows(
+  rows: Array<{ merchantId: string | null; total: number }>,
+  defaultMerchantId: string | null,
+) {
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  if (total <= 0) {
+    return [{ label: "Unassigned", value: 100, color: "#f06a57" }];
   }
 
-  return topThree;
+  const buckets = [
+    {
+      label: "Location Merchant",
+      raw: defaultMerchantId
+        ? rows
+            .filter((row) => row.merchantId === defaultMerchantId)
+            .reduce((sum, row) => sum + row.total, 0)
+        : 0,
+      color: "#4f95bf",
+    },
+    {
+      label: "Other Merchants",
+      raw: rows
+        .filter((row) => row.merchantId != null && row.merchantId !== defaultMerchantId)
+        .reduce((sum, row) => sum + row.total, 0),
+      color: "#06b06c",
+    },
+    {
+      label: "Unassigned",
+      raw: rows
+        .filter((row) => row.merchantId == null)
+        .reduce((sum, row) => sum + row.total, 0),
+      color: "#f06a57",
+    },
+  ].filter((bucket) => bucket.raw > 0);
+
+  let assignedPercent = 0;
+
+  return buckets.map((bucket, index) => {
+    const value =
+      index === buckets.length - 1
+        ? Math.max(0, 100 - assignedPercent)
+        : Math.round((bucket.raw / total) * 100);
+    assignedPercent += value;
+
+    return {
+      label: bucket.label,
+      value,
+      color: bucket.color,
+    };
+  });
 }
 
 function renderActiveDonutShape(props: {

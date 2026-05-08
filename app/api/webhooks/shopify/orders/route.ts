@@ -6,6 +6,10 @@ import { verifyShopifyWebhook } from "@/lib/shopify-webhook";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { LIMITS } from "@/lib/validation";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
+import {
+  createFailedOrderWebhook,
+  runDueFailedOrderWebhookRetries,
+} from "@/lib/failed-order-webhook-auto-retry";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -187,16 +191,15 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     const payload = rawPayload as { id?: number | string };
     const shopifyOrderId = payload?.id != null ? String(payload.id) : "unknown";
-    await prisma.failedOrderWebhook.create({
-      data: {
-        companyId: location.companyId,
-        companyLocationId: location.id,
-        shopifyOrderId,
-        shopifyTopic: shopifyTopic?.slice(0, 100) ?? null,
-        errorMessage: `Validation failed: ${parsed.error.message}`,
-        errorStack: JSON.stringify(parsed.error.flatten(), null, 2),
-        rawPayload: rawPayload as object,
-      },
+    await createFailedOrderWebhook({
+      companyId: location.companyId,
+      companyLocationId: location.id,
+      shopifyOrderId,
+      shopifyTopic,
+      errorMessage: `Validation failed: ${parsed.error.message}`,
+      errorStack: JSON.stringify(parsed.error.flatten(), null, 2),
+      rawPayload: rawPayload as object,
+      scheduleAutoRetry: false,
     });
     return NextResponse.json(
       { error: "Invalid payload", details: parsed.error.flatten() },
@@ -289,21 +292,29 @@ export async function POST(request: NextRequest) {
       shopifyOrderId,
       webhookMeta,
     });
+    void runDueFailedOrderWebhookRetries({
+      companyId: resolvedLocation.companyId,
+      limit: 1,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack ?? null : null;
 
-    await prisma.failedOrderWebhook.create({
-      data: {
-        companyId: resolvedLocation.companyId,
-        companyLocationId: resolvedLocation.id,
-        shopifyOrderId,
-        shopifyTopic: shopifyTopic?.slice(0, 100) ?? null,
-        errorMessage: errorMessage.slice(0, 10000),
-        errorStack: errorStack?.slice(0, 10000) ?? null,
-        rawPayload: rawPayload as object,
-      },
+    await createFailedOrderWebhook({
+      companyId: resolvedLocation.companyId,
+      companyLocationId: resolvedLocation.id,
+      shopifyOrderId,
+      shopifyTopic,
+      errorMessage,
+      errorStack,
+      rawPayload: rawPayload as object,
+      scheduleAutoRetry: true,
+    });
+
+    void runDueFailedOrderWebhookRetries({
+      companyId: resolvedLocation.companyId,
+      limit: 1,
     });
 
     console.error("[Order webhook] Failed to process:", shopifyOrderId, error);
