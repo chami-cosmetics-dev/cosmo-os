@@ -37,14 +37,14 @@ export function AuditFilterForm({
   const [moduleValue, setModuleValue] = useState(initialModule ?? ALL_OPTION);
   const [queryValue, setQueryValue] = useState(initialQuery ?? "");
 
-  function applyFilters() {
+  function applyFilters(nextModuleValue = moduleValue, nextQueryValue = queryValue) {
     const params = new URLSearchParams();
 
-    if (moduleValue !== ALL_OPTION) {
-      params.set("module", moduleValue);
+    if (nextModuleValue !== ALL_OPTION) {
+      params.set("module", nextModuleValue);
     }
-    if (queryValue.trim()) {
-      params.set("q", queryValue.trim());
+    if (nextQueryValue.trim()) {
+      params.set("q", nextQueryValue.trim());
     }
 
     const query = params.toString();
@@ -58,8 +58,14 @@ export function AuditFilterForm({
   }
 
   return (
-    <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto_auto]">
-      <Select value={moduleValue} onValueChange={setModuleValue}>
+    <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto]">
+      <Select
+        value={moduleValue}
+        onValueChange={(value) => {
+          setModuleValue(value);
+          applyFilters(value);
+        }}
+      >
         <SelectTrigger>
           <SelectValue placeholder="All modules" />
         </SelectTrigger>
@@ -84,9 +90,6 @@ export function AuditFilterForm({
         }}
       />
 
-      <Button type="button" onClick={applyFilters}>
-        Apply
-      </Button>
       <Button type="button" variant="outline" onClick={clearFilters}>
         Clear
       </Button>
