@@ -1,21 +1,127 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifyShopifyWebhook } from "@/lib/shopify-webhook";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { LIMITS } from "@/lib/validation";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
+import {
+  createFailedOrderWebhook,
+  runDueFailedOrderWebhookRetries,
+} from "@/lib/failed-order-webhook-auto-retry";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const WEBHOOK_PROCESS_ATTEMPTS = 3;
+const WEBHOOK_RETRY_DELAYS_MS = [300, 1200];
+
+function getWebhookLogMeta(request: NextRequest) {
+  return {
+    topic: request.headers.get("x-shopify-topic"),
+    webhookId: request.headers.get("x-shopify-webhook-id"),
+    shopDomain: request.headers.get("x-shopify-shop-domain"),
+    locationId: request.nextUrl.searchParams.get("location_id"),
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function processOrderWebhookWithImmediateRetry(
+  input: {
+    data: Parameters<typeof processOrderWebhook>[0];
+    location: Parameters<typeof processOrderWebhook>[1];
+    rawPayload: Parameters<typeof processOrderWebhook>[2];
+    shopifyOrderId: string;
+    webhookMeta: ReturnType<typeof getWebhookLogMeta>;
+  }
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= WEBHOOK_PROCESS_ATTEMPTS; attempt += 1) {
+    try {
+      await processOrderWebhook(input.data, input.location, input.rawPayload);
+      if (attempt > 1) {
+        console.warn("[Order webhook] Processed after retry", {
+          ...input.webhookMeta,
+          shopifyOrderId: input.shopifyOrderId,
+          attempt,
+        });
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      console.error("[Order webhook] Processing attempt failed", {
+        ...input.webhookMeta,
+        shopifyOrderId: input.shopifyOrderId,
+        attempt,
+        maxAttempts: WEBHOOK_PROCESS_ATTEMPTS,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      const delayMs = WEBHOOK_RETRY_DELAYS_MS[attempt - 1];
+      if (delayMs) {
+        await sleep(delayMs);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+async function resolveLocationByOrderSeries(
+  companyId: string,
+  data: { order_number?: number | null; name?: string | null }
+): Promise<CompanyLocation | null> {
+  const orderSeries = data.order_number != null
+    ? String(data.order_number).trim()
+    : (data.name ?? "").replace(/^#/, "").trim();
+
+  const SERIES_LOCATION_RULES: Array<{
+    prefix: string;
+    nameParts: string[];
+  }> = [
+    { prefix: "100", nameParts: ["cool planet", "nugegoda"] },
+    { prefix: "200", nameParts: ["kiribathgoda"] },
+    { prefix: "300", nameParts: ["ogf"] },
+    { prefix: "400", nameParts: ["pepiliyana"] },
+    { prefix: "500", nameParts: ["chami"] },
+    { prefix: "600", nameParts: ["cosmetics.lk", "new web"] },
+    { prefix: "700", nameParts: ["maharagama"] },
+    { prefix: "800", nameParts: ["spk"] },
+    { prefix: "900", nameParts: ["pevi"] },
+  ];
+
+  const matchedRule = SERIES_LOCATION_RULES.find((rule) =>
+    orderSeries.startsWith(rule.prefix)
+  );
+  if (!matchedRule) return null;
+
+  return prisma.companyLocation.findFirst({
+    where: {
+      companyId,
+      AND: matchedRule.nameParts.map((part) => ({
+        name: {
+          contains: part,
+          mode: "insensitive" as const,
+        },
+      })),
+    },
+  });
+}
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const hmacHeader = request.headers.get("x-shopify-hmac-sha256");
   const shopifyTopic = request.headers.get("x-shopify-topic") ?? null;
+  const webhookMeta = getWebhookLogMeta(request);
 
   const locationIdParam = request.nextUrl.searchParams.get("location_id");
   if (!locationIdParam?.trim()) {
+    console.error("[Order webhook] Missing location_id query param", webhookMeta);
     return NextResponse.json(
       { error: "location_id query param is required" },
       { status: 400 }
@@ -37,6 +143,7 @@ export async function POST(request: NextRequest) {
   });
 
   if (!location) {
+    console.error("[Order webhook] Location not found", webhookMeta);
     return NextResponse.json(
       { error: "Location not found for given shopify location id" },
       { status: 404 }
@@ -45,6 +152,11 @@ export async function POST(request: NextRequest) {
 
   const secrets = location.company.shopifyWebhookSecrets.map((s) => s.secret);
   if (secrets.length === 0) {
+    console.error("[Order webhook] No webhook secrets configured", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      companyLocationId: location.id,
+    });
     return NextResponse.json(
       { error: "No webhook secrets configured for this company" },
       { status: 500 }
@@ -55,6 +167,11 @@ export async function POST(request: NextRequest) {
     verifyShopifyWebhook(rawBody, hmacHeader, secret)
   );
   if (!isValid) {
+    console.error("[Order webhook] Invalid signature", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      companyLocationId: location.id,
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -62,6 +179,11 @@ export async function POST(request: NextRequest) {
   try {
     rawPayload = JSON.parse(rawBody);
   } catch {
+    console.error("[Order webhook] Invalid JSON", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      companyLocationId: location.id,
+    });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
@@ -69,16 +191,15 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     const payload = rawPayload as { id?: number | string };
     const shopifyOrderId = payload?.id != null ? String(payload.id) : "unknown";
-    await prisma.failedOrderWebhook.create({
-      data: {
-        companyId: location.companyId,
-        companyLocationId: location.id,
-        shopifyOrderId,
-        shopifyTopic: shopifyTopic?.slice(0, 100) ?? null,
-        errorMessage: `Validation failed: ${parsed.error.message}`,
-        errorStack: JSON.stringify(parsed.error.flatten(), null, 2),
-        rawPayload: rawPayload as object,
-      },
+    await createFailedOrderWebhook({
+      companyId: location.companyId,
+      companyLocationId: location.id,
+      shopifyOrderId,
+      shopifyTopic,
+      errorMessage: `Validation failed: ${parsed.error.message}`,
+      errorStack: JSON.stringify(parsed.error.flatten(), null, 2),
+      rawPayload: rawPayload as object,
+      scheduleAutoRetry: false,
     });
     return NextResponse.json(
       { error: "Invalid payload", details: parsed.error.flatten() },
@@ -87,25 +208,113 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+  let resolvedLocation: CompanyLocation = location;
+  const shopDomain = request.headers.get("x-shopify-shop-domain")?.trim().toLowerCase() ?? null;
+  const normalizedConfiguredShopDomain = location.shopifyShopName?.trim().toLowerCase() ?? null;
+  const payloadLocationId =
+    data.location_id != null
+      ? String(data.location_id).trim().slice(0, LIMITS.shopifyLocationId.max)
+      : null;
+
+  if (
+    shopDomain &&
+    normalizedConfiguredShopDomain &&
+    shopDomain !== normalizedConfiguredShopDomain
+  ) {
+    const shopDomainLocation = await prisma.companyLocation.findFirst({
+      where: {
+        companyId: location.companyId,
+        shopifyShopName: {
+          equals: shopDomain,
+          mode: "insensitive",
+        },
+      },
+    });
+
+    if (shopDomainLocation) {
+      resolvedLocation = shopDomainLocation;
+    }
+
+    console.warn("[Order webhook] Shop domain/query location mismatch", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      queryCompanyLocationId: location.id,
+      queryShopDomain: location.shopifyShopName,
+      headerShopDomain: shopDomain,
+      resolvedCompanyLocationId: resolvedLocation.id,
+    });
+  }
+
+  if (
+    payloadLocationId &&
+    resolvedLocation.shopifyLocationId &&
+    payloadLocationId !== resolvedLocation.shopifyLocationId
+  ) {
+    const payloadLocation = await prisma.companyLocation.findFirst({
+      where: {
+        companyId: resolvedLocation.companyId,
+        shopifyLocationId: payloadLocationId,
+      },
+    });
+
+    if (payloadLocation) {
+      resolvedLocation = payloadLocation;
+    }
+
+    console.warn("[Order webhook] Payload/query location mismatch", {
+      ...webhookMeta,
+      companyId: resolvedLocation.companyId,
+      queryShopifyLocationId: location.shopifyLocationId,
+      payloadShopifyLocationId: payloadLocationId,
+      resolvedCompanyLocationId: resolvedLocation.id,
+    });
+  }
+
+  const seriesLocation = await resolveLocationByOrderSeries(location.companyId, data);
+  if (seriesLocation && seriesLocation.id !== resolvedLocation.id) {
+    resolvedLocation = seriesLocation;
+    console.warn("[Order webhook] Order series location override", {
+      ...webhookMeta,
+      companyId: location.companyId,
+      orderNumber: data.order_number != null ? String(data.order_number) : data.name,
+      resolvedCompanyLocationId: resolvedLocation.id,
+      resolvedCompanyLocationName: resolvedLocation.name,
+    });
+  }
+
   const shopifyOrderId = String(data.id);
 
   try {
-    await processOrderWebhook(data, location, rawPayload);
+    await processOrderWebhookWithImmediateRetry({
+      data,
+      location: resolvedLocation,
+      rawPayload,
+      shopifyOrderId,
+      webhookMeta,
+    });
+    void runDueFailedOrderWebhookRetries({
+      companyId: resolvedLocation.companyId,
+      limit: 1,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack ?? null : null;
 
-    await prisma.failedOrderWebhook.create({
-      data: {
-        companyId: location.companyId,
-        companyLocationId: location.id,
-        shopifyOrderId,
-        shopifyTopic: shopifyTopic?.slice(0, 100) ?? null,
-        errorMessage: errorMessage.slice(0, 10000),
-        errorStack: errorStack?.slice(0, 10000) ?? null,
-        rawPayload: rawPayload as object,
-      },
+    await createFailedOrderWebhook({
+      companyId: resolvedLocation.companyId,
+      companyLocationId: resolvedLocation.id,
+      shopifyOrderId,
+      shopifyTopic,
+      errorMessage,
+      errorStack,
+      rawPayload: rawPayload as object,
+      scheduleAutoRetry: true,
+    });
+
+    void runDueFailedOrderWebhookRetries({
+      companyId: resolvedLocation.companyId,
+      limit: 1,
     });
 
     console.error("[Order webhook] Failed to process:", shopifyOrderId, error);

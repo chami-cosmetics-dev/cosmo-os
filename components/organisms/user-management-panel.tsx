@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { Loader2, Mail, Copy, XCircle, UserPlus, ShieldPlus, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Mail, Copy, XCircle, UserPlus, ShieldPlus, Pencil, Trash2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,6 +119,7 @@ export function UserManagementPanel({
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>(
     initialPendingInvites ?? []
   );
+  const [userSearch, setUserSearch] = useState("");
   const [usersPage, setUsersPage] = useState(1);
   const [usersLimit, setUsersLimit] = useState(10);
   const [rolesPage, setRolesPage] = useState(1);
@@ -140,10 +141,25 @@ export function UserManagementPanel({
     [roles]
   );
 
+  const filteredUsers = useMemo(() => {
+    const query = userSearch.trim().toLowerCase();
+    if (!query) return users;
+
+    return users.filter((user) => {
+      const roleNames = user.userRoles.map((entry) => entry.role.name);
+      return [
+        user.name ?? "",
+        user.email ?? "",
+        user.auth0Id,
+        ...roleNames,
+      ].some((value) => value.toLowerCase().includes(query));
+    });
+  }, [userSearch, users]);
+
   const paginatedUsers = useMemo(() => {
     const start = (usersPage - 1) * usersLimit;
-    return users.slice(start, start + usersLimit);
-  }, [users, usersPage, usersLimit]);
+    return filteredUsers.slice(start, start + usersLimit);
+  }, [filteredUsers, usersPage, usersLimit]);
 
   const paginatedRoles = useMemo(() => {
     const start = (rolesPage - 1) * rolesLimit;
@@ -186,9 +202,9 @@ export function UserManagementPanel({
   }, [canManageUsers, initialPendingInvites, fetchInvites]);
 
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(users.length / usersLimit));
+    const maxPage = Math.max(1, Math.ceil(filteredUsers.length / usersLimit));
     if (usersPage > maxPage) setUsersPage(maxPage);
-  }, [users.length, usersLimit, usersPage]);
+  }, [filteredUsers.length, usersLimit, usersPage]);
 
   useEffect(() => {
     const maxPage = Math.max(1, Math.ceil(sortedRoles.length / rolesLimit));
@@ -648,8 +664,25 @@ export function UserManagementPanel({
               </div>
             )}
 
+            <div className="relative max-w-md">
+              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
+              <Input
+                value={userSearch}
+                onChange={(event) => {
+                  setUserSearch(event.target.value);
+                  setUsersPage(1);
+                }}
+                placeholder="Search by name, email, role..."
+                className="pl-9"
+              />
+            </div>
+
             {paginatedUsers.length === 0 ? (
-              <p className="text-muted-foreground py-8 text-center text-sm">No users yet.</p>
+              <p className="text-muted-foreground py-8 text-center text-sm">
+                {filteredUsers.length === 0 && userSearch.trim()
+                  ? "No users match your search."
+                  : "No users yet."}
+              </p>
             ) : (
               <>
                 <div className="overflow-x-auto rounded-lg border">
@@ -737,7 +770,7 @@ export function UserManagementPanel({
                 <Pagination
                   page={usersPage}
                   limit={usersLimit}
-                  total={users.length}
+                  total={filteredUsers.length}
                   onPageChange={setUsersPage}
                   onLimitChange={(l) => {
                     setUsersLimit(l);

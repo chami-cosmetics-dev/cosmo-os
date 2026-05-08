@@ -55,6 +55,10 @@ model FailedOrderWebhook {
   errorMessage      String
   errorStack        String?
   rawPayload        Json
+  autoRetryCount    Int             @default(0)
+  lastAutoRetryAt   DateTime?
+  nextAutoRetryAt   DateTime?
+  retryLeaseExpiresAt DateTime?
   resolvedAt        DateTime?
   createdAt         DateTime        @default(now())
   company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -62,6 +66,7 @@ model FailedOrderWebhook {
 
   @@index([companyId, resolvedAt, createdAt(sort: Desc)])
   @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, resolvedAt, nextAutoRetryAt])
 }
 
 model ShopifyWebhookSecret {
