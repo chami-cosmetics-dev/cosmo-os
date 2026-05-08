@@ -13,6 +13,8 @@ export type DashboardLocationMerchantRow = {
 export type DashboardLocationSales = {
   id: string;
   name: string;
+  defaultMerchantId: string | null;
+  defaultMerchantName: string | null;
   merchants: DashboardLocationMerchantRow[];
 };
 
@@ -63,7 +65,17 @@ export async function fetchDashboardSalesByLocationMerchant(
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        defaultMerchantUserId: true,
+        defaultMerchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     }),
     prisma.order.groupBy({
       by: ["companyLocationId", "assignedMerchantId"],
@@ -116,6 +128,8 @@ export async function fetchDashboardSalesByLocationMerchant(
     return {
       id: loc.id,
       name: loc.name,
+      defaultMerchantId: loc.defaultMerchantUserId,
+      defaultMerchantName: loc.defaultMerchant?.name ?? null,
       merchants: merchantsRows,
     };
   });
@@ -162,13 +176,25 @@ export async function fetchDashboardSalesByLocationGateway(
     const locations = await prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        defaultMerchantUserId: true,
+        defaultMerchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     return {
       locations: locations.map((loc) => ({
         id: loc.id,
         name: loc.name,
+        defaultMerchantId: loc.defaultMerchantUserId,
+        defaultMerchantName: loc.defaultMerchant?.name ?? null,
         merchants: [],
       })),
       invalidRange: false,
@@ -179,7 +205,17 @@ export async function fetchDashboardSalesByLocationGateway(
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        defaultMerchantUserId: true,
+        defaultMerchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     }),
     prisma.order.groupBy({
       by: ["companyLocationId", "paymentGatewayPrimary"],
@@ -215,6 +251,8 @@ export async function fetchDashboardSalesByLocationGateway(
     return {
       id: loc.id,
       name: loc.name,
+      defaultMerchantId: loc.defaultMerchantUserId,
+      defaultMerchantName: loc.defaultMerchant?.name ?? null,
       merchants: merchantsRows,
     };
   });

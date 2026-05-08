@@ -19,7 +19,14 @@ import {
 export type DashboardSalesLocation = {
   id: string;
   name: string;
-  merchants: Array<{ merchantName: string; total: number; orderCount: number }>;
+  defaultMerchantId: string | null;
+  defaultMerchantName: string | null;
+  merchants: Array<{
+    merchantId: string | null;
+    merchantName: string;
+    total: number;
+    orderCount: number;
+  }>;
 };
 
 type DashboardOverviewContextValue = {
@@ -118,7 +125,10 @@ export function DashboardOverviewProvider({
         locations?: Array<{
           id: string;
           name: string;
+          defaultMerchantId: string | null;
+          defaultMerchantName: string | null;
           merchants: Array<{
+            merchantId: string | null;
             merchantName: string;
             total: number;
             orderCount: number;
@@ -133,7 +143,10 @@ export function DashboardOverviewProvider({
         (body.locations ?? []).map((loc) => ({
           id: loc.id,
           name: loc.name,
+          defaultMerchantId: loc.defaultMerchantId,
+          defaultMerchantName: loc.defaultMerchantName,
           merchants: loc.merchants.map((m) => ({
+            merchantId: m.merchantId,
             merchantName: m.merchantName,
             total: m.total,
             orderCount: m.orderCount,

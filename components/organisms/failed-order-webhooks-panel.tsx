@@ -330,7 +330,7 @@ export function FailedOrderWebhooksPanel() {
           Failed Webhooks
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Review unresolved Shopify order failures, inspect payloads, and retry processing once the issue is fixed.
+          Review unresolved Shopify order failures, inspect payloads, and retry individual records once the issue is fixed.
         </p>
       </section>
 
@@ -341,8 +341,8 @@ export function FailedOrderWebhooksPanel() {
             Webhook Monitor
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Orders that failed to save or update. Check the error, fix any issues, then retry or
-            trigger the webhook again from Shopify.
+            Orders that failed to save or update after automatic retry attempts. Check the error,
+            fix any issues, then retry the affected webhook or run a manual bulk retry sweep.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
