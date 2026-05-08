@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { requireAnyPermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 
 function isStickerBatchPrismaReady() {
   const client = prisma as unknown as Record<string, unknown>;
@@ -20,7 +20,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAnyPermission(["stickers.batch.read", "stickers.print.read"]);
+  const auth = await requirePermission("settings.company");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

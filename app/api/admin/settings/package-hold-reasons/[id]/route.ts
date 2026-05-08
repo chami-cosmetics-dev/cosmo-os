@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
@@ -63,18 +62,6 @@ export async function PUT(
     select: { id: true, name: true, createdAt: true },
   });
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_updated",
-    entityType: "PackageHoldReason",
-    entityId: reason.id,
-    summary: `Updated package hold reason ${existing.name}`,
-    beforeData: { name: existing.name },
-    afterData: { name: reason.name },
-  });
-
   return NextResponse.json(reason);
 }
 
@@ -110,17 +97,6 @@ export async function DELETE(
 
   await prisma.packageHoldReason.delete({
     where: { id: idResult.data },
-  });
-
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_deleted",
-    entityType: "PackageHoldReason",
-    entityId: existing.id,
-    summary: `Deleted package hold reason ${existing.name}`,
-    beforeData: { name: existing.name },
   });
 
   return NextResponse.json({ success: true });

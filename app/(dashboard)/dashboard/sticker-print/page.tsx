@@ -1,8 +1,5 @@
-import { redirect } from "next/navigation";
-
-import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { getCurrentUserContext } from "@/lib/rbac";
 import { StickerPrintClient } from "./sticker-print-client";
 
 export default async function StickerPrintPage({
@@ -12,13 +9,8 @@ export default async function StickerPrintPage({
 }) {
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialSelectedBatchId = resolvedSearchParams?.batchId?.trim() ?? "";
-  const auth = await requirePermission("stickers.print.read");
-  if (!auth.ok) {
-    if (auth.status === 401) redirect("/login");
-    return <PermissionDeniedCard />;
-  }
-  const companyId = auth.context!.user!.companyId;
-  if (!companyId) return <PermissionDeniedCard />;
+  const context = await getCurrentUserContext();
+  const companyId = context?.user?.companyId ?? null;
 
   let batches: Array<{ id: string; batchName: string }> = [];
   if (companyId) {

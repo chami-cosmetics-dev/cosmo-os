@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { trimmedString } from "@/lib/validation";
+import { LIMITS, trimmedString } from "@/lib/validation";
 
 const TRIGGERS = [
   "order_received",
@@ -26,7 +25,7 @@ const createSchema = z.object({
     .transform((s) => {
       if (!s?.trim()) return [] as string[];
       return s
-        .split(/,|\n/)
+        .split(/[,\n]/)
         .map((p) => p.trim())
         .filter(Boolean)
         .slice(0, 10);
@@ -60,6 +59,7 @@ export async function GET() {
     orderBy: { trigger: "asc" },
   });
 
+  // Ensure all triggers have a config row (required for SMS to send)
   if (configs.length < TRIGGERS.length) {
     const existingTriggers = new Set(configs.map((c) => c.trigger));
     for (const trigger of TRIGGERS) {
@@ -143,20 +143,6 @@ export async function PUT(request: NextRequest) {
   const { trigger, enabled, sendToCustomer, sendToRider, template, additionalRecipients } =
     parsed.data;
 
-  const existing = await prisma.smsNotificationConfig.findUnique({
-    where: {
-      companyId_trigger: { companyId, trigger },
-    },
-    select: {
-      id: true,
-      enabled: true,
-      sendToCustomer: true,
-      sendToRider: true,
-      template: true,
-      additionalRecipients: true,
-    },
-  });
-
   await prisma.smsNotificationConfig.upsert({
     where: {
       companyId_trigger: { companyId, trigger },
@@ -179,25 +165,6 @@ export async function PUT(request: NextRequest) {
     },
   });
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: existing ? "setting_updated" : "setting_created",
-    entityType: "SmsNotificationConfig",
-    entityId: existing?.id ?? trigger,
-    summary: `${existing ? "Updated" : "Created"} SMS notification setting for ${trigger}`,
-    beforeData: existing,
-    afterData: {
-      trigger,
-      enabled,
-      sendToCustomer: sendToCustomer ?? true,
-      sendToRider: sendToRider ?? true,
-      template,
-      additionalRecipients,
-    },
-  });
-
   return NextResponse.json({ success: true });
 }
 
@@ -216,7 +183,3 @@ function getDefaultTemplate(trigger: string): string {
   };
   return defaults[trigger] ?? "Order {orderNumber} update.";
 }
-
-
-
-

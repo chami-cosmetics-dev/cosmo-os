@@ -1,5 +1,3 @@
-import { normalizeContactEmail, normalizeContactPhone } from "@/lib/contact-identifiers";
-import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 
 export async function getLatestOrderPurchaseAt(
@@ -7,11 +5,9 @@ export async function getLatestOrderPurchaseAt(
   email?: string | null,
   phoneNumber?: string | null
 ) {
-  const normalizedEmail = normalizeContactEmail(email);
-  const normalizedPhone = normalizeContactPhone(phoneNumber);
+  const normalizedEmail = email?.trim().toLowerCase() || null;
+  const normalizedPhone = phoneNumber?.trim() || null;
   if (!normalizedEmail && !normalizedPhone) return null;
-
-  const phoneValues = normalizedPhone ? buildPhoneLookupVariants(normalizedPhone) : [];
 
   const order = await prisma.order.findFirst({
     where: {
@@ -20,7 +16,7 @@ export async function getLatestOrderPurchaseAt(
         ...(normalizedEmail
           ? [{ customerEmail: { equals: normalizedEmail, mode: "insensitive" as const } }]
           : []),
-        ...(phoneValues.length > 0 ? [{ customerPhone: { in: phoneValues } }] : []),
+        ...(normalizedPhone ? [{ customerPhone: normalizedPhone }] : []),
       ],
     },
     orderBy: { createdAt: "desc" },

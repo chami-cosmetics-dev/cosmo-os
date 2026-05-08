@@ -6,7 +6,6 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 type PackageHoldReason = {
@@ -22,7 +21,6 @@ interface PackageHoldReasonsSettingsFormProps {
 export function PackageHoldReasonsSettingsForm({
   canEdit,
 }: PackageHoldReasonsSettingsFormProps) {
-  const { confirm } = useConfirmationDialog();
   const [reasons, setReasons] = useState<PackageHoldReason[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -129,13 +127,7 @@ export function PackageHoldReasonsSettingsForm({
 
   async function handleDelete(id: string, name: string) {
     if (!canEdit) return;
-    const confirmed = await confirm({
-      title: "Delete hold reason?",
-      description: `Delete "${name}"?`,
-      confirmLabel: "Delete",
-      variant: "destructive",
-    });
-    if (!confirmed) return;
+    if (!window.confirm(`Delete "${name}"?`)) return;
 
     setBusyKey(`delete-${id}`);
     try {
@@ -161,8 +153,8 @@ export function PackageHoldReasonsSettingsForm({
 
   if (loading) {
     return (
-      <Card className="overflow-hidden border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
+      <Card>
+        <CardHeader>
           <CardTitle>Package Hold Reasons</CardTitle>
         </CardHeader>
         <CardContent>
@@ -176,8 +168,8 @@ export function PackageHoldReasonsSettingsForm({
   }
 
   return (
-    <Card className="overflow-hidden border-border/70 shadow-xs">
-      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+    <Card>
+      <CardHeader>
         <CardTitle>Package Hold Reasons</CardTitle>
         <p className="text-muted-foreground text-sm">
           Reasons for putting packages on hold (e.g. stock unavailability).
@@ -185,16 +177,16 @@ export function PackageHoldReasonsSettingsForm({
       </CardHeader>
       <CardContent className="space-y-4">
         {canEdit && (
-          <form onSubmit={handleAdd} className="flex gap-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
+          <form onSubmit={handleAdd} className="flex gap-2">
             <Input
               placeholder="Reason name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               disabled={isBusy}
               maxLength={200}
-              className="max-w-xs border-border/70 bg-background/90"
+              className="max-w-xs"
             />
-            <Button type="submit" disabled={isBusy || !newName.trim()} className="shadow-[0_10px_24px_-18px_var(--primary)]">
+            <Button type="submit" disabled={isBusy || !newName.trim()}>
               {busyKey === "add" ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -214,7 +206,7 @@ export function PackageHoldReasonsSettingsForm({
           {reasons.map((r) => (
             <li
               key={r.id}
-              className="flex items-center justify-between rounded-xl border border-border/70 bg-background/80 p-3 shadow-xs"
+              className="flex items-center justify-between rounded-lg border p-3"
             >
               {editingId === r.id ? (
                 <div className="flex flex-1 items-center gap-2">
@@ -223,7 +215,7 @@ export function PackageHoldReasonsSettingsForm({
                     onChange={(e) => setEditName(e.target.value)}
                     disabled={isBusy}
                     maxLength={200}
-                    className="max-w-xs border-border/70 bg-background/90"
+                    className="max-w-xs"
                   />
                   <Button
                     size="sm"

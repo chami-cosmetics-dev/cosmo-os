@@ -17,13 +17,6 @@ export default async function DashboardLayout({
     (context.user as { profilePhotoUrl?: string | null } | null)?.profilePhotoUrl ??
     context.sessionUser.picture ??
     null;
-  const permissionKeys = (context.permissionKeys ?? []) as string[];
-  const roleNames = (context.roleNames ?? []) as string[];
-  const isSeoOnly =
-    permissionKeys.includes("seo.welcome") &&
-    permissionKeys.length === 1 &&
-    !roleNames.includes("admin") &&
-    !roleNames.includes("super_admin");
 
   return (
     <DashboardTemplate
@@ -32,9 +25,7 @@ export default async function DashboardLayout({
         email: context.sessionUser.email,
         picture: avatarUrl,
       }}
-      permissionKeys={permissionKeys}
-      roleNames={roleNames}
-      seoOnly={isSeoOnly}
+      permissionKeys={context.permissionKeys ?? []}
     >
       {children}
     </DashboardTemplate>

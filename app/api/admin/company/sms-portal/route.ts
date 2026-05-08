@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { smsPortalConfigUpdateSchema } from "@/lib/validation";
@@ -92,15 +91,7 @@ export async function PATCH(request: NextRequest) {
 
   const existing = await prisma.smsPortalConfig.findUnique({
     where: { companyId: user.companyId },
-    select: {
-      id: true,
-      username: true,
-      password: true,
-      authUrl: true,
-      smsUrl: true,
-      smsMask: true,
-      campaignName: true,
-    },
+    select: { password: true },
   });
 
   const passwordToUse =
@@ -133,25 +124,6 @@ export async function PATCH(request: NextRequest) {
       smsUrl,
       smsMask,
       campaignName,
-    },
-  });
-
-  await writeAuditLog({
-    companyId: user.companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: existing ? "setting_updated" : "setting_created",
-    entityType: "SmsPortalConfig",
-    entityId: existing?.id ?? user.companyId,
-    summary: `${existing ? "Updated" : "Created"} SMS portal configuration`,
-    beforeData: existing,
-    afterData: {
-      username,
-      authUrl,
-      smsUrl,
-      smsMask,
-      campaignName,
-      password,
     },
   });
 

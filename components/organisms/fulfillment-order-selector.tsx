@@ -1,21 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FulfillmentOrderInvoiceDetails } from "@/components/organisms/fulfillment-order-invoice-details";
 import { notify } from "@/lib/notify";
 
@@ -26,8 +17,6 @@ export type FulfillmentOrder = {
   sourceName: string;
   totalPrice: string;
   currency: string | null;
-  paymentGatewayNames?: string[];
-  paymentGatewayPrimary?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -36,7 +25,6 @@ export type FulfillmentOrder = {
   printCount?: number;
   packageOnHoldAt?: string | null;
   packageHoldReason?: { id: string; name: string } | null;
-  sampleFreeIssueSendLaterDate?: string | null;
   fulfillmentStage?: string | null;
 };
 
@@ -51,11 +39,6 @@ interface FulfillmentOrderSelectorProps {
   currentStage?: string;
   showPrintStatus?: boolean;
   showHoldStatus?: boolean;
-  showInvoiceDetails?: boolean;
-  worksheetMode?: boolean;
-  bulkPrintUnprinted?: boolean;
-  showEmptyWorksheet?: boolean;
-  allowFutureSendLater?: boolean;
   children?: React.ReactNode;
 }
 
@@ -70,11 +53,6 @@ export function FulfillmentOrderSelector({
   currentStage,
   showPrintStatus = false,
   showHoldStatus = false,
-  showInvoiceDetails = true,
-  worksheetMode = false,
-  bulkPrintUnprinted = false,
-  showEmptyWorksheet = false,
-  allowFutureSendLater = false,
   children,
 }: FulfillmentOrderSelectorProps) {
   const [orders, setOrders] = useState<FulfillmentOrder[]>([]);
@@ -82,34 +60,28 @@ export function FulfillmentOrderSelector({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(bulkPrintUnprinted ? 100 : 5);
+  const [limit, setLimit] = useState(5);
   const [total, setTotal] = useState(0);
-  const [orderOpen, setOrderOpen] = useState(false);
-  const [selectionLoading, setSelectionLoading] = useState(false);
-  const [showFutureSendLater, setShowFutureSendLater] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 500);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
 
-  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, refreshTrigger]);
 
   const fetchOrders = useCallback(async () => {
-    setLoading(true);
     const params = new URLSearchParams();
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
     params.set("limit", String(limit));
-    if (allowFutureSendLater) {
-      params.set("sample_send_later", showFutureSendLater ? "future" : "available");
-    }
-    if (effectiveSearch) params.set("search", effectiveSearch);
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
     const res = await fetch(`/api/admin/orders/page-data?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
       notify.error(data.error ?? "Failed to load orders");
-      setLoading(false);
       return;
     }
     const data = (await res.json()) as {
@@ -118,21 +90,22 @@ export function FulfillmentOrderSelector({
     };
     setOrders(data.orders ?? []);
     setTotal(data.total ?? 0);
-    setLoading(false);
-  }, [allowFutureSendLater, effectiveSearch, showFutureSendLater, stages, page, limit]);
+  }, [stages, debouncedSearch, refreshTrigger, page, limit]);
 
   useEffect(() => {
     let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      fetchOrders().catch(() => {
+    setLoading(true);
+    fetchOrders()
+      .then(() => {
+        if (!cancelled) setLoading(false);
+      })
+      .catch(() => {
         if (!cancelled) setLoading(false);
       });
-    }, 0);
     return () => {
       cancelled = true;
-      window.clearTimeout(timeout);
     };
-  }, [fetchOrders, refreshTrigger]);
+  }, [fetchOrders]);
 
   function formatPrice(val: string, currency?: string | null): string {
     const n = parseFloat(val);
@@ -145,199 +118,35 @@ export function FulfillmentOrderSelector({
     return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
   }
 
-  function merchantLabel(order: FulfillmentOrder) {
-    return order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "No merchant";
-  }
-
-  if (worksheetMode) {
-    const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
-    const unprintedOrders = bulkPrintUnprinted
-      ? orders.filter((order) => (order.printCount ?? 0) === 0)
-      : [];
-
-    const handleWorksheetSelect = (order: FulfillmentOrder) => {
-      setSelectionLoading(true);
-      onSelectOrder(order);
-      setOrderOpen(false);
-      window.setTimeout(() => setSelectionLoading(false), 450);
-    };
-
-    const handleBulkPrintUnprinted = () => {
-      if (unprintedOrders.length === 0) {
-        notify.info("No unprinted orders found in the loaded print queue.");
-        return;
-      }
-
-      const ids = unprintedOrders.map((order) => order.id).join(",");
-      window.open(`/api/admin/orders/bulk-print?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-      notify.success(`Opened one bulk print tab for ${unprintedOrders.length} invoice(s).`);
-      window.setTimeout(() => {
-        void fetchOrders();
-      }, 1500);
-    };
-
-    return (
-      <Card className="border-border/70 bg-background shadow-xs">
-        <CardContent className="space-y-4 p-4">
-          <div>
-            <div className="grid gap-2 sm:grid-cols-[130px_minmax(260px,520px)_auto] sm:items-center">
-              <label className="text-sm font-medium">Order number</label>
-              <Popover open={orderOpen} onOpenChange={setOrderOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={orderOpen}
-                    className="h-10 justify-between border-border/70 bg-background text-left font-normal"
-                  >
-                    {selectedOrder?.name ?? selectedOrder?.orderNumber ?? "Please Select an Option"}
-                    <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[520px] border-border/70 p-0" align="start">
-                  <Command shouldFilter={false}>
-                    <CommandInput
-                      placeholder="Search by order number..."
-                      value={search}
-                      onValueChange={(value) => {
-                        setSearch(value);
-                        setPage(1);
-                      }}
-                    />
-                    <CommandList>
-                      <CommandEmpty>{loading ? "Loading orders..." : showFutureSendLater ? "No future order found." : "No order found."}</CommandEmpty>
-                      <CommandGroup>
-                        {orders.map((order) => (
-                          <CommandItem
-                            key={order.id}
-                            value={`${order.name ?? ""} ${order.orderNumber ?? ""}`}
-                            onSelect={() => handleWorksheetSelect(order)}
-                            className="flex items-center justify-between gap-3"
-                          >
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate">
-                                <span className="font-medium">{order.name ?? order.orderNumber ?? order.id}</span>
-                                <span className="text-muted-foreground ml-2 text-xs">
-                                  {merchantLabel(order)}
-                                </span>
-                              </span>
-                              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                                {order.companyLocation?.name ?? "No location"}
-                              </span>
-                              {showFutureSendLater && order.sampleFreeIssueSendLaterDate && (
-                                <span className="mt-0.5 block text-xs text-muted-foreground">
-                                  Send {new Date(order.sampleFreeIssueSendLaterDate).toISOString().slice(0, 10)}
-                                </span>
-                              )}
-                            </span>
-                            {selectedOrderId === order.id && <Check className="size-4" aria-hidden />}
-                          </CommandItem>
-                        ))}
-                      </CommandGroup>
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-              {allowFutureSendLater && (
-                <Button
-                  type="button"
-                  variant={showFutureSendLater ? "default" : "outline"}
-                  onClick={() => {
-                    onSelectOrder(null);
-                    setOrderOpen(false);
-                    setPage(1);
-                    setShowFutureSendLater((current) => !current);
-                  }}
-                  className="gap-2"
-                >
-                  <CalendarClock className="size-4" aria-hidden />
-                  {showFutureSendLater ? "Today Queue" : "Future Orders"}
-                </Button>
-              )}
-              {bulkPrintUnprinted && (
-                <Button
-                  type="button"
-                  onClick={handleBulkPrintUnprinted}
-                  disabled={loading || unprintedOrders.length === 0}
-                  className="bg-amber-500 text-white hover:bg-amber-600"
-                >
-                  Print all unprinted ({unprintedOrders.length})
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {selectedOrderId ? (
-            <div className="border-t border-border/70 pt-4">
-              {selectionLoading ? (
-                <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 py-12 text-sm text-muted-foreground">
-                  <Loader2 className="size-5 animate-spin" aria-hidden />
-                  Loading selected order...
-                </div>
-              ) : (
-                <>
-                  {showInvoiceDetails && (
-                    <FulfillmentOrderInvoiceDetails
-                      orderId={selectedOrderId}
-                      refreshTrigger={invoiceRefreshTrigger}
-                      currentStage={currentStage}
-                    />
-                  )}
-                  {children}
-                </>
-              )}
-            </div>
-          ) : showEmptyWorksheet ? (
-            <div className="border-t border-border/70 pt-4">
-              {children}
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed border-border/70 py-10 text-center text-sm text-muted-foreground">
-              Select an order number to add samples or free issues.
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      <Card className="overflow-hidden border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+      <Card>
+        <CardHeader>
           <CardTitle>{title}</CardTitle>
           <p className="text-muted-foreground text-sm">{description}</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-            <div className="relative">
-              <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input
-                placeholder="Search by order number or name..."
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="border-border/70 bg-background/90 pl-9"
-              />
-            </div>
+          <div className="relative">
+            <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              placeholder="Search by order number or name..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
-          {loading && orders.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-8 text-center">
-              <p className="text-muted-foreground text-sm">Loading orders...</p>
-            </div>
+          {loading ? (
+            <p className="py-4 text-center text-muted-foreground text-sm">Loading orders...</p>
           ) : orders.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-8 text-center">
-              <p className="text-muted-foreground text-sm">No orders at this stage.</p>
-            </div>
+            <p className="py-8 text-center text-muted-foreground text-sm">
+              No orders at this stage.
+            </p>
           ) : (
             <div className="space-y-6">
-              <div className="max-h-[280px] overflow-y-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
+              <div className="max-h-[280px] overflow-y-auto rounded-md border">
                 <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] backdrop-blur">
-                    <tr className="border-b border-border/60">
+                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                    <tr className="border-b">
                       <th className="px-4 py-2 text-left font-medium">Order</th>
                       <th className="px-4 py-2 text-left font-medium">Location</th>
                       <th className="px-4 py-2 text-left font-medium">Merchant</th>
@@ -358,7 +167,7 @@ export function FulfillmentOrderSelector({
                       <tr
                         key={order.id}
                         className={`border-b last:border-0 ${
-                          selectedOrderId === order.id ? "bg-primary/10" : "hover:bg-secondary/10"
+                          selectedOrderId === order.id ? "bg-primary/10" : ""
                         }`}
                       >
                         <td className="px-4 py-2 font-medium">
@@ -397,7 +206,6 @@ export function FulfillmentOrderSelector({
                           <Button
                             size="sm"
                             variant={selectedOrderId === order.id ? "default" : "outline"}
-                            className={selectedOrderId === order.id ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "border-border/70 bg-background/80 hover:bg-secondary/10"}
                             onClick={() =>
                               onSelectOrder(selectedOrderId === order.id ? null : order)
                             }
@@ -430,13 +238,11 @@ export function FulfillmentOrderSelector({
 
       {selectedOrderId && (
         <>
-          {showInvoiceDetails && (
-            <FulfillmentOrderInvoiceDetails
-              orderId={selectedOrderId}
-              refreshTrigger={invoiceRefreshTrigger}
-              currentStage={currentStage}
-            />
-          )}
+          <FulfillmentOrderInvoiceDetails
+            orderId={selectedOrderId}
+            refreshTrigger={invoiceRefreshTrigger}
+            currentStage={currentStage}
+          />
           {children}
         </>
       )}

@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
 
   const roleNames = auth.context!.roleNames as string[];
   const isSuperAdmin = roleNames.includes("super_admin");
-  const lookupCompanyId = auth.context!.user?.companyId ?? null;
 
   const companyId = isSuperAdmin ? null : (auth.context!.user?.companyId ?? null);
   perf.mark("load-company");
@@ -41,8 +40,6 @@ export async function GET(request: NextRequest) {
     includeLookupsRaw === null || includeLookupsRaw === ""
       ? true
       : includeLookupsRaw === "1" || includeLookupsRaw === "true";
-  const riderOnlyRaw = searchParams.get("rider_only");
-  const riderOnly = riderOnlyRaw === "1" || riderOnlyRaw === "true";
 
   const data = await fetchStaffPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -51,9 +48,7 @@ export async function GET(request: NextRequest) {
     sortOrder: sortOrderResult.success ? sortOrderResult.data : "asc",
     status: searchParams.get("status") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
-    riderOnly,
     includeLookups,
-    lookupCompanyId,
   });
   perf.mark("query");
 

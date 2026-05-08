@@ -78,7 +78,7 @@ function formatPrice(val: string, currency?: string | null): string {
 }
 
 function formatAddress(addr: unknown): string {
-  if (!addr || typeof addr !== "object") return "â€”";
+  if (!addr || typeof addr !== "object") return "—";
   const a = addr as Record<string, unknown>;
   const parts = [
     a.address1,
@@ -87,17 +87,17 @@ function formatAddress(addr: unknown): string {
     a.country,
     a.zip,
   ].filter(Boolean) as string[];
-  return parts.join(", ") || "â€”";
+  return parts.join(", ") || "—";
 }
 
 function formatRemarkDate(val: string): string {
   const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? "â€”" : d.toLocaleString("en-LK");
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
 }
 
 function remarkAddedBy(addedBy: { name: string | null; email: string | null } | null): string {
-  if (!addedBy) return "â€”";
-  return addedBy.name ?? addedBy.email ?? "â€”";
+  if (!addedBy) return "—";
+  return addedBy.name ?? addedBy.email ?? "—";
 }
 
 export function FulfillmentOrderInvoiceDetails({
@@ -162,8 +162,8 @@ export function FulfillmentOrderInvoiceDetails({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <h4 className="mb-1 font-medium text-muted-foreground">Customer</h4>
-            <p>{detail.customerEmail ?? "-"}</p>
-            {detail.customerPhone && (
+            <p>{detail.customerEmail ?? detail.customerPhone ?? "—"}</p>
+            {detail.customerPhone && detail.customerEmail && (
               <p className="text-muted-foreground">{detail.customerPhone}</p>
             )}
           </div>
@@ -182,7 +182,7 @@ export function FulfillmentOrderInvoiceDetails({
                     {s.sampleFreeIssueItem.name}
                     <span className="text-muted-foreground"> ({s.sampleFreeIssueItem.type})</span>
                   </span>
-                  <span>Ã— {s.quantity}</span>
+                  <span>× {s.quantity}</span>
                 </li>
               ))}
             </ul>

@@ -206,24 +206,10 @@ export function StickerPrintClient({
         }
       `}</style>
 
-      <section className="no-print relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
-        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
-          Inventory
-        </p>
-        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          <Printer className="size-5 text-muted-foreground" />
-          Sticker Print
-        </h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Load a saved sticker batch, review the sheet layout, and print labels when everything looks correct.
-        </p>
-      </section>
-
-      <Card className="no-print overflow-hidden border-border/70 shadow-xs">
-        <CardHeader className="space-y-2 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+      <Card className="no-print">
+        <CardHeader className="space-y-2">
           <CardTitle className="flex items-center gap-2">
-            <Printer className="size-5 text-muted-foreground" />
+            <Printer className="size-5" />
             Sticker Print Preview
           </CardTitle>
           <p className="text-muted-foreground text-sm">
@@ -238,7 +224,7 @@ export function StickerPrintClient({
                 value={selectedBatchId || undefined}
                 onValueChange={(value) => void handleLoadBatch(value)}
               >
-                <SelectTrigger className="border-border/70 bg-background/90">
+                <SelectTrigger>
                   <SelectValue placeholder="Select sticker batch" />
                 </SelectTrigger>
                 <SelectContent>
@@ -254,30 +240,29 @@ export function StickerPrintClient({
               type="button"
               onClick={() => void handlePrint()}
               disabled={!detail || stickers.length === 0}
-              className="shadow-[0_10px_24px_-18px_var(--primary)]"
             >
               Print Stickers
             </Button>
-            <Button asChild type="button" variant="outline" className="border-border/70 bg-background/85 hover:bg-secondary/10">
+            <Button asChild type="button" variant="outline">
               <Link href="/dashboard/sticker-batch?tab=history">Open Batch History</Link>
             </Button>
           </div>
 
           {detail && (
-            <div className="grid gap-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-3 shadow-xs md:grid-cols-4">
-              <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
+            <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-4">
+              <div>
                 <p className="text-xs text-muted-foreground">Batch</p>
                 <p className="text-sm font-medium">{detail.batchName}</p>
               </div>
-              <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
+              <div>
                 <p className="text-xs text-muted-foreground">Batch Date</p>
                 <p className="text-sm font-medium">{formatDate(detail.batchDate)}</p>
               </div>
-              <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
+              <div>
                 <p className="text-xs text-muted-foreground">Supplier</p>
                 <p className="text-sm font-medium">{detail.supplierName || "-"}</p>
               </div>
-              <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
+              <div>
                 <p className="text-xs text-muted-foreground">Sticker Count</p>
                 <p className="text-sm font-medium">{stickers.length}</p>
               </div>
@@ -285,7 +270,7 @@ export function StickerPrintClient({
           )}
 
           {batches.length === 0 && (
-            <div className="rounded-xl border border-dashed border-border/70 bg-background/85 p-4 text-sm text-muted-foreground">
+            <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
               No saved sticker batches found. Create a batch first from Sticker Batch.
             </div>
           )}
@@ -293,7 +278,7 @@ export function StickerPrintClient({
       </Card>
 
       {!loading && !detail && batches.length > 0 && (
-        <Card className="overflow-hidden border-border/70 shadow-xs">
+        <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             Select a batch to load sticker preview.
           </CardContent>
@@ -301,7 +286,7 @@ export function StickerPrintClient({
       )}
 
       {loading && (
-        <Card className="overflow-hidden border-border/70 shadow-xs">
+        <Card>
           <CardContent className="py-6">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -312,7 +297,7 @@ export function StickerPrintClient({
       )}
 
       {!loading && detail && stickers.length === 0 && (
-        <Card className="overflow-hidden border-border/70 shadow-xs">
+        <Card>
           <CardContent className="py-6 text-sm text-muted-foreground">
             No sticker items found for this batch.
           </CardContent>

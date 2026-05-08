@@ -129,19 +129,17 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
-        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
-          Administration
-        </p>
-        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          <Building2 className="size-5 text-muted-foreground" aria-hidden />
-          Settings
-        </h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Manage company details, communication channels, and operational preferences from one place.
-        </p>
-      </section>
+      <Card className="bg-gradient-to-r from-muted/70 via-background to-background">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="size-4 text-muted-foreground" aria-hidden />
+            Settings
+          </CardTitle>
+          <CardDescription>
+            Manage your organization details and operational preferences in one place.
+          </CardDescription>
+        </CardHeader>
+      </Card>
 
       {canManageCompany && (
         <SettingsPageData
@@ -154,8 +152,8 @@ export default async function SettingsPage() {
       {settingLinks.length > 0 && (
         <div className="space-y-4">
           {communicationLinks.length > 0 && (
-            <Card className="overflow-hidden border-border/70 shadow-xs">
-              <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
+            <Card>
+              <CardHeader>
                 <CardTitle className="text-base">Communication</CardTitle>
                 <CardDescription>Email and SMS related settings.</CardDescription>
               </CardHeader>
@@ -166,7 +164,7 @@ export default async function SettingsPage() {
                     <Link
                       key={link.key}
                       href={link.href}
-                      className="group flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/80 p-3 transition-colors hover:bg-secondary/10"
+                      className="group flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40"
                     >
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 text-sm font-medium">
@@ -184,8 +182,8 @@ export default async function SettingsPage() {
           )}
 
           {operationsLinks.length > 0 && (
-            <Card className="overflow-hidden border-border/70 shadow-xs">
-              <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
+            <Card>
+              <CardHeader>
                 <CardTitle className="text-base">Operations</CardTitle>
                 <CardDescription>Order and fulfillment related settings.</CardDescription>
               </CardHeader>
@@ -196,7 +194,7 @@ export default async function SettingsPage() {
                     <Link
                       key={link.key}
                       href={link.href}
-                      className="group flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/80 p-3 transition-colors hover:bg-secondary/10"
+                      className="group flex items-center justify-between gap-3 rounded-lg border bg-background p-3 transition-colors hover:bg-muted/40"
                     >
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 text-sm font-medium">
@@ -216,8 +214,8 @@ export default async function SettingsPage() {
       )}
 
       {!canManageCompany && settingLinks.length === 0 && (
-        <Card className="overflow-hidden border-border/70 shadow-xs">
-          <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
+        <Card>
+          <CardHeader>
             <CardTitle>Settings</CardTitle>
           </CardHeader>
           <CardContent>

@@ -1,13 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import {
   Select,
   SelectContent,
@@ -54,7 +53,6 @@ function parseMoney(s: string): number {
 }
 
 export function CreateManualOrderPanel() {
-  const { confirm } = useConfirmationDialog();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   /** Initial load: locations + merchants only (fast). */
   const [loadingInitial, setLoadingInitial] = useState(true);
@@ -373,14 +371,7 @@ export function CreateManualOrderPanel() {
     );
   }
 
-  async function removeLine(key: string) {
-    const confirmed = await confirm({
-      title: "Remove line item?",
-      description: "This product line will be removed from the manual order.",
-      confirmLabel: "Remove",
-      variant: "destructive",
-    });
-    if (!confirmed) return;
+  function removeLine(key: string) {
     setLines((prev) => prev.filter((l) => l.key !== key));
   }
 
@@ -525,45 +516,20 @@ export function CreateManualOrderPanel() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mx-auto max-w-5xl space-y-6">
-      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
-        <p className="text-muted-foreground text-xs font-semibold tracking-[0.18em] uppercase">
-          Orders
-        </p>
-        <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight sm:text-3xl">
-          <ShoppingCart className="size-5 text-muted-foreground" />
-          Create Manual Order
-        </h1>
-        <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Build a branch-based order from your item master and use the invoice prefix configured in{" "}
-          <Link href="/dashboard/settings" className="underline underline-offset-4">
+    <form onSubmit={handleSubmit} className="mx-auto max-w-4xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Create manual order</h1>
+        <p className="text-muted-foreground text-sm">
+          Build an order from your item master. Invoice numbers use the prefix set per location in{" "}
+          <Link href="/dashboard/settings" className="text-primary underline">
             Settings
           </Link>
           .
         </p>
-      </section>
-
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs">
-          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Branch</p>
-          <p className="mt-2 text-sm font-semibold">{selectedLoc?.name ?? "Choose a location"}</p>
-          <p className="text-muted-foreground mt-1 text-xs">Products, shipping, and invoice prefix come from the selected branch.</p>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--primary)_8%,transparent))] p-4 shadow-xs">
-          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Cart</p>
-          <p className="mt-2 text-sm font-semibold">{lines.length} line items</p>
-          <p className="text-muted-foreground mt-1 text-xs">Add products first, then refine quantity and discount.</p>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_10%,transparent),color-mix(in_srgb,var(--primary)_6%,transparent))] p-4 shadow-xs">
-          <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.18em] uppercase">Total</p>
-          <p className="mt-2 text-sm font-semibold">{orderPricing.total.toLocaleString("en-LK", { minimumFractionDigits: 2 })} LKR</p>
-          <p className="text-muted-foreground mt-1 text-xs">Live total including line discounts and shipping.</p>
-        </div>
       </div>
 
-      <Card className="overflow-hidden border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+      <Card>
+        <CardHeader>
           <CardTitle>Location</CardTitle>
           <CardDescription>
             Choose where the order belongs. Items and shipping options are loaded for that branch.
@@ -582,7 +548,7 @@ export function CreateManualOrderPanel() {
             }}
             disabled={isBusy}
           >
-            <SelectTrigger id="manual-order-location" className="max-w-md border-border/70 bg-background/90">
+            <SelectTrigger id="manual-order-location" className="max-w-md bg-background">
               <SelectValue placeholder="Select location" />
             </SelectTrigger>
             <SelectContent>
@@ -604,8 +570,8 @@ export function CreateManualOrderPanel() {
 
       {locationId && (
         <>
-          <Card className="overflow-hidden border-border/70 shadow-xs">
-            <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+          <Card>
+            <CardHeader>
               <CardTitle>Add products</CardTitle>
               <CardDescription>
                 Set a global discount to apply to every line (shown on each row). Editing any line’s
@@ -651,7 +617,6 @@ export function CreateManualOrderPanel() {
                   onChange={(e) => setProductFilter(e.target.value)}
                   placeholder="Search by title or SKU…"
                   disabled={isBusy || loadingLocationItems}
-                  className="border-border/70 bg-background/90"
                 />
                 {productItemsTruncated && !loadingLocationItems && (
                   <p className="text-muted-foreground text-xs">
@@ -660,9 +625,9 @@ export function CreateManualOrderPanel() {
                   </p>
                 )}
               </div>
-              <div className="relative h-48 overflow-y-auto rounded-xl border border-border/70 bg-background/85">
+              <div className="relative h-48 overflow-y-auto rounded-md border">
                 {loadingLocationItems && (
-                  <div className="bg-background/80 absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-xl text-sm">
+                  <div className="bg-background/80 absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-md text-sm">
                     <Loader2 className="size-5 animate-spin" aria-hidden />
                     Loading products for this location…
                   </div>
@@ -722,7 +687,7 @@ export function CreateManualOrderPanel() {
                     );
                   }}
                   placeholder="0"
-                  className="max-w-xs border-border/70 bg-background/90"
+                  className="max-w-xs"
                   disabled={isBusy}
                 />
                 <p className="text-muted-foreground text-xs">
@@ -731,10 +696,10 @@ export function CreateManualOrderPanel() {
               </div>
 
               {lines.length > 0 && (
-                <div className="overflow-x-auto rounded-xl border border-border/70 bg-background/90 shadow-xs">
+                <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[760px] text-sm">
                     <thead>
-                      <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] text-left">
+                      <tr className="border-b bg-muted/40 text-left">
                         <th className="px-3 py-2">Product</th>
                         <th className="px-3 py-2">Qty</th>
                         <th className="px-3 py-2 text-right">Unit</th>
@@ -748,7 +713,7 @@ export function CreateManualOrderPanel() {
                         const p = orderPricing.perLine[line.key];
                         const hasDisc = p && p.effectiveDiscountPct > 0;
                         return (
-                          <tr key={line.key} className="border-b border-border/50">
+                          <tr key={line.key} className="border-b">
                             <td className="px-3 py-2">
                               <p className="font-medium">{line.label}</p>
                             </td>
@@ -756,7 +721,7 @@ export function CreateManualOrderPanel() {
                               <Input
                                 type="number"
                                 min={1}
-                                className="w-20 border-border/70 bg-background/90"
+                                className="w-20"
                                 value={line.quantity}
                                 onChange={(e) =>
                                   updateLine(line.key, {
@@ -804,7 +769,7 @@ export function CreateManualOrderPanel() {
                                   min={0}
                                   max={100}
                                   step="0.01"
-                                  className="w-28 border-border/70 bg-background/90"
+                                  className="w-28"
                                   placeholder={
                                     orderDiscount.trim() !== ""
                                       ? `${orderDiscount} (global)`
@@ -898,8 +863,8 @@ export function CreateManualOrderPanel() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden border-border/70 shadow-xs">
-            <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+          <Card>
+            <CardHeader>
               <CardTitle>Shipping & assignment</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -910,7 +875,7 @@ export function CreateManualOrderPanel() {
                   onValueChange={setShippingId}
                   disabled={isBusy}
                 >
-                  <SelectTrigger className="max-w-md border-border/70 bg-background/90">
+                  <SelectTrigger className="max-w-md bg-background">
                     <SelectValue placeholder="None" />
                   </SelectTrigger>
                   <SelectContent>
@@ -935,7 +900,7 @@ export function CreateManualOrderPanel() {
                     onValueChange={setAssignedMerchantId}
                     disabled={isBusy}
                   >
-                    <SelectTrigger className="max-w-md border-border/70 bg-background/90">
+                    <SelectTrigger className="max-w-md bg-background">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -953,8 +918,8 @@ export function CreateManualOrderPanel() {
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden border-border/70 shadow-xs">
-            <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+          <Card>
+            <CardHeader>
               <CardTitle>Customer</CardTitle>
               <CardDescription>
                 Enter the mobile number first. We match your company contact list (and recent orders)
@@ -976,7 +941,7 @@ export function CreateManualOrderPanel() {
                     onChange={(e) => setCustomerPhone(e.target.value)}
                     disabled={isBusy}
                     placeholder="e.g. 077…"
-                    className="border-border/70 bg-background/90 pr-10"
+                    className="pr-10"
                     aria-busy={customerLookupLoading}
                   />
                   {customerLookupLoading && (
@@ -993,7 +958,7 @@ export function CreateManualOrderPanel() {
               </div>
 
               {customerLookupHint && (
-                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
                   <span className="text-muted-foreground">{customerLookupHint}</span>
                   {customerDetailsLocked && (
                     <Button
@@ -1024,7 +989,7 @@ export function CreateManualOrderPanel() {
                     onChange={(e) => setCustomerName(e.target.value)}
                     disabled={isBusy}
                     readOnly={customerDetailsLocked}
-                    className={customerDetailsLocked ? "border-border/70 bg-muted/50" : "border-border/70 bg-background/90"}
+                    className={customerDetailsLocked ? "bg-muted/50" : undefined}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1038,7 +1003,7 @@ export function CreateManualOrderPanel() {
                     onChange={(e) => setCustomerEmail(e.target.value)}
                     disabled={isBusy}
                     readOnly={customerDetailsLocked}
-                    className={customerDetailsLocked ? "border-border/70 bg-muted/50" : "border-border/70 bg-background/90"}
+                    className={customerDetailsLocked ? "bg-muted/50" : undefined}
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
@@ -1053,7 +1018,7 @@ export function CreateManualOrderPanel() {
                     rows={2}
                     disabled={isBusy}
                     readOnly={customerDetailsLocked}
-                    className={customerDetailsLocked ? "border-border/70 bg-muted/50" : "border-border/70 bg-background/90"}
+                    className={customerDetailsLocked ? "bg-muted/50" : undefined}
                   />
                 </div>
                 <div className="space-y-2">
@@ -1066,15 +1031,15 @@ export function CreateManualOrderPanel() {
                     onChange={(e) => setShipCity(e.target.value)}
                     disabled={isBusy}
                     readOnly={customerDetailsLocked}
-                    className={customerDetailsLocked ? "border-border/70 bg-muted/50" : "border-border/70 bg-background/90"}
+                    className={customerDetailsLocked ? "bg-muted/50" : undefined}
                   />
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden border-border/70 shadow-xs">
-            <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
+          <Card>
+            <CardHeader>
               <CardTitle>Summary</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -1097,7 +1062,7 @@ export function CreateManualOrderPanel() {
                   {orderPricing.shipping.toLocaleString("en-LK", { minimumFractionDigits: 2 })} LKR
                 </span>
               </div>
-              <div className="flex justify-between border-t border-border/60 pt-2 font-semibold">
+              <div className="flex justify-between border-t pt-2 font-semibold">
                 <span>Total</span>
                 <span>
                   {orderPricing.total.toLocaleString("en-LK", { minimumFractionDigits: 2 })} LKR
@@ -1106,12 +1071,11 @@ export function CreateManualOrderPanel() {
             </CardContent>
           </Card>
 
-          <div className="flex justify-end gap-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4">
+          <div className="flex justify-end gap-2">
             <Button
               type="submit"
               disabled={isBusy || loadingInitial || loadingLocationItems}
               size="lg"
-              className="shadow-[0_10px_24px_-18px_var(--primary)]"
             >
               {busyKey === "submit" ? (
                 <>

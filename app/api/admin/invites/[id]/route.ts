@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -29,7 +28,7 @@ export async function DELETE(
 
   const invite = await prisma.invite.findUnique({
     where: { id: idParsed.data },
-    select: { id: true, companyId: true, usedAt: true, email: true, roleId: true },
+    select: { id: true, companyId: true, usedAt: true },
   });
 
   if (!invite) {
@@ -52,20 +51,6 @@ export async function DELETE(
 
   await prisma.invite.delete({
     where: { id: invite.id },
-  });
-
-  await writeAuditLog({
-    companyId: invite.companyId,
-    actorUserId: auth.context!.user?.id,
-    module: "users",
-    action: "invite_cancelled",
-    entityType: "Invite",
-    entityId: invite.id,
-    summary: `Cancelled invite for ${invite.email}`,
-    beforeData: {
-      email: invite.email,
-      roleId: invite.roleId,
-    },
   });
 
   return NextResponse.json({ success: true });

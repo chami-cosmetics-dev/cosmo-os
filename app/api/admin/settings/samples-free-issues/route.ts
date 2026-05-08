@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
@@ -99,21 +98,6 @@ export async function POST(request: NextRequest) {
       type: true,
       productItem: { select: { productTitle: true, variantTitle: true } },
       createdAt: true,
-    },
-  });
-
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_created",
-    entityType: "SampleFreeIssueItem",
-    entityId: item.id,
-    summary: `Created ${item.type} item ${item.name}`,
-    afterData: {
-      name: item.name,
-      type: item.type,
-      productItemId: item.productItemId,
     },
   });
 

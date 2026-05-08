@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { FileSpreadsheet, Package, PackageCheck, Printer, Truck } from "lucide-react";
+import { Package, PackageCheck, Printer, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FulfillmentNavPermissions } from "@/lib/fulfillment-permissions";
 
@@ -36,12 +36,6 @@ const NAV_ITEMS: Array<{
     label: "Delivery & Invoice",
     icon: PackageCheck,
     permissionKey: "canViewDeliveryInvoice",
-  },
-  {
-    href: "/dashboard/fulfillment/falcon-upload",
-    label: "Falcon Upload",
-    icon: FileSpreadsheet,
-    permissionKey: "canViewFalconUpload",
   },
 ];
 

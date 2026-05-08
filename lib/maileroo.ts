@@ -1,22 +1,5 @@
 const MAILEROO_BASE_URL = "https://smtp.maileroo.com/api/v2";
 
-async function readMailerooResponse(response: Response) {
-  const raw = await response.text();
-
-  if (!raw) {
-    return { raw, data: null as { success?: boolean; message?: string } | null };
-  }
-
-  try {
-    return {
-      raw,
-      data: JSON.parse(raw) as { success?: boolean; message?: string },
-    };
-  } catch {
-    return { raw, data: null as { success?: boolean; message?: string } | null };
-  }
-}
-
 export async function sendInviteEmail(
   email: string,
   activationUrl: string
@@ -70,23 +53,20 @@ export async function sendInviteEmail(
       }),
     });
 
-    const { raw, data } = await readMailerooResponse(response);
+    const data = (await response.json()) as {
+      success?: boolean;
+      message?: string;
+    };
 
     if (!response.ok) {
-      console.error("Maileroo error:", {
-        status: response.status,
-        statusText: response.statusText,
-        body: data ?? raw,
-      });
+      console.error("Maileroo error:", data);
       return {
         success: false,
-        message:
-          data?.message ??
-          `Maileroo request failed (${response.status} ${response.statusText})`,
+        message: data.message ?? "Failed to send email",
       };
     }
 
-    return { success: data?.success ?? true };
+    return { success: data.success ?? true };
   } catch (error) {
     console.error("Failed to send invite email:", error);
     return {
@@ -169,23 +149,20 @@ export async function sendResignationNotice(
       }),
     });
 
-    const { raw, data } = await readMailerooResponse(response);
+    const data = (await response.json()) as {
+      success?: boolean;
+      message?: string;
+    };
 
     if (!response.ok) {
-      console.error("Maileroo resignation notice error:", {
-        status: response.status,
-        statusText: response.statusText,
-        body: data ?? raw,
-      });
+      console.error("Maileroo resignation notice error:", data);
       return {
         success: false,
-        message:
-          data?.message ??
-          `Maileroo request failed (${response.status} ${response.statusText})`,
+        message: data.message ?? "Failed to send email",
       };
     }
 
-    return { success: data?.success ?? true };
+    return { success: data.success ?? true };
   } catch (error) {
     console.error("Failed to send resignation notice:", error);
     return {

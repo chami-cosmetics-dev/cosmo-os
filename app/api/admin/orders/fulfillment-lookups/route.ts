@@ -18,11 +18,11 @@ const lookupsCache = new Map<
 
 export async function GET() {
   const auth = await requireAnyPermission([
+    "orders.read",
     "fulfillment.sample_free_issue.read",
     "fulfillment.order_print.read",
     "fulfillment.ready_dispatch.read",
     "fulfillment.delivery_invoice.read",
-    "fulfillment.falcon_upload.read",
   ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

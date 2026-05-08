@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { requirePermission } from "@/lib/rbac";
 
 /**
@@ -35,7 +34,7 @@ export async function GET(_request: NextRequest) {
       },
     }),
     prisma.user.findMany({
-      where: eligibleMerchantUserWhere(companyId),
+      where: { companyId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true },
     }),

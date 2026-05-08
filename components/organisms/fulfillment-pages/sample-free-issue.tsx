@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+
 import { FulfillmentPermissionsProvider } from "@/components/contexts/fulfillment-permissions-context";
 import {
   FulfillmentOrder,
@@ -29,7 +30,7 @@ export function SampleFreeIssueFulfillmentPage({
 
   return (
     <FulfillmentPermissionsProvider permissions={permissions}>
-      <div className="space-y-4">
+      <div className="space-y-6">
         <FulfillmentOrderSelector
         title="Sample / Free Issue"
         description="Select an order to add samples or free issues. No print option here."
@@ -39,10 +40,6 @@ export function SampleFreeIssueFulfillmentPage({
         refreshTrigger={orderListRefreshTrigger}
         invoiceRefreshTrigger={invoiceRefreshTrigger}
         currentStage="sample_free_issue"
-        showInvoiceDetails={false}
-        worksheetMode
-        showEmptyWorksheet
-        allowFutureSendLater
       >
         <FulfillmentSampleFreeIssuePanel
           orderId={selectedOrder?.id ?? null}
