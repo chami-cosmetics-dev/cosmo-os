@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
@@ -63,18 +62,6 @@ export async function PUT(
     select: { id: true, name: true, createdAt: true },
   });
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_updated",
-    entityType: "CourierService",
-    entityId: service.id,
-    summary: `Updated courier service ${existing.name}`,
-    beforeData: { name: existing.name },
-    afterData: { name: service.name },
-  });
-
   return NextResponse.json(service);
 }
 
@@ -110,17 +97,6 @@ export async function DELETE(
 
   await prisma.courierService.delete({
     where: { id: idResult.data },
-  });
-
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_deleted",
-    entityType: "CourierService",
-    entityId: existing.id,
-    summary: `Deleted courier service ${existing.name}`,
-    beforeData: { name: existing.name },
   });
 
   return NextResponse.json({ success: true });

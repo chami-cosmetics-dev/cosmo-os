@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
-import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 type WebhookSecret = {
@@ -23,7 +22,6 @@ interface ShopifyWebhookSecretsFormProps {
 }
 
 export function ShopifyWebhookSecretsForm({ canEdit }: ShopifyWebhookSecretsFormProps) {
-  const { confirm } = useConfirmationDialog();
   const [secrets, setSecrets] = useState<WebhookSecret[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -101,13 +99,8 @@ export function ShopifyWebhookSecretsForm({ canEdit }: ShopifyWebhookSecretsForm
 
   async function handleDelete(id: string) {
     if (!canEdit) return;
-    const confirmed = await confirm({
-      title: "Delete webhook secret?",
-      description: "Delete this webhook secret? Webhooks using it will no longer be accepted.",
-      confirmLabel: "Delete",
-      variant: "destructive",
-    });
-    if (!confirmed) return;
+    if (!window.confirm("Delete this webhook secret? Webhooks using it will no longer be accepted."))
+      return;
 
     setBusyKey(`delete-${id}`);
     try {

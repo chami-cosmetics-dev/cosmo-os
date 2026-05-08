@@ -3,7 +3,6 @@ import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
@@ -22,21 +21,7 @@ export type OrdersPageParams = {
   createdTo?: Date;
   /** Match orders whose `paymentGatewayNames` contains this string (Shopify gateway name). */
   paymentGateway?: string | null;
-  sampleSendLater?: "available" | "future" | "all";
 };
-
-function startOfTomorrowUtc() {
-  const now = new Date();
-  return new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + 1,
-    0,
-    0,
-    0,
-    0
-  ));
-}
 
 async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ name: string }[]>(
@@ -61,14 +46,10 @@ const getOrdersPageLookups = unstable_cache(
       }),
       prisma.user.findMany({
         where: {
-          AND: [
-            eligibleMerchantUserWhere(companyId),
-            {
-              OR: [
-                { shopifyUserIds: { isEmpty: false } },
-                { couponCodes: { isEmpty: false } },
-              ],
-            },
+          companyId,
+          OR: [
+            { shopifyUserIds: { isEmpty: false } },
+            { couponCodes: { isEmpty: false } },
           ],
         },
         orderBy: { name: "asc" },
@@ -167,26 +148,6 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
       /** Shopify web + manual (non-POS) orders share the same fulfillment queues. */
       where.sourceName = { in: ["web", "manual"] };
-      if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
-        const sampleSendLater = params.sampleSendLater ?? "available";
-        const sendLaterFilter =
-          sampleSendLater === "future"
-            ? { sampleFreeIssueSendLaterDate: { gte: startOfTomorrowUtc() } }
-            : sampleSendLater === "all"
-              ? null
-              : {
-                  OR: [
-                    { sampleFreeIssueSendLaterDate: null },
-                    { sampleFreeIssueSendLaterDate: { lt: startOfTomorrowUtc() } },
-                  ],
-                };
-        if (sendLaterFilter) {
-          where.AND = [
-            ...(Array.isArray(where.AND) ? where.AND : []),
-            sendLaterFilter,
-          ];
-        }
-      }
     }
   }
 
@@ -213,7 +174,6 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStage: true,
     printCount: true,
     packageOnHoldAt: true,
-    sampleFreeIssueSendLaterDate: true,
     companyLocation: { select: { id: true, name: true } },
     assignedMerchant: { select: { id: true, name: true, email: true } },
     packageHoldReason: { select: { id: true, name: true } },
@@ -252,7 +212,6 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     lineItemCount: o._count.lineItems,
     printCount: o.printCount,
     packageOnHoldAt: o.packageOnHoldAt?.toISOString() ?? null,
-    sampleFreeIssueSendLaterDate: o.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
     packageHoldReason: o.packageHoldReason,
     fulfillmentStage: o.fulfillmentStage,
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],

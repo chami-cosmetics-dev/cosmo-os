@@ -124,7 +124,6 @@ export function DashboardLocationMerchantCharts({
                   {locations.map((loc) => (
                     <div key={loc.id} className="min-w-0">
                       <LocationMerchantBarCard
-                        chartId={`dashboard-location-${breakdownVariant}-${loc.id}`}
                         locationName={loc.name}
                         merchants={loc.merchants}
                         dateHint={dateHint}
@@ -143,13 +142,11 @@ export function DashboardLocationMerchantCharts({
 }
 
 function LocationMerchantBarCard({
-  chartId,
   locationName,
   merchants,
   dateHint,
   segmentLabel,
 }: {
-  chartId: string;
   locationName: string;
   merchants: LocationMerchantChartRow[];
   dateHint: string;
@@ -184,7 +181,7 @@ function LocationMerchantBarCard({
           </p>
         ) : (
           <div style={{ height: chartHeight }} className="w-full min-h-[220px]">
-            <ChartContainer id={chartId} config={chartConfig} className="aspect-auto h-full w-full">
+            <ChartContainer config={chartConfig} className="aspect-auto h-full w-full">
               <BarChart
                 accessibilityLayer
                 data={chartData}

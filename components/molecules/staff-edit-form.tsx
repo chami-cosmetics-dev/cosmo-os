@@ -42,11 +42,8 @@ type StaffMember = {
     employeeNumber: string | null;
     epfNumber: string | null;
     locationId: string | null;
-    location?: { id: string; name: string } | null;
     departmentId: string | null;
-    department?: { id: string; name: string } | null;
     designationId: string | null;
-    designation?: { id: string; name: string } | null;
     appointmentDate: string | null;
     status: string;
     isRider: boolean;
@@ -69,16 +66,6 @@ function formatDateForInput(date: string | Date | null | undefined): string {
   const d = typeof date === "string" ? new Date(date) : date;
   if (Number.isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
-}
-
-function withSelectedOption<T extends { id: string }>(
-  options: T[],
-  selected: T | null | undefined
-) {
-  if (!selected || options.some((option) => option.id === selected.id)) {
-    return options;
-  }
-  return [selected, ...options];
 }
 
 export function StaffEditForm({
@@ -109,75 +96,20 @@ export function StaffEditForm({
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
-  const effectiveGender = gender || (initialData?.gender ?? "").toLowerCase();
-  const effectiveLocationId =
-    locationId ||
-    initialData?.employeeProfile?.locationId ||
-    initialData?.employeeProfile?.location?.id ||
-    "";
-  const effectiveDepartmentId =
-    departmentId ||
-    initialData?.employeeProfile?.departmentId ||
-    initialData?.employeeProfile?.department?.id ||
-    "";
-  const effectiveDesignationId =
-    designationId ||
-    initialData?.employeeProfile?.designationId ||
-    initialData?.employeeProfile?.designation?.id ||
-    "";
-  const genderLabel =
-    GENDER_OPTIONS.find((option) => option.value === effectiveGender)?.label ?? "Select gender";
-  const locationOptions = withSelectedOption(
-    locations,
-    initialData?.employeeProfile?.location
-      ? {
-          ...initialData.employeeProfile.location,
-          address: null,
-        }
-      : null
-  );
-  const departmentOptions = withSelectedOption(
-    departments,
-    initialData?.employeeProfile?.department ?? null
-  );
-  const designationOptions = withSelectedOption(
-    designations,
-    initialData?.employeeProfile?.designation ?? null
-  );
-  const locationLabel =
-    locationOptions.find((loc) => loc.id === effectiveLocationId)?.name ?? "Select location";
-  const departmentLabel =
-    departmentOptions.find((department) => department.id === effectiveDepartmentId)?.name ??
-    "Select department";
-  const designationLabel =
-    designationOptions.find((designation) => designation.id === effectiveDesignationId)?.name ??
-    "Select designation";
 
   useEffect(() => {
     if (initialData) {
       setName(initialData.name ?? "");
       setKnownName(initialData.knownName ?? "");
       setNicNo(initialData.nicNo ?? "");
-      setGender((initialData.gender ?? "").toLowerCase());
+      setGender(initialData.gender ?? "");
       setDateOfBirth(formatDateForInput(initialData.dateOfBirth));
       setMobile(initialData.mobile ?? "");
       setEmployeeNumber(initialData.employeeProfile?.employeeNumber ?? "");
       setEpfNumber(initialData.employeeProfile?.epfNumber ?? "");
-      setLocationId(
-        initialData.employeeProfile?.locationId ??
-          initialData.employeeProfile?.location?.id ??
-          ""
-      );
-      setDepartmentId(
-        initialData.employeeProfile?.departmentId ??
-          initialData.employeeProfile?.department?.id ??
-          ""
-      );
-      setDesignationId(
-        initialData.employeeProfile?.designationId ??
-          initialData.employeeProfile?.designation?.id ??
-          ""
-      );
+      setLocationId(initialData.employeeProfile?.locationId ?? "");
+      setDepartmentId(initialData.employeeProfile?.departmentId ?? "");
+      setDesignationId(initialData.employeeProfile?.designationId ?? "");
       setAppointmentDate(
         formatDateForInput(initialData.employeeProfile?.appointmentDate)
       );
@@ -307,12 +239,12 @@ export function StaffEditForm({
           Gender
         </label>
         <Select
-          value={effectiveGender || NONE_VALUE}
+          value={gender || NONE_VALUE}
           onValueChange={(value) => setGender(value === NONE_VALUE ? "" : value)}
           disabled={!canEdit || isBusy}
         >
           <SelectTrigger id="staff-gender">
-            <SelectValue placeholder="Select gender">{genderLabel}</SelectValue>
+            <SelectValue placeholder="Select gender" />
           </SelectTrigger>
           <SelectContent>
             {GENDER_OPTIONS.map((opt) => (
@@ -383,18 +315,18 @@ export function StaffEditForm({
           Company location
         </label>
         <Select
-          value={effectiveLocationId || NONE_VALUE}
+          value={locationId || NONE_VALUE}
           onValueChange={(value) =>
             setLocationId(value === NONE_VALUE ? "" : value)
           }
           disabled={!canEdit || isBusy}
         >
           <SelectTrigger id="staff-location">
-            <SelectValue placeholder="Select location">{locationLabel}</SelectValue>
+            <SelectValue placeholder="Select location" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE_VALUE}>Select location</SelectItem>
-            {locationOptions.map((loc) => (
+            {locations.map((loc) => (
               <SelectItem key={loc.id} value={loc.id}>
                 {loc.name}
               </SelectItem>
@@ -407,18 +339,18 @@ export function StaffEditForm({
           Department
         </label>
         <Select
-          value={effectiveDepartmentId || NONE_VALUE}
+          value={departmentId || NONE_VALUE}
           onValueChange={(value) =>
             setDepartmentId(value === NONE_VALUE ? "" : value)
           }
           disabled={!canEdit || isBusy}
         >
           <SelectTrigger id="staff-department">
-            <SelectValue placeholder="Select department">{departmentLabel}</SelectValue>
+            <SelectValue placeholder="Select department" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE_VALUE}>Select department</SelectItem>
-            {departmentOptions.map((d) => (
+            {departments.map((d) => (
               <SelectItem key={d.id} value={d.id}>
                 {d.name}
               </SelectItem>
@@ -431,18 +363,18 @@ export function StaffEditForm({
           Designation
         </label>
         <Select
-          value={effectiveDesignationId || NONE_VALUE}
+          value={designationId || NONE_VALUE}
           onValueChange={(value) =>
             setDesignationId(value === NONE_VALUE ? "" : value)
           }
           disabled={!canEdit || isBusy}
         >
           <SelectTrigger id="staff-designation">
-            <SelectValue placeholder="Select designation">{designationLabel}</SelectValue>
+            <SelectValue placeholder="Select designation" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE_VALUE}>Select designation</SelectItem>
-            {designationOptions.map((d) => (
+            {designations.map((d) => (
               <SelectItem key={d.id} value={d.id}>
                 {d.name}
               </SelectItem>
@@ -495,7 +427,7 @@ export function StaffEditForm({
           placeholder="e.g. MERCHANT10, SAVE20"
         />
         <p className="text-muted-foreground text-xs">
-          Comma-separated. Web orders with these Shopify discount or MER codes will be assigned to this user.
+          Comma-separated. Web orders with these coupon codes will be assigned to this user.
         </p>
       </div>
 

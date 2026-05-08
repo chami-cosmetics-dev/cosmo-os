@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { deleteAuth0User } from "@/lib/auth0-management";
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -57,21 +56,6 @@ export async function DELETE(
 
   await prisma.user.delete({
     where: { id: idParsed.data },
-  });
-
-  await writeAuditLog({
-    companyId: user.companyId,
-    actorUserId: auth.context!.user?.id,
-    module: "users",
-    action: "user_deleted",
-    entityType: "User",
-    entityId: user.id,
-    summary: `Deleted user ${user.email ?? user.name ?? user.id}`,
-    beforeData: {
-      name: user.name,
-      email: user.email,
-      roleNames: user.userRoles.map((userRole) => userRole.role.name),
-    },
   });
 
   return NextResponse.json({ success: true });

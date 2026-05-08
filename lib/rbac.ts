@@ -4,7 +4,6 @@ import { auth0 } from "@/lib/auth0";
 import { isDatabaseUnavailableError } from "@/lib/dbObservability";
 import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
-import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 
 const DEFAULT_PERMISSIONS = [
   {
@@ -30,10 +29,6 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "roles.manage",
     description: "Create and delete roles",
-  },
-  {
-    key: "seo.welcome",
-    description: "View SEO team welcome page only",
   },
   {
     key: "settings.company",
@@ -72,98 +67,8 @@ const DEFAULT_PERMISSIONS = [
     description: "View order fulfillment timeline in modal",
   },
   {
-    key: "failed_webhooks.read",
-    description: "View failed Shopify order webhooks",
-  },
-  {
-    key: "failed_webhooks.retry",
-    description: "Retry failed Shopify order webhooks",
-  },
-  {
-    key: "complaints.create",
-    description: "Create merchant complaints",
-  },
-  {
-    key: "complaints.read",
-    description: "View merchant complaints",
-  },
-  {
-    key: "complaints.manage",
-    description: "Update complaint status and resolution",
-  },
-  // Reports - Dump downloads
-  {
-    key: REPORT_DUMP_PERMISSIONS.contactListPart1,
-    description: "Download Dump 1 contact list part 1",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.contactListPart1_1,
-    description: "Download Dump 1 contact list part 1_1",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.contactListPart2,
-    description: "Download Dump 1 contact list part 2",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.contactListAll,
-    description: "Download all contact dump records",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.invoice90,
-    description: "Download Dump 2 invoice-wise last 90 days",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.invoiceItem90,
-    description: "Download Dump 3 invoice item-wise last 90 days",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.contactLastPurchased,
-    description: "Download Dump 4 contacts with last purchased date",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.contactLog,
-    description: "Download Dump 5 contact log details",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.loyaltyCustomers,
-    description: "Download loyalty customer list",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.warehouseInvoice,
-    description: "Download warehouse invoice-wise 360 day dump",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.warehouseInvoiceItem,
-    description: "Download warehouse invoice item-wise 360 day dump",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.historicalInvoice,
-    description: "Download historical invoice details by year",
-  },
-  {
-    key: REPORT_DUMP_PERMISSIONS.historicalInvoiceItem,
-    description: "Download historical invoice item details by year",
-  },
-  {
     key: "settings.fulfillment",
     description: "Manage samples, free issues, hold reasons, and courier services",
-  },
-  // Stickers
-  {
-    key: "stickers.batch.read",
-    description: "View sticker batches",
-  },
-  {
-    key: "stickers.batch.manage",
-    description: "Create and edit sticker batches",
-  },
-  {
-    key: "stickers.print.read",
-    description: "View sticker print preview",
-  },
-  {
-    key: "stickers.print.print",
-    description: "Print stickers",
   },
   // Fulfillment - Sample/Free Issue
   {
@@ -224,15 +129,6 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "fulfillment.delivery_invoice.mark_complete",
     description: "Mark invoice complete",
-  },
-  // Fulfillment - Falcon Upload
-  {
-    key: "fulfillment.falcon_upload.read",
-    description: "View Falcon upload page",
-  },
-  {
-    key: "fulfillment.falcon_upload.export",
-    description: "Generate Falcon upload files",
   },
   // Fulfillment - Remarks (all stages)
   {
@@ -296,28 +192,6 @@ const DEFAULT_ROLES = [
       "orders.manage",
       "orders.create_manual",
       "orders.view_timeline",
-      "failed_webhooks.read",
-      "failed_webhooks.retry",
-      "complaints.create",
-      "complaints.read",
-      "complaints.manage",
-      REPORT_DUMP_PERMISSIONS.contactListPart1,
-      REPORT_DUMP_PERMISSIONS.contactListPart1_1,
-      REPORT_DUMP_PERMISSIONS.contactListPart2,
-      REPORT_DUMP_PERMISSIONS.contactListAll,
-      REPORT_DUMP_PERMISSIONS.invoice90,
-      REPORT_DUMP_PERMISSIONS.invoiceItem90,
-      REPORT_DUMP_PERMISSIONS.contactLastPurchased,
-      REPORT_DUMP_PERMISSIONS.contactLog,
-      REPORT_DUMP_PERMISSIONS.loyaltyCustomers,
-      REPORT_DUMP_PERMISSIONS.warehouseInvoice,
-      REPORT_DUMP_PERMISSIONS.warehouseInvoiceItem,
-      REPORT_DUMP_PERMISSIONS.historicalInvoice,
-      REPORT_DUMP_PERMISSIONS.historicalInvoiceItem,
-      "stickers.batch.read",
-      "stickers.batch.manage",
-      "stickers.print.read",
-      "stickers.print.print",
       "fulfillment.sample_free_issue.read",
       "fulfillment.sample_free_issue.manage",
       "fulfillment.sample_free_issue.manage_remarks",
@@ -332,8 +206,6 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.read",
       "fulfillment.delivery_invoice.mark_delivered",
       "fulfillment.delivery_invoice.mark_complete",
-      "fulfillment.falcon_upload.read",
-      "fulfillment.falcon_upload.export",
       "fulfillment.remarks.manage",
       "fulfillment.revert_to.order_received",
       "fulfillment.revert_to.sample_free_issue",
@@ -353,19 +225,11 @@ const DEFAULT_ROLES = [
       "products.read",
       "orders.read",
       "orders.view_timeline",
-      "stickers.batch.read",
-      "stickers.print.read",
       "fulfillment.sample_free_issue.read",
       "fulfillment.order_print.read",
       "fulfillment.ready_dispatch.read",
       "fulfillment.delivery_invoice.read",
-      "fulfillment.falcon_upload.read",
     ],
-  },
-  {
-    name: "seo_team",
-    description: "SEO team welcome-only access",
-    permissionKeys: ["seo.welcome"],
   },
 ] as const;
 
@@ -652,36 +516,6 @@ export async function syncSessionUser(sessionUser: SessionUser) {
 
 type SessionLike = { user: { sub?: string; email?: string; name?: string; picture?: string } };
 
-async function buildContextFromSessionUser(sessionUser: SessionUser) {
-  const user = await syncSessionUser({
-    sub: sessionUser.sub,
-    email: sessionUser.email ?? undefined,
-    name: sessionUser.name ?? undefined,
-    picture: sessionUser.picture ?? undefined,
-  });
-
-  if (!user) {
-    return {
-      sessionUser,
-      user: null,
-      permissionKeys: [],
-      roleNames: [],
-    };
-  }
-
-  const userAccess = await getUserAccessRoles(user.id);
-  const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
-  const roleNames = Array.from(new Set(roles.map((role) => role.name)));
-  const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
-
-  return {
-    sessionUser,
-    user,
-    permissionKeys,
-    roleNames,
-  };
-}
-
 async function getCurrentUserContextImpl(session?: SessionLike | null) {
   const sess = session ?? (await auth0.getSession());
   if (!sess?.user) {
@@ -689,11 +523,37 @@ async function getCurrentUserContextImpl(session?: SessionLike | null) {
   }
 
   try {
-    return await buildContextFromSessionUser(sess.user);
+    const user = await syncSessionUser({
+      sub: sess.user.sub,
+      email: sess.user.email ?? undefined,
+      name: sess.user.name ?? undefined,
+      picture: sess.user.picture ?? undefined,
+    });
+
+    if (!user) {
+      return {
+        sessionUser: sess.user,
+        user: null,
+        permissionKeys: [],
+        roleNames: [],
+      };
+    }
+
+    const userAccess = await getUserAccessRoles(user.id);
+    const roles: AccessRole[] = (userAccess?.userRoles ?? []).map((userRole) => userRole.role);
+    const roleNames = Array.from(new Set(roles.map((role) => role.name)));
+    const permissionKeys = await getRolePermissionKeys(roles.map((role) => role.id));
+
+    return {
+      sessionUser: sess.user,
+      user,
+      permissionKeys,
+      roleNames,
+    };
   } catch (error) {
     if (isDatabaseUnavailableError(error)) {
       markRbacDatabaseUnavailable();
-    } else {
+    } else if (!isMissingRbacTableError(error)) {
       console.error("Failed to build RBAC context:", error);
     }
     return {
@@ -837,18 +697,11 @@ export function hasAnyPermission(
 
 export async function requirePermission(permissionKey: string) {
   const perf = createPerfLogger("rbac.requirePermission", { permissionKey });
-  let context = await getCurrentUserContext();
+  const context = await getCurrentUserContext();
   perf.mark("get-context");
   if (!context) {
     perf.end({ status: 401, ok: false });
     return { ok: false as const, status: 401, error: "Not authenticated" };
-  }
-  if (!context.user) {
-    try {
-      context = await buildContextFromSessionUser(context.sessionUser);
-    } catch (error) {
-      console.error("Failed RBAC retry in requirePermission:", error);
-    }
   }
   if (!context.user) {
     perf.end({ status: 503, ok: false });
@@ -870,16 +723,9 @@ export async function requirePermission(permissionKey: string) {
 
 /** Requires user to have at least one of the given permissions. */
 export async function requireAnyPermission(permissionKeys: string[]) {
-  let context = await getCurrentUserContext();
+  const context = await getCurrentUserContext();
   if (!context) {
     return { ok: false as const, status: 401, error: "Not authenticated" };
-  }
-  if (!context.user) {
-    try {
-      context = await buildContextFromSessionUser(context.sessionUser);
-    } catch (error) {
-      console.error("Failed RBAC retry in requireAnyPermission:", error);
-    }
   }
   if (!context.user) {
     return {

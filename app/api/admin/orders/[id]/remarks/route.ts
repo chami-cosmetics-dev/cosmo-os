@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
@@ -58,7 +57,6 @@ export async function POST(
 
   const order = await prisma.order.findFirst({
     where: { id: idResult.data, companyId },
-    select: { id: true, orderNumber: true, name: true },
   });
 
   if (!order) {
@@ -90,23 +88,6 @@ export async function POST(
       content: true,
       showOnInvoice: true,
       createdAt: true,
-    },
-  });
-
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "orders",
-    action: "remark_created",
-    entityType: "OrderRemark",
-    entityId: remark.id,
-    summary: `Added ${remark.type} remark to order ${order.orderNumber ?? order.name ?? order.id}`,
-    afterData: {
-      orderId: order.id,
-      stage: remark.stage,
-      type: remark.type,
-      content: remark.content,
-      showOnInvoice: remark.showOnInvoice,
     },
   });
 

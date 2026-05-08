@@ -25,7 +25,7 @@ export function DispatchFulfillmentPage({
 
   return (
     <FulfillmentPermissionsProvider permissions={permissions}>
-      <div className="space-y-4">
+      <div className="space-y-6">
         <FulfillmentOrderSelector
         title="Ready to Dispatch & Dispatch"
         description="Select an order to put on hold, mark ready, or dispatch via rider or courier."
@@ -35,9 +35,6 @@ export function DispatchFulfillmentPage({
         refreshTrigger={refreshTrigger}
         currentStage="ready_to_dispatch"
         showHoldStatus
-        showInvoiceDetails={false}
-        worksheetMode
-        showEmptyWorksheet
       >
         <FulfillmentDispatchPanel
           orderId={selectedOrder?.id ?? null}

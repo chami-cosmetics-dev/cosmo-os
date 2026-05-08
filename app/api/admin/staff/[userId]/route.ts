@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS } from "@/lib/validation";
@@ -52,53 +50,6 @@ const updateStaffSchema = z.object({
     .optional()
     .transform((v) => v ?? []),
 });
-
-type StaffUserWithDetails = Prisma.UserGetPayload<{
-  include: {
-    userRoles: { include: { role: true } };
-    employeeProfile: {
-      include: {
-        location: true;
-        department: true;
-        designation: true;
-      };
-    };
-  };
-}>;
-
-function serializeStaffUser(user: StaffUserWithDetails) {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    nicNo: user.nicNo,
-    gender: user.gender,
-    dateOfBirth: user.dateOfBirth?.toISOString() ?? null,
-    mobile: user.mobile,
-    knownName: user.knownName,
-    shopifyUserIds: user.shopifyUserIds,
-    couponCodes: user.couponCodes,
-    companyId: user.companyId,
-    userRoles: user.userRoles.map((ur) => ur.role),
-    employeeProfile: user.employeeProfile
-      ? {
-          id: user.employeeProfile.id,
-          employeeNumber: user.employeeProfile.employeeNumber,
-          epfNumber: user.employeeProfile.epfNumber,
-          locationId: user.employeeProfile.locationId,
-          location: user.employeeProfile.location,
-          departmentId: user.employeeProfile.departmentId,
-          department: user.employeeProfile.department,
-          designationId: user.employeeProfile.designationId,
-          designation: user.employeeProfile.designation,
-          appointmentDate: user.employeeProfile.appointmentDate?.toISOString() ?? null,
-          status: user.employeeProfile.status,
-          resignedAt: user.employeeProfile.resignedAt?.toISOString() ?? null,
-          isRider: user.employeeProfile.isRider,
-        }
-      : null,
-  };
-}
 
 export async function GET(
   _request: NextRequest,
@@ -165,7 +116,19 @@ export async function GET(
   const [locations, departments, designations] = lookups ?? [[], [], []];
 
   return NextResponse.json({
-    ...serializeStaffUser(user),
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    nicNo: user.nicNo,
+    gender: user.gender,
+    dateOfBirth: user.dateOfBirth,
+    mobile: user.mobile,
+    knownName: user.knownName,
+    shopifyUserIds: user.shopifyUserIds,
+    couponCodes: user.couponCodes,
+    companyId: user.companyId,
+    userRoles: user.userRoles.map((ur) => ur.role),
+    employeeProfile: user.employeeProfile,
     ...(lookups && {
       locations,
       departments,
@@ -234,18 +197,6 @@ export async function PATCH(
       ? parsedAppointment
       : undefined;
 
-  const beforeData = {
-    name: targetUser.name,
-    knownName: targetUser.knownName,
-    nicNo: targetUser.nicNo,
-    gender: targetUser.gender,
-    dateOfBirth: targetUser.dateOfBirth,
-    mobile: targetUser.mobile,
-    shopifyUserIds: targetUser.shopifyUserIds,
-    couponCodes: targetUser.couponCodes,
-    employeeProfile: targetUser.employeeProfile,
-  };
-
   await prisma.$transaction(async (tx) => {
     await tx.user.update({
       where: { id: idResult.data },
@@ -264,9 +215,9 @@ export async function PATCH(
     const profileData = {
       employeeNumber: data.employeeNumber?.trim() || null,
       epfNumber: data.epfNumber?.trim() || null,
-      ...(data.locationId !== undefined && { locationId: data.locationId }),
-      ...(data.departmentId !== undefined && { departmentId: data.departmentId }),
-      ...(data.designationId !== undefined && { designationId: data.designationId }),
+      locationId: data.locationId ?? undefined,
+      departmentId: data.departmentId ?? undefined,
+      designationId: data.designationId ?? undefined,
       appointmentDate: validAppointment ?? undefined,
       ...(data.isRider !== undefined && { isRider: data.isRider }),
     };
@@ -301,17 +252,5 @@ export async function PATCH(
     },
   });
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "staff",
-    action: "staff_updated",
-    entityType: "Staff",
-    entityId: targetUser.id,
-    summary: `Updated staff profile for ${updated?.name ?? updated?.email ?? targetUser.id}`,
-    beforeData,
-    afterData: updated,
-  });
-
-  return NextResponse.json(updated ? serializeStaffUser(updated) : null);
+  return NextResponse.json(updated);
 }

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
@@ -26,16 +25,7 @@ async function getRemarkWithOrder(orderId: string, remarkId: string, companyId: 
       orderId,
       order: { companyId },
     },
-    include: {
-      order: {
-        select: {
-          id: true,
-          orderNumber: true,
-          name: true,
-          companyId: true,
-        },
-      },
-    },
+    include: { order: true },
   });
 }
 
@@ -96,24 +86,6 @@ export async function PATCH(
     },
   });
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "orders",
-    action: "remark_updated",
-    entityType: "OrderRemark",
-    entityId: remark.id,
-    summary: `Updated ${remark.type} remark on order ${remark.order.orderNumber ?? remark.order.name ?? remark.order.id}`,
-    beforeData: {
-      content: remark.content,
-      showOnInvoice: remark.showOnInvoice,
-    },
-    afterData: {
-      content: updated.content,
-      showOnInvoice: updated.showOnInvoice,
-    },
-  });
-
   return NextResponse.json({
     ...updated,
     createdAt: updated.createdAt.toISOString(),
@@ -154,22 +126,6 @@ export async function DELETE(
 
   await prisma.orderRemark.delete({
     where: { id: remark.id },
-  });
-
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "orders",
-    action: "remark_deleted",
-    entityType: "OrderRemark",
-    entityId: remark.id,
-    summary: `Deleted ${remark.type} remark from order ${remark.order.orderNumber ?? remark.order.name ?? remark.order.id}`,
-    beforeData: {
-      content: remark.content,
-      showOnInvoice: remark.showOnInvoice,
-      stage: remark.stage,
-      type: remark.type,
-    },
   });
 
   return NextResponse.json({ success: true });

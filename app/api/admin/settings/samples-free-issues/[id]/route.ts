@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
@@ -88,26 +87,6 @@ export async function PUT(
     },
   });
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_updated",
-    entityType: "SampleFreeIssueItem",
-    entityId: item.id,
-    summary: `Updated ${existing.type} item ${existing.name}`,
-    beforeData: {
-      name: existing.name,
-      type: existing.type,
-      productItemId: existing.productItemId,
-    },
-    afterData: {
-      name: item.name,
-      type: item.type,
-      productItemId: item.productItemId,
-    },
-  });
-
   return NextResponse.json(item);
 }
 
@@ -143,21 +122,6 @@ export async function DELETE(
 
   await prisma.sampleFreeIssueItem.delete({
     where: { id: idResult.data },
-  });
-
-  await writeAuditLog({
-    companyId,
-    actorUserId: auth.context!.user!.id,
-    module: "settings",
-    action: "setting_deleted",
-    entityType: "SampleFreeIssueItem",
-    entityId: existing.id,
-    summary: `Deleted ${existing.type} item ${existing.name}`,
-    beforeData: {
-      name: existing.name,
-      type: existing.type,
-      productItemId: existing.productItemId,
-    },
   });
 
   return NextResponse.json({ success: true });

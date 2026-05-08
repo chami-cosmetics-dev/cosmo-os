@@ -4,7 +4,6 @@ import { Decimal } from "@prisma/client/runtime/library";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { syncContactMasterFromShopifyOrder } from "@/lib/contact-master-sync";
 import { LIMITS } from "@/lib/validation";
 import { ensureCustomerAndLink } from "@/lib/order-customers";
 import { resolveAssignedMerchant } from "@/lib/order-assignment";
@@ -36,46 +35,20 @@ function normalizePaymentGateways(raw: string[] | undefined): {
   return { names, primary: names[0] ?? null };
 }
 
-function getShopifyOrderCreatedAt(order: ShopifyOrderWebhookPayload) {
-  const parsed = order.created_at ? new Date(order.created_at) : null;
-  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
-}
-
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
   location: CompanyLocation,
   rawPayload: unknown
 ): Promise<void> {
+  const companyId = location.companyId;
+
   const existingOrder = await prisma.order.findUnique({
     where: { shopifyOrderId: String(data.id) },
-    select: {
-      id: true,
-      invoiceCompleteAt: true,
-      companyLocationId: true,
-    },
   });
-  let effectiveLocation = location;
-  if (existingOrder && existingOrder.companyLocationId !== location.id) {
-    const persistedLocation = await prisma.companyLocation.findUnique({
-      where: { id: existingOrder.companyLocationId },
-    });
-    if (persistedLocation) {
-      effectiveLocation = persistedLocation;
-      console.warn("[Order webhook] Preserving original order location", {
-        shopifyOrderId: String(data.id),
-        incomingLocationId: location.id,
-        preservedLocationId: persistedLocation.id,
-        incomingShopifyLocationId: location.shopifyLocationId,
-        preservedShopifyLocationId: persistedLocation.shopifyLocationId,
-      });
-    }
-  }
-
-  const companyId = effectiveLocation.companyId;
   const isNewOrder = !existingOrder;
 
   const customerId = await ensureCustomerAndLink(data, companyId, isNewOrder);
-  const assignedMerchantId = await resolveAssignedMerchant(data, effectiveLocation);
+  const assignedMerchantId = await resolveAssignedMerchant(data, location);
 
   const sourceName = (data.source_name ?? "web").trim().slice(0, 20) || "web";
   const totalPrice = parseDecimal(data.total_price) ?? new Decimal(0);
@@ -86,7 +59,6 @@ export async function processOrderWebhook(
     data.total_discounts ?? data.current_total_discounts
   );
   const totalTax = parseDecimal(data.total_tax ?? data.current_total_tax);
-  const orderCreatedAt = getShopifyOrderCreatedAt(data);
 
   let totalShipping: Decimal | null = null;
   if (data.shipping_lines && data.shipping_lines.length > 0) {
@@ -105,7 +77,7 @@ export async function processOrderWebhook(
 
   const orderData = {
     companyId,
-    companyLocationId: effectiveLocation.id,
+    companyLocationId: location.id,
     assignedMerchantId,
     customerId,
     shopifyOrderId: String(data.id),
@@ -123,7 +95,6 @@ export async function processOrderWebhook(
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
     paymentGatewayNames: paymentGateways.names,
     paymentGatewayPrimary: paymentGateways.primary,
-    createdAt: orderCreatedAt,
     customerEmail: customerEmail?.slice(0, LIMITS.email.max) ?? null,
     customerPhone: customerPhone?.slice(0, LIMITS.mobile.max) ?? null,
     shippingAddress: data.shipping_address
@@ -148,53 +119,44 @@ export async function processOrderWebhook(
   };
 
   const isPaid = data.financial_status?.toLowerCase() === "paid";
+  const now = new Date();
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
     create: {
       ...orderData,
       ...(isPaid && {
-        invoiceCompleteAt: orderCreatedAt,
+        invoiceCompleteAt: now,
+        fulfillmentStage: "invoice_complete" as const,
       }),
     },
-    update: {
-      ...orderData,
-      ...(isPaid && {
-        invoiceCompleteAt: orderCreatedAt,
-      }),
-    },
+    update: orderData,
   });
 
   if (isPaid && !order.invoiceCompleteAt) {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        invoiceCompleteAt: orderCreatedAt,
-      },
-    });
+    const stagesBeforeInvoice = [
+      "order_received",
+      "sample_free_issue",
+      "print",
+      "ready_to_dispatch",
+      "dispatched",
+    ];
+    if (stagesBeforeInvoice.includes(order.fulfillmentStage)) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          invoiceCompleteAt: now,
+          fulfillmentStage: "invoice_complete",
+        },
+      });
+    }
   }
-
-  const assignedMerchant = assignedMerchantId
-    ? await prisma.user.findUnique({
-        where: { id: assignedMerchantId },
-        select: { name: true, email: true },
-      })
-    : null;
-
-  await syncContactMasterFromShopifyOrder({
-    companyId,
-    shopifyOrderId: String(data.id),
-    orderNumber: data.order_number != null ? String(data.order_number) : data.name?.slice(0, 100) ?? null,
-    orderCreatedAt,
-    order: data,
-    recentMerchant: assignedMerchant?.name ?? assignedMerchant?.email ?? null,
-  });
 
   const incomingLineItemIds = Array.from(
     new Set(data.line_items.map((lineItem) => String(lineItem.id)))
   );
   for (const lineItem of data.line_items) {
-    await ensureProductItemAndCreateLineItem(order, lineItem, effectiveLocation);
+    await ensureProductItemAndCreateLineItem(order, lineItem, location);
   }
   await prisma.orderLineItem.deleteMany({
     where: {
@@ -214,7 +176,7 @@ export async function processOrderWebhook(
       orderName: order.name ?? undefined,
       customerName: customerName || undefined,
       customerPhone: customerPhone ?? undefined,
-      locationName: effectiveLocation.name,
+      locationName: location.name,
     }).catch((err) => console.error("[Order SMS] order_received failed:", err));
   }
 }

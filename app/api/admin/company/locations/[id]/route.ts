@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { assertEligibleMerchantUser } from "@/lib/merchant-eligibility";
 import {
   manualInvoicePrefixSchema,
   manualInvoiceSeqPaddingSchema,
@@ -85,13 +84,15 @@ export async function PATCH(
 
   const d = parsed.data;
   if (d.defaultMerchantUserId) {
-    const isEligible = await assertEligibleMerchantUser(prisma, {
-      userId: d.defaultMerchantUserId,
-      companyId,
+    const merchant = await prisma.user.findFirst({
+      where: {
+        id: d.defaultMerchantUserId,
+        companyId,
+      },
     });
-    if (!isEligible) {
+    if (!merchant) {
       return NextResponse.json(
-        { error: "Default merchant must be Sales & Marketing or Digital Marketing staff" },
+        { error: "Default merchant must be a user in your company" },
         { status: 400 }
       );
     }

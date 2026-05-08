@@ -3,8 +3,6 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { randomUUID } from "crypto";
 
 import type { CreateManualOrderBody } from "@/lib/validation/manual-order";
-import { syncContactMasterSafely } from "@/lib/contact-master-sync";
-import { assertEligibleMerchantUser } from "@/lib/merchant-eligibility";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 import { sendOrderSms } from "@/lib/order-sms";
@@ -83,12 +81,12 @@ export async function createManualOrder(
       ? location.defaultMerchantUserId ?? null
       : body.assignedMerchantId;
   if (assignedMerchantId) {
-    const isEligible = await assertEligibleMerchantUser(prisma, {
-      userId: assignedMerchantId,
-      companyId,
+    const m = await prisma.user.findFirst({
+      where: { id: assignedMerchantId, companyId },
+      select: { id: true },
     });
-    if (!isEligible) {
-      throw new Error("Assigned merchant must be Sales & Marketing or Digital Marketing staff");
+    if (!m) {
+      throw new Error("Assigned merchant must be a user in your company");
     }
   }
 
@@ -204,16 +202,18 @@ export async function createManualOrder(
       },
     });
 
-    await tx.orderLineItem.createMany({
-      data: lineCreates.map((lc) => ({
-        orderId: created.id,
-        productItemId: lc.productItemId,
-        shopifyLineItemId: lc.shopifyLineItemId,
-        quantity: lc.quantity,
-        price: lc.price,
-        discountPercent: lc.discountPercent,
-      })),
-    });
+    for (const lc of lineCreates) {
+      await tx.orderLineItem.create({
+        data: {
+          orderId: created.id,
+          productItemId: lc.productItemId,
+          shopifyLineItemId: lc.shopifyLineItemId,
+          quantity: lc.quantity,
+          price: lc.price,
+          discountPercent: lc.discountPercent,
+        },
+      });
+    }
 
     return { orderId: created.id, invoiceNumber };
   });
@@ -222,31 +222,6 @@ export async function createManualOrder(
     body.customerName?.trim() ||
     body.shippingAddress?.name?.trim() ||
     undefined;
-
-  try {
-    const assignedMerchant = assignedMerchantId
-      ? await prisma.user.findUnique({
-          where: { id: assignedMerchantId },
-          select: { name: true, email: true },
-        })
-      : null;
-
-    await syncContactMasterSafely({
-      companyId,
-      sourceLabel: "Manual order",
-      sourceType: "manual_order",
-      sourceId: result.orderId,
-      orderNumber: result.invoiceNumber,
-      occurredAt: new Date(),
-      email: customerEmail,
-      phoneNumber: customerPhone,
-      name: customerName ?? null,
-      recentMerchant: assignedMerchant?.name ?? assignedMerchant?.email ?? null,
-      auditBehavior: "full",
-    });
-  } catch (error) {
-    console.error("[manual order] contact sync failed:", error);
-  }
 
   sendOrderSms(companyId, result.orderId, "order_received", {
     orderNumber: result.invoiceNumber,

@@ -1,17 +1,6 @@
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
-
-function normalizeDiscountCodes(order: ShopifyOrderWebhookPayload) {
-  return (order.discount_codes ?? [])
-    .map((discount) => discount.code?.toLowerCase().trim())
-    .filter((code): code is string => Boolean(code));
-}
-
-function hasMatchingCode(savedCodes: string[], orderCodes: string[]) {
-  return savedCodes.some((code) => orderCodes.includes(code.toLowerCase().trim()));
-}
 
 export async function resolveAssignedMerchant(
   order: ShopifyOrderWebhookPayload,
@@ -24,7 +13,7 @@ export async function resolveAssignedMerchant(
     const shopifyUserId = String(order.user_id);
     const merchant = await prisma.user.findFirst({
       where: {
-        ...eligibleMerchantUserWhere(companyId),
+        companyId,
         shopifyUserIds: { has: shopifyUserId },
       },
       select: { id: true },
@@ -33,18 +22,20 @@ export async function resolveAssignedMerchant(
   }
 
   if (sourceName === "web" && order.discount_codes && order.discount_codes.length > 0) {
-    const codes = normalizeDiscountCodes(order);
+    const codes = order.discount_codes.map((d) => d.code?.toLowerCase().trim()).filter(Boolean);
     if (codes.length > 0) {
       const merchants = await prisma.user.findMany({
-        where: eligibleMerchantUserWhere(companyId),
+        where: { companyId },
         select: { id: true, couponCodes: true },
       });
-
       for (const merchant of merchants) {
-        if (hasMatchingCode(merchant.couponCodes, codes)) return merchant.id;
+        const hasMatch = merchant.couponCodes.some(
+          (c) => codes.includes(c.toLowerCase().trim())
+        );
+        if (hasMatch) return merchant.id;
       }
     }
   }
 
-  return null;
+  return companyLocation.defaultMerchantUserId ?? null;
 }
