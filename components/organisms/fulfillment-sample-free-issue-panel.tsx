@@ -278,6 +278,39 @@ export function FulfillmentSampleFreeIssuePanel({
     }
   }
 
+  async function handleScheduledAction(action: "send_sample_now" | "cancel_sample_send_later") {
+    if (!orderId) return;
+
+    const actionLabel =
+      action === "send_sample_now" ? "Send now" : "Cancel schedule";
+
+    setBusyKey(action);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        notify.error(data.error ?? `${actionLabel} failed`);
+        return;
+      }
+
+      notify.success(
+        action === "send_sample_now"
+          ? "Order moved into today's queue."
+          : "Future schedule cancelled."
+      );
+      setSendLaterDate("");
+      onRefresh(true);
+    } catch {
+      notify.error(`${actionLabel} failed`);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function confirmSample() {
     if (!orderId) return;
 
@@ -349,6 +382,8 @@ export function FulfillmentSampleFreeIssuePanel({
     : order?.sampleFreeIssueSendLaterDate
       ? toDateInputValue(new Date(order.sampleFreeIssueSendLaterDate))
       : null;
+  const isScheduledForFuture =
+    savedSendLaterDate !== null && savedSendLaterDate > todayDateInputValue();
 
   return (
     <div className="space-y-4">
@@ -664,7 +699,7 @@ export function FulfillmentSampleFreeIssuePanel({
               </div>
             )}
             <div className="border-t border-border/70 pt-2">
-              <div>
+              <div className="space-y-2">
                 <label className="mb-1.5 block text-sm font-medium">Send later date</label>
                 <Input
                   ref={sendLaterInputRef}
@@ -683,6 +718,41 @@ export function FulfillmentSampleFreeIssuePanel({
                     ? `Allowed: ${sendLaterMin} to ${sendLaterMax}${savedSendLaterDate ? ` | Saved: ${savedSendLaterDate}` : ""}. Saves when confirming sample.`
                     : "Select order first"}
                 </p>
+                {isScheduledForFuture && (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Scheduled for {savedSendLaterDate}</p>
+                        <p className="text-muted-foreground text-xs">
+                          Use send now to bring it back into today&apos;s queue, or cancel the saved schedule.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void handleScheduledAction("cancel_sample_send_later")}
+                          disabled={!orderId || isBusy || remarkBusy}
+                        >
+                          {busyKey === "cancel_sample_send_later" ? (
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          ) : null}
+                          Cancel Schedule
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => void handleScheduledAction("send_sample_now")}
+                          disabled={!orderId || isBusy || remarkBusy}
+                        >
+                          {busyKey === "send_sample_now" ? (
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          ) : null}
+                          Send Now
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
