@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS "User_merCodes_idx";
+
+ALTER TABLE "User" DROP COLUMN IF EXISTS "merCodes";

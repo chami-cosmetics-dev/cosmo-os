@@ -36,6 +36,11 @@ function normalizePaymentGateways(raw: string[] | undefined): {
   return { names, primary: names[0] ?? null };
 }
 
+function getShopifyOrderCreatedAt(order: ShopifyOrderWebhookPayload) {
+  const parsed = order.created_at ? new Date(order.created_at) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
+}
+
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
   location: CompanyLocation,
@@ -81,6 +86,7 @@ export async function processOrderWebhook(
     data.total_discounts ?? data.current_total_discounts
   );
   const totalTax = parseDecimal(data.total_tax ?? data.current_total_tax);
+  const orderCreatedAt = getShopifyOrderCreatedAt(data);
 
   let totalShipping: Decimal | null = null;
   if (data.shipping_lines && data.shipping_lines.length > 0) {
@@ -117,6 +123,7 @@ export async function processOrderWebhook(
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
     paymentGatewayNames: paymentGateways.names,
     paymentGatewayPrimary: paymentGateways.primary,
+    createdAt: orderCreatedAt,
     customerEmail: customerEmail?.slice(0, LIMITS.email.max) ?? null,
     customerPhone: customerPhone?.slice(0, LIMITS.mobile.max) ?? null,
     shippingAddress: data.shipping_address
@@ -141,24 +148,28 @@ export async function processOrderWebhook(
   };
 
   const isPaid = data.financial_status?.toLowerCase() === "paid";
-  const now = new Date();
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
     create: {
       ...orderData,
       ...(isPaid && {
-        invoiceCompleteAt: now,
+        invoiceCompleteAt: orderCreatedAt,
       }),
     },
-    update: orderData,
+    update: {
+      ...orderData,
+      ...(isPaid && {
+        invoiceCompleteAt: orderCreatedAt,
+      }),
+    },
   });
 
   if (isPaid && !order.invoiceCompleteAt) {
     await prisma.order.update({
       where: { id: order.id },
       data: {
-        invoiceCompleteAt: now,
+        invoiceCompleteAt: orderCreatedAt,
       },
     });
   }
@@ -170,12 +181,11 @@ export async function processOrderWebhook(
       })
     : null;
 
-  const orderCreatedAt = data.created_at ? new Date(data.created_at) : new Date();
   await syncContactMasterFromShopifyOrder({
     companyId,
     shopifyOrderId: String(data.id),
     orderNumber: data.order_number != null ? String(data.order_number) : data.name?.slice(0, 100) ?? null,
-    orderCreatedAt: Number.isNaN(orderCreatedAt.getTime()) ? new Date() : orderCreatedAt,
+    orderCreatedAt,
     order: data,
     recentMerchant: assignedMerchant?.name ?? assignedMerchant?.email ?? null,
   });

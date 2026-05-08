@@ -41,6 +41,77 @@ export const AUDIT_LOG_ACTIONS = [
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
+export const AUDIT_LOG_ACTION_GROUPS = [
+  {
+    key: "contacts",
+    label: "Contacts",
+    actions: [
+      "contact_created",
+      "contact_imported",
+      "contact_follow_up_contacted",
+      "contact_auto_created",
+      "contact_auto_enriched",
+      "contact_auto_sync_conflict",
+      "contact_backfill_run",
+    ],
+  },
+  {
+    key: "orders",
+    label: "Orders",
+    actions: [
+      "manual_order_created",
+      "merchant_review_saved",
+      "fulfillment_updated",
+      "remark_created",
+      "remark_updated",
+      "remark_deleted",
+    ],
+  },
+  {
+    key: "users",
+    label: "Users",
+    actions: [
+      "invite_created",
+      "invite_resent",
+      "invite_cancelled",
+      "user_deleted",
+      "user_roles_updated",
+    ],
+  },
+  {
+    key: "roles",
+    label: "Roles",
+    actions: ["role_created", "role_updated", "role_deleted"],
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    actions: ["setting_created", "setting_updated", "setting_deleted"],
+  },
+  {
+    key: "staff",
+    label: "Staff",
+    actions: ["staff_updated", "staff_resigned"],
+  },
+  {
+    key: "complaints",
+    label: "Complaints",
+    actions: ["complaint_created", "complaint_updated"],
+  },
+  {
+    key: "reports",
+    label: "Reports",
+    actions: ["download"],
+  },
+] as const;
+
+export const AUDIT_LOG_ACTION_GROUP_PREFIX = "group:";
+
+export function getAuditLogActionGroupActions(key: string | undefined) {
+  const group = AUDIT_LOG_ACTION_GROUPS.find((item) => item.key === key);
+  return group?.actions ?? null;
+}
+
 export type AuditLogEntry = {
   id: string;
   module: string;
@@ -56,6 +127,11 @@ export type AuditLogEntry = {
   metadata: unknown;
   createdAt: string;
 };
+
+export const DEFAULT_AUDIT_EXCLUDED_ACTIONS = [
+  "contact_auto_created",
+  "contact_auto_enriched",
+] as const;
 
 type AuditLogWriteInput = {
   companyId?: string | null;
@@ -74,7 +150,9 @@ type AuditLogQueryInput = {
   companyId?: string | null;
   module?: string;
   action?: string;
+  actions?: readonly string[];
   query?: string;
+  excludeActions?: readonly string[];
   limit?: number;
   offset?: number;
 };
@@ -170,6 +248,8 @@ export async function fetchAuditLogs(input: AuditLogQueryInput) {
     ? Math.max(0, input.offset ?? 0)
     : 0;
   const queryLike = input.query?.trim() ? `%${input.query.trim()}%` : null;
+  const includedActions = input.actions ?? [];
+  const excludedActions = input.excludeActions ?? [];
 
   try {
     const rows = await prisma.$queryRaw<Array<{
@@ -208,6 +288,14 @@ export async function fetchAuditLogs(input: AuditLogQueryInput) {
           AND (${input.module ?? null}::text IS NULL OR a."module" = ${input.module ?? null})
           AND (${input.action ?? null}::text IS NULL OR a."action" = ${input.action ?? null})
           AND (
+            ${includedActions.length === 0}::boolean
+            OR a."action" IN (${Prisma.join(includedActions.length ? includedActions : ["__none__"])})
+          )
+          AND (
+            ${excludedActions.length === 0}::boolean
+            OR a."action" NOT IN (${Prisma.join(excludedActions.length ? excludedActions : ["__none__"])})
+          )
+          AND (
             ${queryLike}::text IS NULL
             OR COALESCE(u."name", '') ILIKE ${queryLike}
             OR COALESCE(u."email", '') ILIKE ${queryLike}
@@ -234,6 +322,8 @@ export async function fetchAuditLogs(input: AuditLogQueryInput) {
 
 export async function countAuditLogs(input: Omit<AuditLogQueryInput, "limit" | "offset">) {
   const queryLike = input.query?.trim() ? `%${input.query.trim()}%` : null;
+  const includedActions = input.actions ?? [];
+  const excludedActions = input.excludeActions ?? [];
 
   try {
     const rows = await prisma.$queryRaw<Array<{ count: bigint }>>(
@@ -244,6 +334,14 @@ export async function countAuditLogs(input: Omit<AuditLogQueryInput, "limit" | "
         WHERE (${input.companyId ?? null}::text IS NULL OR a."companyId" = ${input.companyId ?? null})
           AND (${input.module ?? null}::text IS NULL OR a."module" = ${input.module ?? null})
           AND (${input.action ?? null}::text IS NULL OR a."action" = ${input.action ?? null})
+          AND (
+            ${includedActions.length === 0}::boolean
+            OR a."action" IN (${Prisma.join(includedActions.length ? includedActions : ["__none__"])})
+          )
+          AND (
+            ${excludedActions.length === 0}::boolean
+            OR a."action" NOT IN (${Prisma.join(excludedActions.length ? excludedActions : ["__none__"])})
+          )
           AND (
             ${queryLike}::text IS NULL
             OR COALESCE(u."name", '') ILIKE ${queryLike}

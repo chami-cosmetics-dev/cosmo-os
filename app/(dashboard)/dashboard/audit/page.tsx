@@ -5,7 +5,16 @@ import { PermissionDeniedCard } from "@/components/molecules/permission-denied-c
 import { AuditFilterForm } from "@/components/organisms/audit-filter-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AUDIT_LOG_ACTIONS, AUDIT_LOG_MODULES, countAuditLogs, fetchAuditLogs } from "@/lib/audit-log";
+import {
+  AUDIT_LOG_ACTIONS,
+  AUDIT_LOG_ACTION_GROUP_PREFIX,
+  AUDIT_LOG_ACTION_GROUPS,
+  AUDIT_LOG_MODULES,
+  DEFAULT_AUDIT_EXCLUDED_ACTIONS,
+  countAuditLogs,
+  fetchAuditLogs,
+  getAuditLogActionGroupActions,
+} from "@/lib/audit-log";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +31,12 @@ type AuditPageProps = {
 const AUDIT_PAGE_SIZE = 10;
 
 const actionLabels: Record<string, string> = {
+  ...Object.fromEntries(
+    AUDIT_LOG_ACTION_GROUPS.map((group) => [
+      `${AUDIT_LOG_ACTION_GROUP_PREFIX}${group.key}`,
+      `${group.label} (all)`,
+    ])
+  ),
   download: "Download",
   invite_created: "Invite Created",
   invite_resent: "Invite Resent",
@@ -64,6 +79,35 @@ function parseFilter(value: string | undefined, options: readonly string[]) {
   return value && options.includes(value) ? value : undefined;
 }
 
+function parseActionFilter(value: string | undefined) {
+  if (!value) {
+    return {
+      action: undefined,
+      actions: undefined,
+      selectedAction: undefined,
+    };
+  }
+
+  if (value.startsWith(AUDIT_LOG_ACTION_GROUP_PREFIX)) {
+    const groupKey = value.slice(AUDIT_LOG_ACTION_GROUP_PREFIX.length);
+    const actions = getAuditLogActionGroupActions(groupKey);
+
+    return {
+      action: undefined,
+      actions: actions ?? undefined,
+      selectedAction: actions ? value : undefined,
+    };
+  }
+
+  const action = parseFilter(value, AUDIT_LOG_ACTIONS);
+
+  return {
+    action,
+    actions: undefined,
+    selectedAction: action,
+  };
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -101,15 +145,18 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
 
   const resolvedSearchParams = await searchParams;
   const moduleFilter = parseFilter(resolvedSearchParams.module, AUDIT_LOG_MODULES);
-  const actionFilter = parseFilter(resolvedSearchParams.action, AUDIT_LOG_ACTIONS);
+  const actionFilter = parseActionFilter(resolvedSearchParams.action);
   const queryFilter = resolvedSearchParams.q?.trim() || undefined;
   const requestedPage = parsePage(resolvedSearchParams.page);
+  const isDefaultCoreView = !moduleFilter && !actionFilter.selectedAction && !queryFilter;
 
   const auditQuery = {
     companyId: auth.context?.user?.companyId ?? null,
     module: moduleFilter,
-    action: actionFilter,
+    action: actionFilter.action,
+    actions: actionFilter.actions,
     query: queryFilter,
+    excludeActions: isDefaultCoreView ? DEFAULT_AUDIT_EXCLUDED_ACTIONS : [],
   };
 
   const totalLogs = await countAuditLogs(auditQuery);
@@ -132,7 +179,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Administration</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Audit Logs</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground sm:text-base">
-          Categorized activity history for report downloads, user operations, and role changes across the system.
+          Core activity appears by default. Use filters to inspect automated contact sync and other detailed logs.
         </p>
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <Card className="border-white/40 bg-white/70 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5">
@@ -163,10 +210,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
         <CardContent className="p-5">
           <AuditFilterForm
             moduleOptions={AUDIT_LOG_MODULES}
-            actionOptions={AUDIT_LOG_ACTIONS}
-            actionLabels={actionLabels}
             initialModule={moduleFilter}
-            initialAction={actionFilter}
             initialQuery={queryFilter}
           />
         </CardContent>
@@ -206,7 +250,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
                       <td className="px-4 py-3">
                         <div className="font-medium text-foreground">{log.summary}</div>
                         {log.metadata ? (
-                          <div className="mt-1 max-w-xl whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                          <div className="mt-1 max-w-xl whitespace-pre-wrap wrap-break-word text-xs text-muted-foreground">
                             {JSON.stringify(log.metadata)}
                           </div>
                         ) : null}

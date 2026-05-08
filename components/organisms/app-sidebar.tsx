@@ -34,6 +34,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
@@ -46,32 +47,39 @@ interface AppSidebarProps {
     picture?: string | null;
   };
   permissionKeys?: string[];
+  roleNames?: string[];
 }
 
-export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
-  const canViewUsers = permissionKeys.includes("users.read");
-  const canViewStaff = permissionKeys.includes("staff.read");
-  const canViewOrders = permissionKeys.includes("orders.read");
-  const canViewProducts = permissionKeys.includes("products.read");
-  const canViewCompanySettings = permissionKeys.includes("settings.company");
-  const canViewEmailTemplates = permissionKeys.includes("settings.email_templates");
-  const canViewSmsSettings = permissionKeys.includes("settings.sms_portal");
-  const canViewFulfillmentSettings = permissionKeys.includes("settings.fulfillment");
-  const canCreateManualOrder = permissionKeys.includes("orders.create_manual");
+export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSidebarProps) {
+  const { setOpen, state } = useSidebar();
+  const hasSidebarPermission = (permission: string) =>
+    roleNames.includes("super_admin") ||
+    roleNames.includes("admin") ||
+    permissionKeys.includes(permission);
+  const canViewUsers = hasSidebarPermission("users.read");
+  const canViewStaff = hasSidebarPermission("staff.read");
+  const canViewOrders = hasSidebarPermission("orders.read");
+  const canViewProducts = hasSidebarPermission("products.read");
+  const canViewCompanySettings = hasSidebarPermission("settings.company");
+  const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
+  const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
+  const canViewFulfillmentSettings = hasSidebarPermission("settings.fulfillment");
+  const canCreateManualOrder = hasSidebarPermission("orders.create_manual");
+  const canViewFailedWebhooks = hasSidebarPermission("failed_webhooks.read");
   const canStickerBatch =
-    permissionKeys.includes("stickers.batch.read") ||
-    permissionKeys.includes("stickers.batch.manage");
+    hasSidebarPermission("stickers.batch.read") ||
+    hasSidebarPermission("stickers.batch.manage");
   const canStickerPrint =
-    permissionKeys.includes("stickers.print.read") ||
-    permissionKeys.includes("stickers.print.print");
+    hasSidebarPermission("stickers.print.read") ||
+    hasSidebarPermission("stickers.print.print");
   const canViewReports = ALL_REPORT_DUMP_PERMISSIONS.some((permission) =>
-    permissionKeys.includes(permission)
+    hasSidebarPermission(permission)
   );
   const canViewAudit = canViewUsers;
   const canViewComplaints =
-    permissionKeys.includes("complaints.create") ||
-    permissionKeys.includes("complaints.read") ||
-    permissionKeys.includes("complaints.manage");
+    hasSidebarPermission("complaints.create") ||
+    hasSidebarPermission("complaints.read") ||
+    hasSidebarPermission("complaints.manage");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -95,7 +103,7 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
     },
   ];
   const fulfillmentHref = fulfillmentLinks.find((item) =>
-    permissionKeys.includes(item.permission)
+    hasSidebarPermission(item.permission)
   )?.href;
   const canViewPeople = canViewUsers || canViewStaff;
   const canViewContacts = canViewOrders;
@@ -121,11 +129,17 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
           <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Cosmo OS (Beta) v{packageJson.version}
           </span>
-          <div className="hidden group-data-[collapsible=icon]:inline">
-            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm">
+          <button
+            type="button"
+            className="hidden group-data-[collapsible=icon]:inline"
+            onClick={() => setOpen(true)}
+            aria-label="Open sidebar"
+            aria-expanded={state === "expanded"}
+          >
+            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm transition-transform hover:scale-105">
               CO
             </span>
-          </div>
+          </button>
         </div>
         </div>
       </SidebarHeader>
@@ -205,10 +219,18 @@ export function AppSidebar({ user, permissionKeys = [] }: AppSidebarProps) {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {(canViewReports || canViewAudit) && (
+        {(canViewReports || canViewAudit || canViewFailedWebhooks) && (
           <SidebarGroup>
             <SidebarGroupLabel>Reports</SidebarGroupLabel>
             <SidebarGroupContent>
+              {canViewFailedWebhooks && (
+                <NavItem
+                  href="/dashboard/orders/failed-webhooks"
+                  icon={MessageSquareWarning}
+                  label="Failed Webhooks"
+                  isActive={pathname === "/dashboard/orders/failed-webhooks"}
+                />
+              )}
               {canViewReports && (
                 <NavItem
                   href="/dashboard/reports"

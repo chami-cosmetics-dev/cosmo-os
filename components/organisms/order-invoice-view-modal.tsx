@@ -566,6 +566,16 @@ export function OrderInvoiceViewModal({
                         "-"}
                     </p>
                   </div>
+                  {orderDetail.assignedMerchant && (
+                    <div>
+                      <span className="text-muted-foreground text-xs">Merchant</span>
+                      <p>
+                        {orderDetail.assignedMerchant.name ??
+                          orderDetail.assignedMerchant.email ??
+                          "-"}
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <span className="text-muted-foreground text-xs">Email / Phone</span>
                     <p>{orderDetail.customerEmail ?? "-"}</p>

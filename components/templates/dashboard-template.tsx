@@ -15,6 +15,7 @@ interface DashboardTemplateProps {
     picture?: string | null;
   };
   permissionKeys?: string[];
+  roleNames?: string[];
   seoOnly?: boolean;
 }
 
@@ -23,6 +24,7 @@ export function DashboardTemplate({
   title = "Dashboard",
   user,
   permissionKeys = [],
+  roleNames = [],
   seoOnly = false,
 }: DashboardTemplateProps) {
   if (seoOnly) {
@@ -57,7 +59,7 @@ export function DashboardTemplate({
   return (
     <ConfirmationDialogProvider>
       <SidebarProvider>
-        <AppSidebar user={user} permissionKeys={permissionKeys} />
+        <AppSidebar user={user} permissionKeys={permissionKeys} roleNames={roleNames} />
         <SidebarInset className="bg-[radial-gradient(circle_at_top_right,var(--dashboard-surface-glow),transparent_28%),linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background)_88%,white))] dark:bg-[radial-gradient(circle_at_top_right,var(--dashboard-surface-glow),transparent_24%),linear-gradient(180deg,var(--background),color-mix(in_srgb,var(--background)_92%,black))]">
           <Topbar title={title} user={user} />
           <div className="flex-1 p-4">{children}</div>

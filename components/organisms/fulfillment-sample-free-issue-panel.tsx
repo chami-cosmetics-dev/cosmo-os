@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
+import { formatPaymentMethodLabel } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -33,6 +34,8 @@ type SampleOrderDetail = {
   orderNumber: string | null;
   totalPrice: string;
   currency: string | null;
+  paymentGatewayNames?: string[];
+  paymentGatewayPrimary?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -235,16 +238,20 @@ export function FulfillmentSampleFreeIssuePanel({
     }
   }
 
-  async function saveSendLaterDate() {
-    if (!orderId || !order || !sendLaterDate) return;
-
+  function validateSendLaterDate() {
+    if (!order || !sendLaterDate) return true;
     const orderDate = new Date(order.createdAt);
     const minDate = toDateInputValue(orderDate);
     const maxDate = toDateInputValue(addDays(orderDate, 3));
     if (sendLaterDate < minDate || sendLaterDate > maxDate) {
       notify.error("Send later date must be within 3 days from the order date.");
-      return;
+      return false;
     }
+    return true;
+  }
+
+  async function saveSendLaterDate() {
+    if (!orderId || !sendLaterDate || !validateSendLaterDate()) return false;
 
     setRemarkBusy(true);
     try {
@@ -259,23 +266,34 @@ export function FulfillmentSampleFreeIssuePanel({
       const data = (await response.json()) as { error?: string };
       if (!response.ok) {
         notify.error(data.error ?? "Failed to save send later date");
-        return;
+        return false;
       }
 
-      notify.success("Send later date saved.");
-      const savedDate = sendLaterDate;
-      setSendLaterDate("");
-      if (savedDate > todayDateInputValue()) {
-        onRefresh(true);
-      } else {
-        await reloadDetail();
-        onRefresh(false);
-      }
+      return true;
     } catch {
       notify.error("Failed to save send later date");
+      return false;
     } finally {
       setRemarkBusy(false);
     }
+  }
+
+  async function confirmSample() {
+    if (!orderId) return;
+
+    const savedDate = sendLaterDate;
+    if (savedDate) {
+      const saved = await saveSendLaterDate();
+      if (!saved) return;
+      setSendLaterDate("");
+      if (savedDate > todayDateInputValue()) {
+        notify.success("Send later date saved.");
+        onRefresh(true);
+        return;
+      }
+    }
+
+    await doAction("advance_to_print");
   }
 
   async function doAction(action: string, body?: Record<string, unknown>) {
@@ -317,6 +335,10 @@ export function FulfillmentSampleFreeIssuePanel({
 
   const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
+  const paymentMethod = formatPaymentMethodLabel({
+    paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
+    paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames,
+  });
   const isDetailPending = detailLoading && !detail;
   const remarks = detail?.remarks ?? [];
   const orderDate = order ? new Date(order.createdAt) : null;
@@ -359,6 +381,7 @@ export function FulfillmentSampleFreeIssuePanel({
               </div>
               <div className="space-y-1">
                 <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
+                <p><span className="font-medium">Payment:</span> {paymentMethod}</p>
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
                 <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
               </div>
@@ -640,7 +663,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 </table>
               </div>
             )}
-            <div className="grid gap-2 border-t border-border/70 pt-2 sm:grid-cols-[1fr_auto]">
+            <div className="border-t border-border/70 pt-2">
               <div>
                 <label className="mb-1.5 block text-sm font-medium">Send later date</label>
                 <Input
@@ -657,19 +680,9 @@ export function FulfillmentSampleFreeIssuePanel({
                 />
                 <p className="text-muted-foreground mt-1 text-xs">
                   {order
-                    ? `Allowed: ${sendLaterMin} to ${sendLaterMax}${savedSendLaterDate ? ` | Saved: ${savedSendLaterDate}` : ""}`
+                    ? `Allowed: ${sendLaterMin} to ${sendLaterMax}${savedSendLaterDate ? ` | Saved: ${savedSendLaterDate}` : ""}. Saves when confirming sample.`
                     : "Select order first"}
                 </p>
-              </div>
-              <div className="flex items-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={!orderId || !sendLaterDate || remarkBusy}
-                  onClick={() => void saveSendLaterDate()}
-                >
-                  Save Date
-                </Button>
               </div>
             </div>
           </div>
@@ -679,11 +692,11 @@ export function FulfillmentSampleFreeIssuePanel({
         {lookups && perms.canManageSampleFreeIssue && (
             <div className="flex justify-end">
               <Button
-                onClick={() => doAction("advance_to_print")}
-                disabled={!orderId || isBusy}
+                onClick={() => void confirmSample()}
+                disabled={!orderId || isBusy || remarkBusy}
                 className="h-11 bg-green-600 px-8 text-white hover:bg-green-700"
               >
-                {busyKey === "advance_to_print" ? (
+                {busyKey === "advance_to_print" || remarkBusy ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                 ) : (
                   <CheckCircle2 className="size-4" aria-hidden />

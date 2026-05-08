@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getCompanyLocationInvoiceFields } from "@/lib/company-location-invoice-fields";
+import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 
 const LOCATIONS_PAGE_SIZE = 10;
 
@@ -70,7 +71,7 @@ export async function getLocationsSettingsInitialData(
       },
     }),
     prisma.user.findMany({
-      where: { companyId },
+      where: eligibleMerchantUserWhere(companyId),
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true },
     }),

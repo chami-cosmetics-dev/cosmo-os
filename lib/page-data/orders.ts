@@ -3,6 +3,7 @@ import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
+import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
@@ -60,10 +61,14 @@ const getOrdersPageLookups = unstable_cache(
       }),
       prisma.user.findMany({
         where: {
-          companyId,
-          OR: [
-            { shopifyUserIds: { isEmpty: false } },
-            { couponCodes: { isEmpty: false } },
+          AND: [
+            eligibleMerchantUserWhere(companyId),
+            {
+              OR: [
+                { shopifyUserIds: { isEmpty: false } },
+                { couponCodes: { isEmpty: false } },
+              ],
+            },
           ],
         },
         orderBy: { name: "asc" },

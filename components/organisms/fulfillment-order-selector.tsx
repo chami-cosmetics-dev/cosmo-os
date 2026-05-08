@@ -26,6 +26,8 @@ export type FulfillmentOrder = {
   sourceName: string;
   totalPrice: string;
   currency: string | null;
+  paymentGatewayNames?: string[];
+  paymentGatewayPrimary?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;

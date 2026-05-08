@@ -33,6 +33,7 @@ export default async function DashboardLayout({
         picture: avatarUrl,
       }}
       permissionKeys={permissionKeys}
+      roleNames={roleNames}
       seoOnly={isSeoOnly}
     >
       {children}

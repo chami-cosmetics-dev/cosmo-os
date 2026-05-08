@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 
 import type { CreateManualOrderBody } from "@/lib/validation/manual-order";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
+import { assertEligibleMerchantUser } from "@/lib/merchant-eligibility";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 import { sendOrderSms } from "@/lib/order-sms";
@@ -82,12 +83,12 @@ export async function createManualOrder(
       ? location.defaultMerchantUserId ?? null
       : body.assignedMerchantId;
   if (assignedMerchantId) {
-    const m = await prisma.user.findFirst({
-      where: { id: assignedMerchantId, companyId },
-      select: { id: true },
+    const isEligible = await assertEligibleMerchantUser(prisma, {
+      userId: assignedMerchantId,
+      companyId,
     });
-    if (!m) {
-      throw new Error("Assigned merchant must be a user in your company");
+    if (!isEligible) {
+      throw new Error("Assigned merchant must be Sales & Marketing or Digital Marketing staff");
     }
   }
 
