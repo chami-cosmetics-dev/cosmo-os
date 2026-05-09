@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { sendInviteEmail } from "@/lib/maileroo";
 import { getAppBaseUrl } from "@/lib/app-base-url";
+import { writeAuditLog } from "@/lib/audit-log";
+import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
+import { sendInviteEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
 import { ensureDefaultRbacSetup, requirePermission } from "@/lib/rbac";
-import { generateInviteToken, getInviteExpiresAt } from "@/lib/invite-utils";
-import { emailSchema, cuidSchema } from "@/lib/validation";
+import { cuidSchema, emailSchema } from "@/lib/validation";
 
 const requestSchema = z.object({
   email: emailSchema,
@@ -182,7 +183,7 @@ export async function POST(request: Request) {
       ? parsedAppointment
       : null;
 
-  await prisma.invite.create({
+  const invite = await prisma.invite.create({
     data: {
       email,
       token,
@@ -209,6 +210,27 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  await writeAuditLog({
+    companyId: inviter.companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "users",
+    action: "invite_created",
+    entityType: "Invite",
+    entityId: invite.id,
+    summary: `Created invite for ${email}`,
+    afterData: {
+      email,
+      roleName: role.name,
+      employeeNumber: employeeNumber?.trim() || null,
+      epfNumber: epfNumber?.trim() || null,
+      locationId: locationId || null,
+      departmentId: departmentId || null,
+      designationId: designationId || null,
+      appointmentDate: validAppointment,
+      expiresAt,
+    },
+  });
 
   return NextResponse.json({ success: true });
 }

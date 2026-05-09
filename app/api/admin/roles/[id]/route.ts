@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, toSafeRoleName } from "@/lib/rbac";
 import {
@@ -10,12 +11,14 @@ import {
   trimmedString,
 } from "@/lib/validation";
 
+const SEO_WELCOME_PERMISSION = "seo.welcome";
+
 const updateRoleSchema = z.object({
   name: trimmedString(2, LIMITS.roleName.max),
   description: z.string().max(LIMITS.description.max).optional(),
   permissionKeys: z
     .array(z.string().max(LIMITS.permissionKey.max))
-    .max(50)
+    .max(200)
     .default([]),
 });
 
@@ -74,6 +77,13 @@ export async function PUT(
   }
 
   const uniquePermissionKeys = Array.from(new Set(parsed.data.permissionKeys));
+  if (uniquePermissionKeys.includes(SEO_WELCOME_PERMISSION) && uniquePermissionKeys.length > 1) {
+    return NextResponse.json(
+      { error: "SEO welcome permission must be used alone." },
+      { status: 400 }
+    );
+  }
+
   const permissions = await prisma.permission.findMany({
     where: { key: { in: uniquePermissionKeys } },
     select: { id: true },
@@ -109,6 +119,26 @@ export async function PUT(
     },
   });
 
+  await writeAuditLog({
+    companyId: auth.context!.user?.companyId,
+    actorUserId: auth.context!.user?.id,
+    module: "roles",
+    action: "role_updated",
+    entityType: "Role",
+    entityId: role.id,
+    summary: `Updated role ${role.name}`,
+    beforeData: {
+      name: role.name,
+      description: role.description,
+      permissionKeys: role.rolePermissions.map((entry) => entry.permission.key),
+    },
+    afterData: {
+      name: updatedRole?.name ?? safeName,
+      description: updatedRole?.description ?? null,
+      permissionKeys: updatedRole?.rolePermissions.map((entry) => entry.permission.key) ?? [],
+    },
+  });
+
   return NextResponse.json(updatedRole);
 }
 
@@ -130,7 +160,7 @@ export async function DELETE(
   try {
     const role = await prisma.role.findUnique({
       where: { id: idParsed.data },
-      select: { id: true, name: true },
+      select: { id: true, name: true, description: true },
     });
 
     if (!role) {
@@ -144,8 +174,27 @@ export async function DELETE(
       );
     }
 
+    const assignedUsers = await prisma.userRole.count({
+      where: { roleId: role.id },
+    });
+
     await prisma.role.delete({
       where: { id: idParsed.data },
+    });
+
+    await writeAuditLog({
+      companyId: auth.context!.user?.companyId,
+      actorUserId: auth.context!.user?.id,
+      module: "roles",
+      action: "role_deleted",
+      entityType: "Role",
+      entityId: role.id,
+      summary: `Deleted role ${role.name}`,
+      beforeData: {
+        name: role.name,
+        description: role.description,
+        assignedUsers,
+      },
     });
 
     return new NextResponse(null, { status: 204 });

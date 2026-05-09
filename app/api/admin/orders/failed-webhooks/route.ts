@@ -4,22 +4,14 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { limitSchema, pageSchema } from "@/lib/validation";
-
-function normalizeMessage(message: string): string {
-  return message.replace(/\s+/g, " ").trim();
-}
-
-function classifyFailure(message: string): string {
-  const normalized = message.toLowerCase();
-  if (normalized.startsWith("validation failed")) return "Payload validation";
-  if (normalized.includes("unique constraint")) return "Database constraint";
-  if (normalized.includes("foreign key constraint")) return "Database relation";
-  if (normalized.includes("invalid")) return "Invalid data";
-  return "Processing error";
-}
+import { runDueFailedOrderWebhookRetries } from "@/lib/failed-order-webhook-auto-retry";
+import {
+  classifyFailedWebhookError,
+  normalizeFailedWebhookMessage,
+} from "@/lib/failed-order-webhook-classification";
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("failed_webhooks.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -42,6 +34,16 @@ export async function GET(request: NextRequest) {
   const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
   const statusParam = request.nextUrl.searchParams.get("status");
   const status = statusParam === "resolved" ? "resolved" : "unresolved";
+  if (status === "unresolved") {
+    try {
+      await runDueFailedOrderWebhookRetries({ companyId, limit: 5 });
+    } catch (error) {
+      console.error("[Failed webhook auto-retry] Sweep failed during list request", {
+        companyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   const page = pageResult.success ? pageResult.data : 1;
   const limit = limitResult.success ? limitResult.data : 10;
   const skip = (page - 1) * limit;
@@ -109,10 +111,10 @@ export async function GET(request: NextRequest) {
   for (const row of failedForSummary) {
     distinctOrderIds.add(row.shopifyOrderId);
 
-    const failureType = classifyFailure(row.errorMessage);
+    const failureType = classifyFailedWebhookError(row.errorMessage).type;
     failureTypeCounts.set(failureType, (failureTypeCounts.get(failureType) ?? 0) + 1);
 
-    const normalizedMessage = normalizeMessage(row.errorMessage);
+    const normalizedMessage = normalizeFailedWebhookMessage(row.errorMessage);
     messageCounts.set(normalizedMessage, (messageCounts.get(normalizedMessage) ?? 0) + 1);
   }
 

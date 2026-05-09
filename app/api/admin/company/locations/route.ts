@@ -3,6 +3,11 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { getCompanyLocationInvoiceFields } from "@/lib/company-location-invoice-fields";
+import {
+  assertEligibleMerchantUser,
+  eligibleMerchantUserWhere,
+} from "@/lib/merchant-eligibility";
 import { cuidSchema, emailSchema, limitSchema, LIMITS, pageSchema, trimmedString } from "@/lib/validation";
 
 const createLocationSchema = z.object({
@@ -68,21 +73,33 @@ export async function GET(request: NextRequest) {
         shopifyAdminStoreHandle: true,
         locationReference: true,
         defaultMerchantUserId: true,
-        manualInvoicePrefix: true,
-        manualInvoiceNextSeq: true,
-        manualInvoiceSeqPadding: true,
         createdAt: true,
         updatedAt: true,
       },
     }),
     prisma.user.findMany({
-      where: { companyId },
+      where: eligibleMerchantUserWhere(companyId),
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true },
     }),
   ]);
 
-  return NextResponse.json({ locations, merchants, total, page, limit });
+  const invoiceFields = await getCompanyLocationInvoiceFields(
+    locations.map((location) => location.id)
+  );
+
+  return NextResponse.json({
+    locations: locations.map((location) => ({
+      ...location,
+      manualInvoicePrefix: invoiceFields.get(location.id)?.manualInvoicePrefix ?? null,
+      manualInvoiceNextSeq: invoiceFields.get(location.id)?.manualInvoiceNextSeq ?? 0,
+      manualInvoiceSeqPadding: invoiceFields.get(location.id)?.manualInvoiceSeqPadding ?? 3,
+    })),
+    merchants,
+    total,
+    page,
+    limit,
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -110,15 +127,13 @@ export async function POST(request: NextRequest) {
 
   const d = parsed.data;
   if (d.defaultMerchantUserId) {
-    const merchant = await prisma.user.findFirst({
-      where: {
-        id: d.defaultMerchantUserId,
-        companyId,
-      },
+    const isEligible = await assertEligibleMerchantUser(prisma, {
+      userId: d.defaultMerchantUserId,
+      companyId,
     });
-    if (!merchant) {
+    if (!isEligible) {
       return NextResponse.json(
-        { error: "Default merchant must be a user in your company" },
+        { error: "Default merchant must be Sales & Marketing or Digital Marketing staff" },
         { status: 400 }
       );
     }

@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 interface ProfilePhotoUploadProps {
@@ -33,6 +34,7 @@ export function ProfilePhotoUpload({
   disabled = false,
 }: ProfilePhotoUploadProps) {
   const router = useRouter();
+  const { confirm } = useConfirmationDialog();
   const inputRef = useRef<HTMLInputElement>(null);
   const cropperRef = useRef<CropperRef>(null);
   const [uploading, setUploading] = useState(false);
@@ -115,6 +117,14 @@ export function ProfilePhotoUpload({
   }
 
   async function handleRemove() {
+    const confirmed = await confirm({
+      title: "Remove profile photo?",
+      description: "This will remove your current profile photo.",
+      confirmLabel: "Remove",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
     try {
       const res = await fetch("/api/profile", {
         method: "PATCH",

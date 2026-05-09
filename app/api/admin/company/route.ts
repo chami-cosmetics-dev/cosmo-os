@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
@@ -72,6 +73,21 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  const existing = await prisma.company.findUnique({
+    where: { id: user.companyId },
+    select: {
+      id: true,
+      name: true,
+      logoUrl: true,
+      faviconUrl: true,
+      employeeSize: true,
+      address: true,
+    },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Company not found" }, { status: 404 });
+  }
+
   const body = await request.json().catch(() => ({}));
   const parsed = updateCompanySchema.safeParse(body);
   if (!parsed.success) {
@@ -99,6 +115,18 @@ export async function PATCH(request: NextRequest) {
       address: true,
       updatedAt: true,
     },
+  });
+
+  await writeAuditLog({
+    companyId: company.id,
+    actorUserId: auth.context!.user!.id,
+    module: "settings",
+    action: "setting_updated",
+    entityType: "Company",
+    entityId: company.id,
+    summary: `Updated company settings for ${company.name}`,
+    beforeData: existing,
+    afterData: company,
   });
 
   return NextResponse.json(company);

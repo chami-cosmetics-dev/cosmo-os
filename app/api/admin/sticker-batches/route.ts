@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission, requirePermission } from "@/lib/rbac";
 
 const dateStringSchema = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
 
@@ -76,7 +76,7 @@ async function getCompanyId(userId: string): Promise<string | null> {
 }
 
 export async function GET() {
-  const auth = await requirePermission("settings.company");
+  const auth = await requireAnyPermission(["stickers.batch.read", "stickers.print.read"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -138,7 +138,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("settings.company");
+  const auth = await requirePermission("stickers.batch.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

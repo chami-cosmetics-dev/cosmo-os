@@ -6,6 +6,7 @@ import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
 
 type SampleFreeIssueItem = {
@@ -24,6 +25,7 @@ interface SamplesFreeIssuesSettingsFormProps {
 export function SamplesFreeIssuesSettingsForm({
   canEdit,
 }: SamplesFreeIssuesSettingsFormProps) {
+  const { confirm } = useConfirmationDialog();
   const [items, setItems] = useState<SampleFreeIssueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -137,7 +139,13 @@ export function SamplesFreeIssuesSettingsForm({
 
   async function handleDelete(id: string, name: string) {
     if (!canEdit) return;
-    if (!window.confirm(`Delete "${name}"?`)) return;
+    const confirmed = await confirm({
+      title: "Delete sample/free issue item?",
+      description: `Delete "${name}"?`,
+      confirmLabel: "Delete",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
 
     setBusyKey(`delete-${id}`);
     try {
@@ -163,8 +171,8 @@ export function SamplesFreeIssuesSettingsForm({
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle>Samples & Free Issue Items</CardTitle>
         </CardHeader>
         <CardContent>
@@ -178,8 +186,8 @@ export function SamplesFreeIssuesSettingsForm({
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="overflow-hidden border-border/70 shadow-xs">
+      <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
         <CardTitle>Samples & Free Issue Items</CardTitle>
         <p className="text-muted-foreground text-sm">
           Manage items that can be added to orders as samples or free issues.
@@ -187,25 +195,25 @@ export function SamplesFreeIssuesSettingsForm({
       </CardHeader>
       <CardContent className="space-y-4">
         {canEdit && (
-          <form onSubmit={handleAdd} className="flex flex-wrap gap-2">
+          <form onSubmit={handleAdd} className="flex flex-wrap gap-2 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
             <Input
               placeholder="Item name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               disabled={isBusy}
               maxLength={200}
-              className="max-w-xs"
+              className="max-w-xs border-border/70 bg-background/90"
             />
             <select
               value={newType}
               onChange={(e) => setNewType(e.target.value as "sample" | "free_issue")}
               disabled={isBusy}
-              className="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
+              className="h-9 w-[140px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
             >
               <option value="sample">Sample</option>
               <option value="free_issue">Free Issue</option>
             </select>
-            <Button type="submit" disabled={isBusy || !newName.trim()}>
+            <Button type="submit" disabled={isBusy || !newName.trim()} className="shadow-[0_10px_24px_-18px_var(--primary)]">
               {busyKey === "add" ? (
                 <>
                   <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -225,7 +233,7 @@ export function SamplesFreeIssuesSettingsForm({
           {items.map((item) => (
             <li
               key={item.id}
-              className="flex items-center justify-between rounded-lg border p-3"
+              className="flex items-center justify-between rounded-xl border border-border/70 bg-background/80 p-3 shadow-xs"
             >
               {editingId === item.id ? (
                 <div className="flex flex-1 flex-wrap items-center gap-2">
@@ -234,13 +242,13 @@ export function SamplesFreeIssuesSettingsForm({
                     onChange={(e) => setEditName(e.target.value)}
                     disabled={isBusy}
                     maxLength={200}
-                    className="max-w-xs"
+                    className="max-w-xs border-border/70 bg-background/90"
                   />
                   <select
                     value={editType}
                     onChange={(e) => setEditType(e.target.value as "sample" | "free_issue")}
                     disabled={isBusy}
-                    className="h-9 w-[140px] rounded-md border border-input bg-background px-3 text-sm"
+                    className="h-9 w-[140px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                   >
                     <option value="sample">Sample</option>
                     <option value="free_issue">Free Issue</option>

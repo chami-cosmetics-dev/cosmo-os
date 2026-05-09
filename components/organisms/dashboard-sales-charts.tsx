@@ -53,7 +53,7 @@ export function DashboardSalesCharts({ stats }: DashboardSalesChartsProps) {
 
   return (
     <Card className="border-border/70 bg-card shadow-xs">
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-4 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_16%,transparent),transparent_70%)] p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h3 className="text-lg font-semibold tracking-tight">Invoice Value vs Count</h3>
@@ -78,14 +78,14 @@ export function DashboardSalesCharts({ stats }: DashboardSalesChartsProps) {
               </Select>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full border border-border bg-background px-3 py-1">
-                Total Value: {formatWithSpaces(totalValue)}
-              </span>
-              <span className="rounded-full border border-border bg-background px-3 py-1">
+                <span className="rounded-full border border-border bg-secondary/20 px-3 py-1">
+                  Total Value: {formatWithSpaces(totalValue)}
+                </span>
+              <span className="rounded-full border border-border bg-secondary/20 px-3 py-1">
                 Total Count: {totalCount}
               </span>
               {topRow && (
-                <span className="rounded-full border border-border bg-background px-3 py-1">
+                <span className="rounded-full border border-border bg-accent/40 px-3 py-1">
                   Top Shop: {topRow.label}
                 </span>
               )}
@@ -96,7 +96,7 @@ export function DashboardSalesCharts({ stats }: DashboardSalesChartsProps) {
         {rows.length === 0 ? (
           <p className="text-muted-foreground py-6 text-center text-sm">No data to visualize.</p>
         ) : (
-          <div className="h-[420px] w-full rounded-xl border border-border/60 bg-background p-3">
+          <div className="h-[420px] w-full rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_80%,white),color-mix(in_srgb,var(--secondary)_14%,var(--background)))] p-3 dark:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,black),color-mix(in_srgb,var(--secondary)_18%,var(--background)))]">
             <ResponsiveContainer width="100%" height="100%">
               {renderChart(chartMode, rows)}
             </ResponsiveContainer>
@@ -148,7 +148,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
           type="monotone"
           dataKey="value"
           name="Invoice Value"
-          stroke="#3b82f6"
+          stroke="var(--chart-1)"
           strokeWidth={3}
           dot={{ r: 4 }}
           activeDot={{ r: 6 }}
@@ -158,7 +158,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
           type="monotone"
           dataKey="count"
           name="Invoice Count"
-          stroke="#f97316"
+          stroke="var(--chart-3)"
           strokeWidth={3}
           dot={{ r: 4 }}
           activeDot={{ r: 6 }}
@@ -172,12 +172,12 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
       <AreaChart {...sharedProps}>
         <defs>
           <linearGradient id="invoiceValueFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
-            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+            <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.05} />
           </linearGradient>
           <linearGradient id="invoiceCountFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#f97316" stopOpacity={0.35} />
-            <stop offset="95%" stopColor="#f97316" stopOpacity={0.05} />
+            <stop offset="5%" stopColor="var(--chart-3)" stopOpacity={0.35} />
+            <stop offset="95%" stopColor="var(--chart-3)" stopOpacity={0.05} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -212,7 +212,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
           type="monotone"
           dataKey="value"
           name="Invoice Value"
-          stroke="#3b82f6"
+          stroke="var(--chart-1)"
           fill="url(#invoiceValueFill)"
           strokeWidth={2.5}
         />
@@ -221,7 +221,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
           type="monotone"
           dataKey="count"
           name="Invoice Count"
-          stroke="#f97316"
+          stroke="var(--chart-3)"
           fill="url(#invoiceCountFill)"
           strokeWidth={2.5}
         />
@@ -262,14 +262,14 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
         yAxisId="value"
         dataKey="value"
         name="Invoice Value"
-        fill="#3b82f6"
+        fill="var(--chart-1)"
         radius={[6, 6, 0, 0]}
       />
       <Bar
         yAxisId="count"
         dataKey="count"
         name="Invoice Count"
-        fill="#f97316"
+        fill="var(--chart-3)"
         radius={[6, 6, 0, 0]}
       />
     </BarChart>

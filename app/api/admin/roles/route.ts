@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission, toSafeRoleName } from "@/lib/rbac";
 import {
@@ -9,12 +10,14 @@ import {
   trimmedString,
 } from "@/lib/validation";
 
+const SEO_WELCOME_PERMISSION = "seo.welcome";
+
 const createRoleSchema = z.object({
   name: trimmedString(2, LIMITS.roleName.max),
   description: z.string().max(LIMITS.description.max).optional(),
   permissionKeys: z
     .array(z.string().max(LIMITS.permissionKey.max))
-    .max(50)
+    .max(200)
     .default([]),
 });
 
@@ -57,6 +60,13 @@ export async function POST(request: NextRequest) {
     });
 
     const uniquePermissionKeys = Array.from(new Set(parsed.data.permissionKeys));
+    if (uniquePermissionKeys.includes(SEO_WELCOME_PERMISSION) && uniquePermissionKeys.length > 1) {
+      return NextResponse.json(
+        { error: "SEO welcome permission must be used alone." },
+        { status: 400 }
+      );
+    }
+
     if (uniquePermissionKeys.length > 0) {
       const permissions = await prisma.permission.findMany({
         where: { key: { in: uniquePermissionKeys } },
@@ -82,6 +92,21 @@ export async function POST(request: NextRequest) {
             permission: true,
           },
         },
+      },
+    });
+
+    await writeAuditLog({
+      companyId: auth.context!.user?.companyId,
+      actorUserId: auth.context!.user?.id,
+      module: "roles",
+      action: "role_created",
+      entityType: "Role",
+      entityId: role.id,
+      summary: `Created role ${safeName}`,
+      afterData: {
+        name: createdRole?.name ?? safeName,
+        description: createdRole?.description ?? null,
+        permissionKeys: createdRole?.rolePermissions.map((entry) => entry.permission.key) ?? [],
       },
     });
 

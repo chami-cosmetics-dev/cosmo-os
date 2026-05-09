@@ -19,7 +19,19 @@ import {
 export type DashboardSalesLocation = {
   id: string;
   name: string;
-  merchants: Array<{ merchantName: string; total: number; orderCount: number }>;
+  defaultMerchantId: string | null;
+  defaultMerchantName: string | null;
+  merchants: Array<{
+    merchantId: string | null;
+    merchantName: string;
+    total: number;
+    orderCount: number;
+  }>;
+  sources: Array<{
+    sourceName: string;
+    total: number;
+    orderCount: number;
+  }>;
 };
 
 type DashboardOverviewContextValue = {
@@ -37,6 +49,8 @@ type DashboardOverviewContextValue = {
   salesError: string | null;
   filterInfo: string;
   hasInvalidRange: boolean;
+  refreshSales: () => Promise<void>;
+  lastUpdatedAt: number | null;
 };
 
 const DashboardOverviewContext = createContext<DashboardOverviewContextValue | null>(null);
@@ -70,6 +84,9 @@ export function DashboardOverviewProvider({
   );
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(
+    initialState ? Date.now() : null,
+  );
 
   const fetchIdRef = useRef(0);
   const shouldSkipInitialFetchRef = useRef(initialState !== null && initialState !== undefined);
@@ -86,17 +103,20 @@ export function DashboardOverviewProvider({
     return `${range} · ${dateSource}`;
   }, [fromDate, toDate, dateType]);
 
-  const loadSales = useCallback(async () => {
+  const loadSales = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
     if (hasInvalidRange) {
       fetchIdRef.current += 1;
       setSalesLocations([]);
       setSalesError(null);
-      setSalesLoading(false);
+      if (!silent) setSalesLoading(false);
       return;
     }
     const id = ++fetchIdRef.current;
-    setSalesLoading(true);
-    setSalesError(null);
+    if (!silent) {
+      setSalesLoading(true);
+      setSalesError(null);
+    }
     try {
       const params = new URLSearchParams({
         from: fromDate,
@@ -110,8 +130,16 @@ export function DashboardOverviewProvider({
         locations?: Array<{
           id: string;
           name: string;
+          defaultMerchantId: string | null;
+          defaultMerchantName: string | null;
           merchants: Array<{
+            merchantId: string | null;
             merchantName: string;
+            total: number;
+            orderCount: number;
+          }>;
+          sources: Array<{
+            sourceName: string;
             total: number;
             orderCount: number;
           }>;
@@ -125,19 +153,30 @@ export function DashboardOverviewProvider({
         (body.locations ?? []).map((loc) => ({
           id: loc.id,
           name: loc.name,
+          defaultMerchantId: loc.defaultMerchantId,
+          defaultMerchantName: loc.defaultMerchantName,
           merchants: loc.merchants.map((m) => ({
+            merchantId: m.merchantId,
             merchantName: m.merchantName,
             total: m.total,
             orderCount: m.orderCount,
           })),
+          sources: loc.sources.map((source) => ({
+            sourceName: source.sourceName,
+            total: source.total,
+            orderCount: source.orderCount,
+          })),
         })),
       );
+      setLastUpdatedAt(Date.now());
     } catch (e) {
       if (id !== fetchIdRef.current) return;
-      setSalesError(e instanceof Error ? e.message : "Failed to load dashboard sales");
-      setSalesLocations([]);
+      if (!silent) {
+        setSalesError(e instanceof Error ? e.message : "Failed to load dashboard sales");
+        setSalesLocations([]);
+      }
     } finally {
-      if (id === fetchIdRef.current) setSalesLoading(false);
+      if (id === fetchIdRef.current && !silent) setSalesLoading(false);
     }
   }, [analysisType, dateType, fromDate, hasInvalidRange, toDate]);
 
@@ -148,6 +187,17 @@ export function DashboardOverviewProvider({
     }
     void loadSales();
   }, [loadSales]);
+
+  useEffect(() => {
+    if (hasInvalidRange) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void loadSales({ silent: true });
+    }, 60_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [hasInvalidRange, loadSales]);
 
   const value = useMemo<DashboardOverviewContextValue>(
     () => ({
@@ -165,6 +215,8 @@ export function DashboardOverviewProvider({
       salesError,
       filterInfo,
       hasInvalidRange,
+      refreshSales: loadSales,
+      lastUpdatedAt,
     }),
     [
       analysisType,
@@ -173,6 +225,8 @@ export function DashboardOverviewProvider({
       fromDate,
       hasInvalidRange,
       initialRange,
+      lastUpdatedAt,
+      loadSales,
       salesError,
       salesLoading,
       salesLocations,

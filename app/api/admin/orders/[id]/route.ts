@@ -4,14 +4,89 @@ import { Prisma } from "@prisma/client";
 
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
+
+const orderSelect = {
+  id: true,
+  shopifyOrderId: true,
+  orderNumber: true,
+  name: true,
+  sourceName: true,
+  totalPrice: true,
+  subtotalPrice: true,
+  totalDiscounts: true,
+  totalTax: true,
+  totalShipping: true,
+  currency: true,
+  financialStatus: true,
+  fulfillmentStatus: true,
+  customerEmail: true,
+  customerPhone: true,
+  shippingAddress: true,
+  billingAddress: true,
+  discountCodes: true,
+  createdAt: true,
+  fulfillmentStage: true,
+  printCount: true,
+  packageReadyAt: true,
+  packageOnHoldAt: true,
+  dispatchedAt: true,
+  invoiceCompleteAt: true,
+  deliveryCompleteAt: true,
+  lastPrintedAt: true,
+  sampleFreeIssueCompleteAt: true,
+  sampleFreeIssueSendLaterDate: true,
+  companyLocation: {
+    select: { id: true, name: true, shopifyShopName: true, shopifyAdminStoreHandle: true },
+  },
+  assignedMerchant: { select: { id: true, name: true, email: true } },
+  packageHoldReason: { select: { id: true, name: true } },
+  packageReadyBy: { select: { id: true, name: true, email: true } },
+  dispatchedBy: { select: { id: true, name: true, email: true } },
+  dispatchedByRider: { select: { id: true, name: true, mobile: true } },
+  dispatchedByCourierService: { select: { id: true, name: true } },
+  invoiceCompleteBy: { select: { id: true, name: true, email: true } },
+  deliveryCompleteBy: { select: { id: true, name: true, email: true } },
+  lastPrintedBy: { select: { id: true, name: true, email: true } },
+  sampleFreeIssueCompleteBy: { select: { id: true, name: true, email: true } },
+  sampleFreeIssues: {
+    include: {
+      sampleFreeIssueItem: { select: { id: true, name: true, type: true } },
+      addedBy: { select: { id: true, name: true, email: true } },
+    },
+  },
+  remarks: {
+    orderBy: { createdAt: "desc" },
+    include: { addedBy: { select: { id: true, name: true, email: true } } },
+  },
+  lineItems: {
+    include: {
+      productItem: {
+        select: {
+          id: true,
+          productTitle: true,
+          variantTitle: true,
+          sku: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.OrderSelect;
+
+type OrderWithDetails = Prisma.OrderGetPayload<{ select: typeof orderSelect }>;
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission([
+    "orders.read",
+    "fulfillment.sample_free_issue.read",
+    "fulfillment.order_print.read",
+    "fulfillment.ready_dispatch.read",
+    "fulfillment.delivery_invoice.read",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -40,77 +115,23 @@ export async function GET(
   const order = await prisma.order.findFirst({
     where: { id: idResult.data, companyId },
     select: {
-      id: true,
-      shopifyOrderId: true,
-      orderNumber: true,
-      name: true,
-      sourceName: true,
-      totalPrice: true,
-      subtotalPrice: true,
-      totalDiscounts: true,
-      totalTax: true,
-      totalShipping: true,
-      currency: true,
-      financialStatus: true,
-      fulfillmentStatus: true,
-      customerEmail: true,
-      customerPhone: true,
-      shippingAddress: true,
-      billingAddress: true,
-      discountCodes: true,
-      createdAt: true,
-      fulfillmentStage: true,
-      printCount: true,
-      packageReadyAt: true,
-      packageOnHoldAt: true,
-      dispatchedAt: true,
-      invoiceCompleteAt: true,
-      deliveryCompleteAt: true,
-      lastPrintedAt: true,
-      sampleFreeIssueCompleteAt: true,
+      ...orderSelect,
       ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
       ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
-      companyLocation: { select: { id: true, name: true, shopifyShopName: true, shopifyAdminStoreHandle: true } },
-      assignedMerchant: { select: { id: true, name: true, email: true } },
-      packageHoldReason: { select: { id: true, name: true } },
-      packageReadyBy: { select: { id: true, name: true, email: true } },
-      dispatchedBy: { select: { id: true, name: true, email: true } },
-      dispatchedByRider: { select: { id: true, name: true, mobile: true } },
-      dispatchedByCourierService: { select: { id: true, name: true } },
-      invoiceCompleteBy: { select: { id: true, name: true, email: true } },
-      deliveryCompleteBy: { select: { id: true, name: true, email: true } },
-      lastPrintedBy: { select: { id: true, name: true, email: true } },
-      sampleFreeIssueCompleteBy: { select: { id: true, name: true, email: true } },
-      sampleFreeIssues: {
-        include: {
-          sampleFreeIssueItem: { select: { id: true, name: true, type: true } },
-          addedBy: { select: { id: true, name: true, email: true } },
-        },
-      },
-      remarks: {
-        orderBy: { createdAt: "desc" },
-        include: { addedBy: { select: { id: true, name: true, email: true } } },
-      },
-      lineItems: {
-        include: {
-          productItem: {
-            select: {
-              id: true,
-              productTitle: true,
-              variantTitle: true,
-              sku: true,
-            },
-          },
-        },
-      },
-    } satisfies Prisma.OrderSelect,
+    },
   });
 
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  const lineItems = order.lineItems.map((li) => ({
+  const details = order as OrderWithDetails &
+    Partial<{
+      paymentGatewayNames: string[];
+      paymentGatewayPrimary: string | null;
+    }>;
+
+  const lineItems = details.lineItems.map((li) => ({
     id: li.id,
     productTitle: li.productItem.productTitle,
     variantTitle: li.productItem.variantTitle,
@@ -121,69 +142,108 @@ export async function GET(
   }));
 
   return NextResponse.json({
-    id: order.id,
-    shopifyOrderId: order.shopifyOrderId,
-    orderNumber: order.orderNumber,
-    name: order.name,
-    sourceName: order.sourceName,
-    totalPrice: order.totalPrice.toString(),
-    subtotalPrice: order.subtotalPrice?.toString() ?? null,
-    totalDiscounts: order.totalDiscounts?.toString() ?? null,
-    totalTax: order.totalTax?.toString() ?? null,
-    totalShipping: order.totalShipping?.toString() ?? null,
-    currency: order.currency,
-    financialStatus: order.financialStatus,
-    fulfillmentStatus: order.fulfillmentStatus,
+    id: details.id,
+    shopifyOrderId: details.shopifyOrderId,
+    orderNumber: details.orderNumber,
+    name: details.name,
+    sourceName: details.sourceName,
+    totalPrice: details.totalPrice.toString(),
+    subtotalPrice: details.subtotalPrice?.toString() ?? null,
+    totalDiscounts: details.totalDiscounts?.toString() ?? null,
+    totalTax: details.totalTax?.toString() ?? null,
+    totalShipping: details.totalShipping?.toString() ?? null,
+    currency: details.currency,
+    financialStatus: details.financialStatus,
+    fulfillmentStatus: details.fulfillmentStatus,
     paymentGatewayNames: gatewayColumns.hasPaymentGatewayNames
-      ? ((order as typeof order & { paymentGatewayNames: string[] }).paymentGatewayNames ?? [])
+      ? (details.paymentGatewayNames ?? [])
       : [],
     paymentGatewayPrimary: gatewayColumns.hasPaymentGatewayPrimary
-      ? ((order as typeof order & { paymentGatewayPrimary: string | null }).paymentGatewayPrimary ?? null)
+      ? (details.paymentGatewayPrimary ?? null)
       : null,
-    customerEmail: order.customerEmail,
-    customerPhone: order.customerPhone,
-    shippingAddress: order.shippingAddress,
-    billingAddress: order.billingAddress,
-    discountCodes: order.discountCodes,
-    createdAt: order.createdAt.toISOString(),
-    companyLocation: order.companyLocation,
-    assignedMerchant: order.assignedMerchant,
+    customerEmail: details.customerEmail,
+    customerPhone: details.customerPhone,
+    shippingAddress: details.shippingAddress,
+    billingAddress: details.billingAddress,
+    discountCodes: details.discountCodes,
+    createdAt: details.createdAt.toISOString(),
+    companyLocation: details.companyLocation,
+    assignedMerchant: details.assignedMerchant,
     lineItems,
     shopifyAdminOrderUrl: (() => {
-      if (order.sourceName === "manual" || order.shopifyOrderId.startsWith("manual-")) {
+      if (details.sourceName === "manual" || details.shopifyOrderId.startsWith("manual-")) {
         return null;
       }
-      const handle = order.companyLocation.shopifyAdminStoreHandle ?? order.companyLocation.shopifyShopName;
+      const handle =
+        details.companyLocation.shopifyAdminStoreHandle ??
+        details.companyLocation.shopifyShopName;
       return handle
-        ? `https://admin.shopify.com/store/${handle}/orders/${order.shopifyOrderId}`
+        ? `https://admin.shopify.com/store/${handle}/orders/${details.shopifyOrderId}`
         : null;
     })(),
-    fulfillmentStage: order.fulfillmentStage,
-    printCount: order.printCount,
-    packageReadyAt: order.packageReadyAt?.toISOString() ?? null,
-    packageReadyBy: order.packageReadyBy ? { id: order.packageReadyBy.id, name: order.packageReadyBy.name, email: order.packageReadyBy.email } : null,
-    packageOnHoldAt: order.packageOnHoldAt?.toISOString() ?? null,
-    packageHoldReason: order.packageHoldReason,
-    dispatchedAt: order.dispatchedAt?.toISOString() ?? null,
-    dispatchedBy: order.dispatchedBy ? { id: order.dispatchedBy.id, name: order.dispatchedBy.name, email: order.dispatchedBy.email } : null,
-    dispatchedByRider: order.dispatchedByRider,
-    dispatchedByCourierService: order.dispatchedByCourierService,
-    invoiceCompleteAt: order.invoiceCompleteAt?.toISOString() ?? null,
-    invoiceCompleteBy: order.invoiceCompleteBy ? { id: order.invoiceCompleteBy.id, name: order.invoiceCompleteBy.name, email: order.invoiceCompleteBy.email } : null,
-    deliveryCompleteAt: order.deliveryCompleteAt?.toISOString() ?? null,
-    deliveryCompleteBy: order.deliveryCompleteBy ? { id: order.deliveryCompleteBy.id, name: order.deliveryCompleteBy.name, email: order.deliveryCompleteBy.email } : null,
-    lastPrintedAt: order.lastPrintedAt?.toISOString() ?? null,
-    lastPrintedBy: order.lastPrintedBy ? { id: order.lastPrintedBy.id, name: order.lastPrintedBy.name, email: order.lastPrintedBy.email } : null,
-    sampleFreeIssueCompleteAt: order.sampleFreeIssueCompleteAt?.toISOString() ?? null,
-    sampleFreeIssueCompleteBy: order.sampleFreeIssueCompleteBy ? { id: order.sampleFreeIssueCompleteBy.id, name: order.sampleFreeIssueCompleteBy.name, email: order.sampleFreeIssueCompleteBy.email } : null,
-    sampleFreeIssues: order.sampleFreeIssues.map((s) => ({
+    fulfillmentStage: details.fulfillmentStage,
+    printCount: details.printCount,
+    packageReadyAt: details.packageReadyAt?.toISOString() ?? null,
+    packageReadyBy: details.packageReadyBy
+      ? {
+          id: details.packageReadyBy.id,
+          name: details.packageReadyBy.name,
+          email: details.packageReadyBy.email,
+        }
+      : null,
+    packageOnHoldAt: details.packageOnHoldAt?.toISOString() ?? null,
+    packageHoldReason: details.packageHoldReason,
+    dispatchedAt: details.dispatchedAt?.toISOString() ?? null,
+    dispatchedBy: details.dispatchedBy
+      ? {
+          id: details.dispatchedBy.id,
+          name: details.dispatchedBy.name,
+          email: details.dispatchedBy.email,
+        }
+      : null,
+    dispatchedByRider: details.dispatchedByRider,
+    dispatchedByCourierService: details.dispatchedByCourierService,
+    invoiceCompleteAt: details.invoiceCompleteAt?.toISOString() ?? null,
+    invoiceCompleteBy: details.invoiceCompleteBy
+      ? {
+          id: details.invoiceCompleteBy.id,
+          name: details.invoiceCompleteBy.name,
+          email: details.invoiceCompleteBy.email,
+        }
+      : null,
+    deliveryCompleteAt: details.deliveryCompleteAt?.toISOString() ?? null,
+    deliveryCompleteBy: details.deliveryCompleteBy
+      ? {
+          id: details.deliveryCompleteBy.id,
+          name: details.deliveryCompleteBy.name,
+          email: details.deliveryCompleteBy.email,
+        }
+      : null,
+    lastPrintedAt: details.lastPrintedAt?.toISOString() ?? null,
+    lastPrintedBy: details.lastPrintedBy
+      ? {
+          id: details.lastPrintedBy.id,
+          name: details.lastPrintedBy.name,
+          email: details.lastPrintedBy.email,
+        }
+      : null,
+    sampleFreeIssueCompleteAt: details.sampleFreeIssueCompleteAt?.toISOString() ?? null,
+    sampleFreeIssueSendLaterDate: details.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
+    sampleFreeIssueCompleteBy: details.sampleFreeIssueCompleteBy
+      ? {
+          id: details.sampleFreeIssueCompleteBy.id,
+          name: details.sampleFreeIssueCompleteBy.name,
+          email: details.sampleFreeIssueCompleteBy.email,
+        }
+      : null,
+    sampleFreeIssues: details.sampleFreeIssues.map((s) => ({
       id: s.id,
       sampleFreeIssueItem: s.sampleFreeIssueItem,
       quantity: s.quantity,
       createdAt: s.createdAt.toISOString(),
       addedBy: s.addedBy ? { id: s.addedBy.id, name: s.addedBy.name, email: s.addedBy.email } : null,
     })),
-    remarks: order.remarks.map((r) => ({
+    remarks: details.remarks.map((r) => ({
       id: r.id,
       stage: r.stage,
       type: r.type,

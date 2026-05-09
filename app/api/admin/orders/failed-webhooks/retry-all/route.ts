@@ -4,11 +4,13 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
+import { getNextFailedWebhookAutoRetryAt } from "@/lib/failed-order-webhook-auto-retry";
+import { classifyFailedWebhookError } from "@/lib/failed-order-webhook-classification";
 
 export const maxDuration = 60;
 
 export async function POST() {
-  const auth = await requirePermission("orders.manage");
+  const auth = await requirePermission("failed_webhooks.retry");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -52,6 +54,8 @@ export async function POST() {
         data: {
           errorMessage,
           errorStack: JSON.stringify(parsed.error.flatten(), null, 2).slice(0, 10000),
+          nextAutoRetryAt: null,
+          retryLeaseExpiresAt: null,
         },
       });
       if (sampleFailures.length < 10) {
@@ -68,7 +72,11 @@ export async function POST() {
       await processOrderWebhook(parsed.data, item.companyLocation, rawPayload);
       await prisma.failedOrderWebhook.update({
         where: { id: item.id },
-        data: { resolvedAt: new Date() },
+        data: {
+          resolvedAt: new Date(),
+          nextAutoRetryAt: null,
+          retryLeaseExpiresAt: null,
+        },
       });
       succeeded += 1;
     } catch (error) {
@@ -77,12 +85,19 @@ export async function POST() {
         0,
         10000
       );
+      const classification = classifyFailedWebhookError(errorMessage);
       await prisma.failedOrderWebhook.update({
         where: { id: item.id },
         data: {
           errorMessage,
           errorStack:
             (error instanceof Error ? error.stack : null)?.slice(0, 10000) ?? null,
+          nextAutoRetryAt:
+            classification.retryable
+              ? item.nextAutoRetryAt ??
+                getNextFailedWebhookAutoRetryAt(item.autoRetryCount, new Date())
+              : null,
+          retryLeaseExpiresAt: null,
         },
       });
       if (sampleFailures.length < 10) {

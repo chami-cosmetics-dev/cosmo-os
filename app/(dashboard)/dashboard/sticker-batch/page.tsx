@@ -1,5 +1,8 @@
+import { redirect } from "next/navigation";
+
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserContext } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { StickerBatchClient } from "./sticker-batch-client";
 
 function getTodayDate() {
@@ -19,8 +22,13 @@ export default async function StickerBatchPage({
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const initialSelectedBatchId = resolvedSearchParams?.batchId?.trim() ?? "";
   const initialTab = resolvedSearchParams?.tab === "history" ? "history" : "batch";
-  const context = await getCurrentUserContext();
-  const companyId = context?.user?.companyId ?? null;
+  const auth = await requirePermission("stickers.batch.manage");
+  if (!auth.ok) {
+    if (auth.status === 401) redirect("/login");
+    return <PermissionDeniedCard />;
+  }
+  const companyId = auth.context!.user!.companyId;
+  if (!companyId) return <PermissionDeniedCard />;
 
   const [suppliers, locations, rawItemCatalog] = companyId
     ? await Promise.all([

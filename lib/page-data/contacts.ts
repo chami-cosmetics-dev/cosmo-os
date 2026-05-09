@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
 import { prisma } from "@/lib/prisma";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
@@ -30,7 +31,6 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
   const limit = params.limit ?? 10;
   const sortOrder = params.sortOrder ?? "desc";
   const sortBy = params.sortBy?.trim();
-  const skip = (page - 1) * limit;
   const cutoff = getActiveCutoff();
 
   const SORT_FIELDS: Record<string, Prisma.ContactMasterOrderByWithRelationInput> = {
@@ -69,16 +69,13 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
     }
   }
 
-  const [total, activeCount, inactiveCount, neverPurchasedCount, contacts] = await Promise.all([
-    prisma.contactMaster.count({ where }),
+  const [activeCount, inactiveCount, neverPurchasedCount, rawContacts] = await Promise.all([
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
     prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
     prisma.contactMaster.findMany({
       where,
       orderBy,
-      skip,
-      take: limit,
       select: {
         id: true,
         name: true,
@@ -91,6 +88,9 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
       },
     }),
   ]);
+  const dedupedContacts = dedupeContactsForDisplay(rawContacts);
+  const total = dedupedContacts.length;
+  const contacts = dedupedContacts.slice((page - 1) * limit, page * limit);
 
   const payload = {
     contacts: contacts.map((contact) => ({

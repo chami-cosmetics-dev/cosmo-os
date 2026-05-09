@@ -5,12 +5,14 @@ import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
+import { getNextFailedWebhookAutoRetryAt } from "@/lib/failed-order-webhook-auto-retry";
+import { classifyFailedWebhookError } from "@/lib/failed-order-webhook-classification";
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.manage");
+  const auth = await requirePermission("failed_webhooks.retry");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -63,12 +65,17 @@ export async function POST(
 
     await prisma.failedOrderWebhook.update({
       where: { id: idResult.data },
-      data: { resolvedAt: new Date() },
+      data: {
+        resolvedAt: new Date(),
+        nextAutoRetryAt: null,
+        retryLeaseExpiresAt: null,
+      },
     });
 
     return NextResponse.json({ ok: true, message: "Order processed successfully" });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const classification = classifyFailedWebhookError(errorMessage);
 
     await prisma.failedOrderWebhook.update({
       where: { id: idResult.data },
@@ -76,6 +83,12 @@ export async function POST(
         errorMessage: errorMessage.slice(0, 10000),
         errorStack:
           (error instanceof Error ? error.stack : null)?.slice(0, 10000) ?? null,
+        nextAutoRetryAt:
+          classification.retryable
+            ? failed.nextAutoRetryAt ??
+              getNextFailedWebhookAutoRetryAt(failed.autoRetryCount, new Date())
+            : null,
+        retryLeaseExpiresAt: null,
       },
     });
 

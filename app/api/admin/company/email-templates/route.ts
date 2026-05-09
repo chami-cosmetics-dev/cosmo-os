@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
@@ -90,6 +91,18 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  const existing = await prisma.emailTemplate.findUnique({
+    where: {
+      companyId_key: { companyId: user.companyId, key: "resignation_notice" },
+    },
+    select: {
+      id: true,
+      subject: true,
+      bodyHtml: true,
+      recipients: true,
+    },
+  });
+
   const body = await request.json().catch(() => ({}));
   const parsed = updateTemplateSchema.safeParse(body);
   if (!parsed.success) {
@@ -114,6 +127,22 @@ export async function PATCH(request: NextRequest) {
       recipients,
     },
     update: {
+      subject,
+      bodyHtml,
+      recipients,
+    },
+  });
+
+  await writeAuditLog({
+    companyId: user.companyId,
+    actorUserId: auth.context!.user!.id,
+    module: "settings",
+    action: existing ? "setting_updated" : "setting_created",
+    entityType: "EmailTemplate",
+    entityId: existing?.id ?? key,
+    summary: `${existing ? "Updated" : "Created"} email template ${key}`,
+    beforeData: existing,
+    afterData: {
       subject,
       bodyHtml,
       recipients,

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { findMatchingContacts, listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import {
   buildPhoneLookupVariants,
   extractAddressFromShippingJson,
@@ -44,23 +45,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ found: false });
   }
 
-  const contact = await prisma.contactMaster.findFirst({
-    where: { companyId, phoneNumber: { in: variants } },
-    select: { id: true, name: true, email: true, phoneNumber: true },
-  });
+  const matches = await findMatchingContacts(companyId, null, phone);
+  const contact = matches.phoneMatches[0]
+    ? {
+        id: matches.phoneMatches[0].id,
+        name: matches.phoneMatches[0].name,
+        email: matches.phoneMatches[0].email,
+        phoneNumber: matches.phoneMatches[0].phoneNumber,
+      }
+    : null;
 
-  const extraVariants = contact?.phoneNumber
-    ? buildPhoneLookupVariants(contact.phoneNumber)
-    : [];
-  const orderPhoneVariants = [...new Set([...variants, ...extraVariants])];
+  const orderPhoneVariants = contact
+    ? await listContactPhones(contact.id, contact.phoneNumber)
+    : [...new Set(variants)];
+  const orderEmails = contact ? await listContactEmails(contact.id, contact.email) : [];
 
   const orderOr: Prisma.OrderWhereInput[] = [];
   if (orderPhoneVariants.length > 0) {
     orderOr.push({ customerPhone: { in: orderPhoneVariants } });
   }
-  if (contact?.email?.trim()) {
+  for (const email of orderEmails) {
     orderOr.push({
-      customerEmail: { equals: contact.email.trim(), mode: "insensitive" },
+      customerEmail: { equals: email, mode: "insensitive" },
     });
   }
 

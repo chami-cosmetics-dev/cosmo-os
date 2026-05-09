@@ -13,15 +13,22 @@ export type DashboardLocationMerchantRow = {
 export type DashboardLocationSales = {
   id: string;
   name: string;
+  defaultMerchantId: string | null;
+  defaultMerchantName: string | null;
   merchants: DashboardLocationMerchantRow[];
+  sources: Array<{
+    sourceName: string;
+    total: number;
+    orderCount: number;
+  }>;
 };
 
 function parseDayStartUtc(ymd: string): Date {
-  return new Date(`${ymd}T00:00:00.000Z`);
+  return new Date(`${ymd}T00:00:00.000+05:30`);
 }
 
 function parseDayEndUtc(ymd: string): Date {
-  return new Date(`${ymd}T23:59:59.999Z`);
+  return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
 /**
@@ -59,14 +66,30 @@ export async function fetchDashboardSalesByLocationMerchant(
     ...dateFilter,
   };
 
-  const [locations, groups] = await Promise.all([
+  const [locations, groups, sourceGroups] = await Promise.all([
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        defaultMerchantUserId: true,
+        defaultMerchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     }),
     prisma.order.groupBy({
       by: ["companyLocationId", "assignedMerchantId"],
+      where,
+      _sum: { totalPrice: true },
+      _count: { _all: true },
+    }),
+    prisma.order.groupBy({
+      by: ["companyLocationId", "sourceName"],
       where,
       _sum: { totalPrice: true },
       _count: { _all: true },
@@ -88,8 +111,10 @@ export async function fetchDashboardSalesByLocationMerchant(
   const merchantNameById = new Map(merchants.map((m) => [m.id, m.name]));
 
   const byLocation = new Map<string, DashboardLocationMerchantRow[]>();
+  const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
   for (const loc of locations) {
     byLocation.set(loc.id, []);
+    sourceByLocation.set(loc.id, []);
   }
 
   for (const g of groups) {
@@ -111,12 +136,27 @@ export async function fetchDashboardSalesByLocationMerchant(
     });
   }
 
+  for (const g of sourceGroups) {
+    const list = sourceByLocation.get(g.companyLocationId);
+    if (!list) continue;
+
+    list.push({
+      sourceName: g.sourceName?.trim() || "unknown",
+      total: Number(g._sum.totalPrice ?? 0),
+      orderCount: g._count._all,
+    });
+  }
+
   const locationsOut: DashboardLocationSales[] = locations.map((loc) => {
     const merchantsRows = (byLocation.get(loc.id) ?? []).sort((a, b) => b.total - a.total);
+    const sourcesRows = (sourceByLocation.get(loc.id) ?? []).sort((a, b) => b.total - a.total);
     return {
       id: loc.id,
       name: loc.name,
+      defaultMerchantId: loc.defaultMerchantUserId,
+      defaultMerchantName: loc.defaultMerchant?.name ?? null,
       merchants: merchantsRows,
+      sources: sourcesRows,
     };
   });
 
@@ -162,24 +202,47 @@ export async function fetchDashboardSalesByLocationGateway(
     const locations = await prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        defaultMerchantUserId: true,
+        defaultMerchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     return {
       locations: locations.map((loc) => ({
         id: loc.id,
         name: loc.name,
+        defaultMerchantId: loc.defaultMerchantUserId,
+        defaultMerchantName: loc.defaultMerchant?.name ?? null,
         merchants: [],
+        sources: [],
       })),
       invalidRange: false,
     };
   }
 
-  const [locations, groups] = await Promise.all([
+  const [locations, groups, sourceGroups] = await Promise.all([
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        defaultMerchantUserId: true,
+        defaultMerchant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     }),
     prisma.order.groupBy({
       by: ["companyLocationId", "paymentGatewayPrimary"],
@@ -187,11 +250,19 @@ export async function fetchDashboardSalesByLocationGateway(
       _sum: { totalPrice: true },
       _count: { _all: true },
     }),
+    prisma.order.groupBy({
+      by: ["companyLocationId", "sourceName"],
+      where,
+      _sum: { totalPrice: true },
+      _count: { _all: true },
+    }),
   ]);
 
   const byLocation = new Map<string, DashboardLocationMerchantRow[]>();
+  const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
   for (const loc of locations) {
     byLocation.set(loc.id, []);
+    sourceByLocation.set(loc.id, []);
   }
 
   for (const g of groups) {
@@ -210,12 +281,27 @@ export async function fetchDashboardSalesByLocationGateway(
     });
   }
 
+  for (const g of sourceGroups) {
+    const list = sourceByLocation.get(g.companyLocationId);
+    if (!list) continue;
+
+    list.push({
+      sourceName: g.sourceName?.trim() || "unknown",
+      total: Number(g._sum.totalPrice ?? 0),
+      orderCount: g._count._all,
+    });
+  }
+
   const locationsOut: DashboardLocationSales[] = locations.map((loc) => {
     const merchantsRows = (byLocation.get(loc.id) ?? []).sort((a, b) => b.total - a.total);
+    const sourcesRows = (sourceByLocation.get(loc.id) ?? []).sort((a, b) => b.total - a.total);
     return {
       id: loc.id,
       name: loc.name,
+      defaultMerchantId: loc.defaultMerchantUserId,
+      defaultMerchantName: loc.defaultMerchant?.name ?? null,
       merchants: merchantsRows,
+      sources: sourcesRows,
     };
   });
 
