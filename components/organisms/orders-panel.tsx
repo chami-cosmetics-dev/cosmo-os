@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Eye, Search, ShoppingCart } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -313,6 +313,12 @@ export function OrdersPanel({
     }
   }
 
+  function handleOrderRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, orderId: string) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    void handleViewOrder(orderId);
+  }
+
   function formatAddress(addr: unknown): string {
     if (!addr || typeof addr !== "object") return "—";
     const a = addr as Record<string, unknown>;
@@ -544,7 +550,14 @@ export function OrdersPanel({
                   </thead>
                   <tbody>
                     {orders.map((order) => (
-                      <tr key={order.id} className="border-b border-border/50 transition-colors hover:bg-secondary/10 last:border-0">
+                      <tr
+                        key={order.id}
+                        className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/10 focus-visible:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 last:border-0"
+                        tabIndex={0}
+                        aria-label={`View order ${order.name ?? order.orderNumber ?? order.shopifyOrderId}`}
+                        onClick={() => void handleViewOrder(order.id)}
+                        onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}
+                      >
                         <td className="px-4 py-2 font-medium">
                           <div className="truncate" title={order.name ?? order.orderNumber ?? undefined}>
                             {order.name ?? order.orderNumber ?? "—"}
@@ -612,7 +625,10 @@ export function OrdersPanel({
                             size="sm"
                             variant="outline"
                             className="inline-flex h-9 max-w-full whitespace-nowrap border-border/70 bg-background/80 px-3 hover:bg-secondary/10"
-                            onClick={() => handleViewOrder(order.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleViewOrder(order.id);
+                            }}
                           >
                             <Eye className="size-4" />
                             View
