@@ -126,7 +126,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
       <SidebarHeader>
         <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:px-0 dark:border-white/10 dark:bg-white/6">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
-          <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
+          <span className="min-w-0 truncate text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Cosmo OS (Beta) v{packageJson.version}
           </span>
           <button

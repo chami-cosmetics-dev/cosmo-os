@@ -160,12 +160,18 @@ type AuditLogQueryInput = {
 const MASKED_KEY_PATTERN = /password|secret|token/i;
 
 function isKnownMissingAuditTableError(error: unknown) {
-  return Boolean(
-    error &&
-      typeof error === "object" &&
-      "code" in error &&
-      ["P2021", "P2022"].includes((error as { code?: string }).code ?? "")
-  );
+  if (!error || typeof error !== "object") return false;
+
+  const prismaCode = "code" in error ? (error as { code?: string }).code : undefined;
+  if (prismaCode && ["P2021", "P2022"].includes(prismaCode)) return true;
+
+  const meta = "meta" in error ? (error as { meta?: unknown }).meta : null;
+  if (meta && typeof meta === "object") {
+    const dbCode = "code" in meta ? (meta as { code?: string }).code : undefined;
+    return prismaCode === "P2010" && dbCode === "42P01";
+  }
+
+  return false;
 }
 
 function sanitizeAuditValue(value: unknown): unknown {
