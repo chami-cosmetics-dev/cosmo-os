@@ -20,6 +20,7 @@ export async function getDefaultDashboardOverviewInitialState(
     ...range,
     dateType: "order",
     analysisType: "merchant",
+    lastUpdatedAt: Date.now(),
     salesLocations: result.locations,
   };
 }

@@ -3,6 +3,7 @@ export type DashboardOverviewInitialState = {
   toDate: string;
   dateType: "order" | "completed";
   analysisType: "merchant" | "gateway";
+  lastUpdatedAt: number;
   salesLocations: Array<{
     id: string;
     name: string;

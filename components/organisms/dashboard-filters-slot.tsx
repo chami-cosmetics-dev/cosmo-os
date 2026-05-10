@@ -8,6 +8,9 @@ import { Input } from "@/components/ui/input";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
 
+const DASHBOARD_LOCALE = "en-LK";
+const DASHBOARD_TIME_ZONE = "Asia/Colombo";
+
 function shiftDate(dateValue: string, days: number) {
   const date = new Date(dateValue);
   date.setDate(date.getDate() + days);
@@ -55,9 +58,10 @@ export function DashboardFiltersSlot() {
   } = useDashboardOverview();
 
   const lastUpdatedLabel = lastUpdatedAt
-    ? new Intl.DateTimeFormat(undefined, {
+    ? new Intl.DateTimeFormat(DASHBOARD_LOCALE, {
         dateStyle: "medium",
         timeStyle: "short",
+        timeZone: DASHBOARD_TIME_ZONE,
       }).format(new Date(lastUpdatedAt))
     : "Waiting for first refresh";
 
