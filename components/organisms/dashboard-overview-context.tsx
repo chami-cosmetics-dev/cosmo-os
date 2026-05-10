@@ -16,6 +16,9 @@ import {
   type DashboardOverviewInitialState,
 } from "@/lib/page-data/dashboard-overview-shared";
 
+const DASHBOARD_LOCALE = "en-LK";
+const DASHBOARD_TIME_ZONE = "Asia/Colombo";
+
 export type DashboardSalesLocation = {
   id: string;
   name: string;
@@ -85,7 +88,7 @@ export function DashboardOverviewProvider({
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(
-    initialState ? Date.now() : null,
+    initialState?.lastUpdatedAt ?? null,
   );
 
   const fetchIdRef = useRef(0);
@@ -96,7 +99,10 @@ export function DashboardOverviewProvider({
   const filterInfo = useMemo(() => {
     const from = new Date(`${fromDate}T12:00:00`);
     const to = new Date(`${toDate}T12:00:00`);
-    const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+    const fmt = new Intl.DateTimeFormat(DASHBOARD_LOCALE, {
+      dateStyle: "medium",
+      timeZone: DASHBOARD_TIME_ZONE,
+    });
     const range = `${fmt.format(from)} – ${fmt.format(to)}`;
     const dateSource =
       dateType === "order" ? "Invoice date" : "Invoice completed at";
