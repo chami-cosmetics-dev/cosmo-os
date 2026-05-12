@@ -53,16 +53,16 @@ export function UserMenu({ user }: UserMenuProps) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/70 px-2 py-1.5 outline-none ring-sidebar-ring transition-colors hover:bg-secondary/10 hover:text-foreground focus-visible:ring-2"
+          className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/70 px-2 py-1.5 outline-none ring-sidebar-ring transition-colors hover:bg-secondary/10 hover:text-foreground focus-visible:ring-2 group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-xl group-data-[collapsible=icon]:border-white/12 group-data-[collapsible=icon]:bg-white/8 group-data-[collapsible=icon]:p-0 group-data-[collapsible=icon]:hover:bg-white/12"
           aria-label="User menu"
         >
-          <Avatar className="size-8 border border-border/60 shadow-xs">
+          <Avatar className="size-8 border border-border/60 shadow-xs group-data-[collapsible=icon]:size-7">
             <AvatarImage src={user.picture ?? undefined} alt={user.name ?? ""} />
             <AvatarFallback className="bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] text-foreground">
               {getInitials(user.name)}
             </AvatarFallback>
           </Avatar>
-          <span className="truncate text-sm font-medium">{user.name ?? "User"}</span>
+          <span className="truncate text-sm font-medium group-data-[collapsible=icon]:hidden">{user.name ?? "User"}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
