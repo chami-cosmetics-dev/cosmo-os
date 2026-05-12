@@ -25,6 +25,7 @@ const STAGES = [
   "order_received",
   "sample_free_issue",
   "print",
+  "returned_to_store",
   "ready_to_dispatch",
   "dispatched",
   "invoice_complete",
@@ -35,6 +36,7 @@ const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
   sample_free_issue: "Sample/Free Issue",
   print: "Print",
+  returned_to_store: "Returned to Store",
   ready_to_dispatch: "Ready to Dispatch",
   dispatched: "Dispatched",
   invoice_complete: "Invoice Complete",
@@ -171,8 +173,7 @@ export function OrderFulfillmentDetail({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedSamples, setSelectedSamples] = useState<Array<{ id: string; qty: number }>>([]);
   const [holdReasonId, setHoldReasonId] = useState("");
-  const [dispatchRiderId, setDispatchRiderId] = useState("");
-  const [dispatchCourierId, setDispatchCourierId] = useState("");
+  const [dispatchService, setDispatchService] = useState("");
   const [remarkContent, setRemarkContent] = useState("");
   const [remarkType, setRemarkType] = useState<"internal" | "external">("internal");
   const [remarkStage, setRemarkStage] = useState<FulfillmentStage>("order_received");
@@ -181,6 +182,16 @@ export function OrderFulfillmentDetail({
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
   const isPos = orderDetail?.sourceName === "pos";
   const isComplete = stage === "delivery_complete";
+  const selectedDispatchService = dispatchService
+    ? {
+        type: dispatchService.startsWith("rider:")
+          ? "rider"
+          : dispatchService.startsWith("courier:")
+            ? "courier"
+            : null,
+        id: dispatchService.split(":").slice(1).join(":"),
+      }
+    : null;
 
   useEffect(() => {
     if (!orderId) return;
@@ -512,38 +523,39 @@ export function OrderFulfillmentDetail({
                 <h4 className="mb-2 text-sm font-medium">Dispatch</h4>
                 <div className="flex flex-wrap gap-2">
                   <select
-                    value={dispatchRiderId}
-                    onChange={(e) => { setDispatchRiderId(e.target.value); setDispatchCourierId(""); }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
+                    value={dispatchService}
+                    onChange={(e) => setDispatchService(e.target.value)}
+                    className="h-9 w-[240px] rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    <option value="">Select rider</option>
-                    {lookups.riders.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name ?? r.mobile ?? r.id}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={dispatchCourierId}
-                    onChange={(e) => { setDispatchCourierId(e.target.value); setDispatchRiderId(""); }}
-                    className="h-9 w-[180px] rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Or courier</option>
-                    {lookups.courierServices.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
+                    <option value="">Select rider or courier</option>
+                    {lookups.riders.length > 0 && (
+                      <optgroup label="Riders">
+                        {lookups.riders.map((r) => (
+                          <option key={r.id} value={`rider:${r.id}`}>
+                            {r.name ?? r.mobile ?? r.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {lookups.courierServices.length > 0 && (
+                      <optgroup label="Courier services">
+                        {lookups.courierServices.map((c) => (
+                          <option key={c.id} value={`courier:${c.id}`}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                   <Button
                     onClick={() =>
                       doFulfillmentAction("dispatch", {
                         action: "dispatch",
-                        riderId: dispatchRiderId || undefined,
-                        courierServiceId: dispatchCourierId || undefined,
+                        riderId: selectedDispatchService?.type === "rider" ? selectedDispatchService.id : undefined,
+                        courierServiceId: selectedDispatchService?.type === "courier" ? selectedDispatchService.id : undefined,
                       })
                     }
-                    disabled={isBusy || (!dispatchRiderId && !dispatchCourierId)}
+                    disabled={isBusy || !selectedDispatchService?.id}
                   >
                     {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
                     Dispatch

@@ -206,9 +206,7 @@ export function MerchantReviewPanel({
     fetch(`/api/admin/merchant-reviews/orders/${selectedOrderId}`)
       .then(async (res) => {
         const data = (await res.json()) as DetailResponse & { error?: string };
-        if (!res.ok) {
-          throw new Error(data.error ?? "Failed to load review sheet");
-        }
+        if (!res.ok) throw new Error(data.error ?? "Failed to load review sheet");
         if (!cancelled) {
           setDetail(data);
           setForm(buildInitialForm(data.review));
@@ -221,9 +219,7 @@ export function MerchantReviewPanel({
         }
       })
       .finally(() => {
-        if (!cancelled) {
-          setDetailLoading(false);
-        }
+        if (!cancelled) setDetailLoading(false);
       });
 
     return () => {
@@ -233,9 +229,8 @@ export function MerchantReviewPanel({
 
   async function saveReview() {
     if (!detail) return;
-
+    setSaving(true);
     try {
-      setSaving(true);
       const res = await fetch(`/api/admin/merchant-reviews/orders/${detail.order.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -286,7 +281,7 @@ export function MerchantReviewPanel({
   return (
     <div className="space-y-6">
       <Card className="overflow-hidden border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
+        <CardHeader className="border-b border-border/50">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <CardTitle>Merchant Reviews</CardTitle>
@@ -304,26 +299,11 @@ export function MerchantReviewPanel({
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">All Assigned</p>
-              <p className="text-2xl font-semibold">{counts.all}</p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Pending</p>
-              <p className="text-2xl font-semibold">{counts.pending}</p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Reviewed</p>
-              <p className="text-2xl font-semibold">{counts.reviewed}</p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Follow Up</p>
-              <p className="text-2xl font-semibold">{counts.followUp}</p>
-            </div>
-            <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-              <p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">No Response</p>
-              <p className="text-2xl font-semibold">{counts.noResponse}</p>
-            </div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">All Assigned</p><p className="text-2xl font-semibold">{counts.all}</p></div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Pending</p><p className="text-2xl font-semibold">{counts.pending}</p></div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Reviewed</p><p className="text-2xl font-semibold">{counts.reviewed}</p></div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">Follow Up</p><p className="text-2xl font-semibold">{counts.followUp}</p></div>
+            <div className="rounded-xl border border-border/70 bg-background/70 p-3"><p className="text-muted-foreground text-xs uppercase tracking-[0.18em]">No Response</p><p className="text-2xl font-semibold">{counts.noResponse}</p></div>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -331,17 +311,10 @@ export function MerchantReviewPanel({
               <div className="flex flex-col gap-3 sm:flex-row xl:flex-col">
                 <div className="relative flex-1">
                   <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search order, customer, email, phone..."
-                    className="pl-9"
-                  />
+                  <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, customer, email, phone..." className="pl-9" />
                 </div>
                 <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                  <SelectTrigger className="w-full xl:w-full">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all">All statuses</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
@@ -361,30 +334,17 @@ export function MerchantReviewPanel({
                   {filteredOrders.length === 0 ? (
                     <div className="px-4 py-10 text-center">
                       <p className="text-sm font-medium">No assigned review orders found</p>
-                      <p className="text-muted-foreground mt-1 text-sm">
-                        Try a different search or review status filter.
-                      </p>
+                      <p className="text-muted-foreground mt-1 text-sm">Try a different search or review status filter.</p>
                     </div>
                   ) : (
                     filteredOrders.map((order) => (
-                      <button
-                        key={order.orderId}
-                        type="button"
-                        onClick={() => setSelectedOrderId(order.orderId)}
-                        className={`w-full border-b px-4 py-4 text-left transition hover:bg-secondary/10 ${
-                          selectedOrderId === order.orderId ? "bg-primary/8" : "bg-transparent"
-                        }`}
-                      >
+                      <button key={order.orderId} type="button" onClick={() => setSelectedOrderId(order.orderId)} className={`w-full border-b px-4 py-4 text-left transition hover:bg-secondary/10 ${selectedOrderId === order.orderId ? "bg-primary/8" : "bg-transparent"}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate font-medium">{order.customerName || order.orderLabel}</p>
-                            <p className="text-muted-foreground truncate text-xs">
-                              {order.orderNumber ?? order.orderLabel}
-                            </p>
+                            <p className="text-muted-foreground truncate text-xs">{order.orderNumber ?? order.orderLabel}</p>
                           </div>
-                          <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(order.reviewStatus)}`}>
-                            {statusLabel(order.reviewStatus)}
-                          </span>
+                          <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${statusBadgeClass(order.reviewStatus)}`}>{statusLabel(order.reviewStatus)}</span>
                         </div>
                         <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                           <p>{order.customerPhone || "No phone"}</p>
@@ -400,22 +360,9 @@ export function MerchantReviewPanel({
 
             <div className="space-y-4">
               {detailLoading ? (
-                <Card className="border-border/70">
-                  <CardContent className="flex min-h-[500px] items-center justify-center">
-                    <Loader2 className="size-6 animate-spin text-muted-foreground" />
-                  </CardContent>
-                </Card>
+                <Card className="border-border/70"><CardContent className="flex min-h-[500px] items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></CardContent></Card>
               ) : !detail || !selectedQueueItem ? (
-                <Card className="border-border/70">
-                  <CardContent className="flex min-h-[500px] items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-sm font-medium">Select an order to review</p>
-                      <p className="text-muted-foreground mt-1 text-sm">
-                        The customer details, ordered items, and review sheet will appear here.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
+                <Card className="border-border/70"><CardContent className="flex min-h-[500px] items-center justify-center"><div className="text-center"><p className="text-sm font-medium">Select an order to review</p><p className="text-muted-foreground mt-1 text-sm">The customer details, ordered items, and review sheet will appear here.</p></div></CardContent></Card>
               ) : (
                 <>
                   <Card className="border-border/70">
@@ -423,75 +370,27 @@ export function MerchantReviewPanel({
                       <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                         <div>
                           <CardTitle>{detail.order.orderNumber ?? detail.order.name ?? detail.order.shopifyOrderId}</CardTitle>
-                          <CardDescription>
-                            {detail.order.companyLocation.name} | {formatDateTime(detail.order.createdAt)}
-                          </CardDescription>
+                          <CardDescription>{detail.order.companyLocation.name} | {formatDateTime(detail.order.createdAt)}</CardDescription>
                         </div>
-                        <span className={`inline-flex w-fit rounded px-2 py-1 text-xs font-medium ${statusBadgeClass(selectedQueueItem.reviewStatus)}`}>
-                          {statusLabel(selectedQueueItem.reviewStatus)}
-                        </span>
+                        <span className={`inline-flex w-fit rounded px-2 py-1 text-xs font-medium ${statusBadgeClass(selectedQueueItem.reviewStatus)}`}>{statusLabel(selectedQueueItem.reviewStatus)}</span>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-5 pt-6">
                       <div className="grid gap-4 lg:grid-cols-4">
-                        <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-                          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                            <UserRoundCheck className="size-4 text-primary" />
-                            Customer
-                          </div>
-                          <p className="font-medium">{selectedQueueItem.customerName || "Unknown customer"}</p>
-                          <p className="text-muted-foreground text-sm">{detail.order.customerEmail || "No email"}</p>
-                        </div>
-                        <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-                          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                            <Phone className="size-4 text-primary" />
-                            Contact Number
-                          </div>
-                          <p className="font-medium">{detail.order.customerPhone || "No phone"}</p>
-                          <p className="text-muted-foreground text-sm">{extractShippingAddress(detail.order.shippingAddress) || "No shipping address"}</p>
-                        </div>
-                        <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-                          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                            <ShoppingBag className="size-4 text-primary" />
-                            Order Value
-                          </div>
-                          <p className="font-medium">{formatAmount(detail.order.totalPrice, detail.order.currency)}</p>
-                          <p className="text-muted-foreground text-sm">{detail.order.sourceName}</p>
-                        </div>
-                        <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-                          <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                            <Mail className="size-4 text-primary" />
-                            Merchant
-                          </div>
-                          <p className="font-medium">{detail.order.assignedMerchant?.name ?? detail.order.assignedMerchant?.email ?? "Unassigned"}</p>
-                          <p className="text-muted-foreground text-sm">{detail.review?.reviewMarkedAt ? `Reviewed on ${formatDateTime(detail.review.reviewMarkedAt)}` : "Not marked reviewed yet"}</p>
-                        </div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><UserRoundCheck className="size-4 text-primary" />Customer</div><p className="font-medium">{selectedQueueItem.customerName || "Unknown customer"}</p><p className="text-muted-foreground text-sm">{detail.order.customerEmail || "No email"}</p></div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><Phone className="size-4 text-primary" />Contact Number</div><p className="font-medium">{detail.order.customerPhone || "No phone"}</p><p className="text-muted-foreground text-sm">{extractShippingAddress(detail.order.shippingAddress) || "No shipping address"}</p></div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><ShoppingBag className="size-4 text-primary" />Order Value</div><p className="font-medium">{formatAmount(detail.order.totalPrice, detail.order.currency)}</p><p className="text-muted-foreground text-sm">{detail.order.sourceName}</p></div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><Mail className="size-4 text-primary" />Merchant</div><p className="font-medium">{detail.order.assignedMerchant?.name ?? detail.order.assignedMerchant?.email ?? "Unassigned"}</p><p className="text-muted-foreground text-sm">{detail.review?.reviewMarkedAt ? `Reviewed on ${formatDateTime(detail.review.reviewMarkedAt)}` : "Not marked reviewed yet"}</p></div>
                       </div>
 
                       <div className="rounded-xl border border-border/70">
-                        <div className="border-b px-4 py-3">
-                          <p className="font-medium">Ordered Items</p>
-                        </div>
+                        <div className="border-b px-4 py-3"><p className="font-medium">Ordered Items</p></div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b bg-muted/20">
-                                <th className="px-4 py-3 text-left font-medium">Item</th>
-                                <th className="px-4 py-3 text-left font-medium">Variant</th>
-                                <th className="px-4 py-3 text-left font-medium">SKU</th>
-                                <th className="px-4 py-3 text-left font-medium">Qty</th>
-                                <th className="px-4 py-3 text-left font-medium">Price</th>
-                              </tr>
-                            </thead>
+                            <thead><tr className="border-b bg-muted/20"><th className="px-4 py-3 text-left font-medium">Item</th><th className="px-4 py-3 text-left font-medium">Variant</th><th className="px-4 py-3 text-left font-medium">SKU</th><th className="px-4 py-3 text-left font-medium">Qty</th><th className="px-4 py-3 text-left font-medium">Price</th></tr></thead>
                             <tbody>
                               {detail.order.lineItems.map((item) => (
-                                <tr key={item.id} className="border-b last:border-0">
-                                  <td className="px-4 py-3">{item.productTitle}</td>
-                                  <td className="px-4 py-3">{item.variantTitle || "-"}</td>
-                                  <td className="px-4 py-3">{item.sku || "-"}</td>
-                                  <td className="px-4 py-3">{item.quantity}</td>
-                                  <td className="px-4 py-3">{formatAmount(item.price, detail.order.currency)}</td>
-                                </tr>
+                                <tr key={item.id} className="border-b last:border-0"><td className="px-4 py-3">{item.productTitle}</td><td className="px-4 py-3">{item.variantTitle || "-"}</td><td className="px-4 py-3">{item.sku || "-"}</td><td className="px-4 py-3">{item.quantity}</td><td className="px-4 py-3">{formatAmount(item.price, detail.order.currency)}</td></tr>
                               ))}
                             </tbody>
                           </table>
@@ -501,106 +400,21 @@ export function MerchantReviewPanel({
                   </Card>
 
                   <Card className="border-border/70">
-                    <CardHeader className="border-b border-border/50">
-                      <CardTitle>Review Capture Form</CardTitle>
-                      <CardDescription>
-                        Fill the customer review details after the merchant call and save the order review status.
-                      </CardDescription>
-                    </CardHeader>
+                    <CardHeader className="border-b border-border/50"><CardTitle>Review Capture Form</CardTitle><CardDescription>Fill the customer review details after the merchant call and save the order review status.</CardDescription></CardHeader>
                     <CardContent className="space-y-5 pt-6">
                       <div className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Review Status</label>
-                          <Select value={form.reviewStatus} onValueChange={(value) => setForm((current) => ({ ...current, reviewStatus: value as ReviewForm["reviewStatus"] }))}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Pending</SelectItem>
-                              <SelectItem value="reviewed">Reviewed</SelectItem>
-                              <SelectItem value="follow_up">Follow Up</SelectItem>
-                              <SelectItem value="no_response">No Response</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Customer Rating</label>
-                          <Select value={form.customerRating} onValueChange={(value) => setForm((current) => ({ ...current, customerRating: value }))}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none">Not given</SelectItem>
-                              <SelectItem value="1">1 Star</SelectItem>
-                              <SelectItem value="2">2 Stars</SelectItem>
-                              <SelectItem value="3">3 Stars</SelectItem>
-                              <SelectItem value="4">4 Stars</SelectItem>
-                              <SelectItem value="5">5 Stars</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium">Follow Up Needed</label>
-                          <Select value={form.followUpNeeded} onValueChange={(value) => setForm((current) => ({ ...current, followUpNeeded: value as ReviewForm["followUpNeeded"] }))}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="no">No</SelectItem>
-                              <SelectItem value="yes">Yes</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Review Status</label><Select value={form.reviewStatus} onValueChange={(value) => setForm((current) => ({ ...current, reviewStatus: value as ReviewForm["reviewStatus"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="follow_up">Follow Up</SelectItem><SelectItem value="no_response">No Response</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Customer Rating</label><Select value={form.customerRating} onValueChange={(value) => setForm((current) => ({ ...current, customerRating: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none">Not given</SelectItem><SelectItem value="1">1 Star</SelectItem><SelectItem value="2">2 Stars</SelectItem><SelectItem value="3">3 Stars</SelectItem><SelectItem value="4">4 Stars</SelectItem><SelectItem value="5">5 Stars</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Follow Up Needed</label><Select value={form.followUpNeeded} onValueChange={(value) => setForm((current) => ({ ...current, followUpNeeded: value as ReviewForm["followUpNeeded"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent></Select></div>
                       </div>
-
                       <div className="grid gap-5">
-                        <div className="space-y-2">
-                          <label className="flex items-center gap-2 text-sm font-medium">
-                            <MessageSquare className="size-4 text-primary" />
-                            Customer Feedback
-                          </label>
-                          <Textarea
-                            value={form.customerFeedback}
-                            onChange={(event) => setForm((current) => ({ ...current, customerFeedback: event.target.value }))}
-                            placeholder="What did the customer say about the order, service, or overall experience?"
-                            className="min-h-28"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="flex items-center gap-2 text-sm font-medium">
-                            <ShoppingBag className="size-4 text-primary" />
-                            Item Feedback
-                          </label>
-                          <Textarea
-                            value={form.itemFeedback}
-                            onChange={(event) => setForm((current) => ({ ...current, itemFeedback: event.target.value }))}
-                            placeholder="Mention which items the customer liked, disliked, or asked about."
-                            className="min-h-24"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="flex items-center gap-2 text-sm font-medium">
-                            <Star className="size-4 text-primary" />
-                            Merchant Notes
-                          </label>
-                          <Textarea
-                            value={form.merchantNotes}
-                            onChange={(event) => setForm((current) => ({ ...current, merchantNotes: event.target.value }))}
-                            placeholder="Internal notes for the team, next steps, promises made, or callback reminders."
-                            className="min-h-24"
-                          />
-                        </div>
+                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><MessageSquare className="size-4 text-primary" />Customer Feedback</label><Textarea value={form.customerFeedback} onChange={(event) => setForm((current) => ({ ...current, customerFeedback: event.target.value }))} placeholder="What did the customer say about the order, service, or overall experience?" className="min-h-28" /></div>
+                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><ShoppingBag className="size-4 text-primary" />Item Feedback</label><Textarea value={form.itemFeedback} onChange={(event) => setForm((current) => ({ ...current, itemFeedback: event.target.value }))} placeholder="Mention which items the customer liked, disliked, or asked about." className="min-h-24" /></div>
+                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><Star className="size-4 text-primary" />Merchant Notes</label><Textarea value={form.merchantNotes} onChange={(event) => setForm((current) => ({ ...current, merchantNotes: event.target.value }))} placeholder="Internal notes for the team, next steps, promises made, or callback reminders." className="min-h-24" /></div>
                       </div>
-
                       <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-muted-foreground text-sm">
-                          {detail.review?.updatedAt
-                            ? `Last saved ${formatDateTime(detail.review.updatedAt)}`
-                            : "No review saved for this order yet."}
-                        </p>
-                        <Button onClick={() => void saveReview()} disabled={saving}>
-                          {saving ? "Saving..." : "Save Review"}
-                        </Button>
+                        <p className="text-muted-foreground text-sm">{detail.review?.updatedAt ? `Last saved ${formatDateTime(detail.review.updatedAt)}` : "No review saved for this order yet."}</p>
+                        <Button onClick={() => void saveReview()} disabled={saving}>{saving ? "Saving..." : "Save Review"}</Button>
                       </div>
                     </CardContent>
                   </Card>

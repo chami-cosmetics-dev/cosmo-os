@@ -38,6 +38,8 @@ model Company {
   stickerBatches         StickerBatch[]
   stickerBatchItems      StickerBatchItem[]
   merchantOrderReviews   MerchantOrderReview[]
+  orderExchanges         OrderExchange[]
+  orderReturns           OrderReturn[]
   smsLogs                SmsLog[]
   smsNotificationConfigs SmsNotificationConfig[]
   smsPortalConfig        SmsPortalConfig?
@@ -49,22 +51,22 @@ model Company {
 }
 
 model FailedOrderWebhook {
-  id                String          @id @default(cuid())
-  companyId         String
-  companyLocationId String
-  shopifyOrderId    String
-  shopifyTopic      String?
-  errorMessage      String
-  errorStack        String?
-  rawPayload        Json
-  autoRetryCount    Int             @default(0)
-  lastAutoRetryAt   DateTime?
-  nextAutoRetryAt   DateTime?
+  id                  String          @id @default(cuid())
+  companyId           String
+  companyLocationId   String
+  shopifyOrderId      String
+  shopifyTopic        String?
+  errorMessage        String
+  errorStack          String?
+  rawPayload          Json
+  autoRetryCount      Int             @default(0)
+  lastAutoRetryAt     DateTime?
+  nextAutoRetryAt     DateTime?
   retryLeaseExpiresAt DateTime?
-  resolvedAt        DateTime?
-  createdAt         DateTime        @default(now())
-  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  resolvedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  company             Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation     CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
 
   @@index([companyId, resolvedAt, createdAt(sort: Desc)])
   @@index([companyId, createdAt(sort: Desc)])
@@ -192,6 +194,9 @@ model User {
   ordersDeliveryCompleteBy        Order[]                @relation("OrderDeliveryCompleteBy")
   ordersDispatchedBy              Order[]                @relation("OrderDispatchedBy")
   dispatchedOrders                Order[]                @relation("OrderDispatchedByRider")
+  exchangeActions                 OrderExchange[]        @relation("OrderExchangeActionBy")
+  exchangeCreated                 OrderExchange[]        @relation("OrderExchangeCreatedBy")
+  exchangeMerchantAssignments     OrderExchange[]        @relation("OrderExchangeMerchantUser")
   ordersInvoiceCompleteBy         Order[]                @relation("OrderInvoiceCompleteBy")
   ordersLastPrintedBy             Order[]                @relation("OrderLastPrintedBy")
   ordersPackageReadyBy            Order[]                @relation("OrderPackageReadyBy")
@@ -200,14 +205,18 @@ model User {
   orderSampleFreeIssuesAdded      OrderSampleFreeIssue[]
   smsLogs                         SmsLog[]
   company                         Company?               @relation("CompanyMembers", fields: [companyId], references: [id])
-  deliveryPayments               DeliveryPayment[]
-  mobileSessions                 RiderMobileSession[]
-  merchantOrderReviews           MerchantOrderReview[]  @relation("MerchantOrderReviewUser")
-  complaintsCreated              Complaint[]            @relation("ComplaintCreatedBy")
-  complaintsResolved             Complaint[]            @relation("ComplaintResolvedBy")
-  receivedCashHandovers          RiderCashHandover[]     @relation("RiderCashHandoverReceivedBy")
-  riderCashHandovers             RiderCashHandover[]     @relation("RiderCashHandovers")
-  riderDeliveryTasks             RiderDeliveryTask[]
+  deliveryPayments                DeliveryPayment[]
+  mobileSessions                  RiderMobileSession[]
+  merchantOrderReviews            MerchantOrderReview[]  @relation("MerchantOrderReviewUser")
+  merchantOrderReturns            OrderReturn[]          @relation("OrderReturnMerchantUser")
+  orderReturnsActioned            OrderReturn[]          @relation("OrderReturnActionBy")
+  orderReturnsMarked              OrderReturn[]          @relation("OrderReturnReturnedBy")
+  orderReturnsRidden              OrderReturn[]          @relation("OrderReturnRider")
+  complaintsCreated               Complaint[]            @relation("ComplaintCreatedBy")
+  complaintsResolved              Complaint[]            @relation("ComplaintResolvedBy")
+  receivedCashHandovers           RiderCashHandover[]    @relation("RiderCashHandoverReceivedBy")
+  riderCashHandovers              RiderCashHandover[]    @relation("RiderCashHandovers")
+  riderDeliveryTasks              RiderDeliveryTask[]
   userRoles                       UserRole[]
 }
 
@@ -303,11 +312,11 @@ model Order {
   financialStatus              String?
   fulfillmentStatus            String?
   /// Shopify `payment_gateway_names` (deduped, trimmed). Empty when unknown.
-  paymentGatewayNames          String[]                 @default([])
+  paymentGatewayNames          String[]               @default([])
   /// First gateway in `paymentGatewayNames` — used for aggregates (one amount per order).
   paymentGatewayPrimary        String?
-  deliveryOutcome             DeliveryOutcome?
-  deliveryFailedReason        String?
+  deliveryOutcome              DeliveryOutcome?
+  deliveryFailedReason         String?
   customerEmail                String?
   customerPhone                String?
   shippingAddress              Json?
@@ -343,7 +352,7 @@ model Order {
   company                      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation              CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
   customer                     Customer?              @relation(fields: [customerId], references: [id])
-  deliveryPayment             DeliveryPayment?
+  deliveryPayment              DeliveryPayment?
   deliveryCompleteBy           User?                  @relation("OrderDeliveryCompleteBy", fields: [deliveryCompleteById], references: [id])
   dispatchedByCourierService   CourierService?        @relation(fields: [dispatchedByCourierServiceId], references: [id])
   dispatchedBy                 User?                  @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id])
@@ -354,9 +363,12 @@ model Order {
   packageReadyBy               User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy    User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
   lineItems                    OrderLineItem[]
+  exchangesAsOriginal          OrderExchange[]        @relation("OrderExchangeOriginalOrder")
+  exchangesAsReplacement       OrderExchange[]        @relation("OrderExchangeReplacementOrder")
   remarks                      OrderRemark[]
-  riderDeliveryTask           RiderDeliveryTask?
-  merchantReview             MerchantOrderReview?
+  riderDeliveryTask            RiderDeliveryTask?
+  merchantReview               MerchantOrderReview?
+  returns                      OrderReturn[]
   sampleFreeIssues             OrderSampleFreeIssue[]
 
   @@index([companyId, createdAt(sort: Desc)])
@@ -390,61 +402,125 @@ model MerchantOrderReview {
   @@index([companyId, merchantUserId, reviewStatus, updatedAt(sort: Desc)])
 }
 
+model OrderReturn {
+  id                  String                  @id @default(cuid())
+  companyId           String
+  orderId             String
+  merchantUserId      String?
+  dispatchedAt        DateTime
+  returnDate          DateTime
+  shippingServiceType String
+  shippingServiceName String
+  riderId             String?
+  courierServiceId    String?
+  actionStatus        OrderReturnActionStatus @default(pending)
+  actionType          String?
+  actionRemark        String?
+  actionDate          DateTime?
+  returnedById        String?
+  actionById          String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  company             Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order               Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  merchantUser        User?                   @relation("OrderReturnMerchantUser", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  returnedBy          User?                   @relation("OrderReturnReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+  actionBy            User?                   @relation("OrderReturnActionBy", fields: [actionById], references: [id], onDelete: SetNull)
+  rider               User?                   @relation("OrderReturnRider", fields: [riderId], references: [id], onDelete: SetNull)
+  courierService      CourierService?         @relation(fields: [courierServiceId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, returnDate(sort: Desc)])
+  @@index([companyId, merchantUserId, actionStatus, returnDate(sort: Desc)])
+  @@index([orderId, createdAt(sort: Desc)])
+}
+
+model OrderExchange {
+  id                   String              @id @default(cuid())
+  companyId            String
+  originalOrderId      String?
+  replacementOrderId   String?
+  merchantUserId       String?
+  originalReference    String
+  replacementReference String
+  customerName         String?
+  customerEmail        String?
+  customerPhone        String?
+  reason               OrderExchangeReason
+  status               OrderExchangeStatus @default(pending)
+  remark               String?
+  actionDate           DateTime?
+  createdById          String?
+  actionById           String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  company              Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  originalOrder        Order?              @relation("OrderExchangeOriginalOrder", fields: [originalOrderId], references: [id], onDelete: SetNull)
+  replacementOrder     Order?              @relation("OrderExchangeReplacementOrder", fields: [replacementOrderId], references: [id], onDelete: SetNull)
+  merchantUser         User?               @relation("OrderExchangeMerchantUser", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  createdBy            User?               @relation("OrderExchangeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  actionBy             User?               @relation("OrderExchangeActionBy", fields: [actionById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, merchantUserId, status, createdAt(sort: Desc)])
+  @@index([companyId, originalReference])
+  @@index([companyId, replacementReference])
+}
+
 model RiderMobileSession {
-  id             String                    @id @default(cuid())
-  userId         String
-  tokenHash      String                    @unique
-  status         RiderMobileSessionStatus  @default(active)
-  deviceName     String?
-  expiresAt      DateTime
-  lastUsedAt     DateTime?
-  revokedAt      DateTime?
-  createdAt      DateTime                  @default(now())
-  updatedAt      DateTime                  @updatedAt
-  user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String                   @id @default(cuid())
+  userId     String
+  tokenHash  String                   @unique
+  status     RiderMobileSessionStatus @default(active)
+  deviceName String?
+  expiresAt  DateTime
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime                 @default(now())
+  updatedAt  DateTime                 @updatedAt
+  user       User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, expiresAt])
 }
 
 model RiderDeliveryTask {
-  id                  String                 @id @default(cuid())
-  orderId             String                 @unique
-  riderId             String
-  status              RiderDeliveryTaskStatus @default(assigned)
-  assignedAt          DateTime               @default(now())
-  acceptedAt          DateTime?
-  arrivedAt           DateTime?
-  completedAt         DateTime?
-  failedAt            DateTime?
-  failureReason       String?
-  latestSyncAt        DateTime?
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
-  order               Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  rider               User                   @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  id            String                  @id @default(cuid())
+  orderId       String                  @unique
+  riderId       String
+  status        RiderDeliveryTaskStatus @default(assigned)
+  assignedAt    DateTime                @default(now())
+  acceptedAt    DateTime?
+  arrivedAt     DateTime?
+  completedAt   DateTime?
+  failedAt      DateTime?
+  failureReason String?
+  latestSyncAt  DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  order         Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider         User                    @relation(fields: [riderId], references: [id], onDelete: Cascade)
 
   @@index([riderId, status, assignedAt(sort: Desc)])
 }
 
 model DeliveryPayment {
-  id                 String                   @id @default(cuid())
-  orderId            String                   @unique
-  riderId            String
-  cashHandoverId     String?
-  expectedAmount     Decimal                  @db.Decimal(12, 2)
-  collectedAmount    Decimal                  @db.Decimal(12, 2)
-  paymentMethod      DeliveryPaymentMethod
-  collectionStatus   DeliveryCollectionStatus
-  referenceNote      String?
-  bankReference      String?
-  cardReference      String?
-  collectedAt        DateTime?
-  idempotencyKey     String?                  @unique
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  cashHandover       RiderCashHandover?       @relation(fields: [cashHandoverId], references: [id], onDelete: SetNull)
-  order              Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  rider              User                     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  id               String                   @id @default(cuid())
+  orderId          String                   @unique
+  riderId          String
+  cashHandoverId   String?
+  expectedAmount   Decimal                  @db.Decimal(12, 2)
+  collectedAmount  Decimal                  @db.Decimal(12, 2)
+  paymentMethod    DeliveryPaymentMethod
+  collectionStatus DeliveryCollectionStatus
+  referenceNote    String?
+  bankReference    String?
+  cardReference    String?
+  collectedAt      DateTime?
+  idempotencyKey   String?                  @unique
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  cashHandover     RiderCashHandover?       @relation(fields: [cashHandoverId], references: [id], onDelete: SetNull)
+  order            Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider            User                     @relation(fields: [riderId], references: [id], onDelete: Cascade)
 
   @@index([cashHandoverId])
   @@index([riderId, collectedAt(sort: Desc)])
@@ -452,24 +528,24 @@ model DeliveryPayment {
 }
 
 model RiderCashHandover {
-  id                   String                    @id @default(cuid())
-  riderId              String
-  handoverDate         DateTime
-  submittedAt          DateTime                  @default(now())
-  receivedAt           DateTime?
-  receivedById         String?
-  status               RiderCashHandoverStatus   @default(submitted)
-  totalExpectedCash    Decimal                   @db.Decimal(12, 2)
-  totalHandedOverCash  Decimal                   @db.Decimal(12, 2)
-  varianceAmount       Decimal                   @db.Decimal(12, 2)
-  notes                String?
-  idempotencyKey       String?                   @unique
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
-  deliveryPayments     DeliveryPayment[]
-  rider                User                      @relation("RiderCashHandovers", fields: [riderId], references: [id], onDelete: Cascade)
-  receivedBy           User?                     @relation("RiderCashHandoverReceivedBy", fields: [receivedById], references: [id])
-  items                RiderCashHandoverItem[]
+  id                  String                  @id @default(cuid())
+  riderId             String
+  handoverDate        DateTime
+  submittedAt         DateTime                @default(now())
+  receivedAt          DateTime?
+  receivedById        String?
+  status              RiderCashHandoverStatus @default(submitted)
+  totalExpectedCash   Decimal                 @db.Decimal(12, 2)
+  totalHandedOverCash Decimal                 @db.Decimal(12, 2)
+  varianceAmount      Decimal                 @db.Decimal(12, 2)
+  notes               String?
+  idempotencyKey      String?                 @unique
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  deliveryPayments    DeliveryPayment[]
+  rider               User                    @relation("RiderCashHandovers", fields: [riderId], references: [id], onDelete: Cascade)
+  receivedBy          User?                   @relation("RiderCashHandoverReceivedBy", fields: [receivedById], references: [id])
+  items               RiderCashHandoverItem[]
 
   @@index([riderId, handoverDate(sort: Desc)])
 }
@@ -484,8 +560,8 @@ model RiderCashHandoverItem {
   handover          RiderCashHandover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
   companyLocation   CompanyLocation   @relation(fields: [companyLocationId], references: [id], onDelete: Restrict)
 
-  @@index([handoverId])
   @@unique([handoverId, companyLocationId])
+  @@index([handoverId])
 }
 
 model OrderLineItem {
@@ -640,13 +716,14 @@ model PackageHoldReason {
 }
 
 model CourierService {
-  id        String   @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orders    Order[]
+  id           String        @id @default(cuid())
+  companyId    String
+  name         String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orders       Order[]
+  orderReturns OrderReturn[]
 }
 
 model OrderRemark {
@@ -766,6 +843,7 @@ enum FulfillmentStage {
   order_received
   sample_free_issue
   print
+  returned_to_store
   ready_to_dispatch
   dispatched
   invoice_complete
@@ -798,6 +876,22 @@ enum DeliveryOutcome {
   pending
   delivered
   failed
+}
+
+enum OrderReturnActionStatus {
+  pending
+  solved
+}
+
+enum OrderExchangeReason {
+  damaged_item
+  wrong_item
+  other
+}
+
+enum OrderExchangeStatus {
+  pending
+  solved
 }
 
 enum RiderCashHandoverStatus {
@@ -834,16 +928,16 @@ enum EmployeeStatus {
 }
 
 model ContactMaster {
-  id             String    @id @default(cuid())
+  id             String         @id @default(cuid())
   companyId      String
   phoneNumber    String?
   email          String?
   name           String
   lastPurchaseAt DateTime?
   recentMerchant String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   emails         ContactEmail[]
   phones         ContactPhone[]
 
