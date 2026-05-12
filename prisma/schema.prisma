@@ -29,6 +29,7 @@ model Company {
   emailTemplates         EmailTemplate[]
   employeeProfiles       EmployeeProfile[]
   failedOrderWebhooks    FailedOrderWebhook[]
+  auditLogs              AuditLog[]
   invites                Invite[]
   orders                 Order[]
   packageHoldReasons     PackageHoldReason[]
@@ -218,6 +219,30 @@ model User {
   riderCashHandovers              RiderCashHandover[]    @relation("RiderCashHandovers")
   riderDeliveryTasks              RiderDeliveryTask[]
   userRoles                       UserRole[]
+  auditLogs                       AuditLog[]             @relation("AuditLogActor")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String?
+  actorUserId String?
+  module      String
+  action      String
+  entityType  String?
+  entityId    String?
+  summary     String
+  beforeData  Json?
+  afterData   Json?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actorUser   User?    @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, module, createdAt(sort: Desc)])
+  @@index([companyId, action, createdAt(sort: Desc)])
+  @@index([actorUserId])
+  @@index([entityType, entityId])
 }
 
 model CompanyLocation {
