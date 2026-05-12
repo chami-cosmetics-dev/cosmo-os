@@ -29,6 +29,7 @@ model Company {
   emailTemplates         EmailTemplate[]
   employeeProfiles       EmployeeProfile[]
   failedOrderWebhooks    FailedOrderWebhook[]
+  auditLogs              AuditLog[]
   invites                Invite[]
   orders                 Order[]
   packageHoldReasons     PackageHoldReason[]
@@ -40,6 +41,7 @@ model Company {
   merchantOrderReviews   MerchantOrderReview[]
   orderExchanges         OrderExchange[]
   orderReturns           OrderReturn[]
+  orderWaybills          OrderWaybill[]
   smsLogs                SmsLog[]
   smsNotificationConfigs SmsNotificationConfig[]
   smsPortalConfig        SmsPortalConfig?
@@ -218,6 +220,30 @@ model User {
   riderCashHandovers              RiderCashHandover[]    @relation("RiderCashHandovers")
   riderDeliveryTasks              RiderDeliveryTask[]
   userRoles                       UserRole[]
+  auditLogs                       AuditLog[]             @relation("AuditLogActor")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  companyId   String?
+  actorUserId String?
+  module      String
+  action      String
+  entityType  String?
+  entityId    String?
+  summary     String
+  beforeData  Json?
+  afterData   Json?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actorUser   User?    @relation("AuditLogActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, module, createdAt(sort: Desc)])
+  @@index([companyId, action, createdAt(sort: Desc)])
+  @@index([actorUserId])
+  @@index([entityType, entityId])
 }
 
 model CompanyLocation {
@@ -370,6 +396,7 @@ model Order {
   merchantReview               MerchantOrderReview?
   returns                      OrderReturn[]
   sampleFreeIssues             OrderSampleFreeIssue[]
+  waybills                     OrderWaybill[]
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
@@ -378,6 +405,26 @@ model Order {
   @@index([companyId, assignedMerchantId, createdAt(sort: Desc)])
   @@index([companyId, customerEmail, createdAt(sort: Desc)])
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
+}
+
+model OrderWaybill {
+  id            String         @id @default(cuid())
+  companyId     String
+  orderId       String
+  invoiceNumber String
+  waybillNo     String
+  courierName   String?
+  source        String         @default("manual")
+  uploadedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, waybillNo])
+  @@index([companyId, invoiceNumber])
+  @@index([companyId, orderId, createdAt(sort: Desc)])
+  @@index([companyId, createdAt(sort: Desc)])
 }
 
 model MerchantOrderReview {

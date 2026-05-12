@@ -33,22 +33,6 @@ function getOrderReference(order: { name: string | null; orderNumber: string | n
   return order.name ?? order.orderNumber ?? order.shopifyOrderId;
 }
 
-function buildItemName(
-  lineItems: Array<{
-    quantity: number;
-    productItem: { productTitle: string; variantTitle: string | null; sku: string | null };
-  }>
-) {
-  return lineItems
-    .map((item) => {
-      const title = [item.productItem.productTitle, item.productItem.variantTitle]
-        .filter(Boolean)
-        .join(" / ");
-      return item.quantity > 1 ? `${title} x ${item.quantity}` : title;
-    })
-    .join("; ");
-}
-
 function getFirstBarcode(
   lineItems: Array<{ productItem: { barcode: string | null } }>
 ) {
@@ -141,7 +125,7 @@ async function getCitypakWaybillRows(
       weightG: "500",
       reference,
       amount: getOrderAmount(order),
-      itemName: buildItemName(order.lineItems),
+      itemName: "Cosmetics",
       shortName: order.companyLocation.shortName ?? "",
       shopdropRef: reference,
       waybillNo: "",
