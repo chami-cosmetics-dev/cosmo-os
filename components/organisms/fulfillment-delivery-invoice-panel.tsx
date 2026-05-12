@@ -197,38 +197,40 @@ export function FulfillmentDeliveryInvoicePanel({
       </div>
 
       {perms.canMarkDelivered || perms.canMarkInvoiceComplete ? (
-        <div className="flex flex-wrap gap-2 rounded-md border border-border/70 p-3">
-          {perms.canMarkDelivered && (
-            <Button
-              onClick={() => doAction("mark_delivered")}
-              disabled={!orderId || isBusy || !canMarkDelivered}
-              className="gap-2"
-            >
-              {busyKey === "mark_delivered" ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Check className="size-4" aria-hidden />
-              )}
-              Mark Delivered
-            </Button>
-          )}
-          {perms.canMarkInvoiceComplete && (
-            <Button
-              variant="outline"
-              onClick={() => doAction("mark_invoice_complete")}
-              disabled={!orderId || isBusy || !canMarkInvoiceComplete}
-              className="border-border/70 bg-background/85 hover:bg-secondary/10"
-            >
-              {busyKey === "mark_invoice_complete" ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : null}
-              Mark Invoice Complete
-            </Button>
-          )}
+        <div className="space-y-3 rounded-md border border-border/70 p-3">
+          <div className="flex flex-wrap gap-2">
+            {perms.canMarkDelivered && (
+              <Button
+                onClick={() => doAction("mark_delivered")}
+                disabled={!orderId || isBusy || !canMarkDelivered}
+                className="gap-2"
+              >
+                {busyKey === "mark_delivered" ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="size-4" aria-hidden />
+                )}
+                Mark Delivered
+              </Button>
+            )}
+            {perms.canMarkInvoiceComplete && (
+              <Button
+                variant="outline"
+                onClick={() => doAction("mark_invoice_complete")}
+                disabled={!orderId || isBusy || !canMarkInvoiceComplete}
+                className="border-border/70 bg-background/85 hover:bg-secondary/10"
+              >
+                {busyKey === "mark_invoice_complete" ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : null}
+                Mark Invoice Complete
+              </Button>
+            )}
+          </div>
         </div>
       ) : (
         <p className="text-muted-foreground text-sm">
-          You do not have permission to mark delivery or invoice complete.
+          You do not have permission to update delivery or invoice status.
         </p>
       )}
     </div>
