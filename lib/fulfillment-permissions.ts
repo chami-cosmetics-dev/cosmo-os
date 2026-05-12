@@ -116,6 +116,7 @@ export type FulfillmentNavPermissions = {
   canViewReadyDispatch: boolean;
   canViewDeliveryInvoice: boolean;
   canViewFalconUpload: boolean;
+  canViewWaybillLookup: boolean;
 };
 
 export function buildFulfillmentNavPermissions(
@@ -128,6 +129,7 @@ export function buildFulfillmentNavPermissions(
       canViewReadyDispatch: false,
       canViewDeliveryInvoice: false,
       canViewFalconUpload: false,
+      canViewWaybillLookup: false,
     };
   }
   return {
@@ -136,5 +138,8 @@ export function buildFulfillmentNavPermissions(
     canViewReadyDispatch: hasPermission(context, "fulfillment.ready_dispatch.read"),
     canViewDeliveryInvoice: hasPermission(context, "fulfillment.delivery_invoice.read"),
     canViewFalconUpload: hasPermission(context, "fulfillment.falcon_upload.read"),
+    canViewWaybillLookup:
+      hasPermission(context, "fulfillment.delivery_invoice.read") ||
+      hasPermission(context, "fulfillment.falcon_upload.read"),
   };
 }
