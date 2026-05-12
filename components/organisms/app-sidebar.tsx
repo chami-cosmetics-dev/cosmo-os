@@ -20,6 +20,7 @@ import {
   FileText,
   History,
   MessageSquareWarning,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -59,6 +60,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
+  const canViewReturns = hasSidebarPermission("returns.read");
+  const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
@@ -113,7 +116,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     canViewSmsSettings ||
     canViewFulfillmentSettings;
   const canViewOrderManagement =
-    canViewOrders || canCreateManualOrder || Boolean(fulfillmentHref);
+    canViewOrders || canCreateManualOrder || canViewReturns || canViewExchanges || Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
   const canViewProductManagement = canViewProducts;
   const pathname = usePathname();
@@ -327,6 +330,32 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                       <Link href="/dashboard/orders">
                         <ShoppingCart className="size-4" />
                         <span>Orders</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {canViewReturns && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === "/dashboard/returns"}
+                    >
+                      <Link href="/dashboard/returns">
+                        <PackageCheck className="size-4" />
+                        <span>Returned Orders</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {canViewExchanges && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === "/dashboard/exchanges"}
+                    >
+                      <Link href="/dashboard/exchanges">
+                        <RefreshCw className="size-4" />
+                        <span>Exchanges</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

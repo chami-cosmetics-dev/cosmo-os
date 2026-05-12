@@ -29,6 +29,29 @@ export type MerchantReviewSheetData = {
     followUp: number;
     noResponse: number;
   };
+  returns: MerchantReturnQueueItem[];
+  returnCounts: {
+    all: number;
+    pending: number;
+    solved: number;
+  };
+};
+
+export type MerchantReturnQueueItem = {
+  id: string;
+  orderId: string;
+  invoiceNo: string;
+  merchant: { id: string; name: string | null; email: string | null } | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  shippingService: string;
+  dispatchedAt: string;
+  returnDate: string;
+  dayCount: number;
+  actionDate: string | null;
+  actionRemark: string | null;
+  actionStatus: "pending" | "solved";
 };
 
 function pickCustomerName(order: {
@@ -47,6 +70,63 @@ function pickCustomerName(order: {
     }
   }
   return order.name;
+}
+
+function isMissingOrderReturnTableError(error: unknown) {
+  const meta = error && typeof error === "object" && "meta" in error
+    ? (error as { meta?: { modelName?: unknown; table?: unknown } }).meta
+    : null;
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "P2021" &&
+      (meta?.modelName === "OrderReturn" || String(meta?.table ?? "").includes("OrderReturn"))
+  );
+}
+
+async function listReturnedOrders(input: {
+  companyId: string;
+  viewerUserId: string;
+  canManage: boolean;
+}) {
+  try {
+    return await prisma.orderReturn.findMany({
+      where: {
+        companyId: input.companyId,
+        ...(input.canManage ? {} : { merchantUserId: input.viewerUserId }),
+      },
+      orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
+      take: 200,
+      select: {
+        id: true,
+        orderId: true,
+        dispatchedAt: true,
+        returnDate: true,
+        shippingServiceName: true,
+        actionStatus: true,
+        actionRemark: true,
+        actionDate: true,
+        merchantUser: { select: { id: true, name: true, email: true } },
+        order: {
+          select: {
+            orderNumber: true,
+            name: true,
+            shopifyOrderId: true,
+            customerEmail: true,
+            customerPhone: true,
+            shippingAddress: true,
+            customer: { select: { firstName: true, lastName: true } },
+          },
+        },
+      },
+    });
+  } catch (error) {
+    if (isMissingOrderReturnTableError(error)) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 export async function fetchMerchantReviewSheetData(input: {
@@ -86,6 +166,7 @@ export async function fetchMerchantReviewSheetData(input: {
   });
 
   const reviews = await listMerchantOrderReviewsByOrderIds(orders.map((order) => order.id));
+  const returns = await listReturnedOrders(input);
 
   const items: MerchantReviewQueueItem[] = orders.map((order) => {
     const review = reviews.get(order.id);
@@ -118,11 +199,42 @@ export async function fetchMerchantReviewSheetData(input: {
     { all: 0, pending: 0, reviewed: 0, followUp: 0, noResponse: 0 }
   );
 
+  const returnItems: MerchantReturnQueueItem[] = returns.map((item) => ({
+    id: item.id,
+    orderId: item.orderId,
+    invoiceNo: item.order.orderNumber ?? item.order.name ?? item.order.shopifyOrderId,
+    merchant: item.merchantUser,
+    customerName: pickCustomerName({
+      customer: item.order.customer,
+      shippingAddress: item.order.shippingAddress,
+      name: item.order.name,
+    }),
+    customerEmail: item.order.customerEmail,
+    customerPhone: item.order.customerPhone,
+    shippingService: item.shippingServiceName,
+    dispatchedAt: item.dispatchedAt.toISOString(),
+    returnDate: item.returnDate.toISOString(),
+    dayCount: Math.max(0, Math.ceil((item.returnDate.getTime() - item.dispatchedAt.getTime()) / 86_400_000)),
+    actionDate: item.actionDate?.toISOString() ?? null,
+    actionRemark: item.actionRemark,
+    actionStatus: item.actionStatus,
+  }));
+
+  const returnCounts = returnItems.reduce(
+    (acc, item) => {
+      acc.all += 1;
+      if (item.actionStatus === "solved") acc.solved += 1;
+      else acc.pending += 1;
+      return acc;
+    },
+    { all: 0, pending: 0, solved: 0 }
+  );
+
   maybeLogSlowDbRequest("merchant_reviews.page_data", startedAt, {
     companyId: input.companyId,
     viewerUserId: input.viewerUserId,
     total: items.length,
   });
 
-  return { orders: items, counts } satisfies MerchantReviewSheetData;
+  return { orders: items, counts, returns: returnItems, returnCounts } satisfies MerchantReviewSheetData;
 }
