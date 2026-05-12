@@ -68,6 +68,22 @@ const DEFAULT_PERMISSIONS = [
     description: "Create manual (non-Shopify) orders from the item master",
   },
   {
+    key: "returns.read",
+    description: "View returned order tracking",
+  },
+  {
+    key: "returns.manage",
+    description: "Update returned order tracking",
+  },
+  {
+    key: "exchanges.read",
+    description: "View exchange order tracking",
+  },
+  {
+    key: "exchanges.manage",
+    description: "Create and update exchange order tracking",
+  },
+  {
     key: "orders.view_timeline",
     description: "View order fulfillment timeline in modal",
   },
@@ -295,6 +311,10 @@ const DEFAULT_ROLES = [
       "orders.read",
       "orders.manage",
       "orders.create_manual",
+      "returns.read",
+      "returns.manage",
+      "exchanges.read",
+      "exchanges.manage",
       "orders.view_timeline",
       "failed_webhooks.read",
       "failed_webhooks.retry",
@@ -352,6 +372,8 @@ const DEFAULT_ROLES = [
       "roles.read",
       "products.read",
       "orders.read",
+      "returns.read",
+      "exchanges.read",
       "orders.view_timeline",
       "stickers.batch.read",
       "stickers.print.read",
