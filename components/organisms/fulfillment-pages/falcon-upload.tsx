@@ -330,13 +330,30 @@ export function FalconUploadFulfillmentPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((order) => (
-                  <tr key={order.id} className="border-b border-border/50 last:border-0">
+                {filteredOrders.map((order) => {
+                  const isSelected = selectedOrderIds.has(order.id);
+
+                  return (
+                  <tr
+                    key={order.id}
+                    tabIndex={0}
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    className="cursor-pointer border-b border-border/50 outline-none transition-colors last:border-0 hover:bg-muted/40 focus-visible:bg-muted/50"
+                    onClick={() => toggleOrder(order.id, !isSelected)}
+                    onKeyDown={(event) => {
+                      if (event.key === " " || event.key === "Enter") {
+                        event.preventDefault();
+                        toggleOrder(order.id, !isSelected);
+                      }
+                    }}
+                  >
                     <td className="px-3 py-2">
                       <input
                         type="checkbox"
-                        checked={selectedOrderIds.has(order.id)}
+                        checked={isSelected}
                         onChange={(event) => toggleOrder(order.id, event.target.checked)}
+                        onClick={(event) => event.stopPropagation()}
                         className="size-4 rounded border-border"
                         aria-label={`Select order ${order.reference}`}
                       />
@@ -347,7 +364,8 @@ export function FalconUploadFulfillmentPage() {
                     <td className="px-3 py-2 text-muted-foreground">{order.receiverCity || "-"}</td>
                     <td className="px-3 py-2 text-right">{order.amount || "0"}</td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!countState.loading && filteredOrders.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
