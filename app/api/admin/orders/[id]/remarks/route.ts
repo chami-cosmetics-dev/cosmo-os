@@ -12,6 +12,7 @@ const createRemarkSchema = z.object({
     "order_received",
     "sample_free_issue",
     "print",
+    "returned_to_store",
     "ready_to_dispatch",
     "dispatched",
     "invoice_complete",

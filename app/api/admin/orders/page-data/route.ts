@@ -59,6 +59,11 @@ export async function GET(request: NextRequest) {
       : sampleSendLaterParam === "available"
         ? "available"
         : undefined;
+  const returnFilterParam = searchParams.get("return_filter");
+  const returnFilter =
+    returnFilterParam === "normal" || returnFilterParam === "rearrange"
+      ? returnFilterParam
+      : undefined;
 
   const data = await fetchOrdersPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
@@ -74,6 +79,7 @@ export async function GET(request: NextRequest) {
     createdTo: createdToResult.success ? createdToResult.data : undefined,
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
     sampleSendLater,
+    returnFilter,
   });
   perf.mark("query");
 

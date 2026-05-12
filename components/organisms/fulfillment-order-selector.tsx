@@ -56,6 +56,7 @@ interface FulfillmentOrderSelectorProps {
   bulkPrintUnprinted?: boolean;
   showEmptyWorksheet?: boolean;
   allowFutureSendLater?: boolean;
+  returnFilter?: "normal" | "rearrange";
   children?: React.ReactNode;
 }
 
@@ -75,6 +76,7 @@ export function FulfillmentOrderSelector({
   bulkPrintUnprinted = false,
   showEmptyWorksheet = false,
   allowFutureSendLater = false,
+  returnFilter,
   children,
 }: FulfillmentOrderSelectorProps) {
   const [orders, setOrders] = useState<FulfillmentOrder[]>([]);
@@ -104,6 +106,9 @@ export function FulfillmentOrderSelector({
     if (allowFutureSendLater) {
       params.set("sample_send_later", showFutureSendLater ? "future" : "available");
     }
+    if (returnFilter) {
+      params.set("return_filter", returnFilter);
+    }
     if (effectiveSearch) params.set("search", effectiveSearch);
     const res = await fetch(`/api/admin/orders/page-data?${params}`);
     if (!res.ok) {
@@ -119,7 +124,7 @@ export function FulfillmentOrderSelector({
     setOrders(data.orders ?? []);
     setTotal(data.total ?? 0);
     setLoading(false);
-  }, [allowFutureSendLater, effectiveSearch, showFutureSendLater, stages, page, limit]);
+  }, [allowFutureSendLater, effectiveSearch, returnFilter, showFutureSendLater, stages, page, limit]);
 
   useEffect(() => {
     let cancelled = false;

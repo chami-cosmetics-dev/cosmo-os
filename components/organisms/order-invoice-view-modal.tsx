@@ -40,6 +40,7 @@ const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
   sample_free_issue: "Sample/Free Issue",
   print: "Print",
+  returned_to_store: "Returned to Store",
   ready_to_dispatch: "Ready to Dispatch",
   dispatched: "Dispatched",
   invoice_complete: "Invoice Complete",
@@ -107,6 +108,20 @@ type OrderDetail = {
     createdAt?: string;
     addedBy?: UserRef;
   }>;
+  returns?: Array<{
+    id: string;
+    reason: string;
+    returnDate: string;
+    dispatchedAt: string;
+    shippingServiceType: string;
+    shippingServiceName: string;
+    actionStatus: "pending" | "solved";
+    actionRemark: string | null;
+    actionDate: string | null;
+    createdAt: string;
+    returnedBy: UserRef;
+    actionBy: UserRef;
+  }>;
   remarks?: Array<{
     id: string;
     stage: string;
@@ -147,6 +162,7 @@ const FULFILLMENT_STAGE_ORDER = [
   "order_received",
   "sample_free_issue",
   "print",
+  "returned_to_store",
   "ready_to_dispatch",
   "dispatched",
   "delivery_complete",
@@ -155,6 +171,18 @@ const FULFILLMENT_STAGE_ORDER = [
 
 function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
+}
+
+function formatDateOnly(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-LK", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(date);
 }
 
 type TimelineItem = {
@@ -624,6 +652,58 @@ export function OrderInvoiceViewModal({
                 </div>
               </div>
             </details>
+
+            {orderDetail.returns && orderDetail.returns.length > 0 && (
+              <div className="rounded-lg border p-4">
+                <h4 className="mb-3 flex items-center gap-2 text-sm font-medium">
+                  <RotateCcw className="size-4" />
+                  Returned Orders
+                </h4>
+                <div className="space-y-3 text-sm">
+                  {orderDetail.returns.map((item) => (
+                    <div key={item.id} className="rounded-md border border-dashed p-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <span className="text-muted-foreground text-xs">Reason</span>
+                          <p className="font-medium">{item.reason}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Marked returned by</span>
+                          <p>{userName(item.returnedBy)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Return date</span>
+                          <p>{formatDateOnly(item.returnDate)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">System recorded date/time</span>
+                          <p>{formatDate(item.createdAt)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Original dispatch date/time</span>
+                          <p>{formatDate(item.dispatchedAt)}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground text-xs">Shipping service</span>
+                          <p>{item.shippingServiceName || item.shippingServiceType}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3 border-t pt-3">
+                        <span className="text-muted-foreground text-xs">Sales action</span>
+                        <p className="mt-0.5">
+                          {item.actionStatus === "solved" ? "Solved" : "Pending"}
+                          {item.actionBy ? ` by ${userName(item.actionBy)}` : ""}
+                          {item.actionDate ? ` on ${formatDate(item.actionDate)}` : ""}
+                        </p>
+                        {item.actionRemark && (
+                          <p className="mt-1 text-muted-foreground">{item.actionRemark}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Remarks */}
             {orderDetail.remarks && orderDetail.remarks.length > 0 && (

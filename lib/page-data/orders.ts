@@ -23,6 +23,7 @@ export type OrdersPageParams = {
   /** Match orders whose `paymentGatewayNames` contains this string (Shopify gateway name). */
   paymentGateway?: string | null;
   sampleSendLater?: "available" | "future" | "all";
+  returnFilter?: "normal" | "rearrange";
 };
 
 function startOfTomorrowUtc() {
@@ -152,6 +153,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     "order_received",
     "sample_free_issue",
     "print",
+    "returned_to_store",
     "ready_to_dispatch",
     "dispatched",
     "invoice_complete",
@@ -195,6 +197,12 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       ...(params.createdFrom ? { gte: params.createdFrom } : {}),
       ...(params.createdTo ? { lte: params.createdTo } : {}),
     };
+  }
+
+  if (params.returnFilter === "rearrange") {
+    where.returns = { some: { actionType: "rearrange" } };
+  } else if (params.returnFilter === "normal") {
+    where.returns = { none: {} };
   }
 
   const orderSelect = {

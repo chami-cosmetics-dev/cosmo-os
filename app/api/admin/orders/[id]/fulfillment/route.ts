@@ -117,6 +117,7 @@ const FULFILLMENT_STAGE_ORDER: FulfillmentStage[] = [
   "order_received",
   "sample_free_issue",
   "print",
+  "returned_to_store",
   "ready_to_dispatch",
   "dispatched",
   "delivery_complete",
@@ -215,6 +216,8 @@ export async function PATCH(
   const order = await prisma.order.findFirst({
     where: { id: idResult.data, companyId },
     include: {
+      dispatchedByCourierService: true,
+      dispatchedByRider: true,
       packageHoldReason: true,
       sampleFreeIssues: true,
     },

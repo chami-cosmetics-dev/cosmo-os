@@ -53,8 +53,7 @@ export function FulfillmentDispatchPanel({
   } | null>(null);
   const [packageStatus, setPackageStatus] = useState<OrderPackageStatus | null>(null);
   const [holdReasonId, setHoldReasonId] = useState("");
-  const [dispatchRiderId, setDispatchRiderId] = useState("");
-  const [dispatchCourierId, setDispatchCourierId] = useState("");
+  const [dispatchService, setDispatchService] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [detail, setDetail] = useState<DispatchOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -110,8 +109,7 @@ export function FulfillmentDispatchPanel({
       }
       notify.success("Updated.");
       setHoldReasonId("");
-      setDispatchRiderId("");
-      setDispatchCourierId("");
+      setDispatchService("");
       if (action === "dispatch") {
         onRefresh(true);
         return;
@@ -159,6 +157,16 @@ export function FulfillmentDispatchPanel({
 
   const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
+  const selectedDispatchService = dispatchService
+    ? {
+        type: dispatchService.startsWith("rider:")
+          ? "rider"
+          : dispatchService.startsWith("courier:")
+            ? "courier"
+            : null,
+        id: dispatchService.split(":").slice(1).join(":"),
+      }
+    : null;
 
   return (
     <div className="space-y-4">
@@ -286,42 +294,40 @@ export function FulfillmentDispatchPanel({
             {isPackageReady && perms.canDispatch ? (
               <>
                 <select
-                  value={dispatchRiderId}
-                  onChange={(e) => {
-                    setDispatchRiderId(e.target.value);
-                    setDispatchCourierId("");
-                  }}
+                  value={dispatchService}
+                  onChange={(e) => setDispatchService(e.target.value)}
                   disabled={!orderId}
-                  className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+                  className="h-9 w-[240px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                 >
-                  <option value="">Select rider</option>
-                  {lookups.riders.map((rider) => (
-                    <option key={rider.id} value={rider.id}>{rider.name ?? rider.mobile ?? rider.id}</option>
-                  ))}
-                </select>
-                <select
-                  value={dispatchCourierId}
-                  onChange={(e) => {
-                    setDispatchCourierId(e.target.value);
-                    setDispatchRiderId("");
-                  }}
-                  disabled={!orderId}
-                  className="h-9 w-[180px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                >
-                  <option value="">Or courier</option>
-                  {lookups.courierServices.map((courier) => (
-                    <option key={courier.id} value={courier.id}>{courier.name}</option>
-                  ))}
+                  <option value="">Select rider or courier</option>
+                  {lookups.riders.length > 0 && (
+                    <optgroup label="Riders">
+                      {lookups.riders.map((rider) => (
+                        <option key={rider.id} value={`rider:${rider.id}`}>
+                          {rider.name ?? rider.mobile ?? rider.id}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {lookups.courierServices.length > 0 && (
+                    <optgroup label="Courier services">
+                      {lookups.courierServices.map((courier) => (
+                        <option key={courier.id} value={`courier:${courier.id}`}>
+                          {courier.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <Button
                   onClick={() =>
                     doAction("dispatch", {
                       action: "dispatch",
-                      riderId: dispatchRiderId || undefined,
-                      courierServiceId: dispatchCourierId || undefined,
+                      riderId: selectedDispatchService?.type === "rider" ? selectedDispatchService.id : undefined,
+                      courierServiceId: selectedDispatchService?.type === "courier" ? selectedDispatchService.id : undefined,
                     })
                   }
-                  disabled={!orderId || isBusy || (!dispatchRiderId && !dispatchCourierId)}
+                  disabled={!orderId || isBusy || !selectedDispatchService?.id}
                   className="gap-2"
                 >
                   {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}

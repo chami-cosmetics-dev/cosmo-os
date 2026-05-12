@@ -48,6 +48,7 @@ const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
   sample_free_issue: "Sample/Free Issue",
   print: "Print",
+  returned_to_store: "Returned to Store",
   ready_to_dispatch: "Ready to Dispatch",
   dispatched: "Dispatched",
   invoice_complete: "Invoice Complete",
