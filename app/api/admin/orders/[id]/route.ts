@@ -56,6 +56,22 @@ const orderSelect = {
       addedBy: { select: { id: true, name: true, email: true } },
     },
   },
+  returns: {
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      returnDate: true,
+      dispatchedAt: true,
+      shippingServiceType: true,
+      shippingServiceName: true,
+      actionStatus: true,
+      actionRemark: true,
+      actionDate: true,
+      createdAt: true,
+      returnedBy: { select: { id: true, name: true, email: true } },
+      actionBy: { select: { id: true, name: true, email: true } },
+    },
+  },
   remarks: {
     orderBy: { createdAt: "desc" },
     include: { addedBy: { select: { id: true, name: true, email: true } } },
@@ -242,6 +258,24 @@ export async function GET(
       quantity: s.quantity,
       createdAt: s.createdAt.toISOString(),
       addedBy: s.addedBy ? { id: s.addedBy.id, name: s.addedBy.name, email: s.addedBy.email } : null,
+    })),
+    returns: details.returns.map((r) => ({
+      id: r.id,
+      reason: "Returned Orders",
+      returnDate: r.returnDate.toISOString(),
+      dispatchedAt: r.dispatchedAt.toISOString(),
+      shippingServiceType: r.shippingServiceType,
+      shippingServiceName: r.shippingServiceName,
+      actionStatus: r.actionStatus,
+      actionRemark: r.actionRemark,
+      actionDate: r.actionDate?.toISOString() ?? null,
+      createdAt: r.createdAt.toISOString(),
+      returnedBy: r.returnedBy
+        ? { id: r.returnedBy.id, name: r.returnedBy.name, email: r.returnedBy.email }
+        : null,
+      actionBy: r.actionBy
+        ? { id: r.actionBy.id, name: r.actionBy.name, email: r.actionBy.email }
+        : null,
     })),
     remarks: details.remarks.map((r) => ({
       id: r.id,
