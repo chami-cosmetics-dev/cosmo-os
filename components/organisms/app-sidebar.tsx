@@ -101,6 +101,10 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
       permission: "fulfillment.delivery_invoice.read",
     },
     {
+      href: "/dashboard/fulfillment/waybill-lookup",
+      permission: "fulfillment.delivery_invoice.read",
+    },
+    {
       href: "/dashboard/fulfillment/falcon-upload",
       permission: "fulfillment.falcon_upload.read",
     },
@@ -127,7 +131,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
       className="border-r border-sidebar-border/80 shadow-[14px_0_38px_-22px_var(--dashboard-shell-shadow)] [&_[data-sidebar=sidebar]]:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.92),transparent_26%),radial-gradient(circle_at_bottom_left,rgba(125,88,200,0.18),transparent_34%),linear-gradient(180deg,var(--dashboard-sidebar-start),var(--dashboard-sidebar-middle),var(--dashboard-sidebar-end))] dark:[&_[data-sidebar=sidebar]]:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(162,122,221,0.18),transparent_32%),linear-gradient(180deg,var(--dashboard-sidebar-start),var(--dashboard-sidebar-middle),var(--dashboard-sidebar-end))]"
     >
       <SidebarHeader>
-        <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:border-transparent group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:shadow-none group-data-[collapsible=icon]:px-0 dark:border-white/10 dark:bg-white/6">
+        <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:rounded-xl group-data-[collapsible=icon]:border-white/10 group-data-[collapsible=icon]:bg-white/6 group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:shadow-none dark:border-white/10 dark:bg-white/6">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
           <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
             Cosmo OS (Beta) v{packageJson.version}
@@ -139,14 +143,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
             aria-label="Open sidebar"
             aria-expanded={state === "expanded"}
           >
-            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-sm border border-sidebar-border bg-primary text-[10px] font-semibold text-primary-foreground shadow-sm transition-transform hover:scale-105">
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-primary/90 text-[10px] font-semibold text-primary-foreground shadow-sm transition-transform hover:scale-105">
               CO
             </span>
           </button>
         </div>
         </div>
       </SidebarHeader>
-      <SidebarContent className="gap-3 px-2 pb-2">
+      <SidebarContent className="gap-3 px-2 pb-2 group-data-[collapsible=icon]:gap-1 group-data-[collapsible=icon]:px-0">
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
