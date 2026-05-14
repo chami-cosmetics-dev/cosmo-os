@@ -44,7 +44,14 @@ export async function PUT(
     where: {
       id: parsedId.data,
       companyId,
-      ...(canManageAll ? {} : { merchantUserId: viewerUserId }),
+      ...(canManageAll
+        ? {}
+        : {
+            OR: [
+              { merchantUserId: viewerUserId },
+              { merchantUserId: null },
+            ],
+          }),
     },
     include: {
       order: { select: { id: true, orderNumber: true, name: true, fulfillmentStage: true } },
@@ -83,6 +90,19 @@ export async function PUT(
           packageHoldReasonId: null,
           deliveryOutcome: "pending",
           deliveryFailedReason: null,
+        },
+      });
+      await tx.riderDeliveryTask.updateMany({
+        where: { orderId: existing.orderId },
+        data: {
+          deliveryKind: "rearranged",
+          exchangeId: null,
+          oldOrderLabel: null,
+          replacementOrderLabel: null,
+          requiresOldItemCollection: false,
+          oldItemCollectionStatus: "pending",
+          oldItemCollectionRemark: null,
+          exchangePaymentDifference: null,
         },
       });
     }

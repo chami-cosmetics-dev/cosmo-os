@@ -43,6 +43,8 @@ export const riderDeliveryCompleteSchema = z.object({
   acceptedAt: z.string().datetime().optional(),
   arrivedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
+  oldItemCollectionStatus: z.enum(["collected", "not_collected"]).optional(),
+  oldItemCollectionRemark: z.string().max(LIMITS.orderRemarkContent.max).optional(),
 });
 
 export const riderDeliveryFailSchema = z.object({

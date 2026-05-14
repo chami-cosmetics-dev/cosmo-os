@@ -219,7 +219,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       });
       const data = (await res.json()) as {
         error?: string;
-        returnedOrder?: Pick<ReturnTrackingItem, "id" | "actionStatus" | "actionRemark" | "actionDate">;
+        returnedOrder?: Pick<ReturnTrackingItem, "id" | "actionStatus" | "actionRemark" | "actionDate" | "actionType">;
       };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to save return action");
@@ -502,6 +502,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     <th className="px-3 py-3 text-right">Day Count</th>
                     <th className="px-3 py-3 text-left">Action Date</th>
                     <th className="px-3 py-3 text-left">Remark</th>
+                    <th className="px-3 py-3 text-left">Type</th>
                     <th className="px-3 py-3 text-left">Status</th>
                   </tr>
                 </thead>
@@ -516,11 +517,20 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                       <td className="px-3 py-3 text-right">{item.dayCount}</td>
                       <td className="px-3 py-3">{formatDateTime(item.actionDate)}</td>
                       <td className="max-w-[220px] truncate px-3 py-3">{item.actionRemark ?? "-"}</td>
+                      <td className="px-3 py-3">
+                        {item.actionType === "rearrange" ? (
+                          <span className="inline-flex rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-xs font-semibold text-sky-700">
+                            Rearranged
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td className="px-3 py-3">{item.actionStatus === "solved" ? "Solved" : "Pending"}</td>
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
+                    <tr><td colSpan={10} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
                   )}
                 </tbody>
               </table>
