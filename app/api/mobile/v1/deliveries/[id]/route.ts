@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRiderMobileSession, mobileError } from "@/lib/mobile/api";
 import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { findRiderTaskById } from "@/lib/mobile/orders";
+import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileRouteIdSchema } from "@/lib/mobile/validation";
 
 export async function GET(
@@ -32,6 +33,10 @@ export async function GET(
         task,
         payment: task.order.deliveryPayment,
         companyLocation: task.order.companyLocation,
+        specialDelivery: resolveMobileSpecialDelivery({
+          order: task.order,
+          task,
+        }),
       }),
       lineItems: task.order.lineItems.map((item) => ({
         id: item.id,
