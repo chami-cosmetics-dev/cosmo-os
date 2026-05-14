@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema, limitSchema, pageSchema } from "@/lib/validation";
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -46,7 +47,13 @@ export async function GET(request: NextRequest) {
   if (locationId) {
     const idResult = cuidSchema.safeParse(locationId);
     if (idResult.success) {
-      where.companyLocationId = idResult.data;
+      const location = await prisma.companyLocation.findFirst({
+        where: { id: idResult.data, companyId },
+        select: { id: true, shadowParentLocationId: true },
+      });
+      where.companyLocationId = location
+        ? getShadowSourceLocationId(location)
+        : idResult.data;
     }
   }
 
