@@ -26,7 +26,9 @@ export type OrderWaybillLookupResult = {
     waybillNo: string;
     courierName: string | null;
     source: string;
+    rawPayload: Record<string, unknown> | null;
     uploadedAt: string | null;
+    uploadFileName: string | null;
     createdAt: string;
   }>;
 };
@@ -109,7 +111,9 @@ export async function findOrderWaybillsByInvoice(
     waybillNo: string;
     courierName: string | null;
     source: string;
+    rawPayload: Prisma.JsonValue | null;
     uploadedAt: Date | null;
+    uploadFileName: string | null;
     createdAt: Date;
   }>>(
     Prisma.sql`
@@ -119,14 +123,19 @@ export async function findOrderWaybillsByInvoice(
         ow."waybillNo",
         ow."courierName",
         ow."source",
+        ow."rawPayload",
         ow."uploadedAt",
+        wu."fileName" AS "uploadFileName",
         ow."createdAt"
       FROM "OrderWaybill" ow
+      LEFT JOIN "WaybillUpload" wu ON wu."id" = ow."uploadId"
       WHERE ow."companyId" = ${companyId}
         AND (
           ${order?.id ?? null}::text IS NOT NULL AND ow."orderId" = ${order?.id ?? null}
           OR ow."invoiceNumber" IN (${Prisma.join(candidates)})
           OR regexp_replace(ow."invoiceNumber", '^#', '') = ${normalized}
+          OR ow."waybillNo" IN (${Prisma.join(candidates)})
+          OR regexp_replace(ow."waybillNo", '^#', '') = ${normalized}
         )
       ORDER BY ow."createdAt" DESC
       LIMIT 20
@@ -142,33 +151,48 @@ export async function findOrderWaybillsByInvoice(
           invoiceCompleteAt: toIso(order.invoiceCompleteAt),
         }
       : null,
-    waybills: waybills.map((waybill) => ({
-      ...waybill,
-      uploadedAt: toIso(waybill.uploadedAt),
-      createdAt: toIso(waybill.createdAt) ?? new Date().toISOString(),
-    })),
+    waybills: waybills.map((waybill) => {
+      const rawPayload =
+        waybill.rawPayload && typeof waybill.rawPayload === "object" && !Array.isArray(waybill.rawPayload)
+          ? (waybill.rawPayload as Record<string, unknown>)
+          : null;
+
+      return {
+        ...waybill,
+        rawPayload,
+        uploadedAt: toIso(waybill.uploadedAt),
+        createdAt: toIso(waybill.createdAt) ?? new Date().toISOString(),
+      };
+    }),
   };
 }
 
 export async function saveOrderWaybill(input: {
   companyId: string;
-  orderId: string;
+  orderId?: string | null;
   invoiceNumber: string;
   waybillNo: string;
   courierName?: string | null;
   source?: string;
+  uploadId?: string | null;
+  rawPayload?: Record<string, string> | null;
 }) {
   const now = new Date();
+  const rawPayloadSql = input.rawPayload
+    ? Prisma.sql`${JSON.stringify(input.rawPayload)}::jsonb`
+    : Prisma.sql`NULL`;
   const rows = await prisma.$queryRaw<Array<{ id: string }>>(
     Prisma.sql`
       INSERT INTO "OrderWaybill" (
         "id",
         "companyId",
         "orderId",
+        "uploadId",
         "invoiceNumber",
         "waybillNo",
         "courierName",
         "source",
+        "rawPayload",
         "uploadedAt",
         "createdAt",
         "updatedAt"
@@ -177,10 +201,12 @@ export async function saveOrderWaybill(input: {
         ${randomUUID()},
         ${input.companyId},
         ${input.orderId},
+        ${input.uploadId ?? null},
         ${input.invoiceNumber},
         ${input.waybillNo},
         ${input.courierName ?? null},
         ${input.source ?? "manual"},
+        ${rawPayloadSql},
         ${now},
         ${now},
         ${now}
@@ -188,9 +214,12 @@ export async function saveOrderWaybill(input: {
       ON CONFLICT ("companyId", "waybillNo")
       DO UPDATE SET
         "orderId" = EXCLUDED."orderId",
+        "uploadId" = EXCLUDED."uploadId",
         "invoiceNumber" = EXCLUDED."invoiceNumber",
         "courierName" = EXCLUDED."courierName",
         "source" = EXCLUDED."source",
+        "rawPayload" = EXCLUDED."rawPayload",
+        "uploadedAt" = EXCLUDED."uploadedAt",
         "updatedAt" = EXCLUDED."updatedAt"
       RETURNING "id"
     `

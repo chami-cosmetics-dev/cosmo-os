@@ -250,6 +250,15 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.falcon_upload.export",
     description: "Generate Falcon upload files",
   },
+  // Fulfillment - Waybill Lookup
+  {
+    key: "fulfillment.waybill_lookup.read",
+    description: "Search order waybills by invoice number",
+  },
+  {
+    key: "fulfillment.waybill_lookup.import",
+    description: "Import and save order waybills from CSV",
+  },
   // Fulfillment - Remarks (all stages)
   {
     key: "fulfillment.remarks.manage",
@@ -354,6 +363,8 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.mark_complete",
       "fulfillment.falcon_upload.read",
       "fulfillment.falcon_upload.export",
+      "fulfillment.waybill_lookup.read",
+      "fulfillment.waybill_lookup.import",
       "fulfillment.remarks.manage",
       "fulfillment.revert_to.order_received",
       "fulfillment.revert_to.sample_free_issue",
@@ -382,6 +393,7 @@ const DEFAULT_ROLES = [
       "fulfillment.ready_dispatch.read",
       "fulfillment.delivery_invoice.read",
       "fulfillment.falcon_upload.read",
+      "fulfillment.waybill_lookup.read",
     ],
   },
   {
