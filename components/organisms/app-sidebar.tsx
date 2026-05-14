@@ -21,6 +21,7 @@ import {
   History,
   MessageSquareWarning,
   RefreshCw,
+  Calculator,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -244,6 +245,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                   icon={FileText}
                   label="Dump Reports"
                   isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
+                />
+              )}
+              {canViewReports && (
+                <NavItem
+                  href="/dashboard/koko-tally"
+                  icon={Calculator}
+                  label="Koko Tally"
+                  isActive={pathname === "/dashboard/koko-tally"}
                 />
               )}
               {canViewAudit && (

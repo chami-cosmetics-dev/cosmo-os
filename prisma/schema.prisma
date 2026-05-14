@@ -50,6 +50,7 @@ model Company {
   contacts               ContactMaster[]
   complaints             Complaint[]
   shippingChargeOptions  ShippingChargeOption[]
+  kokoCompanies          KokoCompany[]
 }
 
 model FailedOrderWebhook {
@@ -1040,4 +1041,18 @@ model Complaint {
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, createdById, createdAt(sort: Desc)])
+}
+
+model KokoCompany {
+  id             String   @id @default(cuid())
+  companyId      String
+  label          String
+  kokoName       String
+  invoicePrefix  String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, label])
+  @@index([companyId, createdAt(sort: Desc)])
 }
