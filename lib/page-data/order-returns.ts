@@ -17,6 +17,7 @@ export type ReturnTrackingItem = {
   actionDate: string | null;
   actionRemark: string | null;
   actionStatus: "pending" | "solved";
+  actionType: string | null;
 };
 
 export type ReturnsTrackingData = {
@@ -81,6 +82,7 @@ export async function fetchReturnsTrackingData(input: {
         createdAt: true,
         shippingServiceName: true,
         actionStatus: true,
+        actionType: true,
         actionRemark: true,
         actionDate: true,
         returnedBy: { select: { id: true, name: true, email: true } },
@@ -127,6 +129,7 @@ export async function fetchReturnsTrackingData(input: {
       actionDate: item.actionDate?.toISOString() ?? null,
       actionRemark: item.actionRemark,
       actionStatus: item.actionStatus,
+      actionType: item.actionType,
     }));
 
     const counts = returns.reduce(

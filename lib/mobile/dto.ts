@@ -53,6 +53,13 @@ export function toMobileDeliveryDto(input: {
     RiderDeliveryTask,
     | "id"
     | "status"
+    | "deliveryKind"
+    | "oldOrderLabel"
+    | "replacementOrderLabel"
+    | "requiresOldItemCollection"
+    | "oldItemCollectionStatus"
+    | "oldItemCollectionRemark"
+    | "exchangePaymentDifference"
     | "assignedAt"
     | "acceptedAt"
     | "arrivedAt"
@@ -90,6 +97,13 @@ export function toMobileDeliveryDto(input: {
     expectedPaymentMethod: order.paymentGatewayPrimary,
     financialStatus: order.financialStatus,
     deliveryStatus: task.status,
+    deliveryKind: task.deliveryKind,
+    oldOrderLabel: task.oldOrderLabel,
+    replacementOrderLabel: task.replacementOrderLabel,
+    requiresOldItemCollection: task.requiresOldItemCollection,
+    oldItemCollectionStatus: task.oldItemCollectionStatus,
+    oldItemCollectionRemark: task.oldItemCollectionRemark,
+    exchangePaymentDifference: task.exchangePaymentDifference?.toString() ?? null,
     deliveryOutcome: order.deliveryOutcome,
     deliveryFailedReason: order.deliveryFailedReason,
     assignedAt: task.assignedAt.toISOString(),

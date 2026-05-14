@@ -92,6 +92,19 @@ export async function PUT(
           deliveryFailedReason: null,
         },
       });
+      await tx.riderDeliveryTask.updateMany({
+        where: { orderId: existing.orderId },
+        data: {
+          deliveryKind: "rearranged",
+          exchangeId: null,
+          oldOrderLabel: null,
+          replacementOrderLabel: null,
+          requiresOldItemCollection: false,
+          oldItemCollectionStatus: "pending",
+          oldItemCollectionRemark: null,
+          exchangePaymentDifference: null,
+        },
+      });
     }
 
     return returnedOrder;
