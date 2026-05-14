@@ -103,7 +103,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     },
     {
       href: "/dashboard/fulfillment/waybill-lookup",
-      permission: "fulfillment.delivery_invoice.read",
+      permission: "fulfillment.waybill_lookup.read",
     },
     {
       href: "/dashboard/fulfillment/falcon-upload",
