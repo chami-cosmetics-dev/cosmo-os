@@ -6,3 +6,12 @@ expo-env.d.ts
 # @end expo-cli
 
 /node_modules
+.expo/
+.env
+.env*.local
+android/
+ios/
+expo-start*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
