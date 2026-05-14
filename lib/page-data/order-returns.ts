@@ -62,7 +62,14 @@ export async function fetchReturnsTrackingData(input: {
     const rows = await prisma.orderReturn.findMany({
       where: {
         companyId: input.companyId,
-        ...(input.canManage ? {} : { merchantUserId: input.viewerUserId }),
+        ...(input.canManage
+          ? {}
+          : {
+              OR: [
+                { merchantUserId: input.viewerUserId },
+                { merchantUserId: null },
+              ],
+            }),
       },
       orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
       take: 300,

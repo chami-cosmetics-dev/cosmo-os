@@ -44,7 +44,14 @@ export async function PUT(
     where: {
       id: parsedId.data,
       companyId,
-      ...(canManageAll ? {} : { merchantUserId: viewerUserId }),
+      ...(canManageAll
+        ? {}
+        : {
+            OR: [
+              { merchantUserId: viewerUserId },
+              { merchantUserId: null },
+            ],
+          }),
     },
     include: {
       order: { select: { id: true, orderNumber: true, name: true, fulfillmentStage: true } },
