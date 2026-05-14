@@ -6,6 +6,7 @@ import type { CreateManualOrderBody } from "@/lib/validation/manual-order";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { assertEligibleMerchantUser } from "@/lib/merchant-eligibility";
 import { prisma } from "@/lib/prisma";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { LIMITS } from "@/lib/validation";
 import { sendOrderSms } from "@/lib/order-sms";
 
@@ -28,12 +29,14 @@ export async function createManualOrder(
       manualInvoicePrefix: true,
       manualInvoiceSeqPadding: true,
       defaultMerchantUserId: true,
+      shadowParentLocationId: true,
     },
   });
 
   if (!location) {
     throw new Error("Location not found");
   }
+  const sourceLocationId = getShadowSourceLocationId(location);
 
   const prefix = location.manualInvoicePrefix?.trim() ?? "";
   if (!prefix) {
@@ -49,7 +52,7 @@ export async function createManualOrder(
     where: {
       id: { in: productIds },
       companyId,
-      companyLocationId: location.id,
+      companyLocationId: sourceLocationId,
     },
     select: {
       id: true,
@@ -69,7 +72,7 @@ export async function createManualOrder(
       where: {
         id: body.shippingChargeOptionId,
         companyId,
-        companyLocationId: location.id,
+        companyLocationId: sourceLocationId,
       },
     });
     if (!opt) {
@@ -78,7 +81,7 @@ export async function createManualOrder(
     shippingOption = { id: opt.id, label: opt.label, amount: opt.amount };
   }
 
-  let assignedMerchantId: string | null =
+  const assignedMerchantId: string | null =
     body.assignedMerchantId === undefined
       ? location.defaultMerchantUserId ?? null
       : body.assignedMerchantId;
