@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { NotificationBell } from "@/components/molecules/notification-bell";
 import { ThemeToggle } from "@/components/molecules/theme-toggle";
 import { UserMenu } from "@/components/molecules/user-menu";
 
@@ -25,6 +26,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/contacts/reviews", label: "Merchant Reviews" },
     { prefix: "/dashboard/returns", label: "Returned Orders" },
     { prefix: "/dashboard/exchanges", label: "Exchanges" },
+    { prefix: "/dashboard/approvals", label: "Finance Approvals" },
     { prefix: "/dashboard/complaints", label: "Complaints" },
     { prefix: "/dashboard/contacts/allocation", label: "Contact Allocation" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
@@ -56,6 +58,9 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        <div className="[&_button]:border [&_button]:border-border/60 [&_button]:bg-background/70 [&_button]:text-foreground [&_button]:hover:bg-secondary/40">
+          <NotificationBell />
+        </div>
         <div className="[&_button]:border [&_button]:border-border/60 [&_button]:bg-background/70 [&_button]:text-foreground [&_button]:hover:bg-secondary/40">
           <ThemeToggle />
         </div>

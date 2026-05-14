@@ -107,6 +107,14 @@ const DEFAULT_PERMISSIONS = [
     key: "complaints.manage",
     description: "Update complaint status and resolution",
   },
+  {
+    key: "finance.approvals.read",
+    description: "View finance approval requests",
+  },
+  {
+    key: "finance.approvals.manage",
+    description: "Approve or reject finance approval requests",
+  },
   // Reports - Dump downloads
   {
     key: REPORT_DUMP_PERMISSIONS.contactListPart1,
@@ -330,6 +338,8 @@ const DEFAULT_ROLES = [
       "complaints.create",
       "complaints.read",
       "complaints.manage",
+      "finance.approvals.read",
+      "finance.approvals.manage",
       REPORT_DUMP_PERMISSIONS.contactListPart1,
       REPORT_DUMP_PERMISSIONS.contactListPart1_1,
       REPORT_DUMP_PERMISSIONS.contactListPart2,
@@ -372,6 +382,16 @@ const DEFAULT_ROLES = [
       "fulfillment.revert_to.ready_dispatch",
       "fulfillment.revert_to.dispatched",
       "fulfillment.revert_to.delivery_complete",
+    ],
+  },
+  {
+    name: "finance",
+    description: "Can review and approve finance payment requests",
+    permissionKeys: [
+      "finance.approvals.read",
+      "finance.approvals.manage",
+      "orders.read",
+      "returns.read",
     ],
   },
   {
