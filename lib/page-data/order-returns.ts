@@ -8,6 +8,9 @@ export type ReturnTrackingItem = {
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  financialStatus: string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
   shippingService: string;
   dispatchedAt: string;
   returnDate: string;
@@ -94,6 +97,9 @@ export async function fetchReturnsTrackingData(input: {
             shopifyOrderId: true,
             customerEmail: true,
             customerPhone: true,
+            financialStatus: true,
+            paymentGatewayPrimary: true,
+            paymentGatewayNames: true,
             shippingAddress: true,
             customer: { select: { firstName: true, lastName: true } },
           },
@@ -120,6 +126,9 @@ export async function fetchReturnsTrackingData(input: {
       }),
       customerEmail: item.order.customerEmail,
       customerPhone: item.order.customerPhone,
+      financialStatus: item.order.financialStatus,
+      paymentGatewayPrimary: item.order.paymentGatewayPrimary,
+      paymentGatewayNames: item.order.paymentGatewayNames,
       shippingService: item.shippingServiceName,
       dispatchedAt: item.dispatchedAt.toISOString(),
       returnDate: item.returnDate.toISOString(),

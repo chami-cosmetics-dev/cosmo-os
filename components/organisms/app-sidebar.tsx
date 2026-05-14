@@ -22,6 +22,7 @@ import {
   MessageSquareWarning,
   RefreshCw,
   Calculator,
+  BadgeCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -84,6 +85,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     hasSidebarPermission("complaints.create") ||
     hasSidebarPermission("complaints.read") ||
     hasSidebarPermission("complaints.manage");
+  const canViewApprovals =
+    hasSidebarPermission("finance.approvals.read") ||
+    hasSidebarPermission("finance.approvals.manage");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -167,6 +171,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                 icon={MessageSquareWarning}
                 label="Complaints"
                 isActive={pathname === "/dashboard/complaints"}
+              />
+            )}
+            {canViewApprovals && (
+              <NavItem
+                href="/dashboard/approvals"
+                icon={BadgeCheck}
+                label="Finance Approvals"
+                isActive={pathname === "/dashboard/approvals"}
               />
             )}
           </SidebarGroupContent>

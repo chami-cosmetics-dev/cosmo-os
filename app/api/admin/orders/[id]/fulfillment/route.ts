@@ -162,6 +162,37 @@ function addDaysUtc(date: Date, days: number) {
   return next;
 }
 
+function normalizeText(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function isBankTransferGateway(order: {
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+}) {
+  return [order.paymentGatewayPrimary, ...order.paymentGatewayNames]
+    .map(normalizeText)
+    .some((value) => value.includes("bank"));
+}
+
+async function hasPendingBankTransferRearrange(order: {
+  id: string;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+}) {
+  if (!isBankTransferGateway(order)) return false;
+  return Boolean(
+    await prisma.orderReturn.findFirst({
+      where: {
+        orderId: order.id,
+        actionType: "rearrange",
+        actionStatus: "pending",
+      },
+      select: { id: true },
+    })
+  );
+}
+
 
 async function logOrderFulfillmentAudit(input: {
   companyId: string;
@@ -469,6 +500,12 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      if (await hasPendingBankTransferRearrange(order)) {
+        return NextResponse.json(
+          { error: "Bank transfer must be confirmed before rearranging this returned COD order." },
+          { status: 400 }
+        );
+      }
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
@@ -533,6 +570,12 @@ export async function PATCH(
       if (order.fulfillmentStage !== "ready_to_dispatch") {
         return NextResponse.json(
           { error: "Order must be at ready to dispatch stage" },
+          { status: 400 }
+        );
+      }
+      if (await hasPendingBankTransferRearrange(order)) {
+        return NextResponse.json(
+          { error: "Bank transfer must be confirmed before dispatching this rearranged COD return." },
           { status: 400 }
         );
       }
