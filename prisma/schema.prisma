@@ -214,6 +214,7 @@ model User {
 model CompanyLocation {
   id                      String                  @id @default(cuid())
   companyId               String
+  shadowParentLocationId  String?
   name                    String
   address                 String?
   createdAt               DateTime                @default(now())
@@ -235,6 +236,8 @@ model CompanyLocation {
   manualInvoiceSeqPadding Int                     @default(3)
   company                 Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   defaultMerchant         User?                   @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
+  shadowParentLocation    CompanyLocation?        @relation("LocationShadowParent", fields: [shadowParentLocationId], references: [id], onDelete: SetNull)
+  shadowLocations         CompanyLocation[]       @relation("LocationShadowParent")
   profiles                EmployeeProfile[]
   failedOrderWebhooks     FailedOrderWebhook[]
   invites                 Invite[]
@@ -246,6 +249,7 @@ model CompanyLocation {
   shippingChargeOptions   ShippingChargeOption[]
 
   @@index([shopifyLocationId])
+  @@index([companyId, shadowParentLocationId])
 }
 
 model ShippingChargeOption {

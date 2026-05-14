@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
       create: {
         companyId,
         companyLocationId: location.id,
-        shopifyLocationId: locationId,
+        shopifyLocationId: location.shopifyLocationId ?? locationId,
         shopifyProductId: String(data.id),
         shopifyVariantId: String(variant.id),
         productTitle: data.title,

@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
@@ -78,7 +79,13 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
   if (params.locationId) {
     const idResult = cuidSchema.safeParse(params.locationId);
     if (idResult.success) {
-      where.companyLocationId = idResult.data;
+      const location = await prisma.companyLocation.findFirst({
+        where: { id: idResult.data, companyId },
+        select: { id: true, shadowParentLocationId: true },
+      });
+      where.companyLocationId = location
+        ? getShadowSourceLocationId(location)
+        : idResult.data;
     }
   }
 
