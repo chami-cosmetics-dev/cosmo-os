@@ -53,6 +53,13 @@ export function toMobileDeliveryDto(input: {
     RiderDeliveryTask,
     | "id"
     | "status"
+    | "deliveryKind"
+    | "oldOrderLabel"
+    | "replacementOrderLabel"
+    | "requiresOldItemCollection"
+    | "oldItemCollectionStatus"
+    | "oldItemCollectionRemark"
+    | "exchangePaymentDifference"
     | "assignedAt"
     | "acceptedAt"
     | "arrivedAt"
@@ -73,8 +80,20 @@ export function toMobileDeliveryDto(input: {
     | "collectedAt"
   > | null;
   companyLocation?: { id: string; name: string | null } | null;
+  specialDelivery?: {
+    deliveryKind?: "normal" | "rearranged" | "exchange";
+    oldOrderLabel?: string | null;
+    replacementOrderLabel?: string | null;
+    requiresOldItemCollection?: boolean;
+    oldItemCollectionStatus?: "pending" | "collected" | "not_collected";
+    oldItemCollectionRemark?: string | null;
+    exchangePaymentDifference?: { toString(): string } | string | null;
+  } | null;
 }) {
-  const { order, task, payment, companyLocation } = input;
+  const { order, task, payment, companyLocation, specialDelivery } = input;
+  const deliveryKind = specialDelivery?.deliveryKind ?? task.deliveryKind;
+  const exchangePaymentDifference =
+    specialDelivery?.exchangePaymentDifference ?? task.exchangePaymentDifference;
   return {
     id: task.id,
     orderId: order.id,
@@ -90,6 +109,16 @@ export function toMobileDeliveryDto(input: {
     expectedPaymentMethod: order.paymentGatewayPrimary,
     financialStatus: order.financialStatus,
     deliveryStatus: task.status,
+    deliveryKind,
+    oldOrderLabel: specialDelivery?.oldOrderLabel ?? task.oldOrderLabel,
+    replacementOrderLabel: specialDelivery?.replacementOrderLabel ?? task.replacementOrderLabel,
+    requiresOldItemCollection:
+      specialDelivery?.requiresOldItemCollection ?? task.requiresOldItemCollection,
+    oldItemCollectionStatus:
+      specialDelivery?.oldItemCollectionStatus ?? task.oldItemCollectionStatus,
+    oldItemCollectionRemark:
+      specialDelivery?.oldItemCollectionRemark ?? task.oldItemCollectionRemark,
+    exchangePaymentDifference: exchangePaymentDifference?.toString() ?? null,
     deliveryOutcome: order.deliveryOutcome,
     deliveryFailedReason: order.deliveryFailedReason,
     assignedAt: task.assignedAt.toISOString(),

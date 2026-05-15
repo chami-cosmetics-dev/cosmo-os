@@ -42,6 +42,8 @@ type Location = {
   name: string;
   logoUrl: string | null;
   address: string | null;
+  shadowParentLocationId: string | null;
+  shadowParentLocation?: { id: string; name: string } | null;
   shortName: string | null;
   locationReference: string | null;
   invoiceHeader: string | null;
@@ -60,6 +62,10 @@ type Location = {
   updatedAt?: string;
 };
 
+type LocationForm = Partial<Location> & {
+  isShadowLocation?: boolean;
+};
+
 type ShippingChargeRow = {
   id: string;
   label: string;
@@ -67,10 +73,12 @@ type ShippingChargeRow = {
   sortOrder: number;
 };
 
-const emptyForm = (): Partial<Location> => ({
+const emptyForm = (): LocationForm => ({
   name: "",
   logoUrl: null,
   address: "",
+  shadowParentLocationId: null,
+  isShadowLocation: false,
   shortName: "",
   locationReference: "",
   invoiceHeader: "",
@@ -112,7 +120,7 @@ export function LocationsSettingsForm({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMode, setSheetMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Location>>(emptyForm());
+  const [form, setForm] = useState<LocationForm>(emptyForm());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [shippingCharges, setShippingCharges] = useState<ShippingChargeRow[]>([]);
   const [newShipLabel, setNewShipLabel] = useState("");
@@ -241,6 +249,8 @@ export function LocationsSettingsForm({
       name: loc.name,
       logoUrl: loc.logoUrl ?? null,
       address: loc.address ?? "",
+      shadowParentLocationId: loc.shadowParentLocationId ?? null,
+      isShadowLocation: Boolean(loc.shadowParentLocationId),
       shortName: loc.shortName ?? "",
       locationReference: loc.locationReference ?? "",
       invoiceHeader: loc.invoiceHeader ?? "",
@@ -351,6 +361,7 @@ export function LocationsSettingsForm({
         ? (form.name?.trim() ?? "") !== (editingLocation.name ?? "").trim() ||
           (form.logoUrl ?? null) !== (editingLocation.logoUrl ?? null) ||
           (form.address?.trim() ?? "") !== (editingLocation.address ?? "").trim() ||
+          (form.shadowParentLocationId ?? null) !== (editingLocation.shadowParentLocationId ?? null) ||
           (form.shortName?.trim() ?? "") !== (editingLocation.shortName ?? "").trim() ||
           (form.locationReference?.trim() ?? "") !== (editingLocation.locationReference ?? "").trim() ||
           (form.invoiceHeader?.trim() ?? "") !== (editingLocation.invoiceHeader ?? "").trim() ||
@@ -376,6 +387,10 @@ export function LocationsSettingsForm({
         name: form.name.trim(),
         logoUrl: url,
         address: form.address?.trim() || undefined,
+        shadowParentLocationId:
+          form.isShadowLocation && form.shadowParentLocationId
+            ? form.shadowParentLocationId
+            : null,
         shortName: form.shortName?.trim() || undefined,
         locationReference: form.locationReference?.trim() || undefined,
         invoiceHeader: form.invoiceHeader?.trim() || undefined,
@@ -420,11 +435,19 @@ export function LocationsSettingsForm({
       notify.error("Location name is required");
       return;
     }
+    if (form.isShadowLocation && !form.shadowParentLocationId) {
+      notify.error("Choose the location this shadow location should copy from");
+      return;
+    }
 
     const payload = {
       name: form.name.trim(),
       logoUrl: form.logoUrl,
       address: form.address?.trim() || undefined,
+      shadowParentLocationId:
+        form.isShadowLocation && form.shadowParentLocationId
+          ? form.shadowParentLocationId
+          : null,
       shortName: form.shortName?.trim() || undefined,
       locationReference: form.locationReference?.trim() || undefined,
       invoiceHeader: form.invoiceHeader?.trim() || undefined,
@@ -639,6 +662,11 @@ export function LocationsSettingsForm({
                       {loc.address}
                     </p>
                   )}
+                  {loc.shadowParentLocation && (
+                    <p className="text-muted-foreground text-xs">
+                      Shadow location for {loc.shadowParentLocation.name}
+                    </p>
+                  )}
                   {(loc.shopifyLocationId || loc.shopifyShopName || loc.shopifyAdminStoreHandle) && (
                     <p className="text-muted-foreground text-xs">
                       Shopify: {loc.shopifyAdminStoreHandle ?? loc.shopifyShopName ?? "—"} (
@@ -758,6 +786,63 @@ export function LocationsSettingsForm({
                 rows={3}
                 maxLength={500}
               />
+              <div className="space-y-2 rounded-xl border border-border/70 bg-background/70 p-3">
+                <label className="text-sm font-medium">Is this a shadow location?</label>
+                <Select
+                  value={form.isShadowLocation ? "yes" : "no"}
+                  onValueChange={(value) =>
+                    setForm((f) => ({
+                      ...f,
+                      isShadowLocation: value === "yes",
+                      shadowParentLocationId:
+                        value === "yes" ? f.shadowParentLocationId ?? null : null,
+                    }))
+                  }
+                  disabled={isBusy}
+                >
+                  <SelectTrigger className="w-full bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="yes">Yes</SelectItem>
+                  </SelectContent>
+                </Select>
+                {form.isShadowLocation && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">
+                      Which location should this shadow?
+                    </label>
+                    <Select
+                      value={form.shadowParentLocationId ?? "__none"}
+                      onValueChange={(value) =>
+                        setForm((f) => ({
+                          ...f,
+                          shadowParentLocationId: value === "__none" ? null : value,
+                        }))
+                      }
+                      disabled={isBusy}
+                    >
+                      <SelectTrigger className="w-full bg-background">
+                        <SelectValue placeholder="Select parent location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Select parent location</SelectItem>
+                        {locations
+                          .filter((loc) => loc.id !== editingId)
+                          .map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {loc.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-muted-foreground text-xs">
+                      Products from the selected location are copied into this location so they appear for manual orders.
+                    </p>
+                  </div>
+                )}
+              </div>
               <Input
                 placeholder="Short name (for SMS)"
                 value={form.shortName ?? ""}
@@ -1062,7 +1147,12 @@ export function LocationsSettingsForm({
             </Button>
             <Button
               onClick={handleSheetSubmit}
-              disabled={isBusy || !form.name?.trim() || (sheetMode === "edit" && !sheetHasChanges)}
+              disabled={
+                isBusy ||
+                !form.name?.trim() ||
+                (form.isShadowLocation && !form.shadowParentLocationId) ||
+                (sheetMode === "edit" && !sheetHasChanges)
+              }
             >
               {busyKey?.startsWith("add")
                 ? "Adding..."

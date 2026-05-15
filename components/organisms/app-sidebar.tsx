@@ -21,6 +21,8 @@ import {
   History,
   MessageSquareWarning,
   RefreshCw,
+  Calculator,
+  BadgeCheck,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -83,6 +85,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     hasSidebarPermission("complaints.create") ||
     hasSidebarPermission("complaints.read") ||
     hasSidebarPermission("complaints.manage");
+  const canViewApprovals =
+    hasSidebarPermission("finance.approvals.read") ||
+    hasSidebarPermission("finance.approvals.manage");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -102,7 +107,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     },
     {
       href: "/dashboard/fulfillment/waybill-lookup",
-      permission: "fulfillment.delivery_invoice.read",
+      permission: "fulfillment.waybill_lookup.read",
     },
     {
       href: "/dashboard/fulfillment/falcon-upload",
@@ -166,6 +171,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                 icon={MessageSquareWarning}
                 label="Complaints"
                 isActive={pathname === "/dashboard/complaints"}
+              />
+            )}
+            {canViewApprovals && (
+              <NavItem
+                href="/dashboard/approvals"
+                icon={BadgeCheck}
+                label="Finance Approvals"
+                isActive={pathname === "/dashboard/approvals"}
               />
             )}
           </SidebarGroupContent>
@@ -244,6 +257,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                   icon={FileText}
                   label="Dump Reports"
                   isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
+                />
+              )}
+              {canViewReports && (
+                <NavItem
+                  href="/dashboard/koko-tally"
+                  icon={Calculator}
+                  label="Koko Tally"
+                  isActive={pathname === "/dashboard/koko-tally"}
                 />
               )}
               {canViewAudit && (

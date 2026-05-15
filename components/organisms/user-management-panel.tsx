@@ -1494,6 +1494,7 @@ const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
   order_print: "Order Print",
   ready_dispatch: "Ready & Dispatch",
   delivery_invoice: "Delivery & Invoice",
+  waybill_lookup: "Waybill Lookup",
   remarks: "Remarks",
   revert_to: "Revert to Stage",
 };

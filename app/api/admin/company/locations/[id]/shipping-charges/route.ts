@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { shippingChargeCreateSchema } from "@/lib/validation/manual-order";
 import { cuidSchema } from "@/lib/validation";
 
@@ -38,14 +39,14 @@ export async function GET(
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: idResult.data, companyId },
-    select: { id: true },
+    select: { id: true, shadowParentLocationId: true },
   });
   if (!location) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
 
   const items = await prisma.shippingChargeOption.findMany({
-    where: { companyLocationId: location.id },
+    where: { companyLocationId: getShadowSourceLocationId(location) },
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
   });
 
@@ -86,10 +87,16 @@ export async function POST(
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: idResult.data, companyId },
-    select: { id: true },
+    select: { id: true, shadowParentLocationId: true },
   });
   if (!location) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  }
+  if (location.shadowParentLocationId) {
+    return NextResponse.json(
+      { error: "Shadow locations use shipping charges from their parent location" },
+      { status: 400 }
+    );
   }
 
   const body = await request.json().catch(() => ({}));

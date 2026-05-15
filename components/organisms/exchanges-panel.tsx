@@ -54,6 +54,22 @@ function reasonLabel(reason: ExchangeReason) {
   return "Other";
 }
 
+function collectionLabel(item: ExchangeTrackingItem) {
+  if (!item.requiresOldItemCollection) return "Not required";
+  if (item.oldItemCollectionStatus === "collected") return "Old order collected";
+  if (item.oldItemCollectionStatus === "not_collected") return "Not collected";
+  return "Pending collection";
+}
+
+function paymentDifferenceLabel(value: string | null) {
+  if (!value) return "Not calculated";
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount === 0) return "No difference";
+  return amount > 0
+    ? `Collect extra Rs. ${amount.toFixed(2)}`
+    : `Give change/refund Rs. ${Math.abs(amount).toFixed(2)}`;
+}
+
 export function ExchangesPanel({ initialData }: { initialData: ExchangesTrackingData }) {
   const [items, setItems] = useState(initialData.exchanges);
   const [search, setSearch] = useState("");
@@ -468,6 +484,8 @@ export function ExchangesPanel({ initialData }: { initialData: ExchangesTracking
                     <th className="px-3 py-3 text-left">Reason</th>
                     <th className="px-3 py-3 text-left">Merchant</th>
                     <th className="px-3 py-3 text-left">Customer</th>
+                    <th className="px-3 py-3 text-left">Old Order</th>
+                    <th className="px-3 py-3 text-left">Payment Diff.</th>
                     <th className="px-3 py-3 text-left">Created</th>
                     <th className="px-3 py-3 text-left">Action Date</th>
                     <th className="px-3 py-3 text-left">Status</th>
@@ -481,13 +499,24 @@ export function ExchangesPanel({ initialData }: { initialData: ExchangesTracking
                       <td className="px-3 py-3">{reasonLabel(item.reason)}</td>
                       <td className="px-3 py-3">{item.merchant?.name ?? item.merchant?.email ?? "Unassigned"}</td>
                       <td className="px-3 py-3">{item.customerName ?? item.customerPhone ?? "-"}</td>
+                      <td className="px-3 py-3">
+                        <span className={item.requiresOldItemCollection ? "font-medium text-amber-700" : "text-muted-foreground"}>
+                          {collectionLabel(item)}
+                        </span>
+                        {item.oldItemCollectionRemark && (
+                          <div className="mt-1 max-w-[220px] truncate text-xs text-muted-foreground">
+                            {item.oldItemCollectionRemark}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-3">{paymentDifferenceLabel(item.exchangePaymentDifference)}</td>
                       <td className="px-3 py-3">{formatDateTime(item.createdAt)}</td>
                       <td className="px-3 py-3">{formatDateTime(item.actionDate)}</td>
                       <td className="px-3 py-3">{item.status === "solved" ? "Solved" : "Pending"}</td>
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={8} className="px-3 py-10 text-center text-muted-foreground">No exchanges found.</td></tr>
+                    <tr><td colSpan={10} className="px-3 py-10 text-center text-muted-foreground">No exchanges found.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -509,6 +538,15 @@ export function ExchangesPanel({ initialData }: { initialData: ExchangesTracking
                       </SelectContent>
                     </Select>
                     <Textarea value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="Exchange follow-up remark..." className="min-h-32" />
+                    <div className="rounded-md border border-border/70 p-3 text-sm">
+                      <p className="font-medium">{collectionLabel(selected)}</p>
+                      <p className="mt-1 text-muted-foreground">
+                        {paymentDifferenceLabel(selected.exchangePaymentDifference)}
+                      </p>
+                      {selected.oldItemCollectionRemark && (
+                        <p className="mt-2 text-xs text-muted-foreground">{selected.oldItemCollectionRemark}</p>
+                      )}
+                    </div>
                     <Button onClick={() => void saveExchange()} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Exchange"}</Button>
                   </>
                 ) : (

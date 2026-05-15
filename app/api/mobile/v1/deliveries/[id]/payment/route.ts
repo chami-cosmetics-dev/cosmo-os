@@ -42,6 +42,10 @@ export async function POST(
   }
 
   const expectedAmount = Number(task.order.totalPrice);
+  if (Math.abs(expectedAmount - parsed.data.collectedAmount) >= 0.01) {
+    return mobileError("Collected amount must match the order amount", 400);
+  }
+
   const effectiveMethod =
     parsed.data.paymentMethod ?? inferExpectedPaymentMethod(task.order);
   const collectionStatus = inferCollectionStatus({

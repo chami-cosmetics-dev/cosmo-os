@@ -69,6 +69,9 @@ export const LIMITS = {
   manualInvoicePrefix: { min: 1, max: 12 },
   manualInvoiceSeqPadding: { min: 1, max: 12 },
   shippingChargeLabel: { max: 120 },
+  kokoCompanyLabel: { max: 100 },
+  kokoCompanyName: { max: 200 },
+  kokoCompanyPrefix: { max: 50 },
 } as const;
 
 /** Parse and validate page number from query string */

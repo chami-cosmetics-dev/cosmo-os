@@ -4,6 +4,11 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  calculateExchangePaymentDifference,
+  orderDisplayLabel,
+  requiresOldItemCollection,
+} from "@/lib/rider-delivery-special";
 
 const exchangeCreateSchema = z.object({
   originalReference: z.string().trim().min(1).max(120),
@@ -42,6 +47,9 @@ async function resolveOrder(companyId: string, reference: string) {
       customerPhone: true,
       shippingAddress: true,
       name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      totalPrice: true,
       customer: { select: { firstName: true, lastName: true } },
     },
   });
@@ -150,21 +158,44 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Replacement invoice/order matched more than one order" }, { status: 400 });
   }
 
-  const exchange = await prisma.orderExchange.create({
-    data: {
-      companyId,
-      originalReference,
-      replacementReference,
-      originalOrderId: originalOrder?.id ?? null,
-      replacementOrderId: replacementOrder?.id ?? null,
-      merchantUserId: originalOrder?.assignedMerchantId ?? replacementOrder?.assignedMerchantId ?? null,
-      customerName: originalOrder ? pickCustomerName(originalOrder) : replacementOrder ? pickCustomerName(replacementOrder) : null,
-      customerEmail: originalOrder?.customerEmail ?? replacementOrder?.customerEmail ?? null,
-      customerPhone: originalOrder?.customerPhone ?? replacementOrder?.customerPhone ?? null,
-      reason: parsed.data.reason,
-      remark: parsed.data.remark?.trim() || null,
-      createdById: actorUserId,
-    },
+  const exchange = await prisma.$transaction(async (tx) => {
+    const created = await tx.orderExchange.create({
+      data: {
+        companyId,
+        originalReference,
+        replacementReference,
+        originalOrderId: originalOrder?.id ?? null,
+        replacementOrderId: replacementOrder?.id ?? null,
+        merchantUserId: originalOrder?.assignedMerchantId ?? replacementOrder?.assignedMerchantId ?? null,
+        customerName: originalOrder ? pickCustomerName(originalOrder) : replacementOrder ? pickCustomerName(replacementOrder) : null,
+        customerEmail: originalOrder?.customerEmail ?? replacementOrder?.customerEmail ?? null,
+        customerPhone: originalOrder?.customerPhone ?? replacementOrder?.customerPhone ?? null,
+        reason: parsed.data.reason,
+        remark: parsed.data.remark?.trim() || null,
+        createdById: actorUserId,
+      },
+    });
+
+    if (replacementOrder) {
+      await tx.riderDeliveryTask.updateMany({
+        where: { orderId: replacementOrder.id },
+        data: {
+          deliveryKind: "exchange",
+          exchangeId: created.id,
+          oldOrderLabel: originalOrder ? orderDisplayLabel(originalOrder) : originalReference,
+          replacementOrderLabel: orderDisplayLabel(replacementOrder),
+          requiresOldItemCollection: requiresOldItemCollection(created.reason),
+          oldItemCollectionStatus: "pending",
+          oldItemCollectionRemark: null,
+          exchangePaymentDifference: calculateExchangePaymentDifference({
+            originalOrder,
+            replacementOrder,
+          }),
+        },
+      });
+    }
+
+    return created;
   });
 
   await writeAuditLog({

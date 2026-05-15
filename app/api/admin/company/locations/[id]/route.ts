@@ -14,6 +14,7 @@ const updateLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
   logoUrl: z.string().url().max(LIMITS.logoUrl.max).optional().nullable(),
   address: z.string().max(LIMITS.address.max).optional(),
+  shadowParentLocationId: cuidSchema.nullable().optional(),
   shortName: z.string().max(LIMITS.locationShortName.max).optional(),
   invoiceHeader: z.string().max(LIMITS.invoiceHeader.max).optional(),
   invoiceSubHeader: z.string().max(LIMITS.invoiceSubHeader.max).optional(),
@@ -96,12 +97,30 @@ export async function PATCH(
       );
     }
   }
+  if (d.shadowParentLocationId) {
+    if (d.shadowParentLocationId === idResult.data) {
+      return NextResponse.json(
+        { error: "A location cannot shadow itself" },
+        { status: 400 }
+      );
+    }
+    const parent = await prisma.companyLocation.findFirst({
+      where: { id: d.shadowParentLocationId, companyId },
+      select: { id: true },
+    });
+    if (!parent) {
+      return NextResponse.json({ error: "Shadow parent location not found" }, { status: 400 });
+    }
+  }
   const toOpt = (v: string | undefined) =>
     v === undefined ? undefined : (v.trim() || null);
   const updated = await prisma.companyLocation.update({
     where: { id: idResult.data },
     data: {
       name: d.name,
+      ...(d.shadowParentLocationId !== undefined && {
+        shadowParentLocationId: d.shadowParentLocationId,
+      }),
       ...(d.logoUrl !== undefined && { logoUrl: d.logoUrl }),
       address: d.address === undefined ? undefined : (d.address?.trim() || null),
       shortName: toOpt(d.shortName),
@@ -130,6 +149,10 @@ export async function PATCH(
       name: true,
       logoUrl: true,
       address: true,
+      shadowParentLocationId: true,
+      shadowParentLocation: {
+        select: { id: true, name: true },
+      },
       shortName: true,
       invoiceHeader: true,
       invoiceSubHeader: true,

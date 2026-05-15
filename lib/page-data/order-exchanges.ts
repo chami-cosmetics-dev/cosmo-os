@@ -17,6 +17,10 @@ export type ExchangeTrackingItem = {
   status: ExchangeStatus;
   remark: string | null;
   actionDate: string | null;
+  requiresOldItemCollection: boolean;
+  oldItemCollectionStatus: "pending" | "collected" | "not_collected" | null;
+  oldItemCollectionRemark: string | null;
+  exchangePaymentDifference: string | null;
   createdAt: string;
 };
 
@@ -66,25 +70,44 @@ export async function fetchExchangesTrackingData(input: {
         actionDate: true,
         createdAt: true,
         merchantUser: { select: { id: true, name: true, email: true } },
+        riderDeliveryTasks: {
+          orderBy: { updatedAt: "desc" },
+          take: 1,
+          select: {
+            requiresOldItemCollection: true,
+            oldItemCollectionStatus: true,
+            oldItemCollectionRemark: true,
+            exchangePaymentDifference: true,
+          },
+        },
       },
     });
 
-    const exchanges = rows.map((item) => ({
-      id: item.id,
-      originalReference: item.originalReference,
-      replacementReference: item.replacementReference,
-      originalOrderId: item.originalOrderId,
-      replacementOrderId: item.replacementOrderId,
-      merchant: item.merchantUser,
-      customerName: item.customerName,
-      customerEmail: item.customerEmail,
-      customerPhone: item.customerPhone,
-      reason: item.reason,
-      status: item.status,
-      remark: item.remark,
-      actionDate: item.actionDate?.toISOString() ?? null,
-      createdAt: item.createdAt.toISOString(),
-    }));
+    const exchanges = rows.map((item) => {
+      const latestTask = item.riderDeliveryTasks[0] ?? null;
+      return {
+        id: item.id,
+        originalReference: item.originalReference,
+        replacementReference: item.replacementReference,
+        originalOrderId: item.originalOrderId,
+        replacementOrderId: item.replacementOrderId,
+        merchant: item.merchantUser,
+        customerName: item.customerName,
+        customerEmail: item.customerEmail,
+        customerPhone: item.customerPhone,
+        reason: item.reason,
+        status: item.status,
+        remark: item.remark,
+        actionDate: item.actionDate?.toISOString() ?? null,
+        requiresOldItemCollection:
+          latestTask?.requiresOldItemCollection ??
+          (item.reason === "damaged_item" || item.reason === "wrong_item"),
+        oldItemCollectionStatus: latestTask?.oldItemCollectionStatus ?? null,
+        oldItemCollectionRemark: latestTask?.oldItemCollectionRemark ?? null,
+        exchangePaymentDifference: latestTask?.exchangePaymentDifference?.toString() ?? null,
+        createdAt: item.createdAt.toISOString(),
+      };
+    });
 
     const counts = exchanges.reduce(
       (acc, item) => {
