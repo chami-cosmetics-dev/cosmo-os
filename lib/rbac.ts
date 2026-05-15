@@ -164,6 +164,11 @@ const DEFAULT_PERMISSIONS = [
     key: "settings.fulfillment",
     description: "Manage samples, free issues, hold reasons, and courier services",
   },
+  // Dashboard
+  {
+    key: "dashboard.edit",
+    description: "Edit dashboard brand configuration (add/remove brands, change selection)",
+  },
   // Stickers
   {
     key: "stickers.batch.read",
