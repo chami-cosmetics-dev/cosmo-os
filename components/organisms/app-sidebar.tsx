@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Calculator,
   BadgeCheck,
+  GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -181,6 +182,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                 isActive={pathname === "/dashboard/approvals"}
               />
             )}
+            <NavItem
+              href="/dashboard/cosmo-academy"
+              icon={GraduationCap}
+              label="Cosmo Academy"
+              isActive={pathname === "/dashboard/cosmo-academy"}
+            />
           </SidebarGroupContent>
         </SidebarGroup>
         {canViewPeople && (
