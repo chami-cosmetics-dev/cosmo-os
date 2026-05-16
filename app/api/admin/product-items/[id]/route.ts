@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import {
+  getProductItemStatusMeta,
+  PRODUCT_ITEM_STATUS_CATEGORIES,
+} from "@/lib/product-item-status";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -49,4 +53,57 @@ export async function GET(
   }
 
   return NextResponse.json(item);
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requirePermission("products.manage");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const companyId = await getCompanyId(auth.context!.user!.id);
+  if (!companyId) {
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 }
+    );
+  }
+
+  const { id } = await params;
+  const idResult = cuidSchema.safeParse(id);
+  if (!idResult.success) {
+    return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+
+  const body = (await request.json().catch(() => null)) as {
+    itemStatusCategory?: unknown;
+  } | null;
+  const itemStatusCategory =
+    typeof body?.itemStatusCategory === "string" ? body.itemStatusCategory : "";
+
+  if (!(PRODUCT_ITEM_STATUS_CATEGORIES as readonly string[]).includes(itemStatusCategory)) {
+    return NextResponse.json({ error: "Invalid item status category" }, { status: 400 });
+  }
+
+  const statusMeta = getProductItemStatusMeta(itemStatusCategory);
+  const item = await prisma.productItem.updateMany({
+    where: { id: idResult.data, companyId },
+    data: {
+      itemStatusCategory: statusMeta.category,
+      itemStatusLabel: statusMeta.category === "UNCATEGORIZED" ? null : statusMeta.label,
+    },
+  });
+
+  if (item.count === 0) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({
+    id: idResult.data,
+    itemStatusCategory: statusMeta.category,
+    itemStatusLabel: statusMeta.category === "UNCATEGORIZED" ? null : statusMeta.label,
+  });
 }

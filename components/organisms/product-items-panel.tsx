@@ -18,6 +18,11 @@ import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
+import {
+  getProductItemStatusMeta,
+  PRODUCT_ITEM_STATUS_CATEGORIES,
+  PRODUCT_ITEM_STATUS_META,
+} from "@/lib/product-item-status";
 
 type ProductItem = {
   id: string;
@@ -31,7 +36,10 @@ type ProductItem = {
   companyLocation?: { name: string } | null;
   inventoryQuantity: number;
   status: string | null;
+  itemStatusCategory: string;
+  itemStatusLabel: string | null;
   imageUrl: string | null;
+  hasExplanation?: boolean;
 };
 
 export type ProductItemsPanelInitialData = {
@@ -46,9 +54,10 @@ export type ProductItemsPanelInitialData = {
 
 interface ProductItemsPanelProps {
   initialData?: ProductItemsPanelInitialData | null;
+  canManage?: boolean;
 }
 
-export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) {
+export function ProductItemsPanel({ initialData, canManage = false }: ProductItemsPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
   const pagePerfRef = useRef(
     createClientPerfLogger("product-items.panel.mount", {
@@ -72,20 +81,23 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [vendorFilter, setVendorFilter] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [itemStatusFilter, setItemStatusFilter] = useState<string>("");
   const [page, setPage] = useState(initialData?.page ?? 1);
   const [limit, setLimit] = useState(initialData?.limit ?? 10);
   const [total, setTotal] = useState(initialData?.total ?? 0);
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
 
   const hasActiveFilters = Boolean(
-    debouncedSearch.trim() || locationFilter || vendorFilter || categoryFilter
+    debouncedSearch.trim() || locationFilter || vendorFilter || categoryFilter || itemStatusFilter
   );
   const activeFilterCount = [
     Boolean(debouncedSearch.trim()),
     Boolean(locationFilter),
     Boolean(vendorFilter),
     Boolean(categoryFilter),
+    Boolean(itemStatusFilter),
   ].filter(Boolean).length;
 
   useEffect(() => {
@@ -106,6 +118,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     if (locationFilter) params.set("location_id", locationFilter);
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
+    if (itemStatusFilter) params.set("item_status_category", itemStatusFilter);
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (sortBy) {
@@ -137,7 +150,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     setCategories(data.categories ?? []);
     setLoading(false);
     perf.end({ ok: true, total: data.total });
-  }, [categoryFilter, effectiveSearch, hasInitialData, locationFilter, page, limit, sortBy, sortOrder, vendorFilter]);
+  }, [categoryFilter, effectiveSearch, hasInitialData, itemStatusFilter, locationFilter, page, limit, sortBy, sortOrder, vendorFilter]);
 
   const skippedInitialFetch = useRef(false);
   useEffect(() => {
@@ -186,9 +199,55 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
     setLocationFilter("");
     setVendorFilter("");
     setCategoryFilter("");
+    setItemStatusFilter("");
     setSortBy("");
     setSortOrder("asc");
     setPage(1);
+  }
+
+  function statusBadgeClass(category: string): string {
+    if (category === "DISCONTINUE") return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200";
+    if (category === "NEWLY_ADDED") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200";
+    if (category.startsWith("TOP_PRIORITY")) return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200";
+    if (category.startsWith("PRIORITY")) return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200";
+    return "border-border/70 bg-secondary/20 text-muted-foreground";
+  }
+
+  async function updateItemStatus(itemId: string, itemStatusCategory: string) {
+    const previousItems = items;
+    const statusMeta = getProductItemStatusMeta(itemStatusCategory);
+    setSavingStatusId(itemId);
+    setItems((current) =>
+      current.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              itemStatusCategory: statusMeta.category,
+              itemStatusLabel: statusMeta.category === "UNCATEGORIZED" ? null : statusMeta.label,
+            }
+          : item
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/admin/product-items/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemStatusCategory: statusMeta.category }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setItems(previousItems);
+        notify.error(data.error ?? "Failed to update item status");
+        return;
+      }
+      notify.success("Item status updated.");
+    } catch {
+      setItems(previousItems);
+      notify.error("Failed to update item status");
+    } finally {
+      setSavingStatusId(null);
+    }
   }
 
   return (
@@ -203,7 +262,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
           Product Items
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Browse Shopify-synced product items with quick filters for branch, vendor, and category.
+          Browse Shopify-synced product items with quick filters for branch, vendor, category, and item priority.
         </p>
       </section>
 
@@ -232,7 +291,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
             Product Item Explorer
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Items synced from Shopify via webhooks. Filter by location, vendor, or category.
+            Items synced from Shopify via webhooks. Filter by location, vendor, category, or item priority.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -255,7 +314,7 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
               </Button>
             </div>
 
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_13rem_12rem_13rem_16rem]">
               <div className="relative flex-1">
                 <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
                 <Input
@@ -325,11 +384,30 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                   ))}
                 </SelectContent>
               </Select>
+              <Select
+                value={itemStatusFilter || ALL_FILTER_VALUE}
+                onValueChange={(value) => {
+                  setItemStatusFilter(value === ALL_FILTER_VALUE ? "" : value);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-full border-border/70 bg-background/90">
+                  <SelectValue placeholder="All item statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER_VALUE}>All item statuses</SelectItem>
+                  {PRODUCT_ITEM_STATUS_CATEGORIES.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {PRODUCT_ITEM_STATUS_META[category].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
           {loading && items.length === 0 ? (
-            <TableSkeleton columns={8} rows={6} />
+            <TableSkeleton columns={9} rows={6} />
           ) : items.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-background/85 p-8 text-center">
               <p className="text-muted-foreground text-sm">
@@ -397,6 +475,9 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                         currentOrder={sortOrder}
                         onSort={handleSort}
                       />
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
+                        Item Status
+                      </th>
                       <SortableColumnHeader
                         label="Stock"
                         sortKey="stock"
@@ -428,6 +509,11 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                             )}
                             <div>
                               <span className="font-medium">{item.productTitle}</span>
+                              {item.hasExplanation && (
+                                <span className="mt-1 inline-flex w-fit items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                  Academy explanation created
+                                </span>
+                              )}
                               {item.variantTitle && (
                                 <span className="text-muted-foreground block text-xs">
                                   {item.variantTitle}
@@ -443,6 +529,33 @@ export function ProductItemsPanel({ initialData }: ProductItemsPanelProps = {}) 
                         </td>
                         <td className="px-4 py-2">{item.vendor?.name ?? "-"}</td>
                         <td className="px-4 py-2">{item.category?.name ?? "-"}</td>
+                        <td className="px-4 py-2">
+                          {(() => {
+                            const statusMeta = getProductItemStatusMeta(item.itemStatusCategory);
+                            return canManage ? (
+                              <Select
+                                value={statusMeta.category}
+                                onValueChange={(value) => updateItemStatus(item.id, value)}
+                                disabled={savingStatusId === item.id}
+                              >
+                                <SelectTrigger className={`h-8 min-w-56 border px-2 py-1 text-xs font-medium ${statusBadgeClass(statusMeta.category)}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {PRODUCT_ITEM_STATUS_CATEGORIES.map((category) => (
+                                    <SelectItem key={category} value={category}>
+                                      {PRODUCT_ITEM_STATUS_META[category].label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className={`inline-flex max-w-56 items-center rounded-md border px-2 py-1 text-xs font-medium ${statusBadgeClass(statusMeta.category)}`}>
+                                {item.itemStatusLabel || statusMeta.label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="px-4 py-2 text-center">{item.inventoryQuantity}</td>
                         <td className="px-4 py-2">{item.companyLocation?.name ?? "-"}</td>
                       </tr>
