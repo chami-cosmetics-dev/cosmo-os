@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema, limitSchema, pageSchema } from "@/lib/validation";
+import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
 
 async function getCompanyId(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
@@ -31,6 +32,7 @@ export async function GET(request: NextRequest) {
   const locationId = request.nextUrl.searchParams.get("location_id");
   const vendorId = request.nextUrl.searchParams.get("vendor_id");
   const categoryId = request.nextUrl.searchParams.get("category_id");
+  const itemStatusCategory = request.nextUrl.searchParams.get("item_status_category");
   const search = request.nextUrl.searchParams.get("search")?.trim();
   const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
   const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
@@ -71,6 +73,13 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  if (
+    itemStatusCategory &&
+    (PRODUCT_ITEM_STATUS_CATEGORIES as readonly string[]).includes(itemStatusCategory)
+  ) {
+    where.itemStatusCategory = itemStatusCategory;
+  }
+
   if (search) {
     where.OR = [
       { productTitle: { contains: search, mode: "insensitive" } },
@@ -93,13 +102,35 @@ export async function GET(request: NextRequest) {
       },
     }),
   ]);
+  const productKeys = Array.from(
+    new Set(items.map((item) => item.shopifyProductId || item.id))
+  );
+  const explainedProductKeys =
+    productKeys.length > 0
+      ? await prisma.cosmoAcademyExplanation.findMany({
+          where: {
+            companyId,
+            productKey: { in: productKeys },
+            status: "published",
+          },
+          select: { productKey: true },
+          distinct: ["productKey"],
+        })
+      : [];
+  const explainedProductKeySet = new Set(
+    explainedProductKeys.map((item) => item.productKey)
+  );
+  const itemsWithExplanationStatus = items.map((item) => ({
+    ...item,
+    hasExplanation: explainedProductKeySet.has(item.shopifyProductId || item.id),
+  }));
 
   if (!usePaginatedShape) {
-    return NextResponse.json(items);
+    return NextResponse.json(itemsWithExplanationStatus);
   }
 
   return NextResponse.json({
-    items,
+    items: itemsWithExplanationStatus,
     total,
     page,
     limit,

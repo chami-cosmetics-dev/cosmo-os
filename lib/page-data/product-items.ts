@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
+import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
 
 export type ProductItemsPageParams = {
   page?: number;
@@ -13,6 +14,7 @@ export type ProductItemsPageParams = {
   locationId?: string | null;
   vendorId?: string | null;
   categoryId?: string | null;
+  itemStatusCategory?: string | null;
   search?: string | null;
 };
 
@@ -103,6 +105,13 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     }
   }
 
+  if (
+    params.itemStatusCategory &&
+    (PRODUCT_ITEM_STATUS_CATEGORIES as readonly string[]).includes(params.itemStatusCategory)
+  ) {
+    where.itemStatusCategory = params.itemStatusCategory;
+  }
+
   if (params.search) {
     where.OR = [
       { productTitle: { contains: params.search, mode: "insensitive" } },
@@ -130,12 +139,31 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
   ]);
 
   const [total, rawItems] = itemsResult;
+  const productKeys = Array.from(
+    new Set(rawItems.map((item) => item.shopifyProductId || item.id))
+  );
+  const explainedProductKeys =
+    productKeys.length > 0
+      ? await prisma.cosmoAcademyExplanation.findMany({
+          where: {
+            companyId,
+            productKey: { in: productKeys },
+            status: "published",
+          },
+          select: { productKey: true },
+          distinct: ["productKey"],
+        })
+      : [];
+  const explainedProductKeySet = new Set(
+    explainedProductKeys.map((item) => item.productKey)
+  );
 
   const items = rawItems.map((item) => ({
     ...item,
     price: item.price.toString(),
     compareAtPrice: item.compareAtPrice?.toString() ?? null,
     companyLocation: item.companyLocation ? { name: item.companyLocation.name } : null,
+    hasExplanation: explainedProductKeySet.has(item.shopifyProductId || item.id),
   }));
 
   maybeLogSlowDbRequest("product_items.page_data", startedAt, {
