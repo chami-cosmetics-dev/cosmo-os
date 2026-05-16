@@ -88,6 +88,8 @@ export async function ensureProductItemAndCreateLineItem(
         imageUrl: null,
         tags: null,
         barcode: null,
+        itemStatusCategory: "NEWLY_ADDED",
+        itemStatusLabel: "Newly Added",
         inventoryQuantity: 0,
       },
     });

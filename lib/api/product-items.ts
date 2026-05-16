@@ -20,6 +20,8 @@ export type ProductItem = {
   imageUrl: string | null;
   tags: string | null;
   barcode: string | null;
+  itemStatusCategory: string;
+  itemStatusLabel: string | null;
   inventoryQuantity: number;
   createdAt: string;
   updatedAt: string;
@@ -50,12 +52,14 @@ export const productItemsApi = {
     location_id?: string;
     vendor_id?: string;
     category_id?: string;
+    item_status_category?: string;
     search?: string;
   }) => {
     const searchParams = new URLSearchParams();
     if (params?.location_id) searchParams.set("location_id", params.location_id);
     if (params?.vendor_id) searchParams.set("vendor_id", params.vendor_id);
     if (params?.category_id) searchParams.set("category_id", params.category_id);
+    if (params?.item_status_category) searchParams.set("item_status_category", params.item_status_category);
     if (params?.search) searchParams.set("search", params.search);
     const qs = searchParams.toString();
     return api.get<ProductItem[]>(`/api/admin/product-items${qs ? `?${qs}` : ""}`);
