@@ -262,28 +262,44 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
   );
   const total = groupedItems.length;
   const rawItems = groupedItems.slice(skip, skip + limit);
-  const productKeys = Array.from(
-    new Set(rawItems.map((item) => item.shopifyProductId || item.groupKey))
-  );
+  // Build family → productKeys map so any explained member marks the whole family
+  const familyToProductKeys = new Map<string, string[]>();
+  for (const item of rawItems) {
+    const productKey = item.shopifyProductId || item.groupKey;
+    const existing = familyToProductKeys.get(item.familyName);
+    if (existing) {
+      existing.push(productKey);
+    } else {
+      familyToProductKeys.set(item.familyName, [productKey]);
+    }
+  }
+
+  const allProductKeys = Array.from(new Set(rawItems.map((item) => item.shopifyProductId || item.groupKey)));
   const explainedProductKeys =
-    productKeys.length > 0
+    allProductKeys.length > 0
       ? await prisma.cosmoAcademyExplanation.findMany({
           where: {
             companyId,
-            productKey: { in: productKeys },
+            productKey: { in: allProductKeys },
             status: "published",
           },
           select: { productKey: true },
           distinct: ["productKey"],
         })
       : [];
-  const explainedProductKeySet = new Set(
-    explainedProductKeys.map((item) => item.productKey)
-  );
+  const explainedProductKeySet = new Set(explainedProductKeys.map((e) => e.productKey));
+
+  // A family is explained if ANY of its product keys has a published explanation
+  const explainedFamilies = new Set<string>();
+  for (const [familyName, keys] of familyToProductKeys.entries()) {
+    if (keys.some((k) => explainedProductKeySet.has(k))) {
+      explainedFamilies.add(familyName);
+    }
+  }
 
   const items = rawItems.map((item) => ({
     ...item,
-    hasExplanation: explainedProductKeySet.has(item.shopifyProductId || item.groupKey),
+    hasExplanation: explainedFamilies.has(item.familyName),
   }));
 
   maybeLogSlowDbRequest("product_items.page_data", startedAt, {

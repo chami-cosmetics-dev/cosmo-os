@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Download, FileUp, Loader2, Package2, Search, X } from "lucide-react";
+import { Check, ChevronsUpDown, Download, FileUp, FolderOpen, Loader2, Package2, Search, X } from "lucide-react";
+
+import { ProductItemStorageSheet } from "@/components/organisms/product-item-storage-sheet";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -208,6 +210,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
+  const [storageItem, setStorageItem] = useState<{ sku: string; productTitle: string; familyName: string } | null>(null);
   const [priorityImporting, setPriorityImporting] = useState(false);
   const [priorityApplying, setPriorityApplying] = useState(false);
   const [priorityPreview, setPriorityPreview] = useState<PriorityImportPreview | null>(null);
@@ -663,16 +666,29 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
                             ) : (
                               <div className="size-9 shrink-0 rounded-md bg-secondary/30" />
                             )}
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <p className="truncate font-medium">{item.productTitle}</p>
                               <p className="mt-1 truncate text-xs text-muted-foreground">
                                 {[item.sku ? `SKU ${item.sku}` : null, item.vendor?.name, item.category?.name].filter(Boolean).join(" / ") || "-"}
                               </p>
-                              {item.hasExplanation ? (
-                                <span className="mt-1 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                  Academy
-                                </span>
-                              ) : null}
+                              <div className="mt-1 flex items-center gap-1.5">
+                                {item.hasExplanation ? (
+                                  <span className="inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                    Academy
+                                  </span>
+                                ) : null}
+                                {item.sku ? (
+                                  <button
+                                    type="button"
+                                    title="Open storage"
+                                    onClick={() => setStorageItem({ sku: item.sku!, productTitle: item.productTitle, familyName: item.familyName ?? item.productTitle })}
+                                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                                  >
+                                    <FolderOpen className="size-3" />
+                                    Storage
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -735,6 +751,13 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           ) : null}
         </>
       )}
+      <ProductItemStorageSheet
+        open={Boolean(storageItem)}
+        sku={storageItem?.sku ?? null}
+        productTitle={storageItem?.productTitle ?? null}
+        familyName={storageItem?.familyName ?? null}
+        onClose={() => setStorageItem(null)}
+      />
     </div>
   );
 }
