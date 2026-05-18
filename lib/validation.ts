@@ -72,6 +72,7 @@ export const LIMITS = {
   kokoCompanyLabel: { max: 100 },
   kokoCompanyName: { max: 200 },
   kokoCompanyPrefix: { max: 50 },
+  contactAllocationOptionValue: { max: 100 },
 } as const;
 
 /** Parse and validate page number from query string */
