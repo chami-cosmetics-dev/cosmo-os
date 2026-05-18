@@ -94,6 +94,7 @@ model ShopifyWebhookSecret {
 model DashboardBrandConfig {
   id         String   @id @default(cuid())
   companyId  String
+  /// Brand name searched (case-insensitive) in product titles
   name       String
   isSelected Boolean  @default(true)
   sortOrder  Int      @default(0)
