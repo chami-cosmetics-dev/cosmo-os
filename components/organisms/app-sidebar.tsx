@@ -23,6 +23,7 @@ import {
   RefreshCw,
   Calculator,
   BadgeCheck,
+  GraduationCap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -88,6 +89,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewApprovals =
     hasSidebarPermission("finance.approvals.read") ||
     hasSidebarPermission("finance.approvals.manage");
+  const canViewAcademy =
+    hasSidebarPermission("academy.learn") ||
+    hasSidebarPermission("academy.manage");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -179,6 +183,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                 icon={BadgeCheck}
                 label="Finance Approvals"
                 isActive={pathname === "/dashboard/approvals"}
+              />
+            )}
+            {canViewAcademy && (
+              <NavItem
+                href="/dashboard/cosmo-academy"
+                icon={GraduationCap}
+                label="Cosmo Academy"
+                isActive={pathname === "/dashboard/cosmo-academy"}
               />
             )}
           </SidebarGroupContent>

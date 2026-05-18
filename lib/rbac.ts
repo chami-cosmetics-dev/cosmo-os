@@ -56,6 +56,14 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage vendors and categories",
   },
   {
+    key: "academy.learn",
+    description: "View Cosmo Academy lessons and update own learning progress",
+  },
+  {
+    key: "academy.manage",
+    description: "Create and manage Cosmo Academy product explanations",
+  },
+  {
     key: "orders.read",
     description: "View received orders from Shopify",
   },
@@ -330,6 +338,8 @@ const DEFAULT_ROLES = [
       "settings.fulfillment",
       "products.read",
       "products.manage",
+      "academy.learn",
+      "academy.manage",
       "orders.read",
       "orders.manage",
       "orders.create_manual",
@@ -407,6 +417,7 @@ const DEFAULT_ROLES = [
       "staff.read",
       "roles.read",
       "products.read",
+      "academy.learn",
       "orders.read",
       "returns.read",
       "exchanges.read",

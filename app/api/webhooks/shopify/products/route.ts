@@ -143,6 +143,8 @@ export async function POST(request: NextRequest) {
         imageUrl,
         tags: data.tags?.slice(0, 1000) ?? null,
         barcode: variant.barcode?.slice(0, 100) ?? null,
+        itemStatusCategory: "NEWLY_ADDED",
+        itemStatusLabel: "Newly Added",
         inventoryQuantity: variant.inventory_quantity ?? 0,
       },
       update: {
