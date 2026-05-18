@@ -88,21 +88,33 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid item status category" }, { status: 400 });
   }
 
+  const existingItem = await prisma.productItem.findFirst({
+    where: { id: idResult.data, companyId },
+    select: { id: true, shopifyVariantId: true, sku: true },
+  });
+
+  if (!existingItem) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+
+  const groupedWhere = existingItem.shopifyVariantId
+    ? { companyId, shopifyVariantId: existingItem.shopifyVariantId }
+    : existingItem.sku?.trim()
+      ? { companyId, sku: existingItem.sku.trim() }
+      : { companyId, id: existingItem.id };
+
   const statusMeta = getProductItemStatusMeta(itemStatusCategory);
   const item = await prisma.productItem.updateMany({
-    where: { id: idResult.data, companyId },
+    where: groupedWhere,
     data: {
       itemStatusCategory: statusMeta.category,
       itemStatusLabel: statusMeta.category === "UNCATEGORIZED" ? null : statusMeta.label,
     },
   });
 
-  if (item.count === 0) {
-    return NextResponse.json({ error: "Item not found" }, { status: 404 });
-  }
-
   return NextResponse.json({
     id: idResult.data,
+    updatedCount: item.count,
     itemStatusCategory: statusMeta.category,
     itemStatusLabel: statusMeta.category === "UNCATEGORIZED" ? null : statusMeta.label,
   });

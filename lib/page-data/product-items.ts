@@ -5,6 +5,7 @@ import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
+import { getProductFamilyName } from "@/lib/product-item-family";
 
 export type ProductItemsPageParams = {
   page?: number;
@@ -14,13 +15,140 @@ export type ProductItemsPageParams = {
   locationId?: string | null;
   vendorId?: string | null;
   categoryId?: string | null;
+  familyId?: string | null;
   itemStatusCategory?: string | null;
   search?: string | null;
 };
 
+type RawProductItem = Prisma.ProductItemGetPayload<{
+  include: {
+    vendor: { select: { id: true; name: true } };
+    category: { select: { id: true; name: true; fullName: true } };
+    companyLocation: { select: { id: true; name: true; shopifyLocationId: true } };
+  };
+}>;
+
+function getProductItemGroupKey(item: Pick<RawProductItem, "shopifyVariantId" | "sku" | "id">) {
+  return item.shopifyVariantId || item.sku?.trim() || item.id;
+}
+
+function formatDecimalRange(values: Array<{ toString(): string } | null>) {
+  const uniqueValues = Array.from(
+    new Set(
+      values
+        .filter((value): value is { toString(): string } => Boolean(value))
+        .map((value) => value.toString())
+    )
+  ).sort((a, b) => Number(a) - Number(b));
+
+  if (uniqueValues.length === 0) return null;
+  if (uniqueValues.length === 1) return uniqueValues[0];
+  return `${uniqueValues[0]} - ${uniqueValues[uniqueValues.length - 1]}`;
+}
+
+function chooseRepresentative(current: RawProductItem, candidate: RawProductItem) {
+  if (!current.imageUrl && candidate.imageUrl) return candidate;
+  if (!current.sku && candidate.sku) return candidate;
+  return current;
+}
+
+function groupProductItems(rawItems: RawProductItem[], hasLocationFilter: boolean) {
+  const groups = new Map<string, { representative: RawProductItem; rows: RawProductItem[] }>();
+
+  for (const item of rawItems) {
+    const groupKey = getProductItemGroupKey(item);
+    const existing = groups.get(groupKey);
+    if (!existing) {
+      groups.set(groupKey, { representative: item, rows: [item] });
+      continue;
+    }
+    existing.representative = chooseRepresentative(existing.representative, item);
+    existing.rows.push(item);
+  }
+
+  return Array.from(groups.entries()).map(([groupKey, group]) => {
+    const representative = group.representative;
+    const locationNames = Array.from(
+      new Set(group.rows.map((row) => row.companyLocation?.name).filter(Boolean))
+    );
+    const locationCount = locationNames.length;
+    const totalInventoryQuantity = group.rows.reduce(
+      (sum, row) => sum + row.inventoryQuantity,
+      0
+    );
+    const priceDisplay = formatDecimalRange(group.rows.map((row) => row.price)) ?? "-";
+    const compareAtPriceDisplay =
+      formatDecimalRange(group.rows.map((row) => row.compareAtPrice)) ?? "-";
+
+    return {
+      ...representative,
+      groupKey,
+      familyName: getProductFamilyName(representative.productTitle),
+      locationCount,
+      locationSummary: hasLocationFilter
+        ? representative.companyLocation?.name ?? "-"
+        : `${locationCount} location${locationCount === 1 ? "" : "s"}`,
+      totalInventoryQuantity,
+      price: representative.price.toString(),
+      compareAtPrice: representative.compareAtPrice?.toString() ?? null,
+      priceDisplay,
+      compareAtPriceDisplay,
+      companyLocation: representative.companyLocation
+        ? { name: representative.companyLocation.name }
+        : null,
+    };
+  });
+}
+
+function sortGroupedItems<T extends ReturnType<typeof groupProductItems>[number]>(
+  items: T[],
+  sortBy: string | null | undefined,
+  sortOrder: "asc" | "desc"
+) {
+  const direction = sortOrder === "desc" ? -1 : 1;
+  const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+  return [...items].sort((a, b) => {
+    let result = 0;
+    switch (sortBy) {
+      case "sku":
+        result = collator.compare(a.sku ?? "", b.sku ?? "");
+        break;
+      case "price":
+        result = Number(a.price) - Number(b.price);
+        break;
+      case "compare_at":
+        result = Number(a.compareAtPrice ?? 0) - Number(b.compareAtPrice ?? 0);
+        break;
+      case "vendor":
+        result = collator.compare(a.vendor?.name ?? "", b.vendor?.name ?? "");
+        break;
+      case "category":
+        result = collator.compare(a.category?.name ?? "", b.category?.name ?? "");
+        break;
+      case "family":
+        result = collator.compare(a.familyName, b.familyName);
+        break;
+      case "stock":
+        result = a.totalInventoryQuantity - b.totalInventoryQuantity;
+        break;
+      case "location":
+        result = collator.compare(a.locationSummary, b.locationSummary);
+        break;
+      case "product":
+      default:
+        result =
+          collator.compare(a.productTitle, b.productTitle) ||
+          collator.compare(a.variantTitle ?? "", b.variantTitle ?? "");
+        break;
+    }
+    return result * direction;
+  });
+}
+
 const getProductItemsPageLookups = unstable_cache(
   async (companyId: string) => {
-    const [locations, vendors, categories] = await Promise.all([
+    const [locations, vendors, categories, familyRows] = await Promise.all([
       prisma.companyLocation.findMany({
         where: { companyId },
         orderBy: { name: "asc" },
@@ -36,12 +164,22 @@ const getProductItemsPageLookups = unstable_cache(
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),
+      prisma.productItem.findMany({
+        where: { companyId },
+        orderBy: { productTitle: "asc" },
+        distinct: ["productTitle"],
+        select: { productTitle: true },
+      }),
     ]);
+    const familyNames = Array.from(
+      new Set(familyRows.map((row) => getProductFamilyName(row.productTitle)))
+    ).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base", numeric: true }));
 
     return {
       locations,
       vendors,
       categories,
+      families: familyNames.map((name) => ({ id: name, name })),
     };
   },
   ["product-items-page-lookups"],
@@ -54,25 +192,6 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
   const limit = params.limit ?? 10;
   const sortOrder = params.sortOrder ?? "asc";
   const skip = (page - 1) * limit;
-
-  const SORT_FIELDS: Record<string, Prisma.ProductItemOrderByWithRelationInput | Prisma.ProductItemOrderByWithRelationInput[]> = {
-    product: [{ productTitle: sortOrder }, { variantTitle: sortOrder }],
-    sku: { sku: sortOrder },
-    price: { price: sortOrder },
-    compare_at: { compareAtPrice: sortOrder },
-    vendor: { vendor: { name: sortOrder } },
-    category: { category: { name: sortOrder } },
-    stock: { inventoryQuantity: sortOrder },
-    location: { companyLocation: { name: sortOrder } },
-  };
-  const defaultOrderBy: Prisma.ProductItemOrderByWithRelationInput[] = [
-    { productTitle: "asc" },
-    { variantTitle: "asc" },
-  ];
-  const orderBy =
-    params.sortBy && params.sortBy in SORT_FIELDS
-      ? (SORT_FIELDS[params.sortBy] as Prisma.ProductItemOrderByWithRelationInput | Prisma.ProductItemOrderByWithRelationInput[])
-      : defaultOrderBy;
 
   const where: Prisma.ProductItemWhereInput = {
     companyId,
@@ -121,26 +240,30 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
   }
 
   const [itemsResult, lookups] = await Promise.all([
-    Promise.all([
-      prisma.productItem.count({ where }),
-      prisma.productItem.findMany({
+    prisma.productItem.findMany({
         where,
-        orderBy,
-        skip,
-        take: limit,
+        orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }, { sku: "asc" }],
         include: {
           vendor: { select: { id: true, name: true } },
           category: { select: { id: true, name: true, fullName: true } },
           companyLocation: { select: { id: true, name: true, shopifyLocationId: true } },
         },
       }),
-    ]),
     getProductItemsPageLookups(companyId),
   ]);
 
-  const [total, rawItems] = itemsResult;
+  const familyFilter = params.familyId?.trim();
+  const groupedItems = sortGroupedItems(
+    groupProductItems(itemsResult, Boolean(params.locationId)).filter((item) =>
+      familyFilter ? item.familyName === familyFilter : true
+    ),
+    params.sortBy,
+    sortOrder
+  );
+  const total = groupedItems.length;
+  const rawItems = groupedItems.slice(skip, skip + limit);
   const productKeys = Array.from(
-    new Set(rawItems.map((item) => item.shopifyProductId || item.id))
+    new Set(rawItems.map((item) => item.shopifyProductId || item.groupKey))
   );
   const explainedProductKeys =
     productKeys.length > 0
@@ -160,10 +283,7 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
 
   const items = rawItems.map((item) => ({
     ...item,
-    price: item.price.toString(),
-    compareAtPrice: item.compareAtPrice?.toString() ?? null,
-    companyLocation: item.companyLocation ? { name: item.companyLocation.name } : null,
-    hasExplanation: explainedProductKeySet.has(item.shopifyProductId || item.id),
+    hasExplanation: explainedProductKeySet.has(item.shopifyProductId || item.groupKey),
   }));
 
   maybeLogSlowDbRequest("product_items.page_data", startedAt, {
@@ -181,5 +301,6 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     locations: lookups.locations,
     vendors: lookups.vendors,
     categories: lookups.categories,
+    families: lookups.families,
   };
 }

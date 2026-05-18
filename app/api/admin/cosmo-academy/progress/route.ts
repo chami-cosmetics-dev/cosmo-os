@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getCurrentUserContext } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 
 const ALLOWED_STATUSES = new Set(["in_progress", "completed"]);
 
 export async function POST(request: NextRequest) {
-  const context = await getCurrentUserContext();
-  if (!context?.user?.id) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requirePermission("academy.learn");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = context.user.companyId;
+  const user = auth.context!.user!;
+  const companyId = user.companyId;
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     where: {
       explanationId_userId: {
         explanationId,
-        userId: context.user.id,
+        userId: user.id,
       },
     },
     update: {
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
     create: {
       companyId,
       explanationId,
-      userId: context.user.id,
+      userId: user.id,
       status,
       lastOpenedAt: now,
       completedAt: status === "completed" ? now : null,

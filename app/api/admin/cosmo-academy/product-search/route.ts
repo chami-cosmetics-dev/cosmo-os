@@ -13,7 +13,7 @@ function toAcademyProductName(productTitle: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("products.read");
+  const auth = await requirePermission("academy.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

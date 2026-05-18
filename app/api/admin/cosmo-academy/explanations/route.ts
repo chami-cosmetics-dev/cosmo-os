@@ -27,7 +27,7 @@ function safeFilePart(input: string) {
 }
 
 export async function GET() {
-  const auth = await requirePermission("products.read");
+  const auth = await requirePermission("academy.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -81,7 +81,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("products.read");
+  const auth = await requirePermission("academy.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

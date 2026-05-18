@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { getProductItemStatusMeta } from "@/lib/product-item-status";
-import { getCurrentUserContext } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  const context = await getCurrentUserContext();
-  if (!context?.user?.id) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requirePermission("academy.learn");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const companyId = context.user.companyId;
+  const user = auth.context!.user!;
+  const companyId = user.companyId;
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
@@ -44,7 +45,7 @@ export async function GET() {
         },
       },
       progress: {
-        where: { userId: context.user.id },
+        where: { userId: user.id },
         select: {
           status: true,
           lastOpenedAt: true,

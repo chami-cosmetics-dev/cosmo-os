@@ -2,16 +2,20 @@ import { api } from "./client";
 
 export type ProductItem = {
   id: string;
+  groupKey?: string;
   companyId: string;
   companyLocationId: string;
   shopifyLocationId: string;
   shopifyProductId: string;
   shopifyVariantId: string;
   productTitle: string;
+  familyName?: string;
   variantTitle: string | null;
   sku: string | null;
   price: string;
   compareAtPrice: string | null;
+  priceDisplay?: string;
+  compareAtPriceDisplay?: string;
   vendorId: string | null;
   categoryId: string | null;
   status: string | null;
@@ -23,6 +27,9 @@ export type ProductItem = {
   itemStatusCategory: string;
   itemStatusLabel: string | null;
   inventoryQuantity: number;
+  totalInventoryQuantity?: number;
+  locationCount?: number;
+  locationSummary?: string;
   createdAt: string;
   updatedAt: string;
   vendor?: { id: string; name: string } | null;
@@ -52,6 +59,7 @@ export const productItemsApi = {
     location_id?: string;
     vendor_id?: string;
     category_id?: string;
+    family_id?: string;
     item_status_category?: string;
     search?: string;
   }) => {
@@ -59,6 +67,7 @@ export const productItemsApi = {
     if (params?.location_id) searchParams.set("location_id", params.location_id);
     if (params?.vendor_id) searchParams.set("vendor_id", params.vendor_id);
     if (params?.category_id) searchParams.set("category_id", params.category_id);
+    if (params?.family_id) searchParams.set("family_id", params.family_id);
     if (params?.item_status_category) searchParams.set("item_status_category", params.item_status_category);
     if (params?.search) searchParams.set("search", params.search);
     const qs = searchParams.toString();
