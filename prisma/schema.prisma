@@ -53,6 +53,7 @@ model Company {
   contacts               ContactMaster[]
   complaints             Complaint[]
   shippingChargeOptions  ShippingChargeOption[]
+  dashboardBrandConfigs  DashboardBrandConfig[]
   kokoCompanies          KokoCompany[]
 }
 
@@ -86,6 +87,21 @@ model ShopifyWebhookSecret {
   secret    String
   createdAt DateTime @default(now())
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model DashboardBrandConfig {
+  id         String   @id @default(cuid())
+  companyId  String
+  /// Brand name searched (case-insensitive) in product titles
+  name       String
+  isSelected Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, sortOrder])
 }
 
 model Vendor {

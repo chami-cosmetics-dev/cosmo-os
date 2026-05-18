@@ -44,8 +44,28 @@ const DashboardLocationMerchantChartsDynamic = dynamic(
   },
 );
 
+const DashboardBrandSalesChartDynamic = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-brand-sales-chart").then(
+      (module) => module.DashboardBrandSalesChart,
+    ),
+  {
+    loading: () => <DashboardChartSectionSkeleton label="Loading brand sales chart..." />,
+  },
+);
+
+const DashboardDeliverySummaryChartDynamic = dynamic(
+  () =>
+    import("@/components/organisms/dashboard-delivery-summary-chart").then(
+      (module) => module.DashboardDeliverySummaryChart,
+    ),
+  {
+    loading: () => <DashboardChartSectionSkeleton label="Loading delivery summary..." />,
+  },
+);
+
 /** Parallel route `@main` — sales charts driven by `@filters` state (client). */
-export function DashboardMainSlot() {
+export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboard?: boolean }) {
   const {
     fromDate,
     toDate,
@@ -172,6 +192,8 @@ export function DashboardMainSlot() {
         filterInfo={filterInfo}
         breakdownVariant={analysisType === "gateway" ? "gateway" : "merchant"}
       />
+      <DashboardBrandSalesChartDynamic canEditDashboard={canEditDashboard} />
+      <DashboardDeliverySummaryChartDynamic />
     </div>
   );
 }
