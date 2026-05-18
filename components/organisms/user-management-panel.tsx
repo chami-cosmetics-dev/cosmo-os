@@ -1524,7 +1524,7 @@ function groupPermissionsByPrefix(permissions: Permission[]): PermissionGroupIte
     if (!map.has(group)) map.set(group, []);
     map.get(group)!.push(p);
   }
-  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Orders", "Dashboard", "Failed Webhooks", "Stickers", "Fulfillment"];
+  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Academy", "Orders", "Dashboard", "Failed Webhooks", "Stickers", "Fulfillment"];
   return order
     .filter((g) => map.has(g))
     .map((group) => {

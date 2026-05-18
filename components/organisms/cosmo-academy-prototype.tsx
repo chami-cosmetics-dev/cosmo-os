@@ -20,6 +20,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { getProductItemStatusMeta } from "@/lib/product-item-status";
+
+type FamilySku = { sku: string; productTitle: string; variantTitle: string | null; itemStatusCategory: string; itemStatusLabel: string | null };
 
 type ProductSearchItem = {
   id: string;
@@ -36,6 +39,7 @@ type ProductSearchItem = {
   productPriority?: string;
   lifecycle?: string;
   hasExplanation: boolean;
+  familySkus?: FamilySku[];
 };
 
 type Explanation = {
@@ -269,7 +273,9 @@ export function CosmoAcademyPrototype() {
     formData.set("productItemId", selectedItem.id);
     formData.set("title", title);
     formData.set("notes", notes);
-    formData.set("file", recordedBlob, `voice-${selectedItem.id}.webm`);
+    const isUploadedFile = recordedBlob instanceof File;
+    formData.set("file", recordedBlob, isUploadedFile ? (recordedBlob as File).name : `voice-${selectedItem.id}.webm`);
+    formData.set("isRecorded", isUploadedFile ? "false" : "true");
 
     try {
       const res = await fetch("/api/admin/cosmo-academy/explanations", {
@@ -394,48 +400,75 @@ export function CosmoAcademyPrototype() {
           </div>
 
           <div className="mt-4 space-y-2">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => selectItem(item)}
-                className={`w-full rounded-xl border p-3 text-left transition ${
-                  selectedItem?.id === item.id
-                    ? "border-primary/70 bg-primary/8"
-                    : "border-border/70 bg-background/60 hover:bg-accent/45"
-                }`}
-              >
-                <div className="flex gap-3">
-                  <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-card">
-                    {item.imageUrl ? (
-                      <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <ImageIcon className="size-5 text-muted-foreground" />
+            {items.map((item) => {
+              const isMultiSku = (item.familySkus?.length ?? 0) > 1;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => selectItem(item)}
+                  className={`w-full rounded-xl border p-3 text-left transition ${
+                    selectedItem?.id === item.id
+                      ? "border-primary/70 bg-primary/8"
+                      : "border-border/70 bg-background/60 hover:bg-accent/45"
+                  }`}
+                >
+                  <div className={`flex gap-3 ${isMultiSku ? "items-center" : ""}`}>
+                    {!isMultiSku && (
+                      <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-card">
+                        {item.imageUrl ? (
+                          <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <ImageIcon className="size-5 text-muted-foreground" />
+                        )}
+                      </div>
                     )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">{item.academyProductTitle ?? item.productTitle}</p>
-                      {item.hasExplanation && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
-                          <CheckCircle2 className="size-3" />
-                          Explanation created
-                        </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{item.academyProductTitle ?? item.productTitle}</p>
+                        {item.hasExplanation && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
+                            <CheckCircle2 className="size-3" />
+                            Explanation created
+                          </span>
+                        )}
+                      </div>
+                      {isMultiSku ? (
+                        <>
+                          <p className="text-muted-foreground mt-1 text-xs">
+                            {item.familySkus!.length} SKUs · {item.vendor?.name ?? "No vendor"}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {item.familySkus!.map((s) => {
+                              const meta = getProductItemStatusMeta(s.itemStatusCategory);
+                              return (
+                                <span key={s.sku} className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-card px-2 py-0.5 text-xs">
+                                  <span className="font-medium">{s.sku}</span>
+                                  <span className="text-muted-foreground">·</span>
+                                  <span className="text-muted-foreground">{s.itemStatusLabel || meta.label}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-muted-foreground mt-1 text-xs">
+                            SKU: {item.sku ?? "-"} / Variant: {item.variantTitle ?? "-"}
+                          </p>
+                          <p className="text-muted-foreground mt-1 text-xs">
+                            {item.vendor?.name ?? "No vendor"} / {item.category?.name ?? "No category"}
+                          </p>
+                          <p className="mt-2 inline-flex rounded-full bg-secondary/60 px-2 py-1 text-xs text-secondary-foreground">
+                            {item.priorityLabel ?? "Uncategorized"}
+                          </p>
+                        </>
                       )}
                     </div>
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      SKU: {item.sku ?? "-"} / Variant: {item.variantTitle ?? "-"}
-                    </p>
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      {item.vendor?.name ?? "No vendor"} / {item.category?.name ?? "No category"}
-                    </p>
-                    <p className="mt-2 inline-flex rounded-full bg-secondary/60 px-2 py-1 text-xs text-secondary-foreground">
-                      {item.priorityLabel ?? "Uncategorized"}
-                    </p>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
             {search.trim().length >= 2 && !searching && items.length === 0 && (
               <div className="rounded-xl border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
                 No items found.
@@ -454,9 +487,11 @@ export function CosmoAcademyPrototype() {
             <div className="mt-5 space-y-4">
               <div className="rounded-xl border border-border/70 bg-background/60 p-3">
                 <p className="text-sm font-medium">{selectedItem.academyProductTitle ?? selectedItem.productTitle}</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  SKU {selectedItem.sku ?? "-"} / {selectedItem.variantTitle ?? "Default variant"}
-                </p>
+                {(!selectedItem.familySkus || selectedItem.familySkus.length <= 1) && (
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    SKU {selectedItem.sku ?? "-"} / {selectedItem.variantTitle ?? "Default variant"}
+                  </p>
+                )}
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <span className="rounded-lg border border-border/70 bg-card px-2 py-1 text-xs">
                     {selectedItem.priorityLabel ?? "Uncategorized"}
@@ -468,6 +503,32 @@ export function CosmoAcademyPrototype() {
                     {selectedItem.productPriority ?? "Not Set"}
                   </span>
                 </div>
+                {selectedItem.familySkus && selectedItem.familySkus.length > 1 && (
+                  <div className="mt-3 border-t border-border/50 pt-3">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Product family — {selectedItem.familySkus.length} SKUs
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {selectedItem.familySkus.map((s) => {
+                        const meta = getProductItemStatusMeta(s.itemStatusCategory);
+                        return (
+                          <span
+                            key={s.sku}
+                            className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-card px-2 py-0.5 text-xs"
+                            title={s.variantTitle ?? s.productTitle}
+                          >
+                            <span className="font-medium">{s.sku}</span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">{s.itemStatusLabel || meta.label}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Voice will be saved to storage for all {selectedItem.familySkus.length} SKUs above.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -569,7 +630,7 @@ export function CosmoAcademyPrototype() {
                     </p>
                   </div>
                 </div>
-                {voice && <audio src={voice.url} controls className="mt-3 w-full" />}
+                {voice && <audio src={`/api/admin/cosmo-academy/media/${voice.id}`} controls className="mt-3 w-full" />}
               </div>
             );
           })}
@@ -661,7 +722,7 @@ export function CosmoAcademyPrototype() {
 
                       {voice && (
                         <audio
-                          src={voice.url}
+                          src={`/api/admin/cosmo-academy/media/${voice.id}`}
                           controls
                           className="mt-4 w-full"
                           onPlay={() => {
