@@ -57,6 +57,7 @@ model Company {
   shippingChargeOptions    ShippingChargeOption[]
   kokoCompanies            KokoCompany[]
   dashboardBrandConfigs    DashboardBrandConfig[]
+  productItemAssets        ProductItemAsset[]
 }
 
 model FailedOrderWebhook {
@@ -253,6 +254,7 @@ model User {
   auditLogs                       AuditLog[]                @relation("AuditLogActor")
   cosmoAcademyExplanationsCreated CosmoAcademyExplanation[] @relation("CosmoAcademyExplanationCreatedBy")
   cosmoAcademyProgress            CosmoAcademyProgress[]
+  productItemAssets               ProductItemAsset[]
 }
 
 model CosmoAcademyExplanation {
@@ -1251,4 +1253,23 @@ model KokoCompany {
 
   @@unique([companyId, label])
   @@index([companyId, createdAt(sort: Desc)])
+}
+
+model ProductItemAsset {
+  id           String   @id @default(cuid())
+  companyId    String
+  sku          String
+  type         String
+  fileName     String
+  blobUrl      String
+  fileSize     Int?
+  mimeType     String?
+  provider     String   @default("vercel_blob")
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([companyId, sku])
 }
