@@ -13,6 +13,7 @@ import {
   Play,
   Search,
   Square,
+  Trash2,
   UserRoundCheck,
 } from "lucide-react";
 
@@ -101,6 +102,15 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatRecordingTime(seconds: number) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+  const s = (seconds % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+const WAVEFORM_LEFT  = [0.28, 0.48, 0.68, 0.88, 1.0,  0.82, 0.62, 0.42];
+const WAVEFORM_RIGHT = [0.42, 0.62, 0.82, 1.0,  0.88, 0.68, 0.48, 0.28];
+
 export function CosmoAcademyPrototype() {
   const [activeWorkspace, setActiveWorkspace] = useState<"consultant" | "sales">("consultant");
   const [search, setSearch] = useState("");
@@ -111,6 +121,7 @@ export function CosmoAcademyPrototype() {
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [recentExplanations, setRecentExplanations] = useState<Explanation[]>([]);
@@ -203,6 +214,12 @@ export function CosmoAcademyPrototype() {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [recordedUrl]);
+
+  useEffect(() => {
+    if (!recording) { setRecordingSeconds(0); return; }
+    const interval = setInterval(() => setRecordingSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [recording]);
 
   function selectItem(item: ProductSearchItem) {
     setSelectedItem(item);
@@ -547,46 +564,143 @@ export function CosmoAcademyPrototype() {
                 />
               </div>
 
-              <div className="rounded-xl border border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Voice recorder</p>
-                    <p className="text-muted-foreground text-xs">
-                      Record the consultant explanation for this product.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="audio/*"
-                      className="hidden"
-                      onChange={(event) => attachUploadedVoice(event.target.files?.[0] ?? null)}
-                    />
+              <div className="overflow-hidden rounded-xl border border-border/70">
+                <style>{`
+                  @keyframes waveBar {
+                    0%, 100% { transform: scaleY(0.22); opacity: 0.55; }
+                    50%       { transform: scaleY(1);    opacity: 1; }
+                  }
+                `}</style>
+
+                {/* Visualisation panel */}
+                <div className={`flex flex-col items-center justify-center gap-4 px-4 py-7 transition-colors duration-300 ${
+                  recording ? "bg-[#07071a]" : "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_14%,transparent))]"
+                }`}>
+                  {recording ? (
+                    <>
+                      {/* Waveform + mic */}
+                      <div className="flex items-center gap-1.5">
+                        {WAVEFORM_LEFT.map((scale, i) => (
+                          <div
+                            key={i}
+                            className="w-1.5 rounded-full"
+                            style={{
+                              height: `${Math.round(scale * 52)}px`,
+                              background: "linear-gradient(to top, #e879f9, #22d3ee)",
+                              animation: `waveBar ${0.62 + (i % 4) * 0.13}s ease-in-out infinite`,
+                              animationDelay: `${i * 75}ms`,
+                              transformOrigin: "center",
+                            }}
+                          />
+                        ))}
+
+                        <div className="relative mx-3 flex size-[60px] shrink-0 items-center justify-center rounded-full bg-primary shadow-[0_0_32px_10px_color-mix(in_srgb,var(--primary)_45%,transparent)]">
+                          <Mic className="size-7 text-primary-foreground" />
+                          <span className="absolute inset-0 animate-ping rounded-full bg-primary/25" />
+                        </div>
+
+                        {WAVEFORM_RIGHT.map((scale, i) => (
+                          <div
+                            key={i}
+                            className="w-1.5 rounded-full"
+                            style={{
+                              height: `${Math.round(scale * 52)}px`,
+                              background: "linear-gradient(to top, #e879f9, #22d3ee)",
+                              animation: `waveBar ${0.62 + (i % 4) * 0.13}s ease-in-out infinite`,
+                              animationDelay: `${(i + 8) * 75}ms`,
+                              transformOrigin: "center",
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Timer */}
+                      <span className="font-mono text-3xl font-bold tabular-nums tracking-[0.2em] text-white">
+                        {formatRecordingTime(recordingSeconds)}
+                      </span>
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-400/80">
+                        Recording…
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`flex size-14 items-center justify-center rounded-full border-2 transition-colors ${
+                        recordedBlob ? "border-primary/60 bg-primary/10" : "border-border/70 bg-background/60"
+                      }`}>
+                        <Mic className={`size-6 ${recordedBlob ? "text-primary" : "text-muted-foreground"}`} />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium">
+                          {recordedBlob ? "Recording ready" : "Voice recorder"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {recordedBlob ? "Preview below or record again" : "Record or upload a consultant voice explanation"}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Controls bar */}
+                <div className={`flex items-center justify-between gap-3 border-t border-border/70 px-4 py-3 ${
+                  recording ? "bg-[#0b0b1e]" : "bg-background/60"
+                }`}>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={(event) => attachUploadedVoice(event.target.files?.[0] ?? null)}
+                  />
+                  {recording ? (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="destructive"
                       size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={recording}
+                      onClick={stopRecording}
+                      className="mx-auto gap-2 px-8"
                     >
-                      Upload voice
+                      <Square className="size-4" />
+                      Stop recording
                     </Button>
-                    {recording ? (
-                      <Button type="button" variant="destructive" size="sm" onClick={stopRecording}>
-                        <Square className="size-4" />
-                        Stop
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        Upload voice
                       </Button>
-                    ) : (
                       <Button type="button" size="sm" onClick={startRecording}>
                         <Mic className="size-4" />
                         Record
                       </Button>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
-                {recordedUrl && (
-                  <div className="mt-4 rounded-lg border border-border/70 bg-card p-3">
+
+                {/* Audio preview */}
+                {recordedUrl && !recording && (
+                  <div className="border-t border-border/70 bg-card px-4 py-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">Preview</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 gap-1 px-2 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => {
+                          if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+                          setRecordedBlob(null);
+                          setRecordedUrl(null);
+                        }}
+                      >
+                        <Trash2 className="size-3" />
+                        Remove
+                      </Button>
+                    </div>
                     <audio src={recordedUrl} controls className="w-full" />
                   </div>
                 )}
