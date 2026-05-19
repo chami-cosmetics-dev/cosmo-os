@@ -59,6 +59,9 @@ model Company {
   dashboardBrandConfigs    DashboardBrandConfig[]
   contactAllocationOptions ContactAllocationOption[]
   productItemAssets        ProductItemAsset[]
+  // Call center performance tracking: records each time a merchant clicks Update
+  // in the allocation panel — drives the dashboard performance analysis chart
+  contactAllocationUpdates ContactAllocationUpdate[]
 }
 
 model FailedOrderWebhook {
@@ -256,6 +259,8 @@ model User {
   cosmoAcademyExplanationsCreated CosmoAcademyExplanation[] @relation("CosmoAcademyExplanationCreatedBy")
   cosmoAcademyProgress            CosmoAcademyProgress[]
   productItemAssets               ProductItemAsset[]
+  // Call center performance tracking: records updates made by this merchant user
+  contactAllocationUpdates        ContactAllocationUpdate[]
 }
 
 model CosmoAcademyExplanation {
@@ -1209,6 +1214,8 @@ model ContactMaster {
   company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   emails          ContactEmail[]
   phones          ContactPhone[]
+  // Call center performance tracking: records each allocation update event for this contact
+  allocationUpdates ContactAllocationUpdate[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1308,4 +1315,28 @@ model ProductItemAsset {
   uploadedBy   User     @relation(fields: [uploadedById], references: [id])
 
   @@index([companyId, sku])
+}
+
+// ContactAllocationUpdate: records each time a merchant clicks the Update button
+// in the customer allocation panel. Used for the Call Center Performance Analysis
+// chart on the dashboard — shows per-merchant update counts broken down by the
+// contact's category value (e.g. "Interested", "Not Responding", "Busy").
+model ContactAllocationUpdate {
+  id           String        @id @default(cuid())
+  companyId    String
+  contactId    String
+  merchantId   String?
+  /// Denormalized merchant name so chart data is preserved even if the user account is later deleted
+  merchantName String?
+  /// The contact's effective category at the time of update (new value if changed in this update, otherwise the existing value)
+  category     String?
+  createdAt    DateTime      @default(now())
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact  ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  merchant User?         @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, merchantId, createdAt(sort: Desc)])
+  @@index([companyId, category, createdAt(sort: Desc)])
 }
