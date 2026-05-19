@@ -268,7 +268,7 @@ export function CallCenterPerformanceChart({
           <LabelList
             dataKey={cat}
             position="top"
-            style={{ fontSize: 9, fill: "hsl(var(--foreground))" }}
+            style={{ fontSize: 11, fontWeight: 700, fill: color }}
             formatter={(v: number) => (v > 0 ? String(v) : "")}
           />
         </Bar>
@@ -280,7 +280,7 @@ export function CallCenterPerformanceChart({
           <LabelList
             dataKey={cat}
             position="right"
-            style={{ fontSize: 9, fill: "hsl(var(--foreground))" }}
+            style={{ fontSize: 11, fontWeight: 700, fill: color }}
             formatter={(v: number) => (v > 0 ? String(v) : "")}
           />
         </Bar>
