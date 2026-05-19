@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getLocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { Building2, Calculator, ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
+import { BookUser, Building2, Calculator, ChevronRight, Mail, MessageSquare, Package } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -125,6 +125,15 @@ export default async function SettingsPage() {
     ...(canManageCompany
       ? [
           {
+            key: "contact-allocation",
+            group: "Operations" as const,
+            title: "Contact Allocation Options",
+            description:
+              "Manage dropdown options for the Contact Allocation panel — service providers, districts, towns, origins, customer types, and categories.",
+            href: "/dashboard/settings/contact-allocation",
+            icon: BookUser,
+          },
+          {
             key: "koko",
             group: "Reports" as const,
             title: "Koko Settings",
@@ -201,7 +210,7 @@ export default async function SettingsPage() {
             <Card className="overflow-hidden border-border/70 shadow-xs">
               <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
                 <CardTitle className="text-base">Operations</CardTitle>
-                <CardDescription>Order and fulfillment related settings.</CardDescription>
+                <CardDescription>Order fulfillment, contact allocation, and operational preferences.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
                 {operationsLinks.map((link) => {

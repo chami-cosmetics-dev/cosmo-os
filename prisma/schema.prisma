@@ -57,6 +57,7 @@ model Company {
   shippingChargeOptions    ShippingChargeOption[]
   kokoCompanies            KokoCompany[]
   dashboardBrandConfigs    DashboardBrandConfig[]
+  contactAllocationOptions ContactAllocationOption[]
   productItemAssets        ProductItemAsset[]
 }
 
@@ -1174,18 +1175,40 @@ enum EmployeeStatus {
 }
 
 model ContactMaster {
-  id             String         @id @default(cuid())
-  companyId      String
-  phoneNumber    String?
-  email          String?
-  name           String
-  lastPurchaseAt DateTime?
-  recentMerchant String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  emails         ContactEmail[]
-  phones         ContactPhone[]
+  id              String         @id @default(cuid())
+  companyId       String
+  phoneNumber     String?
+  email           String?
+  name            String
+  lastPurchaseAt  DateTime?
+  recentMerchant  String?
+  // CRM profile fields
+  remarks         String?
+  gender          String?
+  workPlace       String?
+  occupation      String?
+  address         String?
+  birthYear       Int?
+  birthMonth      Int?
+  birthDay        Int?
+  // Segmentation fields
+  serviceProvider String?
+  district        String?
+  town            String?
+  origin          String?
+  customerType    String?
+  category        String?
+  // Contact preferences
+  contactSaved    Boolean?
+  whatsappAllowed Boolean?
+  // Reminder
+  remindAt        DateTime?
+  remindTime      String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  emails          ContactEmail[]
+  phones          ContactPhone[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1239,6 +1262,19 @@ model Complaint {
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, createdById, createdAt(sort: Desc)])
+}
+
+model ContactAllocationOption {
+  id        String   @id @default(cuid())
+  companyId String
+  type      String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, type, value])
+  @@index([companyId, type])
 }
 
 model KokoCompany {

@@ -1,0 +1,20 @@
+-- AlterTable: add CRM profile, segmentation, preferences and reminder fields to ContactMaster
+ALTER TABLE "ContactMaster"
+  ADD COLUMN IF NOT EXISTS "remarks"         TEXT,
+  ADD COLUMN IF NOT EXISTS "gender"          TEXT,
+  ADD COLUMN IF NOT EXISTS "workPlace"       TEXT,
+  ADD COLUMN IF NOT EXISTS "occupation"      TEXT,
+  ADD COLUMN IF NOT EXISTS "address"         TEXT,
+  ADD COLUMN IF NOT EXISTS "birthYear"       INTEGER,
+  ADD COLUMN IF NOT EXISTS "birthMonth"      INTEGER,
+  ADD COLUMN IF NOT EXISTS "birthDay"        INTEGER,
+  ADD COLUMN IF NOT EXISTS "serviceProvider" TEXT,
+  ADD COLUMN IF NOT EXISTS "district"        TEXT,
+  ADD COLUMN IF NOT EXISTS "town"            TEXT,
+  ADD COLUMN IF NOT EXISTS "origin"          TEXT,
+  ADD COLUMN IF NOT EXISTS "customerType"    TEXT,
+  ADD COLUMN IF NOT EXISTS "category"        TEXT,
+  ADD COLUMN IF NOT EXISTS "contactSaved"    BOOLEAN,
+  ADD COLUMN IF NOT EXISTS "whatsappAllowed" BOOLEAN,
+  ADD COLUMN IF NOT EXISTS "remindAt"        TIMESTAMP(3),
+  ADD COLUMN IF NOT EXISTS "remindTime"      TEXT;
