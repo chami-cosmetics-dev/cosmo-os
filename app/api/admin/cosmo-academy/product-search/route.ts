@@ -2,15 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { getProductFamilyName } from "@/lib/product-item-family";
 import { getProductItemStatusMeta } from "@/lib/product-item-status";
 import { requirePermission } from "@/lib/rbac";
-
-function toAcademyProductName(productTitle: string) {
-  return productTitle
-    .replace(/\s+\d+(?:\.\d+)?\s*(?:ml|l|g|kg|mg|oz|pcs|pc|tabs|tablets|caps|capsules)\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("academy.manage");
@@ -55,55 +49,74 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const groupedItems = new Map<string, (typeof rawItems)[number]>();
-  for (const item of rawItems) {
-    const productKey =
-      item.shopifyProductId || toAcademyProductName(item.productTitle).toLowerCase();
-    const existing = groupedItems.get(productKey);
-    if (!existing) {
-      groupedItems.set(productKey, item);
-      continue;
-    }
+  type FamilySkuEntry = {
+    sku: string;
+    productTitle: string;
+    variantTitle: string | null;
+    itemStatusCategory: string;
+    itemStatusLabel: string | null;
+  };
 
-    const existingHasImage = Boolean(existing.imageUrl);
-    const itemHasImage = Boolean(item.imageUrl);
-    const existingHasSku = Boolean(existing.sku);
-    const itemHasSku = Boolean(item.sku);
-    if ((!existingHasImage && itemHasImage) || (!existingHasSku && itemHasSku)) {
-      groupedItems.set(productKey, item);
+  type GroupEntry = {
+    representative: (typeof rawItems)[number];
+    skus: Map<string, FamilySkuEntry>;
+    productKeys: Set<string>;
+  };
+
+  // Group purely by family name — merges cross-origin variants like "Serum - Korea"
+  // with the base "Serum" regardless of their shopifyProductId
+  const grouped = new Map<string, GroupEntry>();
+  for (const item of rawItems) {
+    const familyKey = getProductFamilyName(item.productTitle).toLowerCase();
+    const existing = grouped.get(familyKey);
+    const skuEntry: FamilySkuEntry = {
+      sku: item.sku!,
+      productTitle: item.productTitle,
+      variantTitle: item.variantTitle,
+      itemStatusCategory: item.itemStatusCategory,
+      itemStatusLabel: item.itemStatusLabel,
+    };
+    if (!existing) {
+      const skus = new Map<string, FamilySkuEntry>();
+      if (item.sku) skus.set(item.sku, skuEntry);
+      const pKeys = new Set<string>();
+      pKeys.add(item.shopifyProductId || item.id);
+      grouped.set(familyKey, { representative: item, skus, productKeys: pKeys });
+    } else {
+      existing.productKeys.add(item.shopifyProductId || item.id);
+      const rep = existing.representative;
+      if ((!rep.imageUrl && item.imageUrl) || (!rep.sku && item.sku)) {
+        existing.representative = item;
+      }
+      if (item.sku) existing.skus.set(item.sku, skuEntry);
     }
   }
 
-  const items = Array.from(groupedItems.values()).slice(0, 12);
+  const groups = Array.from(grouped.values()).slice(0, 12);
 
-  const productKeys = Array.from(
-    new Set(items.map((item) => item.shopifyProductId || item.id))
-  );
-  const explainedKeys =
-    productKeys.length > 0
-      ? await prisma.cosmoAcademyExplanation.findMany({
-          where: {
-            companyId,
-            productKey: { in: productKeys },
-            status: "published",
-          },
-          select: { productKey: true },
-          distinct: ["productKey"],
-        })
-      : [];
-  const explainedKeySet = new Set(explainedKeys.map((item) => item.productKey));
+  const allProductKeys = Array.from(new Set(groups.flatMap((g) => Array.from(g.productKeys))));
+  const explainedKeys = allProductKeys.length > 0
+    ? await prisma.cosmoAcademyExplanation.findMany({
+        where: { companyId, productKey: { in: allProductKeys }, status: "published" },
+        select: { productKey: true },
+        distinct: ["productKey"],
+      })
+    : [];
+  const explainedKeySet = new Set(explainedKeys.map((e) => e.productKey));
 
   return NextResponse.json({
-    items: items.map((item) => {
+    items: groups.map(({ representative: item, skus, productKeys: pKeys }) => {
       const statusMeta = getProductItemStatusMeta(item.itemStatusCategory);
+      const hasExplanation = Array.from(pKeys).some((k) => explainedKeySet.has(k));
       return {
         ...item,
-        academyProductTitle: toAcademyProductName(item.productTitle),
+        academyProductTitle: getProductFamilyName(item.productTitle),
         priorityLabel: item.itemStatusLabel || statusMeta.label,
         brandPriority: statusMeta.brandPriority,
         productPriority: statusMeta.productPriority,
         lifecycle: statusMeta.lifecycle,
-        hasExplanation: explainedKeySet.has(item.shopifyProductId || item.id),
+        hasExplanation,
+        familySkus: Array.from(skus.values()).sort((a, b) => a.sku.localeCompare(b.sku)),
       };
     }),
   });

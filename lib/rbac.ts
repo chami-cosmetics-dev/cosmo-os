@@ -63,6 +63,15 @@ const DEFAULT_PERMISSIONS = [
     key: "academy.manage",
     description: "Create and manage Cosmo Academy product explanations",
   },
+  // Products - Storage
+  {
+    key: "products.storage.read",
+    description: "View product item file storage (photos, audio, video, documents)",
+  },
+  {
+    key: "products.storage.manage",
+    description: "Upload and delete files in product item storage",
+  },
   {
     key: "orders.read",
     description: "View received orders from Shopify",
@@ -340,6 +349,8 @@ const DEFAULT_ROLES = [
       "products.manage",
       "academy.learn",
       "academy.manage",
+      "products.storage.read",
+      "products.storage.manage",
       "orders.read",
       "orders.manage",
       "orders.create_manual",
@@ -418,6 +429,7 @@ const DEFAULT_ROLES = [
       "roles.read",
       "products.read",
       "academy.learn",
+      "products.storage.read",
       "orders.read",
       "returns.read",
       "exchanges.read",
@@ -583,6 +595,12 @@ export async function ensureDefaultRbacSetup() {
         skipDuplicates: true,
       });
     }
+
+    // Remove stale permissions no longer in DEFAULT_PERMISSIONS (cascades to RolePermission)
+    const validKeys = DEFAULT_PERMISSIONS.map((p) => p.key);
+    await prisma.permission.deleteMany({
+      where: { key: { notIn: validKeys } },
+    });
   } catch (error) {
     if (isMissingRbacTableError(error)) {
       throw new Error(
@@ -1026,6 +1044,7 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
       orderBy: { name: "asc" },
     }),
     prisma.permission.findMany({
+      where: { key: { in: DEFAULT_PERMISSIONS.map((p) => p.key) } },
       select: {
         id: true,
         key: true,

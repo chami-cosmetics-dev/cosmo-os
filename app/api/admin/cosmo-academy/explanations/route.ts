@@ -1,18 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CosmoAcademyMediaType } from "@prisma/client";
-import { v2 as cloudinary } from "cloudinary";
+import { put } from "@vercel/blob";
 
+import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
+import { getProductFamilyName } from "@/lib/product-item-family";
 import { requirePermission } from "@/lib/rbac";
 
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
+
 const MAX_VOICE_SIZE = 30 * 1024 * 1024;
-const CLOUDINARY_FOLDER = "cosmo-os/academy";
-const ALLOWED_VOICE_TYPES = new Set([
+const ALLOWED_VOICE_BASE_TYPES = new Set([
   "audio/webm",
   "audio/mp4",
   "audio/mpeg",
   "audio/wav",
   "audio/ogg",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/x-wav",
 ]);
 
 function toAcademyProductName(productTitle: string) {
@@ -35,9 +42,6 @@ export async function GET() {
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
-  }
-  if (!process.env.CLOUDINARY_URL) {
-    return NextResponse.json({ error: "Cloudinary is not configured" }, { status: 503 });
   }
 
   const explanations = await prisma.cosmoAcademyExplanation.findMany({
@@ -102,6 +106,7 @@ export async function POST(request: NextRequest) {
   const productItemId = String(formData.get("productItemId") ?? "");
   const title = String(formData.get("title") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim();
+  const isRecorded = formData.get("isRecorded") !== "false";
   const file = formData.get("file");
 
   if (!productItemId) {
@@ -110,7 +115,8 @@ export async function POST(request: NextRequest) {
   if (!file || !(file instanceof File)) {
     return NextResponse.json({ error: "Voice recording is required" }, { status: 400 });
   }
-  if (!ALLOWED_VOICE_TYPES.has(file.type)) {
+  const baseMimeType = file.type.split(";")[0].trim();
+  if (!ALLOWED_VOICE_BASE_TYPES.has(baseMimeType)) {
     return NextResponse.json({ error: "Unsupported voice recording type" }, { status: 400 });
   }
   if (file.size > MAX_VOICE_SIZE) {
@@ -133,53 +139,135 @@ export async function POST(request: NextRequest) {
 
   const productKey = productItem.shopifyProductId || productItem.id;
   const academyProductTitle = toAcademyProductName(productItem.productTitle);
-  const fileName = file.name || `${safeFilePart(productKey)}.webm`;
-  const publicId = `${safeFilePart(companyId)}-${safeFilePart(productKey)}-${Date.now()}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const dataUri = `data:${file.type};base64,${buffer.toString("base64")}`;
-  const uploadResult = await cloudinary.uploader.upload(dataUri, {
-    folder: CLOUDINARY_FOLDER,
-    public_id: publicId,
-    resource_type: "video",
-  });
+  const targetFamilyName = getProductFamilyName(productItem.productTitle);
 
-  if (!uploadResult.secure_url) {
+  let fileName: string;
+  let blobPath: string;
+
+  if (isRecorded) {
+    // Auto-name recorded voices: "Family Name Part 01.webm"
+    const allFamilyItems = await prisma.productItem.findMany({
+      where: { companyId },
+      select: { shopifyProductId: true, id: true, productTitle: true },
+      distinct: ["shopifyProductId"],
+    });
+    const familyProductKeys = allFamilyItems
+      .filter((i) => getProductFamilyName(i.productTitle) === targetFamilyName)
+      .map((i) => i.shopifyProductId || i.id);
+
+    const existingVoiceCount = await prisma.cosmoAcademyMedia.count({
+      where: {
+        mediaType: CosmoAcademyMediaType.voice,
+        explanation: { companyId, productKey: { in: familyProductKeys } },
+      },
+    });
+
+    const partNumber = String(existingVoiceCount + 1).padStart(2, "0");
+    fileName = `${academyProductTitle} Part ${partNumber}.webm`;
+    blobPath = `academy/${safeFilePart(companyId)}/${safeFilePart(academyProductTitle)}-part-${partNumber}-${Date.now()}.webm`;
+  } else {
+    // Uploaded file — keep original filename
+    fileName = file.name || `${safeFilePart(productKey)}-${Date.now()}`;
+    const ext = fileName.split(".").pop() ?? "webm";
+    blobPath = `academy/${safeFilePart(companyId)}/${safeFilePart(productKey)}-${Date.now()}.${ext}`;
+  }
+
+  let blobUrl: string;
+  try {
+    const blob = await put(blobPath, file, {
+      access: "private",
+      contentType: baseMimeType,
+    });
+    blobUrl = blob.url;
+  } catch (err) {
+    console.error("[academy] Blob upload failed:", err);
     return NextResponse.json({ error: "Failed to upload voice file" }, { status: 500 });
   }
 
-  const explanation = await prisma.cosmoAcademyExplanation.create({
-    data: {
-      companyId,
-      primaryProductItemId: productItem.id,
-      createdById: user.id,
-      productKey,
-      shopifyProductId: productItem.shopifyProductId,
-      productTitle: academyProductTitle,
-      title: title || `${academyProductTitle} explanation`,
-      notes: notes || null,
-      media: {
-        create: {
-          mediaType: CosmoAcademyMediaType.voice,
-          url: uploadResult.secure_url,
-          provider: "cloudinary",
-          publicId: uploadResult.public_id,
-          fileName,
-          mimeType: file.type,
-          sizeBytes: file.size,
+  let explanation: Awaited<ReturnType<typeof prisma.cosmoAcademyExplanation.create>>;
+  try {
+    explanation = await prisma.cosmoAcademyExplanation.create({
+      data: {
+        companyId,
+        primaryProductItemId: productItem.id,
+        createdById: user.id,
+        productKey,
+        shopifyProductId: productItem.shopifyProductId,
+        productTitle: academyProductTitle,
+        title: title || `${academyProductTitle} explanation`,
+        notes: notes || null,
+        media: {
+          create: {
+            mediaType: CosmoAcademyMediaType.voice,
+            url: blobUrl,
+            provider: "vercel_blob",
+            fileName,
+            mimeType: file.type,
+            sizeBytes: file.size,
+          },
         },
       },
-    },
-    include: {
-      media: true,
-      primaryProductItem: {
-        select: {
-          sku: true,
-          variantTitle: true,
-          imageUrl: true,
+      include: {
+        media: true,
+        primaryProductItem: {
+          select: {
+            sku: true,
+            variantTitle: true,
+            imageUrl: true,
+          },
         },
       },
-    },
+    });
+  } catch (err) {
+    console.error("[academy] DB create failed:", err);
+    return NextResponse.json({ error: "Failed to save explanation" }, { status: 500 });
+  }
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: user.id,
+    module: "academy",
+    action: "academy_explanation_created",
+    entityType: "CosmoAcademyExplanation",
+    entityId: explanation.id,
+    summary: `Created explanation for ${academyProductTitle}`,
+    metadata: { productTitle: academyProductTitle, fileName, isRecorded },
   });
+
+  // Sync voice to ProductItemAsset storage for every SKU in the same product family.
+  // Non-fatal — explanation is already saved above, storage sync is best-effort.
+  try {
+    const allDistinctItems = await prisma.productItem.findMany({
+      where: { companyId, sku: { not: null } },
+      select: { productTitle: true, sku: true },
+      distinct: ["productTitle", "sku"],
+    });
+    const familySkus = [
+      ...new Set(
+        allDistinctItems
+          .filter((i) => getProductFamilyName(i.productTitle) === targetFamilyName && i.sku)
+          .map((i) => i.sku as string)
+      ),
+    ];
+    if (familySkus.length > 0) {
+      await prisma.productItemAsset.createMany({
+        data: familySkus.map((sku) => ({
+          companyId,
+          sku,
+          type: "audio",
+          fileName,
+          blobUrl,
+          fileSize: file.size,
+          mimeType: file.type,
+          provider: "vercel_blob",
+          uploadedById: user.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+  } catch {
+    // Storage sync failed — explanation still saved
+  }
 
   return NextResponse.json({ explanation }, { status: 201 });
 }
