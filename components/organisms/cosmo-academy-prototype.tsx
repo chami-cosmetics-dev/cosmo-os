@@ -134,6 +134,7 @@ export function CosmoAcademyPrototype() {
   });
   const [salesLoading, setSalesLoading] = useState(true);
   const [progressBusyId, setProgressBusyId] = useState<string | null>(null);
+  const [deletingExplanationId, setDeletingExplanationId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -321,6 +322,21 @@ export function CosmoAcademyPrototype() {
       notify.error(error instanceof Error ? error.message : "Failed to save explanation");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteExplanation(id: string) {
+    setDeletingExplanationId(id);
+    try {
+      const res = await fetch(`/api/admin/cosmo-academy/explanations/${id}`, { method: "DELETE" });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to delete explanation");
+      notify.success("Explanation deleted");
+      setRecentExplanations((current) => current.filter((e) => e.id !== id));
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete explanation");
+    } finally {
+      setDeletingExplanationId(null);
     }
   }
 
@@ -743,6 +759,18 @@ export function CosmoAcademyPrototype() {
                       SKU {explanation.primaryProductItem.sku ?? "-"} / {formatDate(explanation.createdAt)}
                     </p>
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    disabled={deletingExplanationId === explanation.id}
+                    onClick={() => deleteExplanation(explanation.id)}
+                  >
+                    {deletingExplanationId === explanation.id
+                      ? <Loader2 className="size-4 animate-spin" />
+                      : <Trash2 className="size-4" />}
+                  </Button>
                 </div>
                 {voice && <audio src={`/api/admin/cosmo-academy/media/${voice.id}`} controls className="mt-3 w-full" />}
               </div>
