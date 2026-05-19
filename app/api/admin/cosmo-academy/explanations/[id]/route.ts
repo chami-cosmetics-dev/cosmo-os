@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   const auth = await requirePermission("academy.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -23,7 +24,7 @@ export async function DELETE(
   }
 
   const explanation = await prisma.cosmoAcademyExplanation.findFirst({
-    where: { id: params.id, companyId },
+    where: { id, companyId },
     select: {
       id: true,
       productTitle: true,
@@ -56,7 +57,7 @@ export async function DELETE(
   }
 
   // Delete explanation (cascades to CosmoAcademyMedia + CosmoAcademyProgress)
-  await prisma.cosmoAcademyExplanation.delete({ where: { id: params.id } });
+  await prisma.cosmoAcademyExplanation.delete({ where: { id } });
 
   await writeAuditLog({
     companyId,
