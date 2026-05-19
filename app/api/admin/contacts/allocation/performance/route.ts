@@ -27,10 +27,13 @@ export async function GET(request: NextRequest) {
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
 
-  const fromDate = fromParam ? new Date(fromParam) : null;
-  const toDate = toParam ? new Date(toParam) : null;
+  // Dashboard date strings are "YYYY-MM-DD" in Asia/Colombo (UTC+05:30).
+  // Append explicit Colombo offsets so the day boundaries are correct —
+  // without this, new Date("2026-05-19") = midnight UTC which misses all
+  // records created during the Colombo business day.
+  const fromDate = fromParam ? new Date(`${fromParam}T00:00:00+05:30`) : null;
+  const toDate   = toParam   ? new Date(`${toParam}T23:59:59.999+05:30`) : null;
 
-  // Validate supplied dates
   if (fromDate && Number.isNaN(fromDate.getTime())) {
     return NextResponse.json({ error: "Invalid from date" }, { status: 400 });
   }

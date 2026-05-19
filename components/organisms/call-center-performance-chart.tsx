@@ -160,7 +160,13 @@ function CustomTooltip({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function CallCenterPerformanceChart() {
+export function CallCenterPerformanceChart({
+  fromDate,
+  toDate,
+}: {
+  fromDate?: string;
+  toDate?: string;
+}) {
   const [rows, setRows] = useState<PerformanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +178,12 @@ export function CallCenterPerformanceChart() {
     setLoading(true);
     setError(null);
 
-    fetch("/api/admin/contacts/allocation/performance")
+    const params = new URLSearchParams();
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
+    const query = params.toString();
+
+    fetch(`/api/admin/contacts/allocation/performance${query ? `?${query}` : ""}`)
       .then(async (res) => {
         const json = (await res.json()) as { data?: PerformanceRow[]; error?: string };
         if (!res.ok) throw new Error(json.error ?? "Failed to load data");
@@ -189,7 +200,7 @@ export function CallCenterPerformanceChart() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fromDate, toDate]);
 
   // Derive sorted unique categories and merchants from the raw rows
   const { categories, merchants, colorMap, chartData } = useMemo(() => {
