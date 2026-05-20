@@ -90,6 +90,26 @@ type SalesLesson = {
   }>;
 };
 
+type FeedbackReview = {
+  id: string;
+  rating: number;
+  reviewNotes: string | null;
+  completedAt: string | null;
+  userName: string;
+};
+
+type FeedbackItem = {
+  id: string;
+  productTitle: string;
+  title: string | null;
+  createdAt: string;
+  imageUrl: string | null;
+  sku: string | null;
+  completionCount: number;
+  avgRating: number;
+  reviews: FeedbackReview[];
+};
+
 type SalesSummary = {
   total: number;
   completed: number;
@@ -240,6 +260,9 @@ export function CosmoAcademyPrototype() {
     notStarted: 0,
   });
   const [salesLoading, setSalesLoading] = useState(true);
+  const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(true);
+  const [expandedFeedback, setExpandedFeedback] = useState<Record<string, boolean>>({});
   const [progressBusyId, setProgressBusyId] = useState<string | null>(null);
   const [deletingExplanationId, setDeletingExplanationId] = useState<string | null>(null);
   const [lessonEnded, setLessonEnded] = useState<Record<string, boolean>>({});
@@ -256,6 +279,18 @@ export function CosmoAcademyPrototype() {
     if (!res.ok) return;
     const data = (await res.json()) as { explanations: Explanation[] };
     setRecentExplanations(data.explanations ?? []);
+  }, []);
+
+  const loadFeedback = useCallback(async () => {
+    setFeedbackLoading(true);
+    try {
+      const res = await fetch("/api/admin/cosmo-academy/feedback");
+      if (!res.ok) return;
+      const data = (await res.json()) as { feedback: FeedbackItem[] };
+      setFeedbackItems(data.feedback ?? []);
+    } finally {
+      setFeedbackLoading(false);
+    }
   }, []);
 
   const loadSalesDashboard = useCallback(async () => {
@@ -282,7 +317,8 @@ export function CosmoAcademyPrototype() {
   useEffect(() => {
     void loadRecentExplanations();
     void loadSalesDashboard();
-  }, [loadRecentExplanations, loadSalesDashboard]);
+    void loadFeedback();
+  }, [loadRecentExplanations, loadSalesDashboard, loadFeedback]);
 
   useEffect(() => {
     const term = search.trim();
@@ -917,6 +953,122 @@ export function CosmoAcademyPrototype() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* Sales Girl Feedback */}
+      <section className="rounded-2xl border border-border/70 bg-card p-5 shadow-xs">
+        <div className="flex items-center gap-2">
+          <Star className="size-5 text-primary" />
+          <h2 className="text-lg font-semibold">Sales Girl Feedback</h2>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {feedbackItems.length} explanation(s) with reviews
+          </span>
+        </div>
+
+        {feedbackLoading ? (
+          <div className="mt-4 rounded-xl border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
+            Loading feedback...
+          </div>
+        ) : feedbackItems.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
+            No reviews yet — sales girls will appear here after completing lessons.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {feedbackItems.map((item) => {
+              const isExpanded = expandedFeedback[item.id] ?? false;
+              return (
+                <div key={item.id} className="rounded-xl border border-border/70 bg-background/60">
+                  {/* Header row */}
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 p-4 text-left"
+                    onClick={() => setExpandedFeedback((e) => ({ ...e, [item.id]: !isExpanded }))}
+                  >
+                    <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-card">
+                      {item.imageUrl
+                        ? <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
+                        : <ImageIcon className="size-4 text-muted-foreground" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{item.title ?? item.productTitle}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        SKU {item.sku ?? "-"} · {item.completionCount} review{item.completionCount !== 1 ? "s" : ""}
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {item.reviews.slice(0, 4).map((r) => (
+                          <span key={r.id} className="inline-flex items-center gap-1 rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] text-secondary-foreground">
+                            <span className="flex size-3.5 items-center justify-center rounded-full bg-primary/20 text-[8px] font-bold text-primary">
+                              {r.userName.charAt(0).toUpperCase()}
+                            </span>
+                            {r.userName.split(" ")[0]}
+                          </span>
+                        ))}
+                        {item.reviews.length > 4 && (
+                          <span className="rounded-full bg-secondary/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                            +{item.reviews.length - 4} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Average rating */}
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            className={`size-3.5 ${s <= Math.round(item.avgRating) ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/25"}`}
+                          />
+                        ))}
+                        <span className="ml-1 text-xs font-semibold">{item.avgRating.toFixed(1)}</span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        {isExpanded ? "Hide reviews ▲" : "Show reviews ▼"}
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Individual reviews */}
+                  {isExpanded && (
+                    <div className="border-t border-border/70 px-4 pb-4 pt-3 space-y-3">
+                      {item.reviews.map((review) => (
+                        <div key={review.id} className="rounded-lg border border-border/60 bg-card p-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                              {review.userName.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold">{review.userName}</p>
+                              {review.completedAt && (
+                                <p className="text-[10px] text-muted-foreground">
+                                  Completed {formatDate(review.completedAt)}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Star
+                                  key={s}
+                                  className={`size-3.5 ${s <= review.rating ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/25"}`}
+                                />
+                              ))}
+                              <span className="ml-1 text-xs font-semibold text-muted-foreground">{review.rating}/5</span>
+                            </div>
+                          </div>
+                          {review.reviewNotes && (
+                            <p className="mt-2 border-l-2 border-primary/30 pl-3 text-sm text-muted-foreground leading-relaxed">
+                              {review.reviewNotes}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
       </>
       )}
