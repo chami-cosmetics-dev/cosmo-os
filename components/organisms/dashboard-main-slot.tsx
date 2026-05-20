@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+
+import { CallCenterPerformanceChart } from "@/components/organisms/call-center-performance-chart";
 import { Label, Pie, PieChart, Sector } from "recharts";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -194,6 +196,7 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
       />
       <DashboardBrandSalesChartDynamic canEditDashboard={canEditDashboard} />
       <DashboardDeliverySummaryChartDynamic />
+      <CallCenterPerformanceChart fromDate={fromDate} toDate={toDate} />
     </div>
   );
 }

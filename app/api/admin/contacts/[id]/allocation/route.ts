@@ -49,7 +49,8 @@ export async function PATCH(
 
   const existing = await prisma.contactMaster.findFirst({
     where: { id, companyId },
-    select: { id: true },
+    // category is fetched so we can record the effective value in ContactAllocationUpdate
+    select: { id: true, category: true },
   });
   if (!existing) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
@@ -92,6 +93,22 @@ export async function PATCH(
         remindAt: data.remindAt ? new Date(data.remindAt) : null,
       }),
       ...(data.remindTime !== undefined && { remindTime: data.remindTime }),
+    },
+  });
+
+  // Record this update for the Call Center Performance Analysis dashboard chart.
+  // Uses the new category value if it was changed in this request, otherwise
+  // falls back to the contact's existing category before the update.
+  const effectiveCategory =
+    data.category !== undefined ? data.category : existing.category;
+
+  await prisma.contactAllocationUpdate.create({
+    data: {
+      companyId,
+      contactId: id,
+      merchantId: auth.context!.user?.id ?? null,
+      merchantName: auth.context!.user?.name ?? null,
+      category: effectiveCategory,
     },
   });
 
