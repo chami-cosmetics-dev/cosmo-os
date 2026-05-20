@@ -8,6 +8,9 @@ export type ReturnTrackingItem = {
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  financialStatus: string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
   shippingService: string;
   dispatchedAt: string;
   returnDate: string;
@@ -17,6 +20,7 @@ export type ReturnTrackingItem = {
   actionDate: string | null;
   actionRemark: string | null;
   actionStatus: "pending" | "solved";
+  actionType: string | null;
 };
 
 export type ReturnsTrackingData = {
@@ -62,7 +66,14 @@ export async function fetchReturnsTrackingData(input: {
     const rows = await prisma.orderReturn.findMany({
       where: {
         companyId: input.companyId,
-        ...(input.canManage ? {} : { merchantUserId: input.viewerUserId }),
+        ...(input.canManage
+          ? {}
+          : {
+              OR: [
+                { merchantUserId: input.viewerUserId },
+                { merchantUserId: null },
+              ],
+            }),
       },
       orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
       take: 300,
@@ -74,6 +85,7 @@ export async function fetchReturnsTrackingData(input: {
         createdAt: true,
         shippingServiceName: true,
         actionStatus: true,
+        actionType: true,
         actionRemark: true,
         actionDate: true,
         returnedBy: { select: { id: true, name: true, email: true } },
@@ -85,6 +97,9 @@ export async function fetchReturnsTrackingData(input: {
             shopifyOrderId: true,
             customerEmail: true,
             customerPhone: true,
+            financialStatus: true,
+            paymentGatewayPrimary: true,
+            paymentGatewayNames: true,
             shippingAddress: true,
             customer: { select: { firstName: true, lastName: true } },
           },
@@ -111,6 +126,9 @@ export async function fetchReturnsTrackingData(input: {
       }),
       customerEmail: item.order.customerEmail,
       customerPhone: item.order.customerPhone,
+      financialStatus: item.order.financialStatus,
+      paymentGatewayPrimary: item.order.paymentGatewayPrimary,
+      paymentGatewayNames: item.order.paymentGatewayNames,
       shippingService: item.shippingServiceName,
       dispatchedAt: item.dispatchedAt.toISOString(),
       returnDate: item.returnDate.toISOString(),
@@ -120,6 +138,7 @@ export async function fetchReturnsTrackingData(input: {
       actionDate: item.actionDate?.toISOString() ?? null,
       actionRemark: item.actionRemark,
       actionStatus: item.actionStatus,
+      actionType: item.actionType,
     }));
 
     const counts = returns.reduce(

@@ -21,6 +21,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 
 import { apiClient } from "@/src/api/client";
+import { API_BASE_URL } from "@/src/config";
 import { AuthProvider, useAuth } from "@/src/providers/auth";
 import { SyncProvider, useSync } from "@/src/providers/sync";
 import { queueAction } from "@/src/storage/offline-queue";
@@ -35,6 +36,13 @@ type Delivery = {
   amount: string;
   currency?: string | null;
   deliveryStatus: string;
+  deliveryKind?: "normal" | "rearranged" | "exchange";
+  oldOrderLabel?: string | null;
+  replacementOrderLabel?: string | null;
+  requiresOldItemCollection?: boolean;
+  oldItemCollectionStatus?: OldItemCollectionStatus;
+  oldItemCollectionRemark?: string | null;
+  exchangePaymentDifference?: string | null;
   completedAt?: string | null;
   customerName: string | null;
   customerPhone: string | null;
@@ -61,6 +69,7 @@ type Delivery = {
 };
 
 type PaymentMethod = "cod" | "bank_transfer" | "card" | "already_paid";
+type OldItemCollectionStatus = "pending" | "collected" | "not_collected";
 
 type CashSummary = {
   totalExpectedCash: string;
@@ -319,6 +328,9 @@ function MainView() {
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [failureReason, setFailureReason] = useState("");
+  const [oldItemCollectionStatus, setOldItemCollectionStatus] =
+    useState<OldItemCollectionStatus>("pending");
+  const [oldItemCollectionRemark, setOldItemCollectionRemark] = useState("");
   const [deliverySubmitting, setDeliverySubmitting] = useState(false);
   const [showHandoverPreview, setShowHandoverPreview] = useState(false);
   const [handoverSubmitting, setHandoverSubmitting] = useState(false);
@@ -373,6 +385,10 @@ function MainView() {
       maximumFractionDigits: 2,
     });
     return currency ? `Rs. ${formatted} ${currency}` : `Rs. ${formatted}`;
+  }
+
+  function amountsMatch(expected: string, actual: number) {
+    return Math.abs(parseMoney(expected) - actual) < 0.01;
   }
 
   function getAddressText(delivery: Delivery | null) {
@@ -664,6 +680,8 @@ function MainView() {
         ""
     );
     setPaymentNote(data.delivery.payment?.referenceNote ?? "");
+    setOldItemCollectionStatus(data.delivery.oldItemCollectionStatus ?? "pending");
+    setOldItemCollectionRemark(data.delivery.oldItemCollectionRemark ?? "");
   }
 
   async function queueDelivered() {
@@ -677,16 +695,41 @@ function MainView() {
 
     if (paymentMethod === "cod" && actualCollectedAmount <= 0) {
       Alert.alert("Missing amount", "Enter the cash amount collected from the customer.");
+      setDeliverySubmitting(false);
       return;
     }
 
     if (paymentMethod !== "cod" && paymentMethod !== "already_paid" && actualCollectedAmount <= 0) {
       Alert.alert("Missing amount", "Enter the payment amount before completing.");
+      setDeliverySubmitting(false);
       return;
     }
 
     if (requiresReference(paymentMethod) && !paymentReference.trim()) {
       Alert.alert("Missing reference", "Enter the invoice/reference number before completing.");
+      setDeliverySubmitting(false);
+      return;
+    }
+
+    if (!amountsMatch(selectedDelivery.amount, actualCollectedAmount)) {
+      Alert.alert("Amount mismatch", "Collected amount must match the order amount before completing.");
+      setDeliverySubmitting(false);
+      return;
+    }
+
+    if (selectedDelivery.requiresOldItemCollection && oldItemCollectionStatus === "pending") {
+      Alert.alert("Old order collection", "Confirm whether the old order was collected.");
+      setDeliverySubmitting(false);
+      return;
+    }
+
+    if (
+      selectedDelivery.requiresOldItemCollection &&
+      oldItemCollectionStatus === "not_collected" &&
+      !oldItemCollectionRemark.trim()
+    ) {
+      Alert.alert("Remark required", "Enter a remark if the customer did not hand over the old order.");
+      setDeliverySubmitting(false);
       return;
     }
 
@@ -710,6 +753,12 @@ function MainView() {
         endpoint: `/api/mobile/v1/deliveries/${selectedDelivery.id}/complete`,
         body: {
           idempotencyKey: `complete-${selectedDelivery.id}-${Date.now()}`,
+          oldItemCollectionStatus: selectedDelivery.requiresOldItemCollection
+            ? oldItemCollectionStatus
+            : undefined,
+          oldItemCollectionRemark: selectedDelivery.requiresOldItemCollection
+            ? oldItemCollectionRemark.trim() || undefined
+            : undefined,
         },
         queuedMessage: "Delivery completion was added to the sync queue.",
       });
@@ -1092,6 +1141,20 @@ function MainView() {
     const customerName = selectedDelivery.customerName ?? "Unknown customer";
     const locationName = selectedDelivery.companyLocation?.name ?? "Unknown location";
     const statusLabel = getRouteBadgeLabel(selectedDelivery.deliveryStatus as Delivery["deliveryStatus"]);
+    const selectedActualCollectedAmount =
+      paymentMethod === "cod"
+        ? parseMoney(collectedAmount)
+        : parseMoney(collectedAmount || selectedDelivery.amount);
+    const needsCollectionRemark =
+      selectedDelivery.requiresOldItemCollection &&
+      oldItemCollectionStatus === "not_collected" &&
+      !oldItemCollectionRemark.trim();
+    const isCompleteDisabled =
+      deliverySubmitting ||
+      !amountsMatch(selectedDelivery.amount, selectedActualCollectedAmount) ||
+      (selectedDelivery.requiresOldItemCollection && oldItemCollectionStatus === "pending") ||
+      needsCollectionRemark ||
+      (requiresReference(paymentMethod) && !paymentReference.trim());
 
     return (
       <SafeAreaView style={styles.page}>
@@ -1193,6 +1256,71 @@ function MainView() {
               </Pressable>
             </View>
           </View>
+
+          {selectedDelivery.deliveryKind === "rearranged" ? (
+            <View style={styles.detailSectionCard}>
+              <Text style={styles.detailSectionLabel}>Rearranged Order</Text>
+              <Text style={styles.paymentHint}>This order was returned and arranged for delivery again.</Text>
+            </View>
+          ) : null}
+
+          {selectedDelivery.deliveryKind === "exchange" ? (
+            <View style={styles.detailSectionCard}>
+              <Text style={styles.detailSectionLabel}>Exchange instructions</Text>
+              <Text style={styles.paymentHint}>
+                Collect old order: {selectedDelivery.oldOrderLabel ?? "Original order"}
+              </Text>
+              <Text style={styles.paymentHint}>
+                Replacement: {selectedDelivery.replacementOrderLabel ?? selectedDelivery.orderLabel}
+              </Text>
+              <Text style={styles.detailEarnedTotal}>
+                {(() => {
+                  const amount = parseMoney(selectedDelivery.exchangePaymentDifference);
+                  if (amount > 0) return `Collect extra Rs. ${amount.toFixed(2)}`;
+                  if (amount < 0) return `Give change/refund Rs. ${Math.abs(amount).toFixed(2)}`;
+                  return "No payment difference";
+                })()}
+              </Text>
+              {selectedDelivery.requiresOldItemCollection ? (
+                <>
+                  <Text style={styles.paymentHint}>Old order collection status</Text>
+                  <View style={styles.optionGrid}>
+                    {([
+                      ["collected", "Collected"],
+                      ["not_collected", "Not collected"],
+                    ] as Array<[OldItemCollectionStatus, string]>).map(([value, label]) => (
+                      <Pressable
+                        key={value}
+                        style={[
+                          styles.optionChip,
+                          oldItemCollectionStatus === value ? styles.optionChipActive : null,
+                        ]}
+                        onPress={() => setOldItemCollectionStatus(value)}
+                      >
+                        <Text
+                          style={[
+                            styles.optionChipText,
+                            oldItemCollectionStatus === value ? styles.optionChipTextActive : null,
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {oldItemCollectionStatus === "not_collected" ? (
+                    <TextInput
+                      style={styles.input}
+                      value={oldItemCollectionRemark}
+                      onChangeText={setOldItemCollectionRemark}
+                      placeholder="Why was the old order not collected?"
+                      placeholderTextColor={colors.textSoft}
+                    />
+                  ) : null}
+                </>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={styles.detailSectionCard}>
             <Text style={styles.detailSectionLabel}>Payment confirmation</Text>
@@ -1312,9 +1440,9 @@ function MainView() {
               <Text style={styles.detailDangerButtonText}>Report Failure</Text>
             </Pressable>
             <Pressable
-              style={[styles.detailPrimaryButton, deliverySubmitting ? styles.buttonDisabled : null]}
+              style={[styles.detailPrimaryButton, isCompleteDisabled ? styles.buttonDisabled : null]}
               onPress={() => void queueDelivered()}
-              disabled={deliverySubmitting}
+              disabled={isCompleteDisabled}
             >
               <Feather name="check-circle" size={15} color={colors.white} />
               <Text style={styles.detailPrimaryButtonText}>
@@ -1452,6 +1580,14 @@ function MainView() {
                 {(delivery.companyLocation?.name ?? "Unknown location").toUpperCase()}
               </Text>
               <Text style={styles.routeCardFooterLabel}>{getPriorityLabel(delivery)}</Text>
+              {delivery.deliveryKind === "rearranged" ? (
+                <Text style={styles.routeCardFooterLabel}>Rearranged Order</Text>
+              ) : null}
+              {delivery.deliveryKind === "exchange" ? (
+                <Text style={styles.routeCardFooterLabel}>
+                  Exchange{delivery.requiresOldItemCollection ? ` | Collect old order ${delivery.oldOrderLabel ?? ""}` : ""}
+                </Text>
+              ) : null}
               {isNotSynced ? <Text style={styles.unsyncedText}>Not synced</Text> : null}
             </Pressable>
           )})}
@@ -3771,6 +3907,15 @@ function createAppStyles(colors: ThemeColors) {
     paddingVertical: 14,
     fontSize: 22,
     fontWeight: "800",
+    color: colors.text,
+  },
+  input: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     color: colors.text,
   },
   detailFooterActions: {

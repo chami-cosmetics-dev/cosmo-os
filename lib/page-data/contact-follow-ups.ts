@@ -10,6 +10,7 @@ export type ContactFollowUpItem = {
   lastPurchaseAt: string | null;
   recentMerchant: string | null;
   lastContactedAt: string | null;
+  updatedAt: string | null;
 };
 
 type FetchContactFollowUpsInput = {
@@ -77,9 +78,68 @@ export async function fetchContactFollowUps(input: FetchContactFollowUpsInput) {
       ...row,
       lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
       lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
+      updatedAt: null,
     })) satisfies ContactFollowUpItem[];
   } catch (error) {
     console.error("Failed to fetch contact follow-up queue:", error);
+    return [] satisfies ContactFollowUpItem[];
+  }
+}
+
+type FetchContactsNotUpdatedInput = {
+  companyId: string;
+  merchantName?: string | null;
+  merchantEmail?: string | null;
+  limit?: number;
+};
+
+export async function fetchContactsNotUpdated(input: FetchContactsNotUpdatedInput) {
+  const safeLimit = Math.max(1, Math.min(input.limit ?? 30, 100));
+  const merchantKeys = [input.merchantName, input.merchantEmail]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  try {
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        email: string | null;
+        phoneNumber: string | null;
+        lastPurchaseAt: Date | null;
+        recentMerchant: string | null;
+        updatedAt: Date;
+      }>
+    >(
+      Prisma.sql`
+        SELECT
+          c."id",
+          c."name",
+          c."email",
+          c."phoneNumber",
+          c."lastPurchaseAt",
+          c."recentMerchant",
+          c."updatedAt"
+        FROM "ContactMaster" c
+        WHERE c."companyId" = ${input.companyId}
+          AND c."updatedAt" < NOW() - INTERVAL '60 days'
+          AND (
+            ${merchantKeys.length === 0}::boolean
+            OR c."recentMerchant" IN (${Prisma.join(merchantKeys.length ? merchantKeys : ["__none__"])})
+          )
+        ORDER BY c."updatedAt" ASC
+        LIMIT ${safeLimit}
+      `
+    );
+
+    return rows.map((row) => ({
+      ...row,
+      lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
+      lastContactedAt: null,
+      updatedAt: row.updatedAt.toISOString(),
+    })) satisfies ContactFollowUpItem[];
+  } catch (error) {
+    console.error("Failed to fetch contacts-not-updated queue:", error);
     return [] satisfies ContactFollowUpItem[];
   }
 }

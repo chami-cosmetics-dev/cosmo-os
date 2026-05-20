@@ -139,7 +139,7 @@ export function buildFulfillmentNavPermissions(
     canViewDeliveryInvoice: hasPermission(context, "fulfillment.delivery_invoice.read"),
     canViewFalconUpload: hasPermission(context, "fulfillment.falcon_upload.read"),
     canViewWaybillLookup:
-      hasPermission(context, "fulfillment.delivery_invoice.read") ||
-      hasPermission(context, "fulfillment.falcon_upload.read"),
+      hasPermission(context, "fulfillment.waybill_lookup.read") ||
+      hasPermission(context, "fulfillment.waybill_lookup.import"),
   };
 }

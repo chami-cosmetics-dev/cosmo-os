@@ -36,6 +36,19 @@ export async function PATCH(
   if (!locResult.success || !chargeResult.success) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
   }
+  const location = await prisma.companyLocation.findFirst({
+    where: { id: locResult.data, companyId },
+    select: { id: true, shadowParentLocationId: true },
+  });
+  if (!location) {
+    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  }
+  if (location.shadowParentLocationId) {
+    return NextResponse.json(
+      { error: "Shadow locations use shipping charges from their parent location" },
+      { status: 400 }
+    );
+  }
 
   const existing = await prisma.shippingChargeOption.findFirst({
     where: {
@@ -119,6 +132,19 @@ export async function DELETE(
   const chargeResult = cuidSchema.safeParse(chargeId);
   if (!locResult.success || !chargeResult.success) {
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
+  }
+  const location = await prisma.companyLocation.findFirst({
+    where: { id: locResult.data, companyId },
+    select: { id: true, shadowParentLocationId: true },
+  });
+  if (!location) {
+    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  }
+  if (location.shadowParentLocationId) {
+    return NextResponse.json(
+      { error: "Shadow locations use shipping charges from their parent location" },
+      { status: 400 }
+    );
   }
 
   const existing = await prisma.shippingChargeOption.findFirst({

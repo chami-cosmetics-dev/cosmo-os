@@ -167,15 +167,25 @@ export function FulfillmentOrderSelector({
       window.setTimeout(() => setSelectionLoading(false), 450);
     };
 
-    const handleBulkPrintUnprinted = () => {
+    function getUnprintedOrderIds() {
       if (unprintedOrders.length === 0) {
         notify.info("No unprinted orders found in the loaded print queue.");
-        return;
+        return null;
       }
 
-      const ids = unprintedOrders.map((order) => order.id).join(",");
+      return unprintedOrders.map((order) => order.id).join(",");
+    }
+
+    const handleBulkPrintUnprinted = () => {
+      const ids = getUnprintedOrderIds();
+      if (!ids) return;
       window.open(`/api/admin/orders/bulk-print?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-      notify.success(`Opened one bulk print tab for ${unprintedOrders.length} invoice(s).`);
+      window.open(
+        `/api/admin/orders/location-pick-list?download=1&ids=${encodeURIComponent(ids)}`,
+        "_blank",
+        "noopener"
+      );
+      notify.success(`Opened invoices and downloading location files for ${unprintedOrders.length} order(s).`);
       window.setTimeout(() => {
         void fetchOrders();
       }, 1500);

@@ -56,6 +56,23 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage vendors and categories",
   },
   {
+    key: "academy.learn",
+    description: "View Cosmo Academy lessons and update own learning progress",
+  },
+  {
+    key: "academy.manage",
+    description: "Create and manage Cosmo Academy product explanations",
+  },
+  // Products - Storage
+  {
+    key: "products.storage.read",
+    description: "View product item file storage (photos, audio, video, documents)",
+  },
+  {
+    key: "products.storage.manage",
+    description: "Upload and delete files in product item storage",
+  },
+  {
     key: "orders.read",
     description: "View received orders from Shopify",
   },
@@ -106,6 +123,14 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "complaints.manage",
     description: "Update complaint status and resolution",
+  },
+  {
+    key: "finance.approvals.read",
+    description: "View finance approval requests",
+  },
+  {
+    key: "finance.approvals.manage",
+    description: "Approve or reject finance approval requests",
   },
   // Reports - Dump downloads
   {
@@ -163,6 +188,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "settings.fulfillment",
     description: "Manage samples, free issues, hold reasons, and courier services",
+  },
+  // Dashboard
+  {
+    key: "dashboard.edit",
+    description: "Edit dashboard brand configuration (add/remove brands, change selection)",
   },
   // Stickers
   {
@@ -250,6 +280,15 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.falcon_upload.export",
     description: "Generate Falcon upload files",
   },
+  // Fulfillment - Waybill Lookup
+  {
+    key: "fulfillment.waybill_lookup.read",
+    description: "Search order waybills by invoice number",
+  },
+  {
+    key: "fulfillment.waybill_lookup.import",
+    description: "Import and save order waybills from CSV",
+  },
   // Fulfillment - Remarks (all stages)
   {
     key: "fulfillment.remarks.manage",
@@ -308,6 +347,10 @@ const DEFAULT_ROLES = [
       "settings.fulfillment",
       "products.read",
       "products.manage",
+      "academy.learn",
+      "academy.manage",
+      "products.storage.read",
+      "products.storage.manage",
       "orders.read",
       "orders.manage",
       "orders.create_manual",
@@ -321,6 +364,8 @@ const DEFAULT_ROLES = [
       "complaints.create",
       "complaints.read",
       "complaints.manage",
+      "finance.approvals.read",
+      "finance.approvals.manage",
       REPORT_DUMP_PERMISSIONS.contactListPart1,
       REPORT_DUMP_PERMISSIONS.contactListPart1_1,
       REPORT_DUMP_PERMISSIONS.contactListPart2,
@@ -354,6 +399,8 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.mark_complete",
       "fulfillment.falcon_upload.read",
       "fulfillment.falcon_upload.export",
+      "fulfillment.waybill_lookup.read",
+      "fulfillment.waybill_lookup.import",
       "fulfillment.remarks.manage",
       "fulfillment.revert_to.order_received",
       "fulfillment.revert_to.sample_free_issue",
@@ -364,6 +411,16 @@ const DEFAULT_ROLES = [
     ],
   },
   {
+    name: "finance",
+    description: "Can review and approve finance payment requests",
+    permissionKeys: [
+      "finance.approvals.read",
+      "finance.approvals.manage",
+      "orders.read",
+      "returns.read",
+    ],
+  },
+  {
     name: "viewer",
     description: "Read-only access to user directory, staff, and roles",
     permissionKeys: [
@@ -371,6 +428,8 @@ const DEFAULT_ROLES = [
       "staff.read",
       "roles.read",
       "products.read",
+      "academy.learn",
+      "products.storage.read",
       "orders.read",
       "returns.read",
       "exchanges.read",
@@ -382,6 +441,7 @@ const DEFAULT_ROLES = [
       "fulfillment.ready_dispatch.read",
       "fulfillment.delivery_invoice.read",
       "fulfillment.falcon_upload.read",
+      "fulfillment.waybill_lookup.read",
     ],
   },
   {
@@ -535,6 +595,12 @@ export async function ensureDefaultRbacSetup() {
         skipDuplicates: true,
       });
     }
+
+    // Remove stale permissions no longer in DEFAULT_PERMISSIONS (cascades to RolePermission)
+    const validKeys = DEFAULT_PERMISSIONS.map((p) => p.key);
+    await prisma.permission.deleteMany({
+      where: { key: { notIn: validKeys } },
+    });
   } catch (error) {
     if (isMissingRbacTableError(error)) {
       throw new Error(
@@ -978,6 +1044,7 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
       orderBy: { name: "asc" },
     }),
     prisma.permission.findMany({
+      where: { key: { in: DEFAULT_PERMISSIONS.map((p) => p.key) } },
       select: {
         id: true,
         key: true,

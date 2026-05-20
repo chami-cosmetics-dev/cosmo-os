@@ -1494,6 +1494,7 @@ const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
   order_print: "Order Print",
   ready_dispatch: "Ready & Dispatch",
   delivery_invoice: "Delivery & Invoice",
+  waybill_lookup: "Waybill Lookup",
   remarks: "Remarks",
   revert_to: "Revert to Stage",
 };
@@ -1523,7 +1524,7 @@ function groupPermissionsByPrefix(permissions: Permission[]): PermissionGroupIte
     if (!map.has(group)) map.set(group, []);
     map.get(group)!.push(p);
   }
-  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Orders", "Failed Webhooks", "Stickers", "Fulfillment"];
+  const order = ["Users", "Staff", "Roles", "Settings", "Products", "Academy", "Orders", "Dashboard", "Failed Webhooks", "Stickers", "Fulfillment"];
   return order
     .filter((g) => map.has(g))
     .map((group) => {

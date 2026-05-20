@@ -2,6 +2,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import type { CompanyLocation, Order } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { LIMITS } from "@/lib/validation";
 
 const UNCATEGORIZED_NAME = "Uncategorized";
@@ -24,13 +25,23 @@ export async function ensureProductItemAndCreateLineItem(
   location: CompanyLocation
 ): Promise<void> {
   const companyId = location.companyId;
+  const sourceLocationId = getShadowSourceLocationId(location);
+  const sourceShopifyLocationId =
+    sourceLocationId === location.id
+      ? location.shopifyLocationId
+      : (
+          await prisma.companyLocation.findUnique({
+            where: { id: sourceLocationId },
+            select: { shopifyLocationId: true },
+          })
+        )?.shopifyLocationId;
   const shopifyVariantId = shopifyVariantKey(lineItem);
   const shopifyProductId = String(lineItem.product_id ?? 0);
 
   let productItem = await prisma.productItem.findUnique({
     where: {
       companyLocationId_shopifyVariantId: {
-        companyLocationId: location.id,
+        companyLocationId: sourceLocationId,
         shopifyVariantId,
       },
     },
@@ -60,8 +71,8 @@ export async function ensureProductItemAndCreateLineItem(
     productItem = await prisma.productItem.create({
       data: {
         companyId,
-        companyLocationId: location.id,
-        shopifyLocationId: location.shopifyLocationId ?? String(location.id),
+        companyLocationId: sourceLocationId,
+        shopifyLocationId: sourceShopifyLocationId ?? String(sourceLocationId),
         shopifyProductId,
         shopifyVariantId,
         productTitle,
@@ -77,6 +88,8 @@ export async function ensureProductItemAndCreateLineItem(
         imageUrl: null,
         tags: null,
         barcode: null,
+        itemStatusCategory: "NEWLY_ADDED",
+        itemStatusLabel: "Newly Added",
         inventoryQuantity: 0,
       },
     });

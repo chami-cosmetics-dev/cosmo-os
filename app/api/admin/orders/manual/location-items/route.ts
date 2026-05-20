@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema } from "@/lib/validation";
 
 /** First page of products for manual order UI (avoid loading thousands of rows). */
@@ -32,20 +33,21 @@ export async function GET(request: NextRequest) {
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: locationId, companyId },
-    select: { id: true },
+    select: { id: true, shadowParentLocationId: true },
   });
   if (!location) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
+  const sourceLocationId = getShadowSourceLocationId(location);
 
   const [shippingCharges, productRows, totalProductItems] = await Promise.all([
     prisma.shippingChargeOption.findMany({
-      where: { companyId, companyLocationId: locationId },
+      where: { companyId, companyLocationId: sourceLocationId },
       orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
       select: { id: true, label: true, amount: true, sortOrder: true },
     }),
     prisma.productItem.findMany({
-      where: { companyId, companyLocationId: locationId },
+      where: { companyId, companyLocationId: sourceLocationId },
       orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }],
       select: {
         id: true,
@@ -58,7 +60,7 @@ export async function GET(request: NextRequest) {
       take: INITIAL_PRODUCT_LIMIT,
     }),
     prisma.productItem.count({
-      where: { companyId, companyLocationId: locationId },
+      where: { companyId, companyLocationId: sourceLocationId },
     }),
   ]);
 

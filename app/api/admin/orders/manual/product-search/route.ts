@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 import { z } from "zod";
 
@@ -42,16 +43,17 @@ export async function GET(request: NextRequest) {
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: locationId, companyId },
-    select: { id: true },
+    select: { id: true, shadowParentLocationId: true },
   });
   if (!location) {
     return NextResponse.json({ error: "Location not found" }, { status: 404 });
   }
+  const sourceLocationId = getShadowSourceLocationId(location);
 
   const term = q.trim();
   const where: Prisma.ProductItemWhereInput = {
     companyId,
-    companyLocationId: locationId,
+    companyLocationId: sourceLocationId,
     OR: [
       { productTitle: { contains: term, mode: "insensitive" } },
       { variantTitle: { contains: term, mode: "insensitive" } },
