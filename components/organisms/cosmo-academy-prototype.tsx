@@ -10,9 +10,11 @@ import {
   Loader2,
   Mic,
   PackageSearch,
+  Pause,
   Play,
   Search,
   Square,
+  Star,
   Trash2,
   UserRoundCheck,
 } from "lucide-react";
@@ -111,6 +113,111 @@ function formatRecordingTime(seconds: number) {
 const WAVEFORM_LEFT  = [0.28, 0.48, 0.68, 0.88, 1.0,  0.82, 0.62, 0.42];
 const WAVEFORM_RIGHT = [0.42, 0.62, 0.82, 1.0,  0.88, 0.68, 0.48, 0.28];
 
+function fmtTime(s: number) {
+  const m = Math.floor(s / 60).toString().padStart(2, "0");
+  return `${m}:${Math.floor(s % 60).toString().padStart(2, "0")}`;
+}
+
+function RestrictedAudioPlayer({
+  src,
+  onPlay,
+  onEnded,
+}: {
+  src: string;
+  onPlay?: () => void;
+  onEnded?: () => void;
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const maxReachedRef = useRef(0);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [maxReached, setMaxReached] = useState(0);
+
+  function toggle() {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); } else { void a.play(); }
+  }
+
+  function handleTimeUpdate() {
+    const a = audioRef.current;
+    if (!a) return;
+    const t = a.currentTime;
+    if (t > maxReachedRef.current) {
+      maxReachedRef.current = t;
+      setMaxReached(t);
+    }
+    setCurrentTime(t);
+  }
+
+  function handleSeeking() {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.currentTime > maxReachedRef.current) {
+      a.currentTime = maxReachedRef.current;
+    }
+  }
+
+  function handleBarClick(e: React.MouseEvent<HTMLDivElement>) {
+    const a = audioRef.current;
+    if (!a || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    a.currentTime = Math.min(ratio * duration, maxReachedRef.current);
+  }
+
+  const listenedPct = duration > 0 ? (maxReached / duration) * 100 : 0;
+  const currentPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/60 px-3 py-2.5">
+      <audio
+        ref={audioRef}
+        src={src}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
+        onTimeUpdate={handleTimeUpdate}
+        onSeeking={handleSeeking}
+        onPlay={() => { setPlaying(true); onPlay?.(); }}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); onEnded?.(); }}
+      />
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition hover:bg-primary/90"
+      >
+        {playing
+          ? <Pause className="size-3.5" />
+          : <Play className="size-3.5 translate-x-px" />}
+      </button>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div
+          className="relative h-2 cursor-pointer overflow-hidden rounded-full bg-muted"
+          onClick={handleBarClick}
+          title="You can only seek within the part you have already listened to"
+        >
+          {/* Listened range */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-primary/35 transition-[width]"
+            style={{ width: `${listenedPct}%` }}
+          />
+          {/* Current position */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full bg-primary transition-[width]"
+            style={{ width: `${currentPct}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-[10px] text-muted-foreground">
+          <span>{fmtTime(currentTime)}</span>
+          <span className="text-[9px] opacity-50">cannot skip ahead</span>
+          <span>{fmtTime(duration)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function CosmoAcademyPrototype() {
   const [activeWorkspace, setActiveWorkspace] = useState<"consultant" | "sales">("consultant");
   const [search, setSearch] = useState("");
@@ -135,6 +242,10 @@ export function CosmoAcademyPrototype() {
   const [salesLoading, setSalesLoading] = useState(true);
   const [progressBusyId, setProgressBusyId] = useState<string | null>(null);
   const [deletingExplanationId, setDeletingExplanationId] = useState<string | null>(null);
+  const [lessonEnded, setLessonEnded] = useState<Record<string, boolean>>({});
+  const [lessonRating, setLessonRating] = useState<Record<string, number>>({});
+  const [lessonReview, setLessonReview] = useState<Record<string, string>>({});
+  const [lessonReviewSubmitting, setLessonReviewSubmitting] = useState<Record<string, boolean>>({});
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -357,6 +468,30 @@ export function CosmoAcademyPrototype() {
       notify.error(error instanceof Error ? error.message : "Failed to update progress");
     } finally {
       setProgressBusyId(null);
+    }
+  }
+
+  async function submitReview(lessonId: string) {
+    const rating = lessonRating[lessonId];
+    const review = lessonReview[lessonId]?.trim();
+    if (!rating || !review) return;
+
+    setLessonReviewSubmitting((s) => ({ ...s, [lessonId]: true }));
+    try {
+      const res = await fetch("/api/admin/cosmo-academy/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ explanationId: lessonId, status: "completed", rating, reviewNotes: review }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to save review");
+      notify.success("Lesson completed!");
+      setLessonEnded((e) => ({ ...e, [lessonId]: false }));
+      await loadSalesDashboard();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to save review");
+    } finally {
+      setLessonReviewSubmitting((s) => ({ ...s, [lessonId]: false }));
     }
   }
 
@@ -863,38 +998,88 @@ export function CosmoAcademyPrototype() {
                       )}
 
                       {voice && (
-                        <audio
-                          src={`/api/admin/cosmo-academy/media/${voice.id}`}
-                          controls
-                          className="mt-4 w-full"
-                          onPlay={() => {
-                            if (lesson.progressStatus === "not_started") {
-                              void updateLessonProgress(lesson.id, "in_progress");
-                            }
-                          }}
-                        />
+                        <div className="mt-4">
+                          {isCompleted ? (
+                            <audio
+                              src={`/api/admin/cosmo-academy/media/${voice.id}`}
+                              controls
+                              className="w-full"
+                            />
+                          ) : (
+                            <RestrictedAudioPlayer
+                              src={`/api/admin/cosmo-academy/media/${voice.id}`}
+                              onPlay={() => {
+                                if (lesson.progressStatus === "not_started") {
+                                  void updateLessonProgress(lesson.id, "in_progress");
+                                }
+                              }}
+                              onEnded={() =>
+                                setLessonEnded((e) => ({ ...e, [lesson.id]: true }))
+                              }
+                            />
+                          )}
+                        </div>
                       )}
 
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={lesson.progressStatus === "not_started" ? "default" : "outline"}
-                          disabled={isBusy || isCompleted}
-                          onClick={() => updateLessonProgress(lesson.id, "in_progress")}
-                        >
-                          {isBusy ? <Loader2 className="size-4 animate-spin" /> : <BookOpenCheck className="size-4" />}
-                          Start
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={isBusy || isCompleted}
-                          onClick={() => updateLessonProgress(lesson.id, "completed")}
-                        >
-                          {isBusy ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                          Mark complete
-                        </Button>
+                      {/* Rating panel — appears only after audio finishes */}
+                      {lessonEnded[lesson.id] && !isCompleted && (
+                        <div className="mt-4 space-y-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+                          <p className="text-sm font-semibold">Great job listening! Rate this explanation</p>
+                          <div className="flex gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setLessonRating((r) => ({ ...r, [lesson.id]: star }))}
+                                className="transition-transform hover:scale-110"
+                              >
+                                <Star
+                                  className={`size-7 ${(lessonRating[lesson.id] ?? 0) >= star
+                                    ? "fill-yellow-400 text-yellow-400"
+                                    : "text-muted-foreground/30"}`}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                          <Textarea
+                            placeholder="Write what you learned about this product — key benefits, skin type, usage tips..."
+                            value={lessonReview[lesson.id] ?? ""}
+                            onChange={(e) =>
+                              setLessonReview((r) => ({ ...r, [lesson.id]: e.target.value }))
+                            }
+                            className="min-h-24 bg-background/80 text-sm"
+                          />
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            disabled={
+                              !lessonRating[lesson.id] ||
+                              !(lessonReview[lesson.id]?.trim()) ||
+                              lessonReviewSubmitting[lesson.id]
+                            }
+                            onClick={() => submitReview(lesson.id)}
+                          >
+                            {lessonReviewSubmitting[lesson.id]
+                              ? <Loader2 className="size-4 animate-spin" />
+                              : <CheckCircle2 className="size-4" />}
+                            Submit & mark complete
+                          </Button>
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex items-center gap-2">
+                        {!isCompleted && !lessonEnded[lesson.id] && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={lesson.progressStatus === "not_started" ? "default" : "outline"}
+                            disabled={isBusy || isCompleted}
+                            onClick={() => updateLessonProgress(lesson.id, "in_progress")}
+                          >
+                            {isBusy ? <Loader2 className="size-4 animate-spin" /> : <BookOpenCheck className="size-4" />}
+                            {lesson.progressStatus === "not_started" ? "Start" : "Continue"}
+                          </Button>
+                        )}
                         <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
                           <Clock className="size-3" />
                           {formatDate(lesson.createdAt)}

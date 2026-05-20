@@ -20,12 +20,25 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as {
     explanationId?: unknown;
     status?: unknown;
+    rating?: unknown;
+    reviewNotes?: unknown;
   } | null;
   const explanationId = typeof body?.explanationId === "string" ? body.explanationId : "";
   const status = typeof body?.status === "string" ? body.status : "";
+  const rating = typeof body?.rating === "number" ? Math.round(body.rating) : null;
+  const reviewNotes = typeof body?.reviewNotes === "string" ? body.reviewNotes.trim() : null;
 
   if (!explanationId || !ALLOWED_STATUSES.has(status)) {
     return NextResponse.json({ error: "Invalid progress update" }, { status: 400 });
+  }
+
+  if (status === "completed") {
+    if (!rating || rating < 1 || rating > 5) {
+      return NextResponse.json({ error: "A rating (1–5) is required to complete a lesson" }, { status: 400 });
+    }
+    if (!reviewNotes) {
+      return NextResponse.json({ error: "A written review is required to complete a lesson" }, { status: 400 });
+    }
   }
 
   const explanation = await prisma.cosmoAcademyExplanation.findFirst({
@@ -48,6 +61,7 @@ export async function POST(request: NextRequest) {
       status,
       lastOpenedAt: now,
       completedAt: status === "completed" ? now : null,
+      ...(status === "completed" ? { rating, reviewNotes } : {}),
     },
     create: {
       companyId,
@@ -56,6 +70,7 @@ export async function POST(request: NextRequest) {
       status,
       lastOpenedAt: now,
       completedAt: status === "completed" ? now : null,
+      ...(status === "completed" ? { rating, reviewNotes } : {}),
     },
   });
 
