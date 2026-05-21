@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { APP_NAME } from "@/lib/branding";
 import { sendSms } from "@/lib/hutch-sms";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
   const result = await sendSms(
     user.companyId,
     parsed.data.phoneNumber,
-    "This is a test SMS from Cosmo OS. Your SMS portal is configured correctly.",
+    `This is a test SMS from ${APP_NAME}. Your SMS portal is configured correctly.`,
     userId
   );
 

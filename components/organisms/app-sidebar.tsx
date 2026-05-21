@@ -39,6 +39,7 @@ import {
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
 import { ALL_REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import { APP_INITIALS, APP_NAME } from "@/lib/branding";
 
 interface AppSidebarProps {
   user: {
@@ -139,7 +140,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
         <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:rounded-xl group-data-[collapsible=icon]:border-white/10 group-data-[collapsible=icon]:bg-white/6 group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:shadow-none dark:border-white/10 dark:bg-white/6">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
           <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-            Cosmo OS (Beta) v{packageJson.version}
+            {APP_NAME} (Beta) v{packageJson.version}
           </span>
           <button
             type="button"
@@ -149,7 +150,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
             aria-expanded={state === "expanded"}
           >
             <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-primary/90 text-[10px] font-semibold text-primary-foreground shadow-sm transition-transform hover:scale-105">
-              CO
+              {APP_INITIALS}
             </span>
           </button>
         </div>
@@ -360,6 +361,5 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     </Sidebar>
   );
 }
-
 
 

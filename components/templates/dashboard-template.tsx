@@ -5,6 +5,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/organisms/app-sidebar";
 import { Topbar } from "@/components/organisms/topbar";
 import { ConfirmationDialogProvider } from "@/components/providers/confirmation-dialog-provider";
+import { APP_NAME } from "@/lib/branding";
 
 interface DashboardTemplateProps {
   children: React.ReactNode;
@@ -34,10 +35,10 @@ export function DashboardTemplate({
           <section className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-3xl items-center justify-center">
             <div className="w-full rounded-2xl border border-border/70 bg-card/80 p-8 text-center shadow-[0_18px_40px_-28px_var(--primary)] backdrop-blur sm:p-12">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                Cosmo OS
+                {APP_NAME}
               </p>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-                Hello, welcome to Cosmo OS
+                Hello, welcome to {APP_NAME}
               </h1>
               <p className="mt-3 text-sm text-muted-foreground sm:text-base">
                 {user.name || user.email || "SEO team"}

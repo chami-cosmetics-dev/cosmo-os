@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { NotificationBell } from "@/components/molecules/notification-bell";
 import { ThemeToggle } from "@/components/molecules/theme-toggle";
 import { UserMenu } from "@/components/molecules/user-menu";
+import { APP_NAME } from "@/lib/branding";
 
 interface TopbarProps {
   title?: string;
@@ -52,13 +53,16 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
   const computedTitle = matched?.label ?? title;
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-background/90 px-4 text-foreground shadow-[0_1px_0_0_color-mix(in_srgb,var(--border)_60%,transparent)] backdrop-blur-md">
-      <SidebarTrigger className="-ml-1 size-8 rounded-lg border border-border/60 bg-background/80 text-muted-foreground hover:bg-accent/60 hover:text-foreground" />
-      <Separator orientation="vertical" className="h-5 bg-border/60" />
-      <div className="flex flex-1 items-center gap-2 min-w-0">
-        <span className="hidden text-xs text-muted-foreground sm:block shrink-0">Cosmo OS</span>
-        <span className="hidden text-xs text-muted-foreground/50 sm:block shrink-0">/</span>
-        <h1 className="truncate text-[15px] font-semibold text-foreground">{computedTitle}</h1>
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border/70 bg-[linear-gradient(100deg,color-mix(in_srgb,var(--background)_86%,white),var(--dashboard-bar-start),var(--dashboard-bar-middle),var(--dashboard-bar-end))] px-4 text-foreground shadow-[0_12px_24px_-26px_var(--primary)] backdrop-blur before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_top_left,var(--dashboard-bar-highlight),transparent_34%)]">
+      <SidebarTrigger className="-ml-1 border border-border/60 bg-background/75 text-primary hover:bg-secondary/45 hover:text-primary" />
+      <Separator orientation="vertical" className="mr-1 h-6 bg-border/80" />
+      <div className="flex flex-1 items-center gap-3">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-semibold tracking-[0.24em] text-muted-foreground uppercase">
+            {APP_NAME}
+          </span>
+          <h1 className="text-lg font-semibold text-foreground">{computedTitle}</h1>
+        </div>
       </div>
       <div className="flex items-center gap-0.5 rounded-xl border border-border/60 bg-background/70 px-1 py-1">
         <NotificationBell />
@@ -69,4 +73,3 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     </header>
   );
 }
-

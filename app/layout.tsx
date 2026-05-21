@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Auth0ProviderWrapper } from "./auth0-provider";
 import { FaviconUpdater } from "@/components/providers/favicon-updater";
+import { APP_NAME } from "@/lib/branding";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,8 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Cosmo OS",
-  description: "Cosmo OS Application",
+  title: APP_NAME,
+  description: `${APP_NAME} Application`,
   icons: {
     icon: "/favicon.ico",
   },
