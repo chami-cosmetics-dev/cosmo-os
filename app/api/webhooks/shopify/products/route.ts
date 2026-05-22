@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
       create: {
         companyId,
         companyLocationId: location.id,
-        shopifyLocationId: locationId,
+        shopifyLocationId: location.shopifyLocationId ?? locationId,
         shopifyProductId: String(data.id),
         shopifyVariantId: String(variant.id),
         productTitle: data.title,
@@ -143,6 +143,8 @@ export async function POST(request: NextRequest) {
         imageUrl,
         tags: data.tags?.slice(0, 1000) ?? null,
         barcode: variant.barcode?.slice(0, 100) ?? null,
+        itemStatusCategory: "NEWLY_ADDED",
+        itemStatusLabel: "Newly Added",
         inventoryQuantity: variant.inventory_quantity ?? 0,
       },
       update: {

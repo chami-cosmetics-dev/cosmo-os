@@ -72,6 +72,7 @@ export const LIMITS = {
   kokoCompanyLabel: { max: 100 },
   kokoCompanyName: { max: 200 },
   kokoCompanyPrefix: { max: 50 },
+  contactAllocationOptionValue: { max: 100 },
 } as const;
 
 /** Parse and validate page number from query string */
@@ -128,6 +129,22 @@ export const dashboardSalesQuerySchema = z.object({
   to: ymdQuerySchema,
   date_type: z.enum(["order", "completed"]).optional().default("order"),
   analysis_type: z.enum(["merchant", "gateway"]).optional().default("merchant"),
+});
+
+export const dashboardBrandSalesQuerySchema = z.object({
+  from: ymdQuerySchema,
+  to: ymdQuerySchema,
+  date_type: z.enum(["order", "completed"]).optional().default("order"),
+  location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
+});
+
+export const dashboardBrandConfigCreateSchema = z.object({
+  name: z.string().min(1).max(100).transform((s) => s.trim()),
+});
+
+export const dashboardBrandConfigUpdateSchema = z.object({
+  isSelected: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 
 /** Orders list: filter by a gateway string present in `Order.paymentGatewayNames`. */

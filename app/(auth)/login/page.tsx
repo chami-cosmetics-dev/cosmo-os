@@ -1,6 +1,7 @@
 import { AuthTemplate } from "@/components/templates/auth-template";
 import { LoginButton } from "@/components/molecules/login-button";
 import { SuperAdminInviteForm } from "@/components/molecules/super-admin-invite-form";
+import { APP_NAME } from "@/lib/branding";
 import { prisma } from "@/lib/prisma";
 import { ShieldCheck, Sparkles } from "lucide-react";
 
@@ -44,7 +45,7 @@ export default async function LoginPage({ searchParams }: Props) {
         {isActivated && (
           <div className="rounded-lg border bg-muted/40 p-4">
             <p className="text-sm font-medium">
-              You have successfully Sign-in to Cosmo-Os
+              You have successfully signed in to {APP_NAME}
             </p>
             {activatedEmail && (
               <p className="text-muted-foreground mt-1 text-sm">

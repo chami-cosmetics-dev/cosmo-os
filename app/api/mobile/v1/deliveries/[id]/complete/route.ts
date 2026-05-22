@@ -36,6 +36,18 @@ export async function POST(
     return NextResponse.json({ success: true, alreadyCompleted: true });
   }
 
+  const oldItemCollectionStatus =
+    parsed.data.oldItemCollectionStatus ?? task.oldItemCollectionStatus;
+  const oldItemCollectionRemark = parsed.data.oldItemCollectionRemark?.trim() || null;
+  if (task.requiresOldItemCollection) {
+    if (oldItemCollectionStatus === "pending") {
+      return mobileError("Confirm whether the old order was collected", 400);
+    }
+    if (oldItemCollectionStatus === "not_collected" && !oldItemCollectionRemark) {
+      return mobileError("Enter a remark when the old order is not collected", 400);
+    }
+  }
+
   const now = parsed.data.completedAt ? new Date(parsed.data.completedAt) : new Date();
   const acceptedAt = parsed.data.acceptedAt ? new Date(parsed.data.acceptedAt) : task.acceptedAt ?? now;
   const arrivedAt = parsed.data.arrivedAt ? new Date(parsed.data.arrivedAt) : task.arrivedAt ?? now;
@@ -50,6 +62,8 @@ export async function POST(
         completedAt: now,
         failedAt: null,
         failureReason: null,
+        oldItemCollectionStatus,
+        oldItemCollectionRemark,
         latestSyncAt: now,
       },
     });

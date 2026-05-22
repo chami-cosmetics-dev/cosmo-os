@@ -8,6 +8,11 @@ import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
 import type { FulfillmentStage } from "@prisma/client";
+import {
+  calculateExchangePaymentDifference,
+  orderDisplayLabel,
+  requiresOldItemCollection,
+} from "@/lib/rider-delivery-special";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -155,6 +160,37 @@ function addDaysUtc(date: Date, days: number) {
   const next = new Date(date);
   next.setUTCDate(next.getUTCDate() + days);
   return next;
+}
+
+function normalizeText(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function isBankTransferGateway(order: {
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+}) {
+  return [order.paymentGatewayPrimary, ...order.paymentGatewayNames]
+    .map(normalizeText)
+    .some((value) => value.includes("bank"));
+}
+
+async function hasPendingBankTransferRearrange(order: {
+  id: string;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+}) {
+  if (!isBankTransferGateway(order)) return false;
+  return Boolean(
+    await prisma.orderReturn.findFirst({
+      where: {
+        orderId: order.id,
+        actionType: "rearrange",
+        actionStatus: "pending",
+      },
+      select: { id: true },
+    })
+  );
 }
 
 
@@ -464,6 +500,12 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      if (await hasPendingBankTransferRearrange(order)) {
+        return NextResponse.json(
+          { error: "Bank transfer must be confirmed before rearranging this returned COD order." },
+          { status: 400 }
+        );
+      }
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
@@ -531,6 +573,12 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      if (await hasPendingBankTransferRearrange(order)) {
+        return NextResponse.json(
+          { error: "Bank transfer must be confirmed before dispatching this rearranged COD return." },
+          { status: 400 }
+        );
+      }
       if (!order.packageReadyAt) {
         return NextResponse.json(
           { error: "Package must be marked ready before dispatch" },
@@ -572,6 +620,96 @@ export async function PATCH(
         }
       }
 
+      const [rearrangedReturn, exchange] = data.riderId
+        ? await Promise.all([
+            prisma.orderReturn.findFirst({
+              where: {
+                orderId: order.id,
+                actionType: "rearrange",
+              },
+              orderBy: { actionDate: "desc" },
+              select: { id: true },
+            }),
+            prisma.orderExchange.findFirst({
+              where: {
+                companyId,
+                OR: [
+                  { replacementOrderId: order.id },
+                  { replacementReference: order.name ?? "" },
+                  { replacementReference: order.orderNumber ?? "" },
+                  { replacementReference: order.shopifyOrderId },
+                ],
+              },
+              orderBy: { createdAt: "desc" },
+              include: {
+                originalOrder: {
+                  select: {
+                    id: true,
+                    name: true,
+                    orderNumber: true,
+                    shopifyOrderId: true,
+                    totalPrice: true,
+                  },
+                },
+                replacementOrder: {
+                  select: {
+                    id: true,
+                    name: true,
+                    orderNumber: true,
+                    shopifyOrderId: true,
+                    totalPrice: true,
+                  },
+                },
+              },
+            }),
+          ])
+        : [null, null] as const;
+
+      const replacementOrderForExchange = exchange?.replacementOrder ?? {
+        id: order.id,
+        name: order.name,
+        orderNumber: order.orderNumber,
+        shopifyOrderId: order.shopifyOrderId,
+        totalPrice: order.totalPrice,
+      };
+      const specialDeliveryData = exchange
+        ? {
+            deliveryKind: "exchange" as const,
+            exchangeId: exchange.id,
+            oldOrderLabel: exchange.originalOrder
+              ? orderDisplayLabel(exchange.originalOrder)
+              : exchange.originalReference,
+            replacementOrderLabel: orderDisplayLabel(replacementOrderForExchange),
+            requiresOldItemCollection: requiresOldItemCollection(exchange.reason),
+            oldItemCollectionStatus: "pending" as const,
+            oldItemCollectionRemark: null,
+            exchangePaymentDifference: calculateExchangePaymentDifference({
+              originalOrder: exchange.originalOrder,
+              replacementOrder: replacementOrderForExchange,
+            }),
+          }
+        : rearrangedReturn
+          ? {
+              deliveryKind: "rearranged" as const,
+              exchangeId: null,
+              oldOrderLabel: null,
+              replacementOrderLabel: null,
+              requiresOldItemCollection: false,
+              oldItemCollectionStatus: "pending" as const,
+              oldItemCollectionRemark: null,
+              exchangePaymentDifference: null,
+            }
+          : {
+              deliveryKind: "normal" as const,
+              exchangeId: null,
+              oldOrderLabel: null,
+              replacementOrderLabel: null,
+              requiresOldItemCollection: false,
+              oldItemCollectionStatus: "pending" as const,
+              oldItemCollectionRemark: null,
+              exchangePaymentDifference: null,
+            };
+
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
@@ -597,12 +735,14 @@ export async function PATCH(
             orderId: order.id,
             riderId: data.riderId,
             status: "assigned",
+            ...specialDeliveryData,
             assignedAt: now,
             latestSyncAt: now,
           },
           update: {
             riderId: data.riderId,
             status: "assigned",
+            ...specialDeliveryData,
             assignedAt: now,
             acceptedAt: null,
             arrivedAt: null,

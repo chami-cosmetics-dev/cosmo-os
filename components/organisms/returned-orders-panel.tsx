@@ -204,7 +204,21 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
     return order.name ?? order.orderNumber ?? order.id;
   }
 
-  async function saveAction(actionType: "save" | "rearrange" = "save") {
+  function paymentLabel(item: ReturnTrackingItem) {
+    return item.paymentGatewayPrimary ?? item.paymentGatewayNames[0] ?? item.financialStatus ?? "-";
+  }
+
+  function isBankTransferRearrangePending(item: ReturnTrackingItem | null) {
+    return Boolean(
+      item &&
+        item.actionType === "rearrange" &&
+        item.actionStatus === "pending" &&
+        (item.paymentGatewayPrimary === "bank_transfer" ||
+          item.paymentGatewayNames.includes("bank_transfer"))
+    );
+  }
+
+  async function saveAction(actionType: "save" | "rearrange" | "request_finance_approval" = "save") {
     if (!selected) return;
     setSaving(true);
     try {
@@ -219,7 +233,12 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       });
       const data = (await res.json()) as {
         error?: string;
-        returnedOrder?: Pick<ReturnTrackingItem, "id" | "actionStatus" | "actionRemark" | "actionDate">;
+        returnedOrder?: Pick<ReturnTrackingItem, "id" | "actionStatus" | "actionRemark" | "actionDate" | "actionType">;
+        order?: {
+          financialStatus?: string | null;
+          paymentGatewayPrimary?: string | null;
+          requiresBankTransferBeforeRearrange?: boolean;
+        };
       };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to save return action");
@@ -228,11 +247,27 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       setItems((current) =>
         current.map((item) =>
           item.id === selected.id && data.returnedOrder
-            ? { ...item, ...data.returnedOrder }
+            ? {
+                ...item,
+                ...data.returnedOrder,
+                financialStatus: data.order?.financialStatus ?? item.financialStatus,
+                paymentGatewayPrimary: data.order?.paymentGatewayPrimary ?? item.paymentGatewayPrimary,
+                paymentGatewayNames: data.order?.paymentGatewayPrimary
+                  ? [data.order.paymentGatewayPrimary]
+                  : item.paymentGatewayNames,
+              }
             : item
         )
       );
-      notify.success(actionType === "rearrange" ? "Moved to rearrange orders" : "Return action saved");
+      if (actionType === "request_finance_approval") {
+        notify.success("Finance approval requested.");
+      } else if (data.order?.requiresBankTransferBeforeRearrange) {
+        notify.success("Bank transfer required before rearrange. Order kept out of dispatch.");
+      } else if (actionType === "rearrange") {
+        notify.success("Rearrange action saved.");
+      } else {
+        notify.success("Return action saved");
+      }
     } catch {
       notify.error("Failed to save return action");
     } finally {
@@ -502,6 +537,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     <th className="px-3 py-3 text-right">Day Count</th>
                     <th className="px-3 py-3 text-left">Action Date</th>
                     <th className="px-3 py-3 text-left">Remark</th>
+                    <th className="px-3 py-3 text-left">Type</th>
                     <th className="px-3 py-3 text-left">Status</th>
                   </tr>
                 </thead>
@@ -516,11 +552,24 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                       <td className="px-3 py-3 text-right">{item.dayCount}</td>
                       <td className="px-3 py-3">{formatDateTime(item.actionDate)}</td>
                       <td className="max-w-[220px] truncate px-3 py-3">{item.actionRemark ?? "-"}</td>
+                      <td className="px-3 py-3">
+                        {item.actionType === "rearrange" ? (
+                          <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${
+                            isBankTransferRearrangePending(item)
+                              ? "border-amber-500/30 bg-amber-500/10 text-amber-700"
+                              : "border-sky-500/30 bg-sky-500/10 text-sky-700"
+                          }`}>
+                            {isBankTransferRearrangePending(item) ? "Awaiting Bank Transfer" : "Rearranged"}
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td className="px-3 py-3">{item.actionStatus === "solved" ? "Solved" : "Pending"}</td>
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={9} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
+                    <tr><td colSpan={10} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -536,10 +585,28 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   <>
                     <div className="rounded-md border border-border/70 px-3 py-2 text-sm">
                       Status: {selected.actionStatus === "solved" ? "Solved" : "Pending"}
+                      <div className="mt-1 text-muted-foreground">
+                        Payment: {paymentLabel(selected)}
+                      </div>
                     </div>
+                    {isBankTransferRearrangePending(selected) && (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+                        This returned COD order is waiting for bank transfer. Do not dispatch until payment is confirmed.
+                      </div>
+                    )}
                     <Textarea value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="Cancel order, customer wants callback, no response, wrong number..." className="min-h-32" />
                     <div className="grid gap-2">
                       <Button onClick={() => void saveAction()} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Return Action"}</Button>
+                      {isBankTransferRearrangePending(selected) && (
+                        <Button
+                          type="button"
+                          onClick={() => void saveAction("request_finance_approval")}
+                          disabled={saving}
+                          className="w-full"
+                        >
+                          Request Finance Approval
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="outline"

@@ -1,3 +1,5 @@
+import { APP_NAME } from "@/lib/branding";
+
 type CsvRow = Record<string, string>;
 
 export type FalconFilterColumn =
@@ -450,8 +452,8 @@ function createWorkbook(rows: string[][]) {
       name: "docProps/core.xml",
       content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:creator>Cosmo OS</dc:creator>
-  <cp:lastModifiedBy>Cosmo OS</cp:lastModifiedBy>
+  <dc:creator>${escapeXml(APP_NAME)}</dc:creator>
+  <cp:lastModifiedBy>${escapeXml(APP_NAME)}</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">${created}</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">${created}</dcterms:modified>
 </cp:coreProperties>`,

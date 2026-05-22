@@ -19,8 +19,8 @@ const saveWaybillSchema = z.object({
 
 async function requireWaybillAuth() {
   const auth = await requireAnyPermission([
-    "fulfillment.delivery_invoice.read",
-    "fulfillment.falcon_upload.read",
+    "fulfillment.waybill_lookup.read",
+    "fulfillment.waybill_lookup.import",
   ]);
   if (!auth.ok) {
     return { ok: false as const, response: NextResponse.json({ error: auth.error }, { status: auth.status }) };
@@ -41,18 +41,28 @@ export async function GET(request: NextRequest) {
   const auth = await requireWaybillAuth();
   if (!auth.ok) return auth.response;
 
-  const invoice = request.nextUrl.searchParams.get("invoice") ?? "";
-  if (!normalizeInvoiceLookup(invoice)) {
-    return NextResponse.json({ error: "Enter an invoice number." }, { status: 400 });
+  const query =
+    request.nextUrl.searchParams.get("q") ??
+    request.nextUrl.searchParams.get("invoice") ??
+    request.nextUrl.searchParams.get("waybill") ??
+    "";
+  if (!normalizeInvoiceLookup(query)) {
+    return NextResponse.json({ error: "Enter an invoice or waybill number." }, { status: 400 });
   }
 
-  const result = await findOrderWaybillsByInvoice(auth.companyId, invoice);
+  const result = await findOrderWaybillsByInvoice(auth.companyId, query);
   return NextResponse.json(result);
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireWaybillAuth();
-  if (!auth.ok) return auth.response;
+  const auth = await requireAnyPermission(["fulfillment.waybill_lookup.import"]);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const companyId = auth.context?.user?.companyId;
+  if (!companyId) {
+    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+  }
 
   const body = await request.json().catch(() => null);
   const parsed = saveWaybillSchema.safeParse(body);
@@ -60,13 +70,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid waybill details." }, { status: 400 });
   }
 
-  const lookup = await findOrderWaybillsByInvoice(auth.companyId, parsed.data.invoiceNumber);
+  const lookup = await findOrderWaybillsByInvoice(companyId, parsed.data.invoiceNumber);
   if (!lookup.order) {
     return NextResponse.json({ error: "No order matched that invoice number." }, { status: 404 });
   }
 
   await saveOrderWaybill({
-    companyId: auth.companyId,
+    companyId,
     orderId: lookup.order.id,
     invoiceNumber: lookup.order.name ?? lookup.order.orderNumber ?? lookup.order.shopifyOrderId,
     waybillNo: parsed.data.waybillNo,
@@ -74,6 +84,6 @@ export async function POST(request: NextRequest) {
     source: "manual",
   });
 
-  const result = await findOrderWaybillsByInvoice(auth.companyId, parsed.data.invoiceNumber);
+  const result = await findOrderWaybillsByInvoice(companyId, parsed.data.invoiceNumber);
   return NextResponse.json(result);
 }

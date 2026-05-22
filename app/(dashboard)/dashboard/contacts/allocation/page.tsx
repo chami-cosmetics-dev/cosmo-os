@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { ContactAllocationPanel } from "@/components/organisms/contact-allocation-panel";
-import { fetchContactFollowUps } from "@/lib/page-data/contact-follow-ups";
+import { fetchContactFollowUps, fetchContactsNotUpdated } from "@/lib/page-data/contact-follow-ups";
 import { fetchContactsPageData } from "@/lib/page-data/contacts";
 import { requirePermission } from "@/lib/rbac";
 
@@ -22,7 +22,7 @@ export default async function ContactAllocationPage() {
   }
 
   const canManage = auth.context!.permissionKeys.includes("orders.manage");
-  const [initialData, followUps] = await Promise.all([
+  const [initialData, followUps, notUpdatedQueue] = await Promise.all([
     fetchContactsPageData(companyId, {
       page: 1,
       limit: 24,
@@ -34,12 +34,19 @@ export default async function ContactAllocationPage() {
       merchantEmail: canManage ? null : auth.context!.user?.email,
       limit: 30,
     }),
+    fetchContactsNotUpdated({
+      companyId,
+      merchantName: canManage ? null : auth.context!.user?.name,
+      merchantEmail: canManage ? null : auth.context!.user?.email,
+      limit: 30,
+    }),
   ]);
 
   return (
     <ContactAllocationPanel
       initialData={initialData}
       initialFollowUps={followUps}
+      initialNotUpdatedQueue={notUpdatedQueue}
       canManage={canManage}
     />
   );

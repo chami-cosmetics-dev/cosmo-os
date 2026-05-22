@@ -39,6 +39,8 @@ export async function GET(request: NextRequest) {
     locationId: searchParams.get("location_id") ?? undefined,
     vendorId: searchParams.get("vendor_id") ?? undefined,
     categoryId: searchParams.get("category_id") ?? undefined,
+    familyId: searchParams.get("family_id") ?? undefined,
+    itemStatusCategory: searchParams.get("item_status_category") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
   });
   perf.mark("query");

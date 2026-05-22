@@ -11,6 +11,10 @@ type Delivery = {
   orderLabel: string;
   amount: string;
   deliveryStatus: "assigned" | "accepted" | "arrived" | "completed" | "failed";
+  deliveryKind: "normal" | "rearranged" | "exchange";
+  oldOrderLabel?: string | null;
+  requiresOldItemCollection?: boolean;
+  exchangePaymentDifference?: string | null;
   customerName: string | null;
   companyLocation?: { name: string } | null;
   payment: {
@@ -74,7 +78,7 @@ export default function DeliveriesScreen() {
         <View style={styles.bannerPill}>
           <Text style={styles.bannerPillText}>Live Route</Text>
         </View>
-        <Text style={styles.bannerTitle}>Today's route</Text>
+        <Text style={styles.bannerTitle}>Today&apos;s route</Text>
         <Text style={styles.bannerText}>{syncLabel}</Text>
         <View style={styles.bannerStats}>
           <View style={styles.statCard}>
@@ -102,6 +106,23 @@ export default function DeliveriesScreen() {
                 <Text style={styles.badgeText}>{delivery.deliveryStatus}</Text>
               </View>
             </View>
+            <View style={styles.specialBadgeRow}>
+              {delivery.deliveryKind === "rearranged" ? (
+                <View style={[styles.specialBadge, styles.rearrangedBadge]}>
+                  <Text style={styles.specialBadgeText}>Rearranged Order</Text>
+                </View>
+              ) : null}
+              {delivery.deliveryKind === "exchange" ? (
+                <View style={[styles.specialBadge, styles.exchangeBadge]}>
+                  <Text style={styles.specialBadgeText}>Exchange</Text>
+                </View>
+              ) : null}
+              {delivery.requiresOldItemCollection ? (
+                <View style={[styles.specialBadge, styles.collectionBadge]}>
+                  <Text style={styles.specialBadgeText}>Collect old order</Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={styles.cardMeta}>{delivery.companyLocation?.name ?? "Unknown location"}</Text>
             <View style={styles.cardFooter}>
               <Text style={styles.cardAmount}>{delivery.amount}</Text>
@@ -109,6 +130,11 @@ export default function DeliveriesScreen() {
                 {delivery.payment ? `Payment ${delivery.payment.collectionStatus}` : "Open delivery"}
               </Text>
             </View>
+            {delivery.requiresOldItemCollection ? (
+              <Text style={styles.cardHint}>
+                Old order: {delivery.oldOrderLabel ?? "Check exchange details"}
+              </Text>
+            ) : null}
           </Pressable>
         ))}
         {activeDeliveries.length === 0 ? (
@@ -189,6 +215,18 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   badgeText: { color: colors.slate, textTransform: "capitalize", fontWeight: "700", fontSize: 12 },
+  specialBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  specialBadge: {
+    alignSelf: "flex-start",
+    borderRadius: radii.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  rearrangedBadge: { backgroundColor: "#e0f2fe", borderColor: "#bae6fd" },
+  exchangeBadge: { backgroundColor: "#ede9fe", borderColor: "#ddd6fe" },
+  collectionBadge: { backgroundColor: "#fef3c7", borderColor: "#fde68a" },
+  specialBadgeText: { color: colors.slate, fontSize: 11, fontWeight: "800" },
   cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 2 },
   cardAmount: { fontSize: 22, fontWeight: "800", color: colors.slate },
   cardHint: { color: colors.textSoft, fontSize: 13, flexShrink: 1, textAlign: "right" },

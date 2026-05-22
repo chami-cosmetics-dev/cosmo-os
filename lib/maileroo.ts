@@ -1,3 +1,5 @@
+import { APP_NAME } from "@/lib/branding";
+
 const MAILEROO_BASE_URL = "https://smtp.maileroo.com/api/v2";
 
 async function readMailerooResponse(response: Response) {
@@ -61,7 +63,7 @@ export async function sendInviteEmail(
       body: JSON.stringify({
         from: {
           address: fromEmail,
-          display_name: "Cosmo OS",
+          display_name: APP_NAME,
         },
         to: [{ address: email }],
         subject: "Activate your account",
@@ -160,7 +162,7 @@ export async function sendResignationNotice(
       body: JSON.stringify({
         from: {
           address: fromEmail,
-          display_name: "Cosmo OS",
+          display_name: APP_NAME,
         },
         to: validEmails.map((address) => ({ address })),
         subject,

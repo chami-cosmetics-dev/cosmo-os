@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints"] as const;
+export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products"] as const;
 
 export const AUDIT_LOG_ACTIONS = [
   "download",
@@ -43,6 +43,10 @@ export const AUDIT_LOG_ACTIONS = [
   "staff_resigned",
   "complaint_created",
   "complaint_updated",
+  "academy_explanation_created",
+  "academy_explanation_deleted",
+  "storage_file_uploaded",
+  "storage_file_deleted",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -116,6 +120,16 @@ export const AUDIT_LOG_ACTION_GROUPS = [
     key: "reports",
     label: "Reports",
     actions: ["download"],
+  },
+  {
+    key: "academy",
+    label: "Academy",
+    actions: ["academy_explanation_created", "academy_explanation_deleted"],
+  },
+  {
+    key: "products",
+    label: "Products",
+    actions: ["storage_file_uploaded", "storage_file_deleted"],
   },
 ] as const;
 

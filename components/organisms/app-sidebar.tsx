@@ -22,8 +22,9 @@ import {
   MessageSquareWarning,
   RefreshCw,
   Calculator,
+  BadgeCheck,
+  GraduationCap,
 } from "lucide-react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Sidebar,
@@ -33,14 +34,12 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
 import { ALL_REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import { APP_INITIALS, APP_NAME } from "@/lib/branding";
 
 interface AppSidebarProps {
   user: {
@@ -84,6 +83,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     hasSidebarPermission("complaints.create") ||
     hasSidebarPermission("complaints.read") ||
     hasSidebarPermission("complaints.manage");
+  const canViewApprovals =
+    hasSidebarPermission("finance.approvals.read") ||
+    hasSidebarPermission("finance.approvals.manage");
+  const canViewAcademy =
+    hasSidebarPermission("academy.learn") ||
+    hasSidebarPermission("academy.manage");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -103,7 +108,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     },
     {
       href: "/dashboard/fulfillment/waybill-lookup",
-      permission: "fulfillment.delivery_invoice.read",
+      permission: "fulfillment.waybill_lookup.read",
     },
     {
       href: "/dashboard/fulfillment/falcon-upload",
@@ -135,7 +140,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
         <div className="rounded-2xl border border-white/35 bg-white/42 px-2 py-2 shadow-[0_16px_34px_-24px_rgba(18,32,51,0.45)] backdrop-blur-sm group-data-[collapsible=icon]:rounded-xl group-data-[collapsible=icon]:border-white/10 group-data-[collapsible=icon]:bg-white/6 group-data-[collapsible=icon]:p-1 group-data-[collapsible=icon]:shadow-none dark:border-white/10 dark:bg-white/6">
           <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
           <span className="text-sm font-semibold text-sidebar-foreground group-data-[collapsible=icon]:hidden">
-            Cosmo OS (Beta) v{packageJson.version}
+            {APP_NAME} (Beta) v{packageJson.version}
           </span>
           <button
             type="button"
@@ -145,7 +150,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
             aria-expanded={state === "expanded"}
           >
             <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-primary/90 text-[10px] font-semibold text-primary-foreground shadow-sm transition-transform hover:scale-105">
-              CO
+              {APP_INITIALS}
             </span>
           </button>
         </div>
@@ -167,6 +172,22 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                 icon={MessageSquareWarning}
                 label="Complaints"
                 isActive={pathname === "/dashboard/complaints"}
+              />
+            )}
+            {canViewApprovals && (
+              <NavItem
+                href="/dashboard/approvals"
+                icon={BadgeCheck}
+                label="Finance Approvals"
+                isActive={pathname === "/dashboard/approvals"}
+              />
+            )}
+            {canViewAcademy && (
+              <NavItem
+                href="/dashboard/cosmo-academy"
+                icon={GraduationCap}
+                label="Cosmo Academy"
+                isActive={pathname === "/dashboard/cosmo-academy"}
               />
             )}
           </SidebarGroupContent>
@@ -270,62 +291,18 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
           <SidebarGroup>
             <SidebarGroupLabel>General Settings</SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {canViewCompanySettings && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/settings"}
-                    >
-                      <Link href="/dashboard/settings">
-                        <Settings className="size-4" />
-                        <span>Settings</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                {canViewEmailTemplates && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/settings/email-templates"}
-                    >
-                      <Link href="/dashboard/settings/email-templates">
-                        <Mail className="size-4" />
-                        <span>Email Templates</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                {canViewSmsSettings && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={
-                        pathname === "/dashboard/settings/sms-notifications"
-                      }
-                    >
-                      <Link href="/dashboard/settings/sms-notifications">
-                        <MessageSquare className="size-4" />
-                        <span>SMS Notifications</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                {canViewFulfillmentSettings && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/settings/fulfillment"}
-                    >
-                      <Link href="/dashboard/settings/fulfillment">
-                        <PackageCheck className="size-4" />
-                        <span>Fulfillment Data</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-              </SidebarMenu>
+              {canViewCompanySettings && (
+                <NavItem href="/dashboard/settings" icon={Settings} label="Settings" isActive={pathname === "/dashboard/settings"} />
+              )}
+              {canViewEmailTemplates && (
+                <NavItem href="/dashboard/settings/email-templates" icon={Mail} label="Email Templates" isActive={pathname === "/dashboard/settings/email-templates"} />
+              )}
+              {canViewSmsSettings && (
+                <NavItem href="/dashboard/settings/sms-notifications" icon={MessageSquare} label="SMS Notifications" isActive={pathname === "/dashboard/settings/sms-notifications"} />
+              )}
+              {canViewFulfillmentSettings && (
+                <NavItem href="/dashboard/settings/fulfillment" icon={PackageCheck} label="Fulfillment Data" isActive={pathname === "/dashboard/settings/fulfillment"} />
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}
@@ -333,73 +310,21 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
           <SidebarGroup>
             <SidebarGroupLabel>Order Management</SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {canViewOrders && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/orders"}
-                    >
-                      <Link href="/dashboard/orders">
-                        <ShoppingCart className="size-4" />
-                        <span>Orders</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                {canViewReturns && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/returns"}
-                    >
-                      <Link href="/dashboard/returns">
-                        <PackageCheck className="size-4" />
-                        <span>Returned Orders</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                {canViewExchanges && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/exchanges"}
-                    >
-                      <Link href="/dashboard/exchanges">
-                        <RefreshCw className="size-4" />
-                        <span>Exchanges</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
+              {canViewOrders && (
+                <NavItem href="/dashboard/orders" icon={ShoppingCart} label="Orders" isActive={pathname === "/dashboard/orders"} />
+              )}
+              {canViewReturns && (
+                <NavItem href="/dashboard/returns" icon={PackageCheck} label="Returned Orders" isActive={pathname === "/dashboard/returns"} />
+              )}
+              {canViewExchanges && (
+                <NavItem href="/dashboard/exchanges" icon={RefreshCw} label="Exchanges" isActive={pathname === "/dashboard/exchanges"} />
+              )}
               {canCreateManualOrder && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === "/dashboard/orders/create"}
-                  >
-                    <Link href="/dashboard/orders/create">
-                      <Plus className="size-4" />
-                      <span>Create manual order</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <NavItem href="/dashboard/orders/create" icon={Plus} label="Create Manual Order" isActive={pathname === "/dashboard/orders/create"} />
               )}
               {fulfillmentHref && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith("/dashboard/fulfillment")}
-                  >
-                    <Link href={fulfillmentHref}>
-                      <PackageCheck className="size-4" />
-                      <span>Fulfillment</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <NavItem href={fulfillmentHref} icon={PackageCheck} label="Fulfillment" isActive={pathname.startsWith("/dashboard/fulfillment")} />
               )}
-              </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
@@ -407,34 +332,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
           <SidebarGroup>
             <SidebarGroupLabel>Stickers</SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
               {canStickerBatch && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === "/dashboard/sticker-batch"}
-                  >
-                    <Link href="/dashboard/sticker-batch">
-                      <Sticker className="size-4" />
-                      <span>Batch</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <NavItem href="/dashboard/sticker-batch" icon={Sticker} label="Batch" isActive={pathname === "/dashboard/sticker-batch"} />
               )}
               {canStickerPrint && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === "/dashboard/sticker-print"}
-                  >
-                    <Link href="/dashboard/sticker-print">
-                      <Printer className="size-4" />
-                      <span>Print</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <NavItem href="/dashboard/sticker-print" icon={Printer} label="Print" isActive={pathname === "/dashboard/sticker-print"} />
               )}
-              </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
         )}
@@ -442,36 +345,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
           <SidebarGroup>
             <SidebarGroupLabel>Product Management</SidebarGroupLabel>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {canViewProducts && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === "/dashboard/products/items"}
-                    >
-                      <Link href="/dashboard/products/items">
-                        <Package className="size-4" />
-                        <span>Items</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                {canViewProducts && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={
-                        pathname === "/dashboard/products/vendors-categories"
-                      }
-                    >
-                      <Link href="/dashboard/products/vendors-categories">
-                        <Tags className="size-4" />
-                        <span>Vendors & Categories</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-              </SidebarMenu>
+              {canViewProducts && (
+                <NavItem href="/dashboard/products/items" icon={Package} label="Items" isActive={pathname === "/dashboard/products/items"} />
+              )}
+              {canViewProducts && (
+                <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}
@@ -482,6 +361,5 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     </Sidebar>
   );
 }
-
 
 

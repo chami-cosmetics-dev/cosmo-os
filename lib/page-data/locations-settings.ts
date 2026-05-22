@@ -10,6 +10,8 @@ export type LocationsSettingsLocation = {
   name: string;
   logoUrl: string | null;
   address: string | null;
+  shadowParentLocationId: string | null;
+  shadowParentLocation: { id: string; name: string } | null;
   shortName: string | null;
   invoiceHeader: string | null;
   invoiceSubHeader: string | null;
@@ -55,6 +57,10 @@ export async function getLocationsSettingsInitialData(
         name: true,
         logoUrl: true,
         address: true,
+        shadowParentLocationId: true,
+        shadowParentLocation: {
+          select: { id: true, name: true },
+        },
         shortName: true,
         invoiceHeader: true,
         invoiceSubHeader: true,

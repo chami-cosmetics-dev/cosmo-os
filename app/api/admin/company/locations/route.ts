@@ -14,6 +14,7 @@ const createLocationSchema = z.object({
   name: trimmedString(1, LIMITS.locationName.max),
   logoUrl: z.string().url().max(LIMITS.logoUrl.max).optional().nullable(),
   address: z.string().max(LIMITS.address.max).optional(),
+  shadowParentLocationId: cuidSchema.nullable().optional(),
   shortName: z.string().max(LIMITS.locationShortName.max).optional(),
   invoiceHeader: z.string().max(LIMITS.invoiceHeader.max).optional(),
   invoiceSubHeader: z.string().max(LIMITS.invoiceSubHeader.max).optional(),
@@ -62,6 +63,10 @@ export async function GET(request: NextRequest) {
         name: true,
         logoUrl: true,
         address: true,
+        shadowParentLocationId: true,
+        shadowParentLocation: {
+          select: { id: true, name: true },
+        },
         shortName: true,
         invoiceHeader: true,
         invoiceSubHeader: true,
@@ -138,9 +143,19 @@ export async function POST(request: NextRequest) {
       );
     }
   }
+  if (d.shadowParentLocationId) {
+    const parent = await prisma.companyLocation.findFirst({
+      where: { id: d.shadowParentLocationId, companyId },
+      select: { id: true },
+    });
+    if (!parent) {
+      return NextResponse.json({ error: "Shadow parent location not found" }, { status: 400 });
+    }
+  }
   const location = await prisma.companyLocation.create({
     data: {
       companyId,
+      shadowParentLocationId: d.shadowParentLocationId ?? null,
       name: d.name,
       logoUrl: d.logoUrl ?? null,
       address: d.address?.trim() || null,
@@ -161,6 +176,10 @@ export async function POST(request: NextRequest) {
       name: true,
       logoUrl: true,
       address: true,
+      shadowParentLocationId: true,
+      shadowParentLocation: {
+        select: { id: true, name: true },
+      },
       shortName: true,
       invoiceHeader: true,
       invoiceSubHeader: true,
