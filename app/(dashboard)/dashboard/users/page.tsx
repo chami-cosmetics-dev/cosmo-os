@@ -34,7 +34,7 @@ export default async function UserManagementPage() {
   const userCompanyId = auth.context!.user?.companyId ?? null;
   const canManageUsers = hasPermission(auth.context, "users.manage");
 
-  const [data, lookups, pendingInvites] = await Promise.all([
+  const [data, lookups, pendingInvites, companies] = await Promise.all([
     listRbacData({
       companyId: userCompanyId,
       isSuperAdmin,
@@ -63,6 +63,12 @@ export default async function UserManagementPage() {
       ]);
       return { locations, departments, designations };
     })(),
+    isSuperAdmin
+      ? prisma.company.findMany({
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve(null),
     canManageUsers
       ? (async () => {
           const invites = await prisma.invite.findMany({
@@ -112,6 +118,8 @@ export default async function UserManagementPage() {
         canManageUsers={canManageUsers}
         canManageRoles={hasPermission(auth.context, "roles.manage")}
         currentUserId={auth.context!.user!.id}
+        isSuperAdmin={isSuperAdmin}
+        companies={companies ?? undefined}
       />
     </div>
   );
