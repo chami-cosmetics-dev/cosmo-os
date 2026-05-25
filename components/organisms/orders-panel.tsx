@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
@@ -56,6 +57,83 @@ const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
 };
 
 const ALL_FILTER_VALUE = "__all";
+
+function SourceBadge({ sourceName }: { sourceName: string }) {
+  const cls =
+    sourceName === "pos"
+      ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+      : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300";
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
+      {sourceName}
+    </span>
+  );
+}
+
+const PAYMENT_BADGE_CLASSES: Record<string, string> = {
+  cod:   "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  bank:  "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  card:  "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  cash:  "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  paid:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
+  other: "bg-secondary text-secondary-foreground",
+};
+
+function PaymentBadge({
+  paymentGatewayPrimary,
+  paymentGatewayNames,
+  financialStatus,
+}: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  financialStatus?: string | null;
+}) {
+  const info = getPaymentMethodInfo({ paymentGatewayPrimary, paymentGatewayNames, financialStatus });
+  if (info.label === "—") return <span className="text-muted-foreground text-xs">—</span>;
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${PAYMENT_BADGE_CLASSES[info.variant] ?? PAYMENT_BADGE_CLASSES.other}`}>
+      {info.label}
+    </span>
+  );
+}
+
+const FINANCIAL_STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  pending:        { label: "Pending",     cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
+  paid:           { label: "Paid",        cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  partially_paid: { label: "Part. Paid",  cls: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  refunded:       { label: "Refunded",    cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300" },
+  voided:         { label: "Voided",      cls: "bg-secondary text-secondary-foreground" },
+  authorized:     { label: "Authorized",  cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
+};
+
+function FinancialStatusBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  const entry = FINANCIAL_STATUS_MAP[status.toLowerCase()];
+  const label = entry?.label ?? status;
+  const cls   = entry?.cls   ?? "bg-secondary text-secondary-foreground";
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+const FULFILLMENT_STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  fulfilled:   { label: "Fulfilled",  cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  unfulfilled: { label: "Unfulfilled",cls: "bg-secondary text-secondary-foreground" },
+  partial:     { label: "Partial",    cls: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
+};
+
+function FulfillmentStatusBadge({ status }: { status: string | null }) {
+  if (!status) return null;
+  const entry = FULFILLMENT_STATUS_MAP[status.toLowerCase()];
+  if (!entry) return null;
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${entry.cls}`}>
+      {entry.label}
+    </span>
+  );
+}
 
 type OrderDetail = {
   id: string;
@@ -141,6 +219,7 @@ interface OrdersPanelProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
   revertPermissionKeys?: string[];
+  canFinanceManage?: boolean;
   initialData?: OrdersPanelInitialData | null;
 }
 
@@ -148,6 +227,7 @@ export function OrdersPanel({
   canPrint = false,
   canResendRiderSms = false,
   revertPermissionKeys = [],
+  canFinanceManage = false,
   initialData,
 }: OrdersPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
@@ -490,27 +570,18 @@ export function OrdersPanel({
           ) : (
             <>
               <div className="max-w-full rounded-2xl border border-border/70 bg-background/90 shadow-xs">
-                <table className="w-full table-fixed text-sm [&_th:nth-child(2)]:hidden [&_td:nth-child(2)]:hidden [&_th:nth-child(3)]:hidden [&_td:nth-child(3)]:hidden [&_th:nth-child(6)]:hidden [&_td:nth-child(6)]:hidden [&_th:nth-child(7)]:hidden [&_td:nth-child(7)]:hidden [&_th:nth-child(8)]:hidden [&_td:nth-child(8)]:hidden [&_th:nth-child(9)]:hidden [&_td:nth-child(9)]:hidden [&_th:nth-child(10)]:hidden [&_td:nth-child(10)]:hidden md:[&_th:nth-child(6)]:table-cell md:[&_td:nth-child(6)]:table-cell md:[&_th:nth-child(10)]:table-cell md:[&_td:nth-child(10)]:table-cell lg:[&_th:nth-child(2)]:table-cell lg:[&_td:nth-child(2)]:table-cell lg:[&_th:nth-child(7)]:table-cell lg:[&_td:nth-child(7)]:table-cell xl:[&_th:nth-child(3)]:table-cell xl:[&_td:nth-child(3)]:table-cell xl:[&_th:nth-child(8)]:table-cell xl:[&_td:nth-child(8)]:table-cell xl:[&_th:nth-child(9)]:table-cell xl:[&_td:nth-child(9)]:table-cell">
+                <table className="w-full table-fixed text-sm">
                   <thead>
                     <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                       <SortableColumnHeader
-                        className="w-[10%]"
+                        className="w-[18%]"
                         label="Order"
                         sortKey="name"
                         currentSort={sortBy || undefined}
                         currentOrder={sortOrder}
                         onSort={handleSort}
                       />
-                      <SortableColumnHeader
-                        className="hidden lg:table-cell w-[6%]"
-                        label="Source"
-                        sortKey="source"
-                        currentSort={sortBy || undefined}
-                        currentOrder={sortOrder}
-                        onSort={handleSort}
-                      />
-                      <th className="hidden xl:table-cell w-[6%] px-4 py-2 text-left font-medium">Payment</th>
-                      <th className="w-[15%] px-4 py-2 text-left font-medium">Customer</th>
+                      <th className="w-[16%] px-4 py-2 text-left font-medium">Customer</th>
                       <SortableColumnHeader
                         className="w-[9%]"
                         label="Total (LKR)"
@@ -559,36 +630,18 @@ export function OrdersPanel({
                         onClick={() => void handleViewOrder(order.id)}
                         onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}
                       >
-                        <td className="px-4 py-2 font-medium">
-                          <div className="truncate" title={order.name ?? order.orderNumber ?? undefined}>
+                        <td className="px-4 py-2">
+                          <div className="truncate font-medium" title={order.name ?? order.orderNumber ?? undefined}>
                             {order.name ?? order.orderNumber ?? "—"}
                           </div>
-                        </td>
-                        <td className="hidden lg:table-cell px-4 py-2">
-                          <span
-                            className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${
-                              order.sourceName === "pos"
-                                ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
-                                : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                            }`}
-                          >
-                            {order.sourceName}
-                          </span>
-                        </td>
-                        <td className="hidden xl:table-cell px-4 py-2">
-                          <span
-                            className="text-muted-foreground block truncate text-xs"
-                            title={
-                              order.paymentGatewayNames?.length
-                                ? order.paymentGatewayNames.join(", ")
-                                : undefined
-                            }
-                          >
-                            {order.paymentGatewayPrimary ??
-                              (order.paymentGatewayNames?.length
-                                ? order.paymentGatewayNames.join(", ")
-                                : "—")}
-                          </span>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            <SourceBadge sourceName={order.sourceName} />
+                            <PaymentBadge
+                              paymentGatewayPrimary={order.paymentGatewayPrimary}
+                              paymentGatewayNames={order.paymentGatewayNames}
+                              financialStatus={order.financialStatus}
+                            />
+                          </div>
                         </td>
                         <td className="px-4 py-2">
                           <div className="truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
@@ -597,9 +650,10 @@ export function OrdersPanel({
                         </td>
                         <td className="px-4 py-2 text-right whitespace-nowrap">{formatPrice(order.totalPrice)}</td>
                         <td className="hidden md:table-cell px-4 py-2">
-                          <span className="text-muted-foreground block text-xs leading-5">
-                            {order.financialStatus ?? "—"} / {order.fulfillmentStatus ?? "—"}
-                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            <FinancialStatusBadge status={order.financialStatus} />
+                            <FulfillmentStatusBadge status={order.fulfillmentStatus} />
+                          </div>
                         </td>
                         <td className="hidden lg:table-cell px-4 py-2">
                           <span className="text-muted-foreground block text-xs leading-5">
@@ -671,6 +725,7 @@ export function OrdersPanel({
         canPrint={canPrint}
         canResendRiderSms={canResendRiderSms}
         canRevertToStage={canRevertToStage}
+        canFinanceManage={canFinanceManage}
       />
     </div>
   );
