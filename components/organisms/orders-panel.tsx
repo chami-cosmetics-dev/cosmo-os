@@ -219,7 +219,6 @@ interface OrdersPanelProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
   revertPermissionKeys?: string[];
-  canFinanceManage?: boolean;
   initialData?: OrdersPanelInitialData | null;
 }
 
@@ -227,7 +226,6 @@ export function OrdersPanel({
   canPrint = false,
   canResendRiderSms = false,
   revertPermissionKeys = [],
-  canFinanceManage = false,
   initialData,
 }: OrdersPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
@@ -725,7 +723,6 @@ export function OrdersPanel({
         canPrint={canPrint}
         canResendRiderSms={canResendRiderSms}
         canRevertToStage={canRevertToStage}
-        canFinanceManage={canFinanceManage}
       />
     </div>
   );

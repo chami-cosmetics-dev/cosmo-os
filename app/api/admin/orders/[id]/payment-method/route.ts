@@ -36,7 +36,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("finance.approvals.manage");
+  const auth = await requirePermission("orders.update_payment_method");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
