@@ -298,6 +298,23 @@ export function UserManagementPanel({
     });
   }
 
+  async function syncPermissions() {
+    try {
+      setBusyKey("sync-permissions");
+      const response = await fetch("/api/admin/rbac", { method: "POST" });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error ?? "Failed to sync permissions");
+      }
+      await refreshData();
+      notify.success("Permissions synced.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Unable to sync permissions.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function refreshData() {
     const response = await fetch("/api/admin/rbac", { cache: "no-store" });
     if (!response.ok) {
@@ -856,10 +873,23 @@ export function UserManagementPanel({
                   </p>
                 </div>
                 {canManageRoles && (
-                  <Button size="sm" onClick={() => setCreateRoleSheetOpen(true)}>
-                    <ShieldPlus className="mr-1.5 size-4" aria-hidden />
-                    Create role
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={syncPermissions}
+                      disabled={isBusy}
+                    >
+                      {busyKey === "sync-permissions" ? (
+                        <Loader2 className="mr-1.5 size-4 animate-spin" aria-hidden />
+                      ) : null}
+                      Sync permissions
+                    </Button>
+                    <Button size="sm" onClick={() => setCreateRoleSheetOpen(true)}>
+                      <ShieldPlus className="mr-1.5 size-4" aria-hidden />
+                      Create role
+                    </Button>
+                  </div>
                 )}
               </div>
               <div className="relative max-w-xs">
