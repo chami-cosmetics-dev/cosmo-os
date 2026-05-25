@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { Loader2, Mail, Copy, XCircle, UserPlus, ShieldPlus, Pencil, Trash2, Search, Building2 } from "lucide-react";
+import { Loader2, Mail, Copy, XCircle, UserPlus, ShieldPlus, Pencil, Trash2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -143,8 +143,7 @@ export function UserManagementPanel({
   const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
   const [createRoleSheetOpen, setCreateRoleSheetOpen] = useState(false);
   const [editingUserRolesId, setEditingUserRolesId] = useState<string | null>(null);
-  const [assignCompanyUserId, setAssignCompanyUserId] = useState<string | null>(null);
-  const [assignCompanyValue, setAssignCompanyValue] = useState<string>("");
+  const [editCompanyId, setEditCompanyId] = useState<string>("");
 
   const fetchInvites = useCallback(async () => {
     const res = await fetch("/api/admin/invites", { cache: "no-store" });
@@ -325,14 +324,13 @@ export function UserManagementPanel({
     }
   }
 
-  async function saveUserCompany() {
-    if (!assignCompanyUserId) return;
+  async function saveUserCompany(userId: string, companyId: string) {
     try {
-      setBusyKey(`company-${assignCompanyUserId}`);
-      const response = await fetch(`/api/admin/users/${assignCompanyUserId}`, {
+      setBusyKey(`company-${userId}`);
+      const response = await fetch(`/api/admin/users/${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId: assignCompanyValue || null }),
+        body: JSON.stringify({ companyId: companyId || null }),
       });
       if (!response.ok) {
         const error = await response.json();
@@ -341,15 +339,14 @@ export function UserManagementPanel({
       const { user: updated } = await response.json() as { user: { id: string; companyId: string | null; company: Company | null } };
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === assignCompanyUserId
+          u.id === userId
             ? { ...u, companyId: updated.companyId, company: updated.company }
             : u
         )
       );
-      setAssignCompanyUserId(null);
-      notify.success("Company assigned.");
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to assign company.");
+      throw error;
     } finally {
       setBusyKey(null);
     }
@@ -818,11 +815,11 @@ export function UserManagementPanel({
                     <tbody>
                       {paginatedUsers.map((user) => {
                         const assignedRoles = draftAssignments[user.id] ?? [];
-                        const isSuperAdmin = user.userRoles.some(
+                        const isRowSuperAdmin = user.userRoles.some(
                           (ur) => ur.role.name === "super_admin"
                         );
                         const isCurrentUser = user.id === currentUserId;
-                        const roleNames = isSuperAdmin
+                        const roleNames = isRowSuperAdmin
                           ? ["super_admin"]
                           : assignedRoles
                               .map((rid) => sortedRoles.find((r) => r.id === rid)?.name)
@@ -861,29 +858,16 @@ export function UserManagementPanel({
                                     variant="ghost"
                                     size="icon"
                                     className="size-8"
-                                    onClick={() => setEditingUserRolesId(user.id)}
+                                    onClick={() => {
+                                      setEditCompanyId(user.companyId ?? "");
+                                      setEditingUserRolesId(user.id);
+                                    }}
                                     disabled={isBusy}
-                                    aria-label="Edit roles"
+                                    aria-label="Edit user"
                                   >
                                     <Pencil className="size-4" aria-hidden />
                                   </Button>
-                                  {isSuperAdmin && !isCurrentUser && (
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="size-8"
-                                      onClick={() => {
-                                        setAssignCompanyValue(user.companyId ?? "");
-                                        setAssignCompanyUserId(user.id);
-                                      }}
-                                      disabled={isBusy}
-                                      aria-label="Assign company"
-                                      title="Assign company"
-                                    >
-                                      <Building2 className="size-4" aria-hidden />
-                                    </Button>
-                                  )}
-                                  {!isSuperAdmin && (
+                                  {!isRowSuperAdmin && (
                                     <Button
                                       variant="ghost"
                                       size="icon"
@@ -1405,55 +1389,6 @@ export function UserManagementPanel({
         </SheetContent>
       </Sheet>
 
-      {/* Assign company sheet */}
-      {isSuperAdmin && (
-        <Sheet
-          open={!!assignCompanyUserId}
-          onOpenChange={(open) => !open && setAssignCompanyUserId(null)}
-        >
-          <SheetContent className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-sm">
-            <SheetHeader>
-              <SheetTitle>Assign Company</SheetTitle>
-              <SheetDescription>
-                Set which company this user belongs to.{" "}
-                {(() => {
-                  const u = users.find((u) => u.id === assignCompanyUserId);
-                  return u ? (u.name ?? u.email ?? "") : "";
-                })()}
-              </SheetDescription>
-            </SheetHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Company</label>
-                <select
-                  value={assignCompanyValue}
-                  onChange={(e) => setAssignCompanyValue(e.target.value)}
-                  disabled={isBusy}
-                  className="w-full rounded-lg border border-border/80 bg-background/80 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">— No company —</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <SheetFooter>
-              <Button variant="outline" onClick={() => setAssignCompanyUserId(null)} disabled={isBusy}>
-                Cancel
-              </Button>
-              <Button onClick={() => void saveUserCompany()} disabled={isBusy}>
-                {busyKey?.startsWith("company-") ? (
-                  <><Loader2 className="mr-2 size-4 animate-spin" aria-hidden />Saving...</>
-                ) : (
-                  "Save"
-                )}
-              </Button>
-            </SheetFooter>
-          </SheetContent>
-        </Sheet>
-      )}
-
       {/* Edit user roles sheet */}
       <Sheet
         open={!!editingUserRolesId}
@@ -1461,16 +1396,34 @@ export function UserManagementPanel({
       >
         <SheetContent className="overflow-y-auto border-l border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Edit roles</SheetTitle>
+            <SheetTitle>{isSuperAdmin ? "Edit user" : "Edit roles"}</SheetTitle>
             <SheetDescription>
               {editingUser && (
-                <>Assign roles for {editingUser.name ?? editingUser.email ?? "this user"}.</>
+                <>{editingUser.name ?? editingUser.email ?? "this user"}</>
               )}
             </SheetDescription>
           </SheetHeader>
           {editingUser && (
             <div className="space-y-4 py-4">
-              <div className="flex flex-wrap gap-2">
+              {isSuperAdmin && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Company</label>
+                  <select
+                    value={editCompanyId}
+                    onChange={(e) => setEditCompanyId(e.target.value)}
+                    disabled={isBusy}
+                    className="w-full rounded-lg border border-border/80 bg-background/80 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">— No company —</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Roles</label>
+                <div className="flex flex-wrap gap-2">
                 {assignableRoles.map((role) => {
                   const assignedRoles = draftAssignments[editingUser.id] ?? [];
                   const checked = assignedRoles.includes(role.id);
@@ -1501,6 +1454,7 @@ export function UserManagementPanel({
                     </label>
                   );
                 })}
+                </div>
               </div>
             </div>
           )}
@@ -1514,20 +1468,29 @@ export function UserManagementPanel({
             </Button>
             <Button
               onClick={async () => {
-                if (editingUserRolesId) {
+                if (!editingUserRolesId) return;
+                const original = users.find((u) => u.id === editingUserRolesId);
+                const companyChanged = isSuperAdmin && original && editCompanyId !== (original.companyId ?? "");
+                try {
                   await saveUserRoles(editingUserRolesId);
+                  if (companyChanged) {
+                    await saveUserCompany(editingUserRolesId, editCompanyId);
+                  }
+                  if (companyChanged) notify.success("User updated.");
                   setEditingUserRolesId(null);
+                } catch {
+                  // errors already toasted inside each save fn
                 }
               }}
               disabled={isBusy}
             >
-              {busyKey === `user-${editingUserRolesId}` ? (
+              {isBusy ? (
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" aria-hidden />
                   Saving...
                 </>
               ) : (
-                "Save roles"
+                "Save"
               )}
             </Button>
           </SheetFooter>
