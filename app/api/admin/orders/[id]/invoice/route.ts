@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { findMatchingContacts } from "@/lib/contact-identifiers";
+import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -75,7 +76,9 @@ function formatPrice(val: string | number, currency?: string | null): string {
   return currency ? `${formatted} ${currency}` : formatted;
 }
 
-function getPaymentMethod(financialStatus: string | null): string {
+function getPaymentMethod(financialStatus: string | null, paymentGatewayPrimary?: string | null): string {
+  const gateway = paymentGatewayPrimary?.trim().toLowerCase() ?? "";
+  if (gateway.includes("bank")) return "Bank Transfer";
   if (!financialStatus) return "—";
   const s = financialStatus.toLowerCase();
   if (s.includes("pending") || s.includes("cod")) return "Cash on Delivery (COD)";
@@ -84,7 +87,9 @@ function getPaymentMethod(financialStatus: string | null): string {
   return financialStatus;
 }
 
-function getPaymentDescription(financialStatus: string | null): string {
+function getPaymentDescription(financialStatus: string | null, paymentGatewayPrimary?: string | null): string {
+  const gateway = paymentGatewayPrimary?.trim().toLowerCase() ?? "";
+  if (gateway.includes("bank")) return "BANK TRANSFER";
   if (!financialStatus) return "—";
   const s = financialStatus.toLowerCase();
   if (s.includes("pending") || s.includes("cod")) return "CASH PAYMENT ON DELIVERY";
@@ -165,34 +170,41 @@ export async function GET(
     return new NextResponse("Invalid ID", { status: 400 });
   }
 
-  const order = await prisma.order.findFirst({
-    where: { id: idResult.data, companyId },
-    include: {
-      company: { select: { name: true, address: true } },
-      companyLocation: true,
-      assignedMerchant: { select: { name: true } },
-      lineItems: {
-        include: {
-          productItem: {
-            select: {
-              productTitle: true,
-              variantTitle: true,
-              sku: true,
-              barcode: true,
-              price: true,
-              compareAtPrice: true,
+  const [gatewayColumns, order] = await Promise.all([
+    getOrderPaymentGatewayColumnState(),
+    prisma.order.findFirst({
+      where: { id: idResult.data, companyId },
+      include: {
+        company: { select: { name: true, address: true } },
+        companyLocation: true,
+        assignedMerchant: { select: { name: true } },
+        lineItems: {
+          include: {
+            productItem: {
+              select: {
+                productTitle: true,
+                variantTitle: true,
+                sku: true,
+                barcode: true,
+                price: true,
+                compareAtPrice: true,
+              },
             },
           },
         },
-      },
-      sampleFreeIssues: {
-        include: {
-          sampleFreeIssueItem: { select: { name: true, type: true } },
+        sampleFreeIssues: {
+          include: {
+            sampleFreeIssueItem: { select: { name: true, type: true } },
+          },
         },
+        remarks: { orderBy: { createdAt: "asc" } },
       },
-      remarks: { orderBy: { createdAt: "asc" } },
-    },
-  });
+    }),
+  ]);
+
+  const paymentGatewayPrimary = gatewayColumns.hasPaymentGatewayPrimary
+    ? ((order as unknown as Record<string, unknown>)?.paymentGatewayPrimary as string | null ?? null)
+    : null;
 
   if (!order) {
     return new NextResponse("Order not found", { status: 404 });
@@ -649,12 +661,12 @@ export async function GET(
     </div>
 
     <div class="payment-section">
-      <p><strong>Payment Method:</strong> ${escapeHtml(getPaymentMethod(order.financialStatus))}</p>
+      <p><strong>Payment Method:</strong> ${escapeHtml(getPaymentMethod(order.financialStatus, paymentGatewayPrimary))}</p>
       <p><strong>Merchant:</strong> ${escapeHtml(order.assignedMerchant?.name ?? "—")}</p>
       <p><strong>Customer Notes:</strong> ${externalRemarks.length > 0 ? escapeHtml(externalRemarks.join("; ")) : "—"}</p>
       <p><strong>Call Center Notes:</strong> ${internalRemarks.length > 0 ? escapeHtml(internalRemarks.join("; ")) : "—"}</p>
       <p><strong>Original Del Date:</strong> ${invoiceDate}</p>
-      <p><strong>Payment Description:</strong> ${escapeHtml(getPaymentDescription(order.financialStatus))}</p>
+      <p><strong>Payment Description:</strong> ${escapeHtml(getPaymentDescription(order.financialStatus, paymentGatewayPrimary))}</p>
     </div>
 
     <div class="invoice-policy-notes">

@@ -147,6 +147,7 @@ interface OrderInvoiceViewModalProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
   canRevertToStage?: (targetStage: string, currentStage: string) => boolean;
+  canFinanceManage?: boolean;
 }
 
 const TIMELINE_ID_TO_DB_STAGE: Record<string, string> = {
@@ -328,6 +329,18 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
   return items;
 }
 
+function isCodOrderDetail(orderDetail: { financialStatus: string | null; paymentGatewayPrimary?: string | null; paymentGatewayNames?: string[] }): boolean {
+  const norm = (v: string | null | undefined) => v?.trim().toLowerCase() ?? "";
+  const candidates = [
+    orderDetail.paymentGatewayPrimary,
+    ...(orderDetail.paymentGatewayNames ?? []),
+    orderDetail.financialStatus,
+  ].map(norm);
+  if (candidates.some((v) => v.includes("bank"))) return false;
+  if (candidates.some((v) => v.includes("card") || v.includes("paid"))) return false;
+  return candidates.some((v) => v.includes("cod")) || norm(orderDetail.financialStatus) === "pending";
+}
+
 export function OrderInvoiceViewModal({
   orderId,
   orderDetail,
@@ -342,6 +355,7 @@ export function OrderInvoiceViewModal({
   canPrint = false,
   canResendRiderSms = false,
   canRevertToStage,
+  canFinanceManage = false,
 }: OrderInvoiceViewModalProps) {
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
   const [showJsonModal, setShowJsonModal] = useState(false);
@@ -349,6 +363,9 @@ export function OrderInvoiceViewModal({
   const [confirmRevertStage, setConfirmRevertStage] = useState<{ targetStage: string; label: string } | null>(null);
   const [revertReason, setRevertReason] = useState("");
   const [visibleRevertReasonId, setVisibleRevertReasonId] = useState<string | null>(null);
+  const [showBankTransferDialog, setShowBankTransferDialog] = useState(false);
+  const [bankTransferNote, setBankTransferNote] = useState("");
+  const [bankTransferBusy, setBankTransferBusy] = useState(false);
 
   const stage = orderDetail?.fulfillmentStage ?? "order_received";
   const isDispatchedWithRider =
@@ -379,6 +396,31 @@ export function OrderInvoiceViewModal({
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
+  }
+
+  async function handleConfirmBankTransfer() {
+    if (!orderId) return;
+    setBankTransferBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: bankTransferNote.trim() || null }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to update payment method");
+        return;
+      }
+      notify.success("Payment method updated to Bank Transfer.");
+      setShowBankTransferDialog(false);
+      setBankTransferNote("");
+      onRefresh?.();
+    } catch {
+      notify.error("Failed to update payment method");
+    } finally {
+      setBankTransferBusy(false);
+    }
   }
 
   function handleRevertClick(targetStage: string, label: string) {
@@ -581,6 +623,15 @@ export function OrderInvoiceViewModal({
                         ? orderDetail.paymentGatewayNames.join(", ")
                         : orderDetail.paymentGatewayPrimary ?? "-"}
                     </p>
+                    {canFinanceManage && isCodOrderDetail(orderDetail) && (
+                      <button
+                        type="button"
+                        onClick={() => { setBankTransferNote(""); setShowBankTransferDialog(true); }}
+                        className="mt-1 text-xs text-blue-600 hover:underline"
+                      >
+                        Change to Bank Transfer
+                      </button>
+                    )}
                   </div>
                   <div>
                     <span className="text-muted-foreground text-xs">Location</span>
@@ -807,6 +858,44 @@ export function OrderInvoiceViewModal({
               </>
             ) : (
               "Revert"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog open={showBankTransferDialog} onOpenChange={(open) => { if (!open) { setShowBankTransferDialog(false); setBankTransferNote(""); } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Change to Bank Transfer</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will change the payment method from Cash on Delivery to Bank Transfer. The invoice will reflect this change immediately.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="py-1">
+          <label className="mb-1.5 block text-sm font-medium" htmlFor="bank-transfer-note">
+            Finance note (optional)
+          </label>
+          <Textarea
+            id="bank-transfer-note"
+            value={bankTransferNote}
+            onChange={(e) => setBankTransferNote(e.target.value)}
+            placeholder="e.g. Customer confirmed bank transfer receipt #..."
+            className="min-h-20"
+            maxLength={2000}
+            disabled={bankTransferBusy}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={bankTransferBusy}>Cancel</AlertDialogCancel>
+          <Button
+            disabled={bankTransferBusy}
+            onClick={() => void handleConfirmBankTransfer()}
+          >
+            {bankTransferBusy ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Updating...</>
+            ) : (
+              "Confirm Bank Transfer"
             )}
           </Button>
         </AlertDialogFooter>
