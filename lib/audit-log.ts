@@ -13,6 +13,7 @@ export const AUDIT_LOG_ACTIONS = [
   "invite_cancelled",
   "user_deleted",
   "user_roles_updated",
+  "user_company_assigned",
   "role_created",
   "role_updated",
   "role_deleted",

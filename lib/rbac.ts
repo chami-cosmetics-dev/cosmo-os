@@ -1017,6 +1017,10 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
         name: true,
         email: true,
         auth0Id: true,
+        companyId: true,
+        company: options.isSuperAdmin
+          ? { select: { id: true, name: true } }
+          : false,
         userRoles: {
           select: {
             role: {
