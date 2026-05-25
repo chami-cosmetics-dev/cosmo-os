@@ -81,6 +81,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Retry failed order webhooks and manage order fulfillment",
   },
   {
+    key: "orders.update_payment_method",
+    description: "Change order payment method from COD to Bank Transfer",
+  },
+  {
     key: "orders.create_manual",
     description: "Create manual (non-Shopify) orders from the item master",
   },
@@ -417,6 +421,7 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.approvals.manage",
       "orders.read",
+      "orders.update_payment_method",
       "returns.read",
     ],
   },

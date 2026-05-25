@@ -14,6 +14,7 @@ const defaultPermissions: FulfillmentPermissions = {
   canMarkInvoiceComplete: false,
   canManageRemarks: false,
   canResendRiderSms: false,
+  canChangePaymentMethod: false,
 };
 
 const FulfillmentPermissionsContext =

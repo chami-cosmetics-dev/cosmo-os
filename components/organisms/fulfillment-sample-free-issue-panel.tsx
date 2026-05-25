@@ -6,6 +6,15 @@ import { CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "luc
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Command,
   CommandEmpty,
   CommandGroup,
@@ -15,8 +24,9 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { formatPaymentMethodLabel } from "@/lib/payment-method-label";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -116,6 +126,9 @@ export function FulfillmentSampleFreeIssuePanel({
   const [remarkBusy, setRemarkBusy] = useState(false);
   const [sendLaterDate, setSendLaterDate] = useState("");
   const sendLaterInputRef = useRef<HTMLInputElement | null>(null);
+  const [showBankTransferDialog, setShowBankTransferDialog] = useState(false);
+  const [bankTransferNote, setBankTransferNote] = useState("");
+  const [bankTransferBusy, setBankTransferBusy] = useState(false);
 
   const isBusy = busyKey !== null;
 
@@ -368,10 +381,37 @@ export function FulfillmentSampleFreeIssuePanel({
 
   const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
-  const paymentMethod = formatPaymentMethodLabel({
+  const paymentMethodInfo = getPaymentMethodInfo({
     paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
     paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames,
   });
+  const paymentMethod = paymentMethodInfo.label;
+  const isCodOrder = paymentMethodInfo.variant === "cod";
+
+  async function handleConfirmBankTransfer() {
+    if (!orderId) return;
+    setBankTransferBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: bankTransferNote.trim() || null }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to update payment method");
+        return;
+      }
+      notify.success("Payment method updated to Bank Transfer.");
+      setShowBankTransferDialog(false);
+      setBankTransferNote("");
+      onRefresh(false);
+    } catch {
+      notify.error("Failed to update payment method");
+    } finally {
+      setBankTransferBusy(false);
+    }
+  }
   const isDetailPending = detailLoading && !detail;
   const remarks = detail?.remarks ?? [];
   const orderDate = order ? new Date(order.createdAt) : null;
@@ -386,6 +426,7 @@ export function FulfillmentSampleFreeIssuePanel({
     savedSendLaterDate !== null && savedSendLaterDate > todayDateInputValue();
 
   return (
+    <>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -416,7 +457,19 @@ export function FulfillmentSampleFreeIssuePanel({
               </div>
               <div className="space-y-1">
                 <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
-                <p><span className="font-medium">Payment:</span> {paymentMethod}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">Payment:</span>
+                  <span>{paymentMethod}</span>
+                  {perms.canChangePaymentMethod && isCodOrder && orderId && (
+                    <button
+                      type="button"
+                      onClick={() => { setBankTransferNote(""); setShowBankTransferDialog(true); }}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Change to Bank Transfer
+                    </button>
+                  )}
+                </div>
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
                 <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
               </div>
@@ -782,5 +835,45 @@ export function FulfillmentSampleFreeIssuePanel({
           </p>
         )}
     </div>
+
+    <AlertDialog
+      open={showBankTransferDialog}
+      onOpenChange={(open) => { if (!open) { setShowBankTransferDialog(false); setBankTransferNote(""); } }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Change to Bank Transfer</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will change the payment method from Cash on Delivery to Bank Transfer.
+            The invoice will reflect this immediately.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="py-1">
+          <label className="mb-1.5 block text-sm font-medium" htmlFor="sfi-bank-transfer-note">
+            Finance note (optional)
+          </label>
+          <Textarea
+            id="sfi-bank-transfer-note"
+            value={bankTransferNote}
+            onChange={(e) => setBankTransferNote(e.target.value)}
+            placeholder="e.g. Customer confirmed bank transfer receipt #..."
+            className="min-h-20"
+            maxLength={2000}
+            disabled={bankTransferBusy}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={bankTransferBusy}>Cancel</AlertDialogCancel>
+          <Button disabled={bankTransferBusy} onClick={() => void handleConfirmBankTransfer()}>
+            {bankTransferBusy ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Updating...</>
+            ) : (
+              "Confirm Bank Transfer"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
