@@ -130,6 +130,7 @@ export function UserManagementPanel({
   const [usersLimit, setUsersLimit] = useState(10);
   const [rolesPage, setRolesPage] = useState(1);
   const [rolesLimit, setRolesLimit] = useState(10);
+  const [roleSearch, setRoleSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"users" | "roles">("users");
   const [inviteSheetOpen, setInviteSheetOpen] = useState(false);
   const [createRoleSheetOpen, setCreateRoleSheetOpen] = useState(false);
@@ -146,6 +147,16 @@ export function UserManagementPanel({
     () => [...roles].sort((a, b) => a.name.localeCompare(b.name)),
     [roles]
   );
+
+  const filteredRoles = useMemo(() => {
+    const q = roleSearch.trim().toLowerCase();
+    if (!q) return sortedRoles;
+    return sortedRoles.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        (r.description ?? "").toLowerCase().includes(q)
+    );
+  }, [sortedRoles, roleSearch]);
 
   const filteredUsers = useMemo(() => {
     const query = userSearch.trim().toLowerCase();
@@ -169,8 +180,8 @@ export function UserManagementPanel({
 
   const paginatedRoles = useMemo(() => {
     const start = (rolesPage - 1) * rolesLimit;
-    return sortedRoles.slice(start, start + rolesLimit);
-  }, [sortedRoles, rolesPage, rolesLimit]);
+    return filteredRoles.slice(start, start + rolesLimit);
+  }, [filteredRoles, rolesPage, rolesLimit]);
 
   const permissionsByGroup = useMemo(
     () => groupPermissionsByPrefix(permissions),
@@ -227,9 +238,13 @@ export function UserManagementPanel({
   }, [filteredUsers.length, usersLimit, usersPage]);
 
   useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(sortedRoles.length / rolesLimit));
+    const maxPage = Math.max(1, Math.ceil(filteredRoles.length / rolesLimit));
     if (rolesPage > maxPage) setRolesPage(maxPage);
-  }, [sortedRoles.length, rolesLimit, rolesPage]);
+  }, [filteredRoles.length, rolesLimit, rolesPage]);
+
+  useEffect(() => {
+    setRolesPage(1);
+  }, [roleSearch]);
 
   function togglePermission(key: string) {
     setSelectedPermissionKeys((current) =>
@@ -832,19 +847,30 @@ export function UserManagementPanel({
       {activeTab === "roles" && (
         <Card className="overflow-hidden border-border/70 shadow-xs">
           <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))] pb-3">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <CardTitle className="text-xl tracking-tight">Roles</CardTitle>
-                <p className="text-muted-foreground mt-0.5 text-sm">
-                  Manage roles and their permissions.
-                </p>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-xl tracking-tight">Roles</CardTitle>
+                  <p className="text-muted-foreground mt-0.5 text-sm">
+                    Manage roles and their permissions.
+                  </p>
+                </div>
+                {canManageRoles && (
+                  <Button size="sm" onClick={() => setCreateRoleSheetOpen(true)}>
+                    <ShieldPlus className="mr-1.5 size-4" aria-hidden />
+                    Create role
+                  </Button>
+                )}
               </div>
-              {canManageRoles && (
-                <Button size="sm" onClick={() => setCreateRoleSheetOpen(true)}>
-                  <ShieldPlus className="mr-1.5 size-4" aria-hidden />
-                  Create role
-                </Button>
-              )}
+              <div className="relative max-w-xs">
+                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" aria-hidden />
+                <Input
+                  placeholder="Search roles..."
+                  value={roleSearch}
+                  onChange={(e) => setRoleSearch(e.target.value)}
+                  className="border-border/70 bg-background/90 pl-9"
+                />
+              </div>
             </div>
           </CardHeader>
           <CardContent>
