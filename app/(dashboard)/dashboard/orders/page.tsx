@@ -25,7 +25,7 @@ export default async function OrdersPage() {
 
   const permissions = buildFulfillmentPermissions(auth.context);
   const revertPermissionKeys = getRevertPermissionKeys(auth.context);
-  const canFinanceManage = hasPermission(auth.context, "finance.approvals.manage");
+  const canFinanceManage = hasPermission(auth.context, "orders.update_payment_method");
   const initialData = await fetchOrdersPageData(companyId, {
     page: 1,
     limit: 10,
