@@ -59,6 +59,7 @@ async function ensureCustomer(
     customer_group: "Individual",
     territory: "All Territories",
     default_company: erpnextCompany,
+    custom_total_purchasing_value: 0,
     ...(email ? { email_id: email } : {}),
     ...(phone ? { mobile_no: phone } : {}),
   });
