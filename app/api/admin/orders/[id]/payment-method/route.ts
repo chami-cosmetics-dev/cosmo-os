@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { syncBankTransferPaymentToERPNext } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -64,6 +65,9 @@ export async function PATCH(
     where: { id: idResult.data, companyId },
     select: {
       id: true,
+      name: true,
+      shopifyOrderId: true,
+      companyLocationId: true,
       financialStatus: true,
       fulfillmentStage: true,
       ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
@@ -121,6 +125,17 @@ export async function PATCH(
       },
     });
   });
+
+  const location = await prisma.companyLocation.findUnique({
+    where: { id: order.companyLocationId },
+  });
+  if (location) {
+    const poNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+    const dateStr = now.toISOString().slice(0, 10);
+    syncBankTransferPaymentToERPNext(poNo, location, dateStr).catch((e) =>
+      console.error("[ERPNext] Bank transfer payment entry failed:", e),
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }
