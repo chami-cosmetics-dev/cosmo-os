@@ -370,6 +370,8 @@ model CompanyLocation {
   manualInvoicePrefix     String?
   manualInvoiceNextSeq    Int                     @default(0)
   manualInvoiceSeqPadding Int                     @default(3)
+  erpnextCompany          String?
+  erpnextWarehouse        String?
   company                 Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   defaultMerchant         User?                   @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
   shadowParentLocation    CompanyLocation?        @relation("LocationShadowParent", fields: [shadowParentLocationId], references: [id], onDelete: SetNull)

@@ -26,6 +26,8 @@ export type LocationsSettingsLocation = {
   manualInvoicePrefix: string | null;
   manualInvoiceNextSeq: number;
   manualInvoiceSeqPadding: number;
+  erpnextCompany: string | null;
+  erpnextWarehouse: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -72,6 +74,8 @@ export async function getLocationsSettingsInitialData(
         shopifyAdminStoreHandle: true,
         locationReference: true,
         defaultMerchantUserId: true,
+        erpnextCompany: true,
+        erpnextWarehouse: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -90,6 +94,8 @@ export async function getLocationsSettingsInitialData(
     manualInvoicePrefix: invoiceFields.get(l.id)?.manualInvoicePrefix ?? null,
     manualInvoiceNextSeq: invoiceFields.get(l.id)?.manualInvoiceNextSeq ?? 0,
     manualInvoiceSeqPadding: invoiceFields.get(l.id)?.manualInvoiceSeqPadding ?? 3,
+    erpnextCompany: l.erpnextCompany,
+    erpnextWarehouse: l.erpnextWarehouse,
     createdAt: l.createdAt.toISOString(),
     updatedAt: l.updatedAt.toISOString(),
   }));

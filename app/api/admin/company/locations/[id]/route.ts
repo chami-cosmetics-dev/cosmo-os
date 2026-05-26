@@ -34,6 +34,8 @@ const updateLocationSchema = z.object({
     .nullable()
     .optional(),
   manualInvoiceSeqPadding: manualInvoiceSeqPaddingSchema.optional(),
+  erpnextCompany: z.string().max(140).optional().nullable(),
+  erpnextWarehouse: z.string().max(140).optional().nullable(),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -143,6 +145,8 @@ export async function PATCH(
       ...(d.manualInvoiceSeqPadding !== undefined && {
         manualInvoiceSeqPadding: d.manualInvoiceSeqPadding,
       }),
+      erpnextCompany: toOpt(d.erpnextCompany ?? undefined),
+      erpnextWarehouse: toOpt(d.erpnextWarehouse ?? undefined),
     },
     select: {
       id: true,
@@ -167,6 +171,8 @@ export async function PATCH(
       manualInvoicePrefix: true,
       manualInvoiceNextSeq: true,
       manualInvoiceSeqPadding: true,
+      erpnextCompany: true,
+      erpnextWarehouse: true,
       createdAt: true,
       updatedAt: true,
     },

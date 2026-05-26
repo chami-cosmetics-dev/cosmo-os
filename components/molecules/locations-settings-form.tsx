@@ -13,6 +13,7 @@ import {
   Trash2,
   Truck,
   UserRound,
+  Zap,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,8 @@ type Location = {
   manualInvoicePrefix?: string | null;
   manualInvoiceNextSeq?: number;
   manualInvoiceSeqPadding?: number;
+  erpnextCompany?: string | null;
+  erpnextWarehouse?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -92,6 +95,8 @@ const emptyForm = (): LocationForm => ({
   defaultMerchantUserId: null,
   manualInvoicePrefix: "",
   manualInvoiceSeqPadding: 3,
+  erpnextCompany: "",
+  erpnextWarehouse: "",
 });
 
 interface LocationsSettingsFormProps {
@@ -264,6 +269,8 @@ export function LocationsSettingsForm({
       defaultMerchantUserId: loc.defaultMerchantUserId ?? null,
       manualInvoicePrefix: loc.manualInvoicePrefix ?? "",
       manualInvoiceSeqPadding: loc.manualInvoiceSeqPadding ?? 3,
+      erpnextCompany: loc.erpnextCompany ?? "",
+      erpnextWarehouse: loc.erpnextWarehouse ?? "",
     });
     setSheetOpen(true);
   }
@@ -374,7 +381,9 @@ export function LocationsSettingsForm({
           (form.shopifyAdminStoreHandle?.trim() ?? "") !== (editingLocation.shopifyAdminStoreHandle ?? "").trim() ||
           (form.defaultMerchantUserId ?? null) !== (editingLocation.defaultMerchantUserId ?? null) ||
           (form.manualInvoicePrefix?.trim() ?? "") !== (editingLocation.manualInvoicePrefix ?? "").trim() ||
-          (form.manualInvoiceSeqPadding ?? 3) !== (editingLocation.manualInvoiceSeqPadding ?? 3)
+          (form.manualInvoiceSeqPadding ?? 3) !== (editingLocation.manualInvoiceSeqPadding ?? 3) ||
+          (form.erpnextCompany?.trim() ?? "") !== (editingLocation.erpnextCompany ?? "").trim() ||
+          (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim()
         : false;
 
   async function handleLocationLogoChange(url: string | null) {
@@ -407,6 +416,8 @@ export function LocationsSettingsForm({
             ? null
             : form.manualInvoicePrefix?.trim(),
         manualInvoiceSeqPadding: form.manualInvoiceSeqPadding ?? 3,
+        erpnextCompany: form.erpnextCompany?.trim() || null,
+        erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
       };
       const res = await fetch(`/api/admin/company/locations/${editingId}`, {
         method: "PATCH",
@@ -464,6 +475,8 @@ export function LocationsSettingsForm({
           ? null
           : form.manualInvoicePrefix?.trim(),
       manualInvoiceSeqPadding: form.manualInvoiceSeqPadding ?? 3,
+      erpnextCompany: form.erpnextCompany?.trim() || null,
+      erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
     };
 
     if (sheetMode === "add") {
@@ -1137,6 +1150,34 @@ export function LocationsSettingsForm({
                 }
                 disabled={isBusy}
                 maxLength={100}
+              />
+            </div>
+
+            <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <Zap className="size-4 text-muted-foreground" aria-hidden />
+                ERPNext Integration
+              </h4>
+              <p className="text-muted-foreground text-xs">
+                When both fields are set, Shopify orders for this location are automatically synced to ERPNext as a Sales Invoice.
+              </p>
+              <Input
+                placeholder="ERPNext company name (e.g. Supplement Vault.lk)"
+                value={form.erpnextCompany ?? ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, erpnextCompany: e.target.value }))
+                }
+                disabled={isBusy}
+                maxLength={140}
+              />
+              <Input
+                placeholder="ERPNext warehouse (e.g. Main Warehouse - SV1)"
+                value={form.erpnextWarehouse ?? ""}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, erpnextWarehouse: e.target.value }))
+                }
+                disabled={isBusy}
+                maxLength={140}
               />
             </div>
           </div>
