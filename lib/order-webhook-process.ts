@@ -218,8 +218,10 @@ export async function processOrderWebhook(
       locationName: effectiveLocation.name,
     }).catch((err) => console.error("[Order SMS] order_received failed:", err));
 
-    syncOrderToERPNext(order, effectiveLocation, data).catch((err) =>
-      console.error("[ERPNext] sync failed:", err)
-    );
+    try {
+      await syncOrderToERPNext(order, effectiveLocation, data);
+    } catch (err) {
+      console.error("[ERPNext] sync failed:", err);
+    }
   }
 }
