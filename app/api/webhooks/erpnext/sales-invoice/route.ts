@@ -23,6 +23,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  console.log("[ERPNext webhook] Raw payload:", JSON.stringify(rawPayload).slice(0, 500));
+
   const parsed = erpnextSalesInvoiceWebhookSchema.safeParse(rawPayload);
   if (!parsed.success) {
     console.error("[ERPNext webhook] Validation failed", parsed.error.flatten());
