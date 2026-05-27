@@ -34,18 +34,9 @@ export async function POST(request: NextRequest) {
 
   const data = parsed.data;
   const erpInvoiceId = `erp-${data.name}`;
+  const financialStatus = data.docstatus === 1 ? "paid" : "pending";
 
-  // Idempotency: already processed this invoice
-  const alreadyExists = await prisma.order.findUnique({
-    where: { shopifyOrderId: erpInvoiceId },
-    select: { id: true },
-  });
-  if (alreadyExists) {
-    console.log(`[ERPNext webhook] Invoice ${data.name} already imported — skipping`);
-    return NextResponse.json({ ok: true, skipped: true });
-  }
-
-  // Skip if po_no matches an existing Shopify order (already in vault os from Shopify)
+  // Skip if po_no matches a Shopify-originated order (not our own ERP order)
   if (data.po_no?.trim()) {
     const shopifyOrder = await prisma.order.findFirst({
       where: {
@@ -53,6 +44,7 @@ export async function POST(request: NextRequest) {
           { name: data.po_no.trim() },
           { shopifyOrderId: data.po_no.trim() },
         ],
+        sourceName: { not: "erpnext" },
       },
       select: { id: true },
     });
@@ -78,8 +70,9 @@ export async function POST(request: NextRequest) {
   const postingDate = data.posting_date ? new Date(data.posting_date) : new Date();
   const grandTotal = new Decimal(data.grand_total ?? 0);
 
-  const order = await prisma.order.create({
-    data: {
+  const order = await prisma.order.upsert({
+    where: { shopifyOrderId: erpInvoiceId },
+    create: {
       companyId: location.companyId,
       companyLocationId: location.id,
       shopifyOrderId: erpInvoiceId,
@@ -87,34 +80,43 @@ export async function POST(request: NextRequest) {
       name: data.name,
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
-      financialStatus: "paid",
+      financialStatus,
       createdAt: postingDate,
+      rawPayload: rawPayload as object,
+    },
+    update: {
+      totalPrice: grandTotal,
+      financialStatus,
       rawPayload: rawPayload as object,
     },
     select: { id: true, name: true },
   });
 
-  // Create line items for items that match a known ProductItem by SKU
-  for (const [idx, item] of data.items.entries()) {
-    if (!item.item_code) continue;
+  // Rebuild line items on every save
+  if (data.items.length > 0) {
+    await prisma.orderLineItem.deleteMany({ where: { orderId: order.id } });
 
-    const productItem = await prisma.productItem.findFirst({
-      where: { companyLocationId: location.id, sku: item.item_code },
-      select: { id: true },
-    });
-    if (!productItem) continue;
+    for (const [idx, item] of data.items.entries()) {
+      if (!item.item_code) continue;
 
-    await prisma.orderLineItem.create({
-      data: {
-        orderId: order.id,
-        productItemId: productItem.id,
-        shopifyLineItemId: `erp-${data.name}-${idx}`,
-        quantity: Math.round(item.qty),
-        price: new Decimal(item.rate),
-      },
-    });
+      const productItem = await prisma.productItem.findFirst({
+        where: { companyLocationId: location.id, sku: item.item_code },
+        select: { id: true },
+      });
+      if (!productItem) continue;
+
+      await prisma.orderLineItem.create({
+        data: {
+          orderId: order.id,
+          productItemId: productItem.id,
+          shopifyLineItemId: `erp-${data.name}-${idx}`,
+          quantity: Math.round(item.qty),
+          price: new Decimal(item.rate),
+        },
+      });
+    }
   }
 
-  console.log(`[ERPNext webhook] Created vault os order ${order.name} from ERPNext invoice ${data.name}`);
-  return NextResponse.json({ ok: true, orderId: order.id, orderName: order.name });
+  console.log(`[ERPNext webhook] Upserted vault os order ${order.name} (${financialStatus}) from ERPNext invoice ${data.name}`);
+  return NextResponse.json({ ok: true, orderId: order.id, orderName: order.name, financialStatus });
 }
