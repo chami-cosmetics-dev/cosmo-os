@@ -35,6 +35,12 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
+
+  // Only process submitted (1) or cancelled (2) — ignore drafts
+  if (!data.docstatus || data.docstatus === 0) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
   const erpInvoiceId = `erp-${data.name}`;
   let financialStatus: string;
   if (data.docstatus === 2) {
