@@ -7,6 +7,25 @@ import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+async function fetchOutstandingAmount(invoiceName: string): Promise<number | null> {
+  const baseUrl = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
+  const apiKey = process.env.ERPNEXT_API_KEY ?? "";
+  const apiSecret = process.env.ERPNEXT_API_SECRET ?? "";
+  if (!baseUrl || !apiKey || !apiSecret) return null;
+  try {
+    const fields = encodeURIComponent(JSON.stringify(["outstanding_amount"]));
+    const res = await fetch(
+      `${baseUrl}/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${fields}`,
+      { headers: { Authorization: `token ${apiKey}:${apiSecret}` } },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data: { outstanding_amount: number } };
+    return json.data.outstanding_amount ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const secret = process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "";
   const incomingSecret = request.headers.get("x-erpnext-secret") ?? "";
@@ -22,8 +41,6 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-
-  console.log("[ERPNext webhook] Raw payload:", JSON.stringify(rawPayload).slice(0, 500));
 
   const parsed = erpnextSalesInvoiceWebhookSchema.safeParse(rawPayload);
   if (!parsed.success) {
@@ -48,7 +65,10 @@ export async function POST(request: NextRequest) {
   } else if (data.docstatus === 1 && (data.outstanding_amount ?? data.grand_total ?? 1) <= 0) {
     financialStatus = "paid";
   } else {
-    financialStatus = "pending";
+    // Payload shows unpaid — fetch fresh outstanding_amount from ERPNext in case
+    // a Payment Entry was auto-created during submission and already applied
+    const freshOutstanding = await fetchOutstandingAmount(data.name);
+    financialStatus = freshOutstanding !== null && freshOutstanding <= 0 ? "paid" : "pending";
   }
 
   // Skip if po_no matches a Shopify-originated order (not our own ERP order)
