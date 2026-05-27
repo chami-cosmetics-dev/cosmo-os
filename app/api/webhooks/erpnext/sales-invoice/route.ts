@@ -39,12 +39,10 @@ export async function POST(request: NextRequest) {
   let financialStatus: string;
   if (data.docstatus === 2) {
     financialStatus = "voided";
-  } else if (data.docstatus !== 1) {
-    financialStatus = "pending";
-  } else if ((data.outstanding_amount ?? data.grand_total ?? 1) <= 0) {
+  } else if (data.docstatus === 1 && (data.outstanding_amount ?? data.grand_total ?? 1) <= 0) {
     financialStatus = "paid";
   } else {
-    financialStatus = "unpaid";
+    financialStatus = "pending";
   }
 
   // Skip if po_no matches a Shopify-originated order (not our own ERP order)
@@ -95,6 +93,7 @@ export async function POST(request: NextRequest) {
       financialStatus,
       customerEmail,
       customerPhone,
+      shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
     },
     update: {
@@ -102,6 +101,7 @@ export async function POST(request: NextRequest) {
       financialStatus,
       customerEmail,
       customerPhone,
+      shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
     },
     select: { id: true, name: true },
