@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     });
 
     console.log(`[ERPNext payment webhook] Order ${order.name} marked as paid via Payment Entry ${data.name}`);
-    updated.push(order.name);
+    updated.push(order.name ?? ref.reference_name);
   }
 
   return NextResponse.json({ ok: true, updated });
