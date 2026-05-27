@@ -69,8 +69,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const postingDate = data.posting_date ? new Date(data.posting_date) : new Date();
   const grandTotal = new Decimal(data.grand_total ?? 0);
+  const customerEmail = data.contact_email?.trim() || null;
+  const customerPhone = data.contact_mobile?.trim() || null;
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
@@ -83,12 +84,15 @@ export async function POST(request: NextRequest) {
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
       financialStatus,
-      createdAt: postingDate,
+      customerEmail,
+      customerPhone,
       rawPayload: rawPayload as object,
     },
     update: {
       totalPrice: grandTotal,
       financialStatus,
+      customerEmail,
+      customerPhone,
       rawPayload: rawPayload as object,
     },
     select: { id: true, name: true },
