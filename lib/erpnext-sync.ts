@@ -234,6 +234,9 @@ export async function syncOrderToERPNext(
     warehouse: location.erpnextWarehouse,
   }));
 
+  const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
+  const shippingRule = process.env.ERPNEXT_SHIPPING_RULE ?? "";
+
   const si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
@@ -244,6 +247,8 @@ export async function syncOrderToERPNext(
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
+    ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : {}),
+    ...(shippingRule ? { shipping_rule: shippingRule } : {}),
   });
 
   console.log(
