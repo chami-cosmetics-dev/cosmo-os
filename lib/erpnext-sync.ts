@@ -112,6 +112,152 @@ async function createKokoPaymentEntry(
   console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (Koko)`);
 }
 
+function detectDeliveryMop(
+  paymentGatewayPrimary: string | null,
+  paymentGatewayNames: string[],
+): string | null {
+  const gateways = [paymentGatewayPrimary, ...paymentGatewayNames]
+    .map((g) => g?.toLowerCase().trim() ?? "")
+    .filter(Boolean);
+
+  if (gateways.some((g) => g.includes("cash on delivery") || g === "cod" || g.includes("cod"))) {
+    return process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery";
+  }
+  if (gateways.some((g) => g.includes("card on delivery") || g.includes("card_on_delivery") || g.includes("credit card"))) {
+    return process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card";
+  }
+  if (gateways.some((g) => g === "cash" || g === "manual" || g.includes("cash"))) {
+    return process.env.ERPNEXT_CASH_MOP ?? "Cash";
+  }
+  return null;
+}
+
+export async function createDeliveryPaymentEntry(
+  order: {
+    name: string | null;
+    shopifyOrderId: string;
+    sourceName: string | null;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+  },
+  location: CompanyLocation,
+  completedAt: Date,
+): Promise<void> {
+  if (!BASE_URL || !API_KEY || !API_SECRET) return;
+  if (!location.erpnextCompany) return;
+
+  const mopName = detectDeliveryMop(order.paymentGatewayPrimary, order.paymentGatewayNames);
+  if (!mopName) {
+    console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
+    return;
+  }
+
+  // Find the Sales Invoice
+  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderPoNo],
+      ["company", "=", location.erpnextCompany],
+      ["docstatus", "=", "1"],
+    ]),
+  );
+  const fields = encodeURIComponent(
+    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+  );
+  const list = await erpnextGet<
+    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+  >(`/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+
+  if (!list || list.length === 0) {
+    console.warn(`[ERPNext] No submitted Sales Invoice for po_no="${orderPoNo}" — skipping delivery PE`);
+    return;
+  }
+
+  const invoice = list[0];
+  if (invoice.outstanding_amount <= 0) {
+    console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping delivery PE`);
+    return;
+  }
+
+  const mop = await erpnextGet<{
+    name: string;
+    accounts: Array<{ company: string; default_account: string }>;
+  }>(`/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+
+  if (!mop) throw new Error(`ERPNext Mode of Payment "${mopName}" not found`);
+
+  const paidTo = mop.accounts.find((a) => a.company === location.erpnextCompany)?.default_account;
+  if (!paidTo) throw new Error(`No account mapped for "${mopName}" under company "${location.erpnextCompany}"`);
+
+  const dateStr = toDateStr(completedAt);
+  const pe = await erpnextPost<{ name: string }>("/api/resource/Payment Entry", {
+    doctype: "Payment Entry",
+    payment_type: "Receive",
+    company: location.erpnextCompany,
+    posting_date: dateStr,
+    mode_of_payment: mop.name,
+    party_type: "Customer",
+    party: invoice.customer,
+    paid_from: invoice.debit_to,
+    paid_to: paidTo,
+    reference_no: invoice.name,
+    reference_date: dateStr,
+    paid_amount: invoice.outstanding_amount,
+    received_amount: invoice.outstanding_amount,
+    source_exchange_rate: 1,
+    target_exchange_rate: 1,
+    references: [
+      {
+        reference_doctype: "Sales Invoice",
+        reference_name: invoice.name,
+        allocated_amount: invoice.outstanding_amount,
+      },
+    ],
+    docstatus: 1,
+  });
+
+  console.log(`[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName})`);
+}
+
+export async function cancelErpnextSalesInvoice(
+  orderName: string,
+  location: CompanyLocation,
+): Promise<void> {
+  if (!BASE_URL || !API_KEY || !API_SECRET) return;
+  if (!location.erpnextCompany) return;
+
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderName],
+      ["company", "=", location.erpnextCompany],
+      ["docstatus", "=", "1"],
+    ]),
+  );
+  const fields = encodeURIComponent(JSON.stringify(["name"]));
+  const list = await erpnextGet<Array<{ name: string }>>(
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
+  );
+
+  if (!list || list.length === 0) {
+    console.warn(`[ERPNext] No submitted Sales Invoice found for po_no="${orderName}" — skipping cancel`);
+    return;
+  }
+
+  const invoiceName = list[0].name;
+  const res = await fetch(`${BASE_URL}/api/method/frappe.client.cancel`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ doctype: "Sales Invoice", name: invoiceName }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`ERPNext cancel Sales Invoice ${invoiceName} [${res.status}]: ${text.slice(0, 500)}`);
+  }
+
+  console.log(`[ERPNext] Cancelled Sales Invoice ${invoiceName} for Shopify order ${orderName}`);
+}
+
 export async function syncBankTransferPaymentToERPNext(
   orderPoNo: string,
   location: CompanyLocation,

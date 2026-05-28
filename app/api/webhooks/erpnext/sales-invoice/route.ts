@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
       financialStatus,
+      fulfillmentStage: "order_received",
       customerEmail,
       customerPhone,
       shippingAddress: { name: data.customer },
