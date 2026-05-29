@@ -387,8 +387,22 @@ export async function syncOrderToERPNext(
     warehouse: location.erpnextWarehouse,
   }));
 
-  // Compute discount so ERPNext grand total = vault OS totalPrice (= Shopify total_price)
-  // This accounts for discounts + shipping already baked into the Shopify final total
+  // Add Shopify shipping as a line item so it appears on the printed invoice
+  const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
+    (sum, line) => sum + parseFloat(line.price ?? "0"), 0,
+  );
+  const shippingItem = process.env.ERPNEXT_SHIPPING_ITEM ?? "";
+  if (shopifyShippingAmt > 0 && shippingItem) {
+    siItems.push({
+      item_code: shippingItem,
+      item_name: "Delivery Charges",
+      qty: 1,
+      rate: shopifyShippingAmt,
+      warehouse: location.erpnextWarehouse,
+    });
+  }
+
+  // Discount = full item total (incl. shipping line) minus Vault OS total → grand total always matches
   const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
   const vaultTotal = parseFloat(order.totalPrice.toString());
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
