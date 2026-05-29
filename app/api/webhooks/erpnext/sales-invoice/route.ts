@@ -59,16 +59,17 @@ export async function POST(request: NextRequest) {
   }
 
   const erpInvoiceId = `erp-${data.name}`;
+  const isPOS = data.is_pos === 1;
   let financialStatus: string;
   if (data.docstatus === 2) {
     financialStatus = "voided";
-  } else if (data.docstatus === 1 && (data.outstanding_amount ?? data.grand_total ?? 1) <= 0) {
-    financialStatus = "paid";
-  } else {
-    // Payload shows unpaid — fetch fresh outstanding_amount from ERPNext in case
-    // a Payment Entry was auto-created during submission and already applied
+  } else if (isPOS) {
+    // POS: PE is created at same time as SI submission — check outstanding_amount directly
     const freshOutstanding = await fetchOutstandingAmount(data.name);
     financialStatus = freshOutstanding !== null && freshOutstanding <= 0 ? "paid" : "pending";
+  } else {
+    // Non-POS ERP invoice: always pending on submit — PE webhook will mark it paid later
+    financialStatus = "pending";
   }
 
   // Skip if po_no matches a Shopify-originated order (not our own ERP order)
@@ -114,7 +115,6 @@ export async function POST(request: NextRequest) {
   const grandTotal = new Decimal(data.grand_total ?? 0);
   const customerEmail = data.contact_email?.trim() || null;
   const customerPhone = data.contact_mobile?.trim() || null;
-  const isPOS = data.is_pos === 1;
 
   // For POS orders: try to match the cashier (owner) to a vault os user via erpnextUsername
   // Fall back to location default merchant
