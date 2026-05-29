@@ -507,6 +507,8 @@ model Order {
   sampleFreeIssues             OrderSampleFreeIssue[]
   waybills                     OrderWaybill[]
 
+  erpnextInvoiceId             String?
+
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, sampleFreeIssueSendLaterDate])
@@ -514,6 +516,7 @@ model Order {
   @@index([companyId, assignedMerchantId, createdAt(sort: Desc)])
   @@index([companyId, customerEmail, createdAt(sort: Desc)])
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
+  @@index([erpnextInvoiceId])
 }
 
 model OrderWaybill {

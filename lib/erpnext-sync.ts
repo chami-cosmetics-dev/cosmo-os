@@ -1,5 +1,6 @@
 import type { Order, CompanyLocation } from "@prisma/client";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
+import { prisma } from "@/lib/prisma";
 
 const BASE_URL = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
 const API_KEY = process.env.ERPNEXT_API_KEY ?? "";
@@ -440,6 +441,12 @@ export async function syncOrderToERPNext(
       throw err;
     }
   }
+
+  // Store ERPNext invoice ID back on the vault OS order so it can be searched
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { erpnextInvoiceId: si.name },
+  });
 
   console.log(
     `[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`,
