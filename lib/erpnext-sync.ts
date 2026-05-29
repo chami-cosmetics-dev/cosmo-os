@@ -61,7 +61,7 @@ async function ensureCustomer(
     default_company: erpnextCompany,
     custom_total_purchasing_value: 0,
     ...(email ? { email_id: email } : {}),
-    ...(phone ? { mobile_no: phone } : {}),
+    ...(phone ? { mobile_no: phone.slice(0, 20) } : {}),
   });
 }
 
@@ -394,6 +394,7 @@ export async function syncOrderToERPNext(
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
   const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
+  const shopifyShippingRule = process.env.ERPNEXT_SHOPIFY_SHIPPING_RULE ?? "";
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -405,8 +406,9 @@ export async function syncOrderToERPNext(
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
+    // Use 0-value shipping rule for Shopify orders to satisfy mandatory field without adding charges
+    ...(shopifyShippingRule ? { shipping_rule: shopifyShippingRule } : {}),
     ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes: [] }),
-    // Never apply shipping rule or charges for Shopify orders — shipping handled on Shopify side
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
