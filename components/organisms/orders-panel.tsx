@@ -29,6 +29,7 @@ type Order = {
   shopifyOrderId: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   currency: string | null;
