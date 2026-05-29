@@ -771,7 +771,12 @@ export function OrderFulfillmentDetail({
                       </tbody>
                     </table>
                   </div>
-                  <p className="mt-2 text-right font-medium">
+                  {orderDetail.discountCodes && Array.isArray(orderDetail.discountCodes) && orderDetail.discountCodes.length > 0 && (
+                    <p className="mt-1 text-right text-sm text-muted-foreground">
+                      Discount ({(orderDetail.discountCodes as string[]).join(", ")}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
+                    </p>
+                  )}
+                  <p className="mt-1 text-right font-medium">
                     Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
                   </p>
                 </div>
