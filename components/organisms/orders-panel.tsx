@@ -29,6 +29,7 @@ type Order = {
   shopifyOrderId: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   currency: string | null;
@@ -140,6 +141,7 @@ type OrderDetail = {
   shopifyOrderId: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
@@ -632,6 +634,11 @@ export function OrdersPanel({
                           <div className="truncate font-medium" title={order.name ?? order.orderNumber ?? undefined}>
                             {order.name ?? order.orderNumber ?? "—"}
                           </div>
+                          {order.erpnextInvoiceId && (
+                            <div className="truncate text-xs text-muted-foreground" title={order.erpnextInvoiceId}>
+                              {order.erpnextInvoiceId}
+                            </div>
+                          )}
                           <div className="mt-1 flex flex-wrap gap-1">
                             <SourceBadge sourceName={order.sourceName} />
                             <PaymentBadge

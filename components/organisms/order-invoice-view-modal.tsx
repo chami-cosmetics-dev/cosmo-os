@@ -54,6 +54,7 @@ type OrderDetail = {
   shopifyOrderId: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
@@ -426,7 +427,7 @@ export function OrderInvoiceViewModal({
             Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}
           </DialogTitle>
           <DialogDescription>
-            Invoice timeline - view only
+            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
