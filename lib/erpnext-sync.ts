@@ -65,22 +65,23 @@ async function ensureCustomer(
   });
 }
 
-async function createKokoPaymentEntry(
+async function createPrepaidPaymentEntry(
   invoiceName: string,
   company: string,
   customerName: string,
   debitTo: string,
   totalAmount: number,
   dateStr: string,
+  mopName: string,
 ): Promise<void> {
   const mop = await erpnextGet<{
     name: string;
     accounts: Array<{ company: string; default_account: string }>;
-  }>(`/api/resource/Mode%20of%20Payment/Koko`);
+  }>(`/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
 
-  const kokoAccount = mop?.accounts?.find((a) => a.company === company)?.default_account;
-  if (!kokoAccount) {
-    throw new Error(`No account mapped for Koko mode of payment under company "${company}"`);
+  const paidTo = mop?.accounts?.find((a) => a.company === company)?.default_account;
+  if (!paidTo) {
+    throw new Error(`No account mapped for "${mopName}" mode of payment under company "${company}"`);
   }
 
   const pe = await erpnextPost<{ name: string }>("/api/resource/Payment Entry", {
@@ -92,7 +93,7 @@ async function createKokoPaymentEntry(
     party_type: "Customer",
     party: customerName,
     paid_from: debitTo,
-    paid_to: kokoAccount,
+    paid_to: paidTo,
     reference_no: invoiceName,
     reference_date: dateStr,
     paid_amount: totalAmount,
@@ -109,7 +110,7 @@ async function createKokoPaymentEntry(
     docstatus: 1,
   });
 
-  console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (Koko)`);
+  console.log(`[ERPNext] Payment Entry ${pe.name} created for Sales Invoice ${invoiceName} (${mopName})`);
 }
 
 function detectDeliveryMop(
@@ -444,11 +445,13 @@ export async function syncOrderToERPNext(
     `[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`,
   );
 
-  const isKoko = shopifyData.payment_gateway_names?.some(
-    (g) => g.toLowerCase() === "koko",
-  );
-  if (isKoko) {
-    await createKokoPaymentEntry(si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr);
-    console.log(`[ERPNext] Sales Invoice ${si.name} marked paid via Koko`);
+  const gateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
+  const kokoMop = process.env.ERPNEXT_KOKO_MOP ?? "Koko";
+  const webxpayMop = process.env.ERPNEXT_WEBXPAY_MOP ?? "";
+
+  if (gateways.some((g) => g.includes("koko"))) {
+    await createPrepaidPaymentEntry(si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, kokoMop);
+  } else if (webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
+    await createPrepaidPaymentEntry(si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, webxpayMop);
   }
 }
