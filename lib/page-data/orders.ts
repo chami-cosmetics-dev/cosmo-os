@@ -167,8 +167,8 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      /** Shopify web + manual (non-POS) orders share the same fulfillment queues. */
-      where.sourceName = { in: ["web", "manual"] };
+      where.sourceName = { in: ["web", "manual", "erpnext"] };
+      where.financialStatus = { not: "voided" };
       if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
         const sampleSendLater = params.sampleSendLater ?? "available";
         const sendLaterFilter =

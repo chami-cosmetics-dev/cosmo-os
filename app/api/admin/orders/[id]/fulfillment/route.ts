@@ -13,6 +13,7 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
+import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -810,6 +811,18 @@ export async function PATCH(
         afterStage: "invoice_complete",
         metadata: { action: data.action },
       });
+
+      if (order.companyLocationId) {
+        const location = await prisma.companyLocation.findUnique({
+          where: { id: order.companyLocationId },
+        });
+        if (location) {
+          createDeliveryPaymentEntry(order, location, now).catch((err) =>
+            console.error("[ERPNext] delivery PE failed:", err),
+          );
+        }
+      }
+
       return NextResponse.json({ success: true });
     }
 
