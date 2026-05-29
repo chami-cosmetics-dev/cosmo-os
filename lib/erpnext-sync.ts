@@ -387,7 +387,11 @@ export async function syncOrderToERPNext(
     warehouse: location.erpnextWarehouse,
   }));
 
-  const totalDiscountAmt = parseFloat(String(shopifyData.total_discounts ?? "0"));
+  // Compute discount so ERPNext grand total = vault OS totalPrice (= Shopify total_price)
+  // This accounts for discounts + shipping already baked into the Shopify final total
+  const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+  const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
   const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
 
@@ -403,7 +407,7 @@ export async function syncOrderToERPNext(
     items: siItems,
     ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : {}),
     // Never apply shipping rule or charges for Shopify orders — shipping handled on Shopify side
-    ...(totalDiscountAmt > 0 ? { discount_amount: totalDiscountAmt, apply_discount_on: "Net Total" } : {}),
+    ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
   let si: { name: string; debit_to: string; grand_total: number };
