@@ -54,6 +54,7 @@ type OrderDetail = {
   shopifyOrderId: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
