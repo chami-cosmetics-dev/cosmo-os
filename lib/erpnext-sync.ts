@@ -388,13 +388,8 @@ export async function syncOrderToERPNext(
   }));
 
   const totalDiscountAmt = parseFloat(String(shopifyData.total_discounts ?? "0"));
-  const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
-    (sum, line) => sum + parseFloat(line.price ?? "0"),
-    0,
-  );
 
   const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
-  const shippingRule = process.env.ERPNEXT_SHIPPING_RULE ?? "";
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -407,7 +402,7 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : {}),
-    ...(shippingRule && shopifyShippingAmt === 0 ? { shipping_rule: shippingRule } : {}),
+    // Never apply shipping rule or charges for Shopify orders — shipping handled on Shopify side
     ...(totalDiscountAmt > 0 ? { discount_amount: totalDiscountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
@@ -416,9 +411,9 @@ export async function syncOrderToERPNext(
     si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", siBody);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if ((taxesAndCharges || shippingRule) && msg.includes("417")) {
-      console.warn("[ERPNext] SI creation failed — retrying without taxes/shipping rule:", msg.slice(0, 200));
-      const { taxes_and_charges: _t, shipping_rule: _s, ...siBodyClean } = siBody as Record<string, unknown>;
+    if (taxesAndCharges && msg.includes("417")) {
+      console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
+      const { taxes_and_charges: _t, ...siBodyClean } = siBody as Record<string, unknown>;
       si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", siBodyClean);
     } else {
       throw err;
