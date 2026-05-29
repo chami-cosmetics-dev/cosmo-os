@@ -263,8 +263,15 @@ export async function syncBankTransferPaymentToERPNext(
   location: CompanyLocation,
   dateStr: string,
 ): Promise<void> {
-  if (!BASE_URL || !API_KEY || !API_SECRET) return;
-  if (!location.erpnextCompany || !location.erpnextWarehouse) return;
+  if (!BASE_URL || !API_KEY || !API_SECRET) {
+    console.log("[ERPNext] syncBankTransferPaymentToERPNext: skipping — credentials not configured");
+    return;
+  }
+  if (!location.erpnextCompany || !location.erpnextWarehouse) {
+    console.log(`[ERPNext] syncBankTransferPaymentToERPNext: skipping — location missing erpnextCompany or erpnextWarehouse`);
+    return;
+  }
+  console.log(`[ERPNext] syncBankTransferPaymentToERPNext called for po_no="${orderPoNo}" company="${location.erpnextCompany}"`);
 
   const filters = encodeURIComponent(
     JSON.stringify([
@@ -372,13 +379,21 @@ export async function syncOrderToERPNext(
 
   const dateStr = toDateStr(order.createdAt);
 
-  const siItems = lineItems.map((li) => ({
-    item_code: li.sku ?? String(li.variant_id ?? li.id),
-    item_name: li.title ?? undefined,
-    qty: li.quantity,
-    rate: parseFloat(li.price),
-    warehouse: location.erpnextWarehouse,
-  }));
+  const siItems = lineItems.map((li) => {
+    const raw = li as Record<string, unknown>;
+    const totalDiscount = parseFloat(String(raw.total_discount ?? "0"));
+    const fullRate = parseFloat(li.price);
+    const rate = totalDiscount > 0
+      ? (fullRate * li.quantity - totalDiscount) / li.quantity
+      : fullRate;
+    return {
+      item_code: li.sku ?? String(li.variant_id ?? li.id),
+      item_name: li.title ?? undefined,
+      qty: li.quantity,
+      rate: Math.round(rate * 100) / 100,
+      warehouse: location.erpnextWarehouse,
+    };
+  });
 
   const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
   const shippingRule = process.env.ERPNEXT_SHIPPING_RULE ?? "";
