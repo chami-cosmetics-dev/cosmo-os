@@ -107,6 +107,7 @@ export async function PATCH(
     if (gatewayColumns.hasPaymentGatewayPrimary) {
       updateData.paymentGatewayPrimary = "bank_transfer";
     }
+    updateData.financialStatus = "paid";
     updateData.updatedAt = now;
 
     await tx.order.update({
