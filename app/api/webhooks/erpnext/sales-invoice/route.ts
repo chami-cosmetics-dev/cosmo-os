@@ -89,13 +89,22 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Find location by ERPNext company name
-  const location = await prisma.companyLocation.findFirst({
-    where: { erpnextCompany: data.company },
-    select: { id: true, companyId: true },
-  });
+  // Find location — prefer warehouse match, fall back to company match
+  const location = await (async () => {
+    if (data.set_warehouse) {
+      const byWarehouse = await prisma.companyLocation.findFirst({
+        where: { erpnextWarehouse: data.set_warehouse, erpnextCompany: data.company },
+        select: { id: true, companyId: true, defaultMerchantUserId: true },
+      });
+      if (byWarehouse) return byWarehouse;
+    }
+    return prisma.companyLocation.findFirst({
+      where: { erpnextCompany: data.company },
+      select: { id: true, companyId: true, defaultMerchantUserId: true },
+    });
+  })();
   if (!location) {
-    console.error(`[ERPNext webhook] No location found for company "${data.company}"`);
+    console.error(`[ERPNext webhook] No location found for company="${data.company}" warehouse="${data.set_warehouse ?? ""}"`);
     return NextResponse.json(
       { error: `No vault os location mapped to ERPNext company "${data.company}"` },
       { status: 422 },
@@ -105,6 +114,18 @@ export async function POST(request: NextRequest) {
   const grandTotal = new Decimal(data.grand_total ?? 0);
   const customerEmail = data.contact_email?.trim() || null;
   const customerPhone = data.contact_mobile?.trim() || null;
+  const isPOS = data.is_pos === 1;
+
+  // For POS orders: try to match the cashier (owner) to a vault os user via erpnextUsername
+  // Fall back to location default merchant
+  let assignedMerchantId: string | undefined = location.defaultMerchantUserId ?? undefined;
+  if (isPOS && data.owner?.trim()) {
+    const erpUser = await prisma.user.findUnique({
+      where: { erpnextUsername: data.owner.trim() },
+      select: { id: true },
+    });
+    if (erpUser) assignedMerchantId = erpUser.id;
+  }
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
@@ -112,16 +133,17 @@ export async function POST(request: NextRequest) {
       companyId: location.companyId,
       companyLocationId: location.id,
       shopifyOrderId: erpInvoiceId,
-      sourceName: "erpnext",
+      sourceName: isPOS ? "erpnext-pos" : "erpnext",
       name: data.name,
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
       financialStatus,
-      fulfillmentStage: "order_received",
+      fulfillmentStage: isPOS ? "delivery_complete" : "order_received",
       customerEmail,
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
+      ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
     update: {
       totalPrice: grandTotal,

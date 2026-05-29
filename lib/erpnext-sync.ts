@@ -120,13 +120,13 @@ function detectDeliveryMop(
     .map((g) => g?.toLowerCase().trim() ?? "")
     .filter(Boolean);
 
-  if (gateways.some((g) => g.includes("cash on delivery") || g === "cod" || g.includes("cod"))) {
+  if (gateways.some((g) => g.includes("cash on delivery") || g === "cod")) {
     return process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery";
   }
-  if (gateways.some((g) => g.includes("card on delivery") || g.includes("card_on_delivery") || g.includes("credit card"))) {
+  if (gateways.some((g) => g.includes("card payment on delivery") || g.includes("card on delivery") || g.includes("card_on_delivery"))) {
     return process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card";
   }
-  if (gateways.some((g) => g === "cash" || g === "manual" || g.includes("cash"))) {
+  if (gateways.some((g) => g === "cash" || g === "manual")) {
     return process.env.ERPNEXT_CASH_MOP ?? "Cash";
   }
   return null;
