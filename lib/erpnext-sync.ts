@@ -383,7 +383,7 @@ export async function syncOrderToERPNext(
   const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
   const shippingRule = process.env.ERPNEXT_SHIPPING_RULE ?? "";
 
-  const si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", {
+  const siBody = {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
     customer: customerName,
@@ -395,7 +395,21 @@ export async function syncOrderToERPNext(
     items: siItems,
     ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : {}),
     ...(shippingRule ? { shipping_rule: shippingRule } : {}),
-  });
+  };
+
+  let si: { name: string; debit_to: string; grand_total: number };
+  try {
+    si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", siBody);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if ((taxesAndCharges || shippingRule) && msg.includes("417")) {
+      console.warn("[ERPNext] SI creation failed — retrying without taxes/shipping rule:", msg.slice(0, 200));
+      const { taxes_and_charges: _t, shipping_rule: _s, ...siBodyClean } = siBody as Record<string, unknown>;
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", siBodyClean);
+    } else {
+      throw err;
+    }
+  }
 
   console.log(
     `[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`,
