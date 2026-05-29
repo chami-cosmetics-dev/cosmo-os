@@ -405,7 +405,7 @@ export async function syncOrderToERPNext(
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
-    ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : {}),
+    ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes: [] }),
     // Never apply shipping rule or charges for Shopify orders — shipping handled on Shopify side
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
