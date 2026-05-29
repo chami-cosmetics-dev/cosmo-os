@@ -249,6 +249,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     shopifyOrderId: o.shopifyOrderId,
     orderNumber: o.orderNumber,
     name: o.name,
+    erpnextInvoiceId: o.erpnextInvoiceId,
     sourceName: o.sourceName,
     totalPrice: o.totalPrice.toString(),
     currency: o.currency,
