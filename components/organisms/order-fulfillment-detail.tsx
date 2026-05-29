@@ -771,11 +771,15 @@ export function OrderFulfillmentDetail({
                       </tbody>
                     </table>
                   </div>
-                  {orderDetail.discountCodes && Array.isArray(orderDetail.discountCodes) && orderDetail.discountCodes.length > 0 && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Discount ({(orderDetail.discountCodes as string[]).join(", ")}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
-                    </p>
-                  )}
+                  {(() => {
+                    const codes = Array.isArray(orderDetail.discountCodes) ? (orderDetail.discountCodes as string[]) : [];
+                    if (codes.length === 0) return null;
+                    return (
+                      <p className="mt-1 text-right text-sm text-muted-foreground">
+                        Discount ({codes.join(", ")}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
+                      </p>
+                    );
+                  })()}
                   <p className="mt-1 text-right font-medium">
                     Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
                   </p>
