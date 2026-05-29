@@ -388,6 +388,10 @@ export async function syncOrderToERPNext(
   }));
 
   const totalDiscountAmt = parseFloat(String(shopifyData.total_discounts ?? "0"));
+  const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
+    (sum, line) => sum + parseFloat(line.price ?? "0"),
+    0,
+  );
 
   const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
   const shippingRule = process.env.ERPNEXT_SHIPPING_RULE ?? "";
@@ -403,7 +407,7 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : {}),
-    ...(shippingRule ? { shipping_rule: shippingRule } : {}),
+    ...(shippingRule && shopifyShippingAmt === 0 ? { shipping_rule: shippingRule } : {}),
     ...(totalDiscountAmt > 0 ? { discount_amount: totalDiscountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
