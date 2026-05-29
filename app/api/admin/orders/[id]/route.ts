@@ -12,6 +12,7 @@ const orderSelect = {
   shopifyOrderId: true,
   orderNumber: true,
   name: true,
+  erpnextInvoiceId: true,
   sourceName: true,
   totalPrice: true,
   subtotalPrice: true,
