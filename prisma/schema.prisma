@@ -218,6 +218,7 @@ model User {
   nicNo                           String?
   couponCodes                     String[]                  @default([])
   shopifyUserIds                  String[]                  @default([])
+  erpnextUsername                 String?                   @unique
   profilePhotoUrl                 String?
   createdCompany                  Company?                  @relation("CompanyCreator")
   defaultMerchantLocations        CompanyLocation[]         @relation("LocationDefaultMerchant")

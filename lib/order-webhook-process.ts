@@ -10,7 +10,7 @@ import { ensureCustomerAndLink } from "@/lib/order-customers";
 import { resolveAssignedMerchant } from "@/lib/order-assignment";
 import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
 import { sendOrderSms } from "@/lib/order-sms";
-import { syncOrderToERPNext } from "@/lib/erpnext-sync";
+import { syncOrderToERPNext, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -222,6 +222,17 @@ export async function processOrderWebhook(
       await syncOrderToERPNext(order, effectiveLocation, data);
     } catch (err) {
       console.error("[ERPNext] sync failed:", err);
+    }
+  }
+
+  if (data.financial_status?.toLowerCase() === "voided") {
+    try {
+      await cancelErpnextSalesInvoice(
+        order.name ?? order.shopifyOrderId,
+        effectiveLocation,
+      );
+    } catch (err) {
+      console.error("[ERPNext] cancel sales invoice failed:", err);
     }
   }
 }
