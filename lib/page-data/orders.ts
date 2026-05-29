@@ -146,6 +146,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       { name: { contains: params.search.trim(), mode: "insensitive" } },
       { customerEmail: { contains: params.search.trim(), mode: "insensitive" } },
       { customerPhone: { contains: params.search.trim(), mode: "insensitive" } },
+      { erpnextInvoiceId: { contains: params.search.trim(), mode: "insensitive" } },
     ];
   }
 
