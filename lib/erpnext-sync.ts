@@ -453,7 +453,7 @@ export async function syncOrderToERPNext(
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
-    ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
+    // Shipping is handled via DELIVERY-CHARGES line item — do not send shipping_rule
     ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
