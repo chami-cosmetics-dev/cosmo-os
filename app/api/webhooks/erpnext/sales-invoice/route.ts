@@ -7,10 +7,12 @@ import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-async function fetchOutstandingAmount(invoiceName: string): Promise<number | null> {
-  const baseUrl = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
-  const apiKey = process.env.ERPNEXT_API_KEY ?? "";
-  const apiSecret = process.env.ERPNEXT_API_SECRET ?? "";
+async function fetchOutstandingAmount(
+  invoiceName: string,
+  baseUrl: string,
+  apiKey: string,
+  apiSecret: string,
+): Promise<number | null> {
   if (!baseUrl || !apiKey || !apiSecret) return null;
   try {
     const fields = encodeURIComponent(JSON.stringify(["outstanding_amount"]));
@@ -26,20 +28,67 @@ async function fetchOutstandingAmount(invoiceName: string): Promise<number | nul
   }
 }
 
-export async function POST(request: NextRequest) {
-  const secret = process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "";
-  const incomingSecret = request.headers.get("x-erpnext-secret") ?? "";
+async function resolveInstanceSecret(company: string): Promise<{
+  secret: string;
+  baseUrl: string;
+  apiKey: string;
+  apiSecret: string;
+} | null> {
+  // Try to find a location with an erpnextInstance linked to this company
+  const location = await prisma.companyLocation.findFirst({
+    where: { erpnextCompany: company },
+    select: {
+      erpnextInstance: {
+        select: {
+          incomingWebhookSecret: true,
+          baseUrl: true,
+          apiKey: true,
+          apiSecret: true,
+        },
+      },
+    },
+  });
 
-  if (!secret || incomingSecret !== secret) {
-    console.error("[ERPNext webhook] Invalid or missing secret");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const instance = location?.erpnextInstance;
+  if (instance) {
+    return {
+      secret: instance.incomingWebhookSecret ?? process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "",
+      baseUrl: instance.baseUrl.replace(/\/$/, ""),
+      apiKey: instance.apiKey,
+      apiSecret: instance.apiSecret,
+    };
   }
+
+  // Fall back to env vars
+  const envSecret = process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "";
+  const envBaseUrl = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
+  if (!envSecret && !envBaseUrl) return null;
+  return {
+    secret: envSecret,
+    baseUrl: envBaseUrl,
+    apiKey: process.env.ERPNEXT_API_KEY ?? "",
+    apiSecret: process.env.ERPNEXT_API_SECRET ?? "",
+  };
+}
+
+export async function POST(request: NextRequest) {
+  const incomingSecret = request.headers.get("x-erpnext-secret") ?? "";
 
   let rawPayload: unknown;
   try {
     rawPayload = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Extract company early so we can look up the correct instance secret
+  const companyRaw = (rawPayload as Record<string, unknown>)?.company;
+  const company = typeof companyRaw === "string" ? companyRaw : "";
+
+  const instanceCreds = await resolveInstanceSecret(company);
+  if (!instanceCreds || !instanceCreds.secret || incomingSecret !== instanceCreds.secret) {
+    console.error("[ERPNext webhook] Invalid or missing secret for company:", company);
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const parsed = erpnextSalesInvoiceWebhookSchema.safeParse(rawPayload);
@@ -65,7 +114,12 @@ export async function POST(request: NextRequest) {
     financialStatus = "voided";
   } else if (isPOS) {
     // POS: PE is created at same time as SI submission — check outstanding_amount directly
-    const freshOutstanding = await fetchOutstandingAmount(data.name);
+    const freshOutstanding = await fetchOutstandingAmount(
+      data.name,
+      instanceCreds.baseUrl,
+      instanceCreds.apiKey,
+      instanceCreds.apiSecret,
+    );
     financialStatus = freshOutstanding !== null && freshOutstanding <= 0 ? "paid" : "pending";
   } else {
     // Non-POS ERP invoice: always pending on submit — PE webhook will mark it paid later

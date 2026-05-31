@@ -26,7 +26,7 @@ export async function POST(
   const failed = await prisma.failedOrderWebhook.findUnique({
     where: { id: idResult.data },
     include: {
-      companyLocation: { include: { defaultMerchant: true } },
+      companyLocation: { include: { defaultMerchant: true, erpnextInstance: true } },
     },
   });
 
