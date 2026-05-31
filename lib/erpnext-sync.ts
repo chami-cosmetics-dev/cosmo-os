@@ -386,16 +386,13 @@ export async function syncOrderToERPNext(
   shopifyData: ShopifyOrderWebhookPayload,
 ): Promise<void> {
   const cfg = getErpConfig(location.erpnextInstance);
-  const erpnextCompany = location.erpnextCompany || process.env.ERPNEXT_COMPANY || null;
-  const erpnextWarehouse = location.erpnextWarehouse || process.env.ERPNEXT_WAREHOUSE || null;
-
-  console.log(`[ERPNext] syncOrderToERPNext called — company=${erpnextCompany ?? "null"}, warehouse=${erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
+  console.log(`[ERPNext] syncOrderToERPNext called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
     console.warn("[ERPNext] Skipping sync — ERP credentials not configured");
     return;
   }
-  if (!erpnextCompany || !erpnextWarehouse) {
-    console.warn("[ERPNext] Skipping sync — erpnextCompany or erpnextWarehouse not set on location and no env var fallback", location.id);
+  if (!location.erpnextCompany || !location.erpnextWarehouse) {
+    console.warn("[ERPNext] Skipping sync — erpnextCompany or erpnextWarehouse not set on location", location.id);
     return;
   }
 
@@ -417,7 +414,7 @@ export async function syncOrderToERPNext(
   const customerPhone =
     shopifyData.billing_address?.phone || shopifyData.customer?.phone || null;
 
-  await ensureCustomer(cfg, customerName, customerEmail, customerPhone, erpnextCompany);
+  await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
 
   const dateStr = toDateStr(order.createdAt);
 
@@ -426,7 +423,7 @@ export async function syncOrderToERPNext(
     item_name: li.title ?? undefined,
     qty: li.quantity,
     rate: parseFloat(li.price),
-    warehouse: erpnextWarehouse,
+    warehouse: location.erpnextWarehouse,
   }));
 
   const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
@@ -438,7 +435,7 @@ export async function syncOrderToERPNext(
       item_name: "Delivery Charges",
       qty: 1,
       rate: shopifyShippingAmt,
-      warehouse: erpnextWarehouse,
+      warehouse: location.erpnextWarehouse,
     });
   }
 
@@ -448,12 +445,12 @@ export async function syncOrderToERPNext(
 
   const siBody = {
     doctype: "Sales Invoice",
-    company: erpnextCompany,
+    company: location.erpnextCompany,
     customer: customerName,
     posting_date: dateStr,
     po_no: (order.name ?? order.shopifyOrderId).slice(0, 140),
     update_stock: 1,
-    set_warehouse: erpnextWarehouse,
+    set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
     ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
@@ -485,8 +482,8 @@ export async function syncOrderToERPNext(
   const gateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
 
   if (gateways.some((g) => g.includes("koko"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
+    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
   } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
+    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
   }
 }
