@@ -33,7 +33,7 @@ export async function POST() {
     where: { companyId, resolvedAt: null },
     orderBy: { createdAt: "asc" },
     include: {
-      companyLocation: { include: { defaultMerchant: true, erpnextInstance: true } },
+      companyLocation: { include: { defaultMerchant: true } },
     },
   });
 

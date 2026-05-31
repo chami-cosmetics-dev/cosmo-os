@@ -6,38 +6,20 @@ import { erpnextPaymentEntryWebhookSchema } from "@/lib/validation/erpnext-payme
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-async function resolveInstanceSecret(company: string): Promise<string> {
-  const location = await prisma.companyLocation.findFirst({
-    where: { erpnextCompany: company },
-    select: {
-      erpnextInstance: { select: { incomingWebhookSecret: true } },
-    },
-  });
-  return (
-    location?.erpnextInstance?.incomingWebhookSecret ??
-    process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ??
-    ""
-  );
-}
-
 export async function POST(request: NextRequest) {
+  const secret = process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "";
   const incomingSecret = request.headers.get("x-erpnext-secret") ?? "";
+
+  if (!secret || incomingSecret !== secret) {
+    console.error("[ERPNext payment webhook] Invalid or missing secret");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   let rawPayload: unknown;
   try {
     rawPayload = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  // Extract company early to resolve the correct instance secret
-  const companyRaw = (rawPayload as Record<string, unknown>)?.company;
-  const company = typeof companyRaw === "string" ? companyRaw : "";
-
-  const secret = await resolveInstanceSecret(company);
-  if (!secret || incomingSecret !== secret) {
-    console.error("[ERPNext payment webhook] Invalid or missing secret for company:", company);
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const parsed = erpnextPaymentEntryWebhookSchema.safeParse(rawPayload);
