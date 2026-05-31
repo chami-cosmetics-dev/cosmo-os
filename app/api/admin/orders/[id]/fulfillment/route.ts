@@ -815,7 +815,6 @@ export async function PATCH(
       if (order.companyLocationId) {
         const location = await prisma.companyLocation.findUnique({
           where: { id: order.companyLocationId },
-          include: { erpnextInstance: true },
         });
         if (location) {
           createDeliveryPaymentEntry(order, location, now).catch((err) =>

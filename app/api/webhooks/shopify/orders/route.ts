@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { verifyShopifyWebhook } from "@/lib/shopify-webhook";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { LIMITS } from "@/lib/validation";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
-import { type LocationWithErpInstance } from "@/lib/erpnext-sync";
 import {
   createFailedOrderWebhook,
   runDueFailedOrderWebhookRetries,
@@ -75,7 +75,7 @@ async function processOrderWebhookWithImmediateRetry(
 async function resolveLocationByOrderSeries(
   companyId: string,
   data: { order_number?: number | null; name?: string | null }
-): Promise<LocationWithErpInstance | null> {
+): Promise<CompanyLocation | null> {
   const orderSeries = data.order_number != null
     ? String(data.order_number).trim()
     : (data.name ?? "").replace(/^#/, "").trim();
@@ -110,7 +110,6 @@ async function resolveLocationByOrderSeries(
         },
       })),
     },
-    include: { erpnextInstance: true },
   });
 }
 
@@ -140,7 +139,6 @@ export async function POST(request: NextRequest) {
         },
       },
       defaultMerchant: true,
-      erpnextInstance: true,
     },
   });
 
@@ -210,7 +208,7 @@ export async function POST(request: NextRequest) {
   }
 
   const data = parsed.data;
-  let resolvedLocation: LocationWithErpInstance = location;
+  let resolvedLocation: CompanyLocation = location;
   const shopDomain = request.headers.get("x-shopify-shop-domain")?.trim().toLowerCase() ?? null;
   const normalizedConfiguredShopDomain = location.shopifyShopName?.trim().toLowerCase() ?? null;
   const payloadLocationId =
@@ -231,7 +229,6 @@ export async function POST(request: NextRequest) {
           mode: "insensitive",
         },
       },
-      include: { erpnextInstance: true },
     });
 
     if (shopDomainLocation) {
@@ -258,7 +255,6 @@ export async function POST(request: NextRequest) {
         companyId: resolvedLocation.companyId,
         shopifyLocationId: payloadLocationId,
       },
-      include: { erpnextInstance: true },
     });
 
     if (payloadLocation) {

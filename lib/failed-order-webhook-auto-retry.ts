@@ -19,7 +19,6 @@ type FailedWebhookWithLocation = Prisma.FailedOrderWebhookGetPayload<{
     companyLocation: {
       include: {
         defaultMerchant: true;
-        erpnextInstance: true;
       };
     };
   };
@@ -133,7 +132,6 @@ async function claimDueFailedOrderWebhooks(companyId: string | null, limit: numb
       companyLocation: {
         include: {
           defaultMerchant: true,
-          erpnextInstance: true,
         },
       },
     },

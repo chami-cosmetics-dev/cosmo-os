@@ -62,32 +62,6 @@ model Company {
   // Call center performance tracking: records each time a merchant clicks Update
   // in the allocation panel — drives the dashboard performance analysis chart
   contactAllocationUpdates ContactAllocationUpdate[]
-  erpnextInstances         ErpnextInstance[]
-}
-
-model ErpnextInstance {
-  id                    String            @id @default(cuid())
-  companyId             String
-  label                 String
-  baseUrl               String
-  apiKey                String
-  apiSecret             String
-  incomingWebhookSecret String?
-  cashMop               String?
-  codMop                String?
-  cardDeliveryMop       String?
-  bankTransferMop       String?
-  kokoMop               String?
-  webxpayMop            String?
-  taxesAndCharges       String?
-  shippingRule          String?
-  shippingItem          String?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  company               Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  locations             CompanyLocation[]
-
-  @@index([companyId])
 }
 
 model FailedOrderWebhook {
@@ -399,9 +373,7 @@ model CompanyLocation {
   manualInvoiceSeqPadding Int                     @default(3)
   erpnextCompany          String?
   erpnextWarehouse        String?
-  erpnextInstanceId       String?
   company                 Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  erpnextInstance         ErpnextInstance?        @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
   defaultMerchant         User?                   @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
   shadowParentLocation    CompanyLocation?        @relation("LocationShadowParent", fields: [shadowParentLocationId], references: [id], onDelete: SetNull)
   shadowLocations         CompanyLocation[]       @relation("LocationShadowParent")
