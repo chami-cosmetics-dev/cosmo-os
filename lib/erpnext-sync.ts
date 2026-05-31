@@ -451,31 +451,26 @@ export async function syncOrderToERPNext(
     po_no: (order.name ?? order.shopifyOrderId).slice(0, 140),
     update_stock: 1,
     set_warehouse: location.erpnextWarehouse,
-    docstatus: 0, // create as draft first so server script can clear shipping rule
+    docstatus: 1,
     items: siItems,
-    ignore_pricing_rule: 1,
-    shipping_rule: "",
-    taxes_and_charges: "",
-    taxes: [],
+    // Shipping is handled via DELIVERY-CHARGES line item — do not send shipping_rule
+    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
-  // Step 1: Create draft invoice
   let si: { name: string; debit_to: string; grand_total: number };
-  si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBody);
-
-  // Step 2: Submit the draft invoice
-  const submitRes = await fetch(`${cfg.baseUrl}/api/method/frappe.client.submit`, {
-    method: "POST",
-    headers: authHeaders(cfg),
-    body: JSON.stringify({ doctype: "Sales Invoice", name: si.name }),
-  });
-  if (!submitRes.ok) {
-    const text = await submitRes.text().catch(() => "");
-    throw new Error(`ERPNext submit Sales Invoice ${si.name} [${submitRes.status}]: ${text.slice(0, 500)}`);
+  try {
+    si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBody);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("417") || msg.includes("Debit and Credit not equal")) {
+      console.warn("[ERPNext] SI creation failed — retrying without taxes/shipping rule:", msg.slice(0, 200));
+      const { taxes_and_charges: _t, taxes: _tx, shipping_rule: _sr, ...siBodyClean } = siBody as Record<string, unknown>;
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", { ...siBodyClean, taxes: [] });
+    } else {
+      throw err;
+    }
   }
-  const submitData = (await submitRes.json()) as { docs: Array<{ name: string; debit_to: string; grand_total: number }> };
-  si = submitData.docs?.[0] ?? si;
 
   await prisma.order.update({
     where: { id: order.id },
