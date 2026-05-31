@@ -61,6 +61,7 @@ type Location = {
   manualInvoiceSeqPadding?: number;
   erpnextCompany?: string | null;
   erpnextWarehouse?: string | null;
+  erpnextInstanceId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -97,6 +98,7 @@ const emptyForm = (): LocationForm => ({
   manualInvoiceSeqPadding: 3,
   erpnextCompany: "",
   erpnextWarehouse: "",
+  erpnextInstanceId: null,
 });
 
 interface LocationsSettingsFormProps {
@@ -131,6 +133,7 @@ export function LocationsSettingsForm({
   const [newShipLabel, setNewShipLabel] = useState("");
   const [newShipAmount, setNewShipAmount] = useState("");
   const [newShipSort, setNewShipSort] = useState("0");
+  const [erpInstances, setErpInstances] = useState<{ id: string; label: string }[]>([]);
 
   const isBusy = busyKey !== null;
 
@@ -185,6 +188,13 @@ export function LocationsSettingsForm({
       cancelled = true;
     };
   }, [page, limit, initialLocationsData]);
+
+  useEffect(() => {
+    fetch("/api/admin/company/erp-instances")
+      .then((r) => r.json())
+      .then((data: { id: string; label: string }[]) => setErpInstances(data))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!sheetOpen || sheetMode !== "edit" || !editingId) {
@@ -271,6 +281,7 @@ export function LocationsSettingsForm({
       manualInvoiceSeqPadding: loc.manualInvoiceSeqPadding ?? 3,
       erpnextCompany: loc.erpnextCompany ?? "",
       erpnextWarehouse: loc.erpnextWarehouse ?? "",
+      erpnextInstanceId: loc.erpnextInstanceId ?? null,
     });
     setSheetOpen(true);
   }
@@ -383,7 +394,8 @@ export function LocationsSettingsForm({
           (form.manualInvoicePrefix?.trim() ?? "") !== (editingLocation.manualInvoicePrefix ?? "").trim() ||
           (form.manualInvoiceSeqPadding ?? 3) !== (editingLocation.manualInvoiceSeqPadding ?? 3) ||
           (form.erpnextCompany?.trim() ?? "") !== (editingLocation.erpnextCompany ?? "").trim() ||
-          (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim()
+          (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim() ||
+          (form.erpnextInstanceId ?? null) !== (editingLocation.erpnextInstanceId ?? null)
         : false;
 
   async function handleLocationLogoChange(url: string | null) {
@@ -418,6 +430,7 @@ export function LocationsSettingsForm({
         manualInvoiceSeqPadding: form.manualInvoiceSeqPadding ?? 3,
         erpnextCompany: form.erpnextCompany?.trim() || null,
         erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
+        erpnextInstanceId: form.erpnextInstanceId ?? null,
       };
       const res = await fetch(`/api/admin/company/locations/${editingId}`, {
         method: "PATCH",
@@ -1159,8 +1172,39 @@ export function LocationsSettingsForm({
                 ERPNext Integration
               </h4>
               <p className="text-muted-foreground text-xs">
-                When both fields are set, Shopify orders for this location are automatically synced to ERPNext as a Sales Invoice.
+                Assign an ERP instance and set the company and warehouse to enable automatic sync of orders to ERPNext.
               </p>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground font-medium">ERP Instance</p>
+                <Select
+                  value={form.erpnextInstanceId ?? "__none__"}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, erpnextInstanceId: v === "__none__" ? null : v }))
+                  }
+                  disabled={isBusy}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select an ERP instance" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {erpInstances.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {erpInstances.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No ERP instances configured yet. Add one in{" "}
+                    <a href="/dashboard/settings/erp-instances" className="underline">
+                      ERP Instances settings
+                    </a>
+                    .
+                  </p>
+                )}
+              </div>
               <Input
                 placeholder="ERPNext company name (e.g. Supplement Vault.lk)"
                 value={form.erpnextCompany ?? ""}
