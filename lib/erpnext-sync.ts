@@ -454,7 +454,7 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
-    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
+    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes_and_charges: "", taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
@@ -464,8 +464,8 @@ export async function syncOrderToERPNext(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("417") || msg.includes("Debit and Credit not equal")) {
-      console.warn("[ERPNext] SI creation failed — retrying without taxes:", msg.slice(0, 200));
-      const { taxes_and_charges: _t, taxes: _tx, ...siBodyClean } = siBody as Record<string, unknown>;
+      console.warn("[ERPNext] SI creation failed — retrying without taxes/shipping rule:", msg.slice(0, 200));
+      const { taxes_and_charges: _t, taxes: _tx, shipping_rule: _sr, ...siBodyClean } = siBody as Record<string, unknown>;
       si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", { ...siBodyClean, taxes: [] });
     } else {
       throw err;
