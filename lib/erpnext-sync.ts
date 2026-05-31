@@ -33,7 +33,7 @@ function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
     taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
-    shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
+    shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHOPIFY_SHIPPING_RULE ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
     shippingItem: instance?.shippingItem ?? process.env.ERPNEXT_SHIPPING_ITEM ?? "",
   };
 }
@@ -454,7 +454,7 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
-    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes_and_charges: "", taxes: [] }),
+    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
