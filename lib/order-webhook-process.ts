@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client";
 import { Decimal } from "@prisma/client/runtime/library";
 
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
-import type { CompanyLocation } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { syncContactMasterFromShopifyOrder } from "@/lib/contact-master-sync";
 import { LIMITS } from "@/lib/validation";
@@ -10,7 +9,7 @@ import { ensureCustomerAndLink } from "@/lib/order-customers";
 import { resolveAssignedMerchant } from "@/lib/order-assignment";
 import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
 import { sendOrderSms } from "@/lib/order-sms";
-import { syncOrderToERPNext, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
+import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -44,7 +43,7 @@ function getShopifyOrderCreatedAt(order: ShopifyOrderWebhookPayload) {
 
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
-  location: CompanyLocation,
+  location: LocationWithErpInstance,
   rawPayload: unknown
 ): Promise<void> {
   const existingOrder = await prisma.order.findUnique({
@@ -55,10 +54,11 @@ export async function processOrderWebhook(
       companyLocationId: true,
     },
   });
-  let effectiveLocation = location;
+  let effectiveLocation: LocationWithErpInstance = location;
   if (existingOrder && existingOrder.companyLocationId !== location.id) {
     const persistedLocation = await prisma.companyLocation.findUnique({
       where: { id: existingOrder.companyLocationId },
+      include: { erpnextInstance: true },
     });
     if (persistedLocation) {
       effectiveLocation = persistedLocation;
