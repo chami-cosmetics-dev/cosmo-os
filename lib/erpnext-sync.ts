@@ -463,10 +463,10 @@ export async function syncOrderToERPNext(
     si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBody);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (cfg.taxesAndCharges && msg.includes("417")) {
-      console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
-      const { taxes_and_charges: _t, ...siBodyClean } = siBody as Record<string, unknown>;
-      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyClean);
+    if (msg.includes("417") || msg.includes("Debit and Credit not equal")) {
+      console.warn("[ERPNext] SI creation failed — retrying without taxes:", msg.slice(0, 200));
+      const { taxes_and_charges: _t, taxes: _tx, ...siBodyClean } = siBody as Record<string, unknown>;
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", { ...siBodyClean, taxes: [] });
     } else {
       throw err;
     }
