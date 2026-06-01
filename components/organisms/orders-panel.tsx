@@ -12,6 +12,7 @@ import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
@@ -669,9 +670,22 @@ export function OrdersPanel({
                           </span>
                         </td>
                         <td className="px-4 py-2">
-                          <div className="truncate" title={order.companyLocation?.name ?? undefined}>
-                            {order.companyLocation?.name ?? "—"}
-                          </div>
+                          {order.companyLocation?.name ? (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="truncate cursor-default">
+                                    {order.companyLocation.name}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs break-words">
+                                  {order.companyLocation.name}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <span>—</span>
+                          )}
                         </td>
                         <td className="px-4 py-2">
                           <div className="truncate" title={order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? undefined}>
