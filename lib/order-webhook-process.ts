@@ -221,10 +221,22 @@ export async function processOrderWebhook(
   }
 
   if (isNewOrder || !existingOrder?.erpnextInvoiceId) {
-    try {
-      await syncOrderToERPNext(order, effectiveLocation, data);
-    } catch (err) {
-      console.error("[ERPNext] sync failed:", err);
+    // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks
+    const claimed = await prisma.order.updateMany({
+      where: { id: order.id, erpnextInvoiceId: null },
+      data: { erpnextInvoiceId: "pending" },
+    });
+    if (claimed.count > 0) {
+      try {
+        await syncOrderToERPNext(order, effectiveLocation, data);
+      } catch (err) {
+        console.error("[ERPNext] sync failed:", err);
+        // Reset so the next webhook can retry
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { erpnextInvoiceId: null },
+        });
+      }
     }
   }
 
