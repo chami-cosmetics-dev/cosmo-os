@@ -126,14 +126,8 @@ export async function POST(request: NextRequest) {
   if (data.docstatus === 2) {
     financialStatus = "voided";
   } else if (isPOS) {
-    // POS: PE is created at same time as SI submission — check outstanding_amount directly
-    const freshOutstanding = await fetchOutstandingAmount(
-      data.name,
-      instanceCreds.baseUrl,
-      instanceCreds.apiKey,
-      instanceCreds.apiSecret,
-    );
-    financialStatus = freshOutstanding !== null && freshOutstanding <= 0 ? "paid" : "pending";
+    // POS orders are always paid at point of sale
+    financialStatus = "paid";
   } else {
     // Non-POS ERP invoice: always pending on submit — PE webhook will mark it paid later
     financialStatus = "pending";

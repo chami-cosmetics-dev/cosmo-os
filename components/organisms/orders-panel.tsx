@@ -593,7 +593,7 @@ export function OrdersPanel({
                         onSort={handleSort}
                         align="right"
                       />
-                      <th className="hidden md:table-cell w-[13%] px-4 py-2 text-left font-medium">Shopify Status</th>
+                      <th className="hidden md:table-cell w-[13%] px-4 py-2 text-left font-medium">Status</th>
                       <th className="hidden lg:table-cell w-[9%] px-4 py-2 text-left font-medium">Fulfillment Stage</th>
                       <SortableColumnHeader
                         className="hidden xl:table-cell w-[11%]"
