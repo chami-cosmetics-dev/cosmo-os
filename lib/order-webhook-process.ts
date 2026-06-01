@@ -52,6 +52,7 @@ export async function processOrderWebhook(
       id: true,
       invoiceCompleteAt: true,
       companyLocationId: true,
+      erpnextInvoiceId: true,
     },
   });
   let effectiveLocation: LocationWithErpInstance = location;
@@ -217,7 +218,9 @@ export async function processOrderWebhook(
       customerPhone: customerPhone ?? undefined,
       locationName: effectiveLocation.name,
     }).catch((err) => console.error("[Order SMS] order_received failed:", err));
+  }
 
+  if (isNewOrder || !existingOrder?.erpnextInvoiceId) {
     try {
       await syncOrderToERPNext(order, effectiveLocation, data);
     } catch (err) {
