@@ -490,6 +490,7 @@ export function LocationsSettingsForm({
       manualInvoiceSeqPadding: form.manualInvoiceSeqPadding ?? 3,
       erpnextCompany: form.erpnextCompany?.trim() || null,
       erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
+      erpnextInstanceId: form.erpnextInstanceId ?? null,
     };
 
     if (sheetMode === "add") {
