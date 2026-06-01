@@ -123,14 +123,15 @@ export async function POST(request: NextRequest) {
 
   const erpInvoiceId = `erp-${data.name}`;
   const isPOS = data.is_pos === 1;
+  const isFullyPaid = typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
   let financialStatus: string;
   if (data.docstatus === 2) {
     financialStatus = "voided";
-  } else if (isPOS) {
-    // POS orders are always paid at point of sale
+  } else if (isPOS || isFullyPaid) {
+    // POS orders and fully paid invoices (outstanding_amount = 0) are marked paid
     financialStatus = "paid";
   } else {
-    // Non-POS ERP invoice: always pending on submit — PE webhook will mark it paid later
+    // Non-POS ERP invoice: pending until PE webhook marks it paid
     financialStatus = "pending";
   }
 
