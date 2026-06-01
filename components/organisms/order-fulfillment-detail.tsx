@@ -79,6 +79,7 @@ type OrderDetail = {
     total: string;
   }>;
   shopifyAdminOrderUrl: string | null;
+  erpAdminInvoiceUrl?: string | null;
   fulfillmentStage?: FulfillmentStage;
   printCount?: number;
   packageReadyAt?: string | null;
@@ -288,6 +289,17 @@ export function OrderFulfillmentDetail({
               >
                 <Send className="size-4" />
                 Open in Shopify Admin
+              </a>
+            )}
+            {orderDetail.erpAdminInvoiceUrl && (
+              <a
+                href={orderDetail.erpAdminInvoiceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+              >
+                <Send className="size-4" />
+                Open in ERP
               </a>
             )}
 

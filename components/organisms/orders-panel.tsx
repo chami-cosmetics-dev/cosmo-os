@@ -171,6 +171,7 @@ type OrderDetail = {
     total: string;
   }>;
   shopifyAdminOrderUrl: string | null;
+  erpAdminInvoiceUrl?: string | null;
   fulfillmentStage?: string;
   printCount?: number;
   packageReadyAt?: string | null;

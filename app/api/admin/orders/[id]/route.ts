@@ -39,7 +39,15 @@ const orderSelect = {
   sampleFreeIssueCompleteAt: true,
   sampleFreeIssueSendLaterDate: true,
   companyLocation: {
-    select: { id: true, name: true, shopifyShopName: true, shopifyAdminStoreHandle: true },
+    select: {
+      id: true,
+      name: true,
+      shopifyShopName: true,
+      shopifyAdminStoreHandle: true,
+      erpnextCompany: true,
+      erpnextWarehouse: true,
+      erpnextInstance: { select: { baseUrl: true } },
+    },
   },
   assignedMerchant: { select: { id: true, name: true, email: true } },
   packageHoldReason: { select: { id: true, name: true } },
@@ -197,6 +205,18 @@ export async function GET(
       return handle
         ? `https://admin.shopify.com/store/${handle}/orders/${details.shopifyOrderId}`
         : null;
+    })(),
+    erpAdminInvoiceUrl: (() => {
+      const baseUrl = details.companyLocation.erpnextInstance?.baseUrl?.replace(/\/$/, "");
+      if (!baseUrl) return null;
+      const isErpSource = details.sourceName?.startsWith("erpnext");
+      if (isErpSource && details.name) {
+        return `${baseUrl}/app/sales-invoice/${encodeURIComponent(details.name)}`;
+      }
+      if (details.erpnextInvoiceId) {
+        return `${baseUrl}/app/sales-invoice/${encodeURIComponent(details.erpnextInvoiceId)}`;
+      }
+      return null;
     })(),
     fulfillmentStage: details.fulfillmentStage,
     printCount: details.printCount,
