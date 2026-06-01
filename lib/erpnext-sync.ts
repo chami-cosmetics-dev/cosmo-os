@@ -80,11 +80,27 @@ async function ensureCustomer(
   email: string | null,
   phone: string | null,
   erpnextCompany: string,
-): Promise<void> {
+): Promise<string> {
+  // 1. Exact name match
   const encoded = encodeURIComponent(customerName);
-  const existing = await erpnextGet(cfg, `/api/resource/Customer/${encoded}`);
-  if (existing) return;
+  const byName = await erpnextGet<{ name: string }>(cfg, `/api/resource/Customer/${encoded}`);
+  if (byName) return byName.name;
 
+  // 2. Phone match — prevents duplicates when name is slightly different
+  if (phone) {
+    const normalizedPhone = phone.trim().slice(0, 20);
+    const phoneFilter = encodeURIComponent(JSON.stringify([["mobile_no", "=", normalizedPhone]]));
+    const byPhone = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name"]))}&limit=1`,
+    );
+    if (byPhone && byPhone.length > 0) {
+      console.log(`[ERPNext] Found existing customer by phone "${normalizedPhone}" → "${byPhone[0].name}" (incoming name: "${customerName}")`);
+      return byPhone[0].name;
+    }
+  }
+
+  // 3. Create new customer
   const res = await fetch(`${cfg.baseUrl}/api/resource/Customer`, {
     method: "POST",
     headers: authHeaders(cfg),
@@ -104,13 +120,15 @@ async function ensureCustomer(
   // 409 = customer already exists (race condition or case mismatch) — safe to continue
   if (res.status === 409) {
     console.log(`[ERPNext] Customer "${customerName}" already exists — skipping create`);
-    return;
+    return customerName;
   }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`ERPNext POST /api/resource/Customer [${res.status}]: ${text.slice(0, 500)}`);
   }
+
+  return customerName;
 }
 
 async function createPrepaidPaymentEntry(
@@ -470,7 +488,7 @@ export async function syncOrderToERPNext(
   const customerPhone =
     shopifyData.billing_address?.phone || shopifyData.customer?.phone || null;
 
-  await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
+  const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
 
   const dateStr = toDateStr(order.createdAt);
 
@@ -506,7 +524,7 @@ export async function syncOrderToERPNext(
   const siBody = {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
-    customer: customerName,
+    customer: erpCustomerName,
     posting_date: dateStr,
     po_no: orderPoNo,
     update_stock: 1,

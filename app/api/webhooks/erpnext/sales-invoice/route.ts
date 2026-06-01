@@ -126,14 +126,8 @@ export async function POST(request: NextRequest) {
   if (data.docstatus === 2) {
     financialStatus = "voided";
   } else if (isPOS) {
-    // POS: PE is created at same time as SI submission — check outstanding_amount directly
-    const freshOutstanding = await fetchOutstandingAmount(
-      data.name,
-      instanceCreds.baseUrl,
-      instanceCreds.apiKey,
-      instanceCreds.apiSecret,
-    );
-    financialStatus = freshOutstanding !== null && freshOutstanding <= 0 ? "paid" : "pending";
+    // POS orders are always paid at point of sale
+    financialStatus = "paid";
   } else {
     // Non-POS ERP invoice: always pending on submit — PE webhook will mark it paid later
     financialStatus = "pending";
@@ -194,6 +188,10 @@ export async function POST(request: NextRequest) {
     if (erpUser) assignedMerchantId = erpUser.id;
   }
 
+  const posPaymentMethods = isPOS
+    ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
+    : [];
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -211,6 +209,10 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
+      ...(posPaymentMethods.length > 0 ? {
+        paymentGatewayNames: posPaymentMethods,
+        paymentGatewayPrimary: posPaymentMethods[0],
+      } : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
     update: {
@@ -221,6 +223,10 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
+      ...(posPaymentMethods.length > 0 ? {
+        paymentGatewayNames: posPaymentMethods,
+        paymentGatewayPrimary: posPaymentMethods[0],
+      } : {}),
     },
     select: { id: true, name: true },
   });
