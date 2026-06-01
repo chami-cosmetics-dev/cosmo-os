@@ -83,6 +83,10 @@ export async function POST(request: NextRequest) {
 
   // ERPNext can send data at root level OR nested under a "data" key — handle both
   const topLevel = rawPayload as Record<string, unknown>;
+  console.log("[ERPNext webhook] top-level keys:", Object.keys(topLevel));
+  if (topLevel?.data && typeof topLevel.data === "object") {
+    console.log("[ERPNext webhook] data keys:", Object.keys(topLevel.data as object));
+  }
   const unwrapped: Record<string, unknown> =
     topLevel?.data !== null &&
     typeof topLevel?.data === "object" &&
@@ -92,6 +96,7 @@ export async function POST(request: NextRequest) {
 
   const companyRaw = unwrapped?.company;
   const company = typeof companyRaw === "string" ? companyRaw : "";
+  console.log("[ERPNext webhook] resolved company:", JSON.stringify(company));
 
   const instanceCreds = await resolveInstanceSecret(company);
   if (!instanceCreds || !instanceCreds.secret || incomingSecret !== instanceCreds.secret) {
