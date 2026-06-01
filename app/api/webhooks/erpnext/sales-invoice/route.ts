@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
     }
     return prisma.companyLocation.findFirst({
       where: { erpnextCompany: data.company },
-      select: { id: true, companyId: true, defaultMerchantUserId: true },
+      select: { id: true, companyId: true, defaultMerchantUserId: true, shadowParentLocationId: true, shopifyLocationId: true },
     });
   })();
   if (!location) {
@@ -236,13 +236,11 @@ export async function POST(request: NextRequest) {
   if (data.items.length > 0) {
     await prisma.orderLineItem.deleteMany({ where: { orderId: order.id } });
 
-    const sourceLocationId = getShadowSourceLocationId(location);
-
     for (const [idx, item] of data.items.entries()) {
       if (!item.item_code) continue;
 
       let productItem = await prisma.productItem.findFirst({
-        where: { companyLocationId: sourceLocationId, sku: item.item_code },
+        where: { companyLocationId: location.id, sku: item.item_code },
         select: { id: true },
       });
 
@@ -253,21 +251,17 @@ export async function POST(request: NextRequest) {
           update: {},
         });
         const syntheticVariantId = `erp-${item.item_code}`;
-        const sourceLocation = await prisma.companyLocation.findUnique({
-          where: { id: sourceLocationId },
-          select: { shopifyLocationId: true },
-        });
         productItem = await prisma.productItem.upsert({
           where: {
             companyLocationId_shopifyVariantId: {
-              companyLocationId: sourceLocationId,
+              companyLocationId: location.id,
               shopifyVariantId: syntheticVariantId,
             },
           },
           create: {
             companyId: location.companyId,
-            companyLocationId: sourceLocationId,
-            shopifyLocationId: sourceLocation?.shopifyLocationId ?? sourceLocationId,
+            companyLocationId: location.id,
+            shopifyLocationId: location.shopifyLocationId ?? location.id,
             shopifyProductId: syntheticVariantId,
             shopifyVariantId: syntheticVariantId,
             productTitle: (item.item_name ?? item.item_code).slice(0, 255),
