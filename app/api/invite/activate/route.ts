@@ -111,7 +111,13 @@ export async function POST(request: Request) {
 
     await ensureDefaultRbacSetup();
 
-    const user = await prisma.user.create({
+    // If a previous activation partially completed, the DB user may already exist
+    const existingDbUser = await prisma.user.findFirst({
+      where: { OR: [{ auth0Id }, { email: invite.email }] },
+      select: { id: true },
+    });
+
+    const user = existingDbUser ?? await prisma.user.create({
       data: {
         auth0Id,
         email: invite.email,

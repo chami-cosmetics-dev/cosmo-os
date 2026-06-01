@@ -58,6 +58,18 @@ export type CreateUserParams = {
   familyName: string;
 };
 
+async function getAuth0UserByEmail(email: string, token: string): Promise<{ userId: string } | null> {
+  if (!AUTH0_DOMAIN) return null;
+  const q = encodeURIComponent(`email:"${email}"`);
+  const res = await fetch(
+    `https://${AUTH0_DOMAIN}/api/v2/users?q=${q}&search_engine=v3&per_page=1`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) return null;
+  const users = (await res.json()) as Array<{ user_id: string }>;
+  return users[0] ? { userId: users[0].user_id } : null;
+}
+
 export async function createAuth0User(
   params: CreateUserParams
 ): Promise<{ userId: string }> {
@@ -87,7 +99,12 @@ export async function createAuth0User(
   });
 
   if (!response.ok) {
-    const err = (await response.json()) as { message?: string; code?: string };
+    const err = (await response.json()) as { message?: string; code?: string; statusCode?: number };
+    // Auth0 returns 409 when the user already exists — recover by fetching existing user_id
+    if (response.status === 409 || err.message?.toLowerCase().includes("already exists")) {
+      const existing = await getAuth0UserByEmail(params.email, token);
+      if (existing) return existing;
+    }
     throw new Error(err.message ?? `Auth0 create user failed: ${response.status}`);
   }
 
