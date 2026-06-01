@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Decimal } from "@prisma/client/runtime/library";
 
 import { prisma } from "@/lib/prisma";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales-invoice";
 
 export const dynamic = "force-dynamic";
@@ -156,13 +157,13 @@ export async function POST(request: NextRequest) {
     if (data.set_warehouse) {
       const byWarehouse = await prisma.companyLocation.findFirst({
         where: { erpnextWarehouse: data.set_warehouse, erpnextCompany: data.company },
-        select: { id: true, companyId: true, defaultMerchantUserId: true },
+        select: { id: true, companyId: true, defaultMerchantUserId: true, shadowParentLocationId: true, shopifyLocationId: true },
       });
       if (byWarehouse) return byWarehouse;
     }
     return prisma.companyLocation.findFirst({
       where: { erpnextCompany: data.company },
-      select: { id: true, companyId: true, defaultMerchantUserId: true },
+      select: { id: true, companyId: true, defaultMerchantUserId: true, shadowParentLocationId: true, shopifyLocationId: true },
     });
   })();
   if (!location) {
@@ -238,11 +239,42 @@ export async function POST(request: NextRequest) {
     for (const [idx, item] of data.items.entries()) {
       if (!item.item_code) continue;
 
-      const productItem = await prisma.productItem.findFirst({
+      let productItem = await prisma.productItem.findFirst({
         where: { companyLocationId: location.id, sku: item.item_code },
         select: { id: true },
       });
-      if (!productItem) continue;
+
+      if (!productItem) {
+        const category = await prisma.category.upsert({
+          where: { companyId_name: { companyId: location.companyId, name: "Uncategorized" } },
+          create: { companyId: location.companyId, name: "Uncategorized" },
+          update: {},
+        });
+        const syntheticVariantId = `erp-${item.item_code}`;
+        productItem = await prisma.productItem.upsert({
+          where: {
+            companyLocationId_shopifyVariantId: {
+              companyLocationId: location.id,
+              shopifyVariantId: syntheticVariantId,
+            },
+          },
+          create: {
+            companyId: location.companyId,
+            companyLocationId: location.id,
+            shopifyLocationId: location.shopifyLocationId ?? location.id,
+            shopifyProductId: syntheticVariantId,
+            shopifyVariantId: syntheticVariantId,
+            productTitle: (item.item_name ?? item.item_code).slice(0, 255),
+            sku: item.item_code,
+            price: new Decimal(item.rate),
+            categoryId: category.id,
+            itemStatusCategory: "NEWLY_ADDED",
+            itemStatusLabel: "Newly Added",
+            inventoryQuantity: 0,
+          },
+          update: {},
+        });
+      }
 
       await prisma.orderLineItem.create({
         data: {
