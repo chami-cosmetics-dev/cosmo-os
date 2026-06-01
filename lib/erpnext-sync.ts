@@ -396,6 +396,25 @@ export async function syncOrderToERPNext(
     return;
   }
 
+  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+
+  const existingFilter = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderPoNo],
+      ["company", "=", location.erpnextCompany],
+    ]),
+  );
+  const existingFields = encodeURIComponent(JSON.stringify(["name"]));
+  const existingSI = await erpnextGet<Array<{ name: string }>>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
+  );
+  if (existingSI && existingSI.length > 0) {
+    console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name } });
+    return;
+  }
+
   const lineItems = shopifyData.line_items.filter((li) => li.quantity > 0);
   if (lineItems.length === 0) return;
 
@@ -448,7 +467,7 @@ export async function syncOrderToERPNext(
     company: location.erpnextCompany,
     customer: customerName,
     posting_date: dateStr,
-    po_no: (order.name ?? order.shopifyOrderId).slice(0, 140),
+    po_no: orderPoNo,
     update_stock: 1,
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
