@@ -188,6 +188,10 @@ export async function POST(request: NextRequest) {
     if (erpUser) assignedMerchantId = erpUser.id;
   }
 
+  const posPaymentMethods = isPOS
+    ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
+    : [];
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -205,6 +209,10 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
+      ...(posPaymentMethods.length > 0 ? {
+        paymentGatewayNames: posPaymentMethods,
+        paymentGatewayPrimary: posPaymentMethods[0],
+      } : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
     update: {
@@ -215,6 +223,10 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
+      ...(posPaymentMethods.length > 0 ? {
+        paymentGatewayNames: posPaymentMethods,
+        paymentGatewayPrimary: posPaymentMethods[0],
+      } : {}),
     },
     select: { id: true, name: true },
   });

@@ -636,7 +636,7 @@ export function OrdersPanel({
                           <div className="truncate font-medium" title={order.name ?? order.orderNumber ?? undefined}>
                             {order.name ?? order.orderNumber ?? "—"}
                           </div>
-                          {order.erpnextInvoiceId && (
+                          {order.erpnextInvoiceId && order.erpnextInvoiceId !== order.name && (
                             <div className="truncate text-xs text-muted-foreground" title={order.erpnextInvoiceId}>
                               {order.erpnextInvoiceId}
                             </div>

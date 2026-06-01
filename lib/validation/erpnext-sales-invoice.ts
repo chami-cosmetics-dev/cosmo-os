@@ -28,6 +28,15 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
     )
     .optional()
     .default([]),
+  payments: z
+    .array(
+      z.object({
+        mode_of_payment: z.string(),
+        amount: z.number().optional().nullable(),
+      }),
+    )
+    .optional()
+    .default([]),
 });
 
 export type ErpnextSalesInvoiceWebhookPayload = z.infer<
