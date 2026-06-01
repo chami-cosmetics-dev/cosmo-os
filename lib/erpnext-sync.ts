@@ -85,17 +85,32 @@ async function ensureCustomer(
   const existing = await erpnextGet(cfg, `/api/resource/Customer/${encoded}`);
   if (existing) return;
 
-  await erpnextPost(cfg, "/api/resource/Customer", {
-    doctype: "Customer",
-    customer_name: customerName,
-    customer_type: "Individual",
-    customer_group: "Individual",
-    territory: "All Territories",
-    default_company: erpnextCompany,
-    custom_total_purchasing_value: 0,
-    ...(email ? { email_id: email } : {}),
-    ...(phone ? { mobile_no: phone.slice(0, 20) } : {}),
+  const res = await fetch(`${cfg.baseUrl}/api/resource/Customer`, {
+    method: "POST",
+    headers: authHeaders(cfg),
+    body: JSON.stringify({
+      doctype: "Customer",
+      customer_name: customerName,
+      customer_type: "Individual",
+      customer_group: "Individual",
+      territory: "All Territories",
+      default_company: erpnextCompany,
+      custom_total_purchasing_value: 0,
+      ...(email ? { email_id: email } : {}),
+      ...(phone ? { mobile_no: phone.slice(0, 20) } : {}),
+    }),
   });
+
+  // 409 = customer already exists (race condition or case mismatch) — safe to continue
+  if (res.status === 409) {
+    console.log(`[ERPNext] Customer "${customerName}" already exists — skipping create`);
+    return;
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`ERPNext POST /api/resource/Customer [${res.status}]: ${text.slice(0, 500)}`);
+  }
 }
 
 async function createPrepaidPaymentEntry(
