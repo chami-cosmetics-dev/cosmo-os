@@ -323,6 +323,24 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.revert_to.delivery_complete",
     description: "Revert order to Delivery Complete",
   },
+  // Contacts - Master
+  {
+    key: "contacts.master.read",
+    description: "View contact master records",
+  },
+  {
+    key: "contacts.master.manage",
+    description: "Create and edit contact master records",
+  },
+  // Contacts - Allocation
+  {
+    key: "contacts.allocation.read",
+    description: "View contact allocation assignments",
+  },
+  {
+    key: "contacts.allocation.manage",
+    description: "Assign and manage contact allocations",
+  },
 ] as const;
 
 const DEFAULT_ROLES = [
