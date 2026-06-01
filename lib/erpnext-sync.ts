@@ -183,33 +183,55 @@ export async function createDeliveryPaymentEntry(
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
   if (!location.erpnextCompany) return;
 
-  const mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+  const isErpOrder = order.sourceName?.startsWith("erpnext") ?? false;
+
+  // For ERP2 delivery orders there are no Shopify payment gateways — fall back to codMop
+  let mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+  if (!mopName && isErpOrder) {
+    mopName = cfg.codMop || null;
+  }
   if (!mopName) {
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return;
   }
 
-  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+  // ERP2: order.name IS the invoice name — look up directly by document name
+  // Shopify/ERP1: look up by po_no (invoice was created by Vault OS with po_no = order name)
+  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
 
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No submitted Sales Invoice for po_no="${orderPoNo}" — skipping delivery PE`);
-    return;
+  if (isErpOrder && order.name) {
+    const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
+    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(order.name)}?fields=${fields}`,
+    );
+    if (!invoice) {
+      console.warn(`[ERPNext] Sales Invoice "${order.name}" not found in ERP — skipping delivery PE`);
+      return;
+    }
+  } else {
+    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderPoNo],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+    );
+    const list = await erpnextGet<
+      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+
+    if (!list || list.length === 0) {
+      console.warn(`[ERPNext] No submitted Sales Invoice for po_no="${orderPoNo}" — skipping delivery PE`);
+      return;
+    }
+    invoice = list[0];
   }
 
-  const invoice = list[0];
   if (invoice.outstanding_amount <= 0) {
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping delivery PE`);
     return;

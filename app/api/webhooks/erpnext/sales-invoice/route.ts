@@ -170,10 +170,10 @@ export async function POST(request: NextRequest) {
   const customerEmail = data.contact_email?.trim() || null;
   const customerPhone = data.contact_mobile?.trim() || null;
 
-  // For POS orders: try to match the cashier (owner) to a vault os user via erpnextUsername
+  // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
   // Fall back to location default merchant
   let assignedMerchantId: string | undefined = location.defaultMerchantUserId ?? undefined;
-  if (isPOS && data.owner?.trim()) {
+  if (data.owner?.trim()) {
     const erpUser = await prisma.user.findUnique({
       where: { erpnextUsername: data.owner.trim() },
       select: { id: true },
@@ -189,6 +189,7 @@ export async function POST(request: NextRequest) {
       shopifyOrderId: erpInvoiceId,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       name: data.name,
+      erpnextInvoiceId: data.name,
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
       financialStatus,
@@ -202,6 +203,7 @@ export async function POST(request: NextRequest) {
     update: {
       totalPrice: grandTotal,
       financialStatus,
+      erpnextInvoiceId: data.name,
       customerEmail,
       customerPhone,
       shippingAddress: { name: data.customer },
