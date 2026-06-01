@@ -1,15 +1,47 @@
-import type { Order, CompanyLocation } from "@prisma/client";
+import type { Order, CompanyLocation, ErpnextInstance } from "@prisma/client";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import { prisma } from "@/lib/prisma";
 
-const BASE_URL = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
-const API_KEY = process.env.ERPNEXT_API_KEY ?? "";
-const API_SECRET = process.env.ERPNEXT_API_SECRET ?? "";
+export type LocationWithErpInstance = CompanyLocation & {
+  erpnextInstance: ErpnextInstance | null;
+};
 
-function authHeaders(): Record<string, string> {
+type ErpConfig = {
+  baseUrl: string;
+  apiKey: string;
+  apiSecret: string;
+  cashMop: string;
+  codMop: string;
+  cardDeliveryMop: string;
+  bankTransferMop: string;
+  kokoMop: string;
+  webxpayMop: string;
+  taxesAndCharges: string;
+  shippingRule: string;
+  shippingItem: string;
+};
+
+function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
+  return {
+    baseUrl: (instance?.baseUrl ?? process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, ""),
+    apiKey: instance?.apiKey ?? process.env.ERPNEXT_API_KEY ?? "",
+    apiSecret: instance?.apiSecret ?? process.env.ERPNEXT_API_SECRET ?? "",
+    cashMop: instance?.cashMop ?? process.env.ERPNEXT_CASH_MOP ?? "Cash",
+    codMop: instance?.codMop ?? process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery",
+    cardDeliveryMop: instance?.cardDeliveryMop ?? process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card",
+    bankTransferMop: instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer",
+    kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
+    webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
+    taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
+    shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
+    shippingItem: instance?.shippingItem ?? process.env.ERPNEXT_SHIPPING_ITEM ?? "",
+  };
+}
+
+function authHeaders(cfg: ErpConfig): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    Authorization: `token ${API_KEY}:${API_SECRET}`,
+    Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
   };
 }
 
@@ -17,10 +49,10 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function erpnextPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${cfg.baseUrl}${path}`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: authHeaders(cfg),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -31,9 +63,8 @@ async function erpnextPost<T>(path: string, body: unknown): Promise<T> {
   return json.data;
 }
 
-
-async function erpnextGet<T>(path: string): Promise<T | null> {
-  const res = await fetch(`${BASE_URL}${path}`, { headers: authHeaders() });
+async function erpnextGet<T>(cfg: ErpConfig, path: string): Promise<T | null> {
+  const res = await fetch(`${cfg.baseUrl}${path}`, { headers: authHeaders(cfg) });
   if (res.status === 404) return null;
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -44,16 +75,17 @@ async function erpnextGet<T>(path: string): Promise<T | null> {
 }
 
 async function ensureCustomer(
+  cfg: ErpConfig,
   customerName: string,
   email: string | null,
   phone: string | null,
   erpnextCompany: string,
 ): Promise<void> {
   const encoded = encodeURIComponent(customerName);
-  const existing = await erpnextGet(`/api/resource/Customer/${encoded}`);
+  const existing = await erpnextGet(cfg, `/api/resource/Customer/${encoded}`);
   if (existing) return;
 
-  await erpnextPost("/api/resource/Customer", {
+  await erpnextPost(cfg, "/api/resource/Customer", {
     doctype: "Customer",
     customer_name: customerName,
     customer_type: "Individual",
@@ -67,6 +99,7 @@ async function ensureCustomer(
 }
 
 async function createPrepaidPaymentEntry(
+  cfg: ErpConfig,
   invoiceName: string,
   company: string,
   customerName: string,
@@ -78,14 +111,14 @@ async function createPrepaidPaymentEntry(
   const mop = await erpnextGet<{
     name: string;
     accounts: Array<{ company: string; default_account: string }>;
-  }>(`/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+  }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
 
   const paidTo = mop?.accounts?.find((a) => a.company === company)?.default_account;
   if (!paidTo) {
     throw new Error(`No account mapped for "${mopName}" mode of payment under company "${company}"`);
   }
 
-  const pe = await erpnextPost<{ name: string }>("/api/resource/Payment Entry", {
+  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
     doctype: "Payment Entry",
     payment_type: "Receive",
     company,
@@ -115,6 +148,7 @@ async function createPrepaidPaymentEntry(
 }
 
 function detectDeliveryMop(
+  cfg: ErpConfig,
   paymentGatewayPrimary: string | null,
   paymentGatewayNames: string[],
 ): string | null {
@@ -123,13 +157,13 @@ function detectDeliveryMop(
     .filter(Boolean);
 
   if (gateways.some((g) => g.includes("cash on delivery") || g === "cod")) {
-    return process.env.ERPNEXT_COD_MOP ?? "Cash On Delivery";
+    return cfg.codMop;
   }
   if (gateways.some((g) => g.includes("card payment on delivery") || g.includes("card on delivery") || g.includes("card_on_delivery"))) {
-    return process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card";
+    return cfg.cardDeliveryMop;
   }
   if (gateways.some((g) => g === "cash" || g === "manual")) {
-    return process.env.ERPNEXT_CASH_MOP ?? "Cash";
+    return cfg.cashMop;
   }
   return null;
 }
@@ -142,40 +176,62 @@ export async function createDeliveryPaymentEntry(
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
   },
-  location: CompanyLocation,
+  location: LocationWithErpInstance,
   completedAt: Date,
 ): Promise<void> {
-  if (!BASE_URL || !API_KEY || !API_SECRET) return;
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
   if (!location.erpnextCompany) return;
 
-  const mopName = detectDeliveryMop(order.paymentGatewayPrimary, order.paymentGatewayNames);
+  const isErpOrder = order.sourceName?.startsWith("erpnext") ?? false;
+
+  // For ERP2 delivery orders there are no Shopify payment gateways — fall back to codMop
+  let mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+  if (!mopName && isErpOrder) {
+    mopName = cfg.codMop || null;
+  }
   if (!mopName) {
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return;
   }
 
-  // Find the Sales Invoice
-  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(`/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+  // ERP2: order.name IS the invoice name — look up directly by document name
+  // Shopify/ERP1: look up by po_no (invoice was created by Vault OS with po_no = order name)
+  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
 
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No submitted Sales Invoice for po_no="${orderPoNo}" — skipping delivery PE`);
-    return;
+  if (isErpOrder && order.name) {
+    const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
+    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(order.name)}?fields=${fields}`,
+    );
+    if (!invoice) {
+      console.warn(`[ERPNext] Sales Invoice "${order.name}" not found in ERP — skipping delivery PE`);
+      return;
+    }
+  } else {
+    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderPoNo],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+    );
+    const list = await erpnextGet<
+      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+
+    if (!list || list.length === 0) {
+      console.warn(`[ERPNext] No submitted Sales Invoice for po_no="${orderPoNo}" — skipping delivery PE`);
+      return;
+    }
+    invoice = list[0];
   }
 
-  const invoice = list[0];
   if (invoice.outstanding_amount <= 0) {
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping delivery PE`);
     return;
@@ -184,7 +240,7 @@ export async function createDeliveryPaymentEntry(
   const mop = await erpnextGet<{
     name: string;
     accounts: Array<{ company: string; default_account: string }>;
-  }>(`/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+  }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
 
   if (!mop) throw new Error(`ERPNext Mode of Payment "${mopName}" not found`);
 
@@ -192,7 +248,7 @@ export async function createDeliveryPaymentEntry(
   if (!paidTo) throw new Error(`No account mapped for "${mopName}" under company "${location.erpnextCompany}"`);
 
   const dateStr = toDateStr(completedAt);
-  const pe = await erpnextPost<{ name: string }>("/api/resource/Payment Entry", {
+  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
     doctype: "Payment Entry",
     payment_type: "Receive",
     company: location.erpnextCompany,
@@ -223,9 +279,10 @@ export async function createDeliveryPaymentEntry(
 
 export async function cancelErpnextSalesInvoice(
   orderName: string,
-  location: CompanyLocation,
+  location: LocationWithErpInstance,
 ): Promise<void> {
-  if (!BASE_URL || !API_KEY || !API_SECRET) return;
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
   if (!location.erpnextCompany) return;
 
   const filters = encodeURIComponent(
@@ -237,6 +294,7 @@ export async function cancelErpnextSalesInvoice(
   );
   const fields = encodeURIComponent(JSON.stringify(["name"]));
   const list = await erpnextGet<Array<{ name: string }>>(
+    cfg,
     `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
   );
 
@@ -246,9 +304,9 @@ export async function cancelErpnextSalesInvoice(
   }
 
   const invoiceName = list[0].name;
-  const res = await fetch(`${BASE_URL}/api/method/frappe.client.cancel`, {
+  const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.cancel`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: authHeaders(cfg),
     body: JSON.stringify({ doctype: "Sales Invoice", name: invoiceName }),
   });
 
@@ -262,10 +320,11 @@ export async function cancelErpnextSalesInvoice(
 
 export async function syncBankTransferPaymentToERPNext(
   orderPoNo: string,
-  location: CompanyLocation,
+  location: LocationWithErpInstance,
   dateStr: string,
 ): Promise<void> {
-  if (!BASE_URL || !API_KEY || !API_SECRET) {
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
     console.log("[ERPNext] syncBankTransferPaymentToERPNext: skipping — credentials not configured");
     return;
   }
@@ -287,7 +346,7 @@ export async function syncBankTransferPaymentToERPNext(
   );
   const list = await erpnextGet<
     Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(`/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
 
   if (!list || list.length === 0) {
     console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping bank transfer payment entry`);
@@ -300,22 +359,21 @@ export async function syncBankTransferPaymentToERPNext(
     return;
   }
 
-  const mopName = process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer";
   const mop = await erpnextGet<{
     name: string;
     accounts: Array<{ company: string; default_account: string }>;
-  }>(`/api/resource/Mode%20of%20Payment/${encodeURIComponent(mopName)}`);
+  }>(cfg, `/api/resource/Mode%20of%20Payment/${encodeURIComponent(cfg.bankTransferMop)}`);
 
   if (!mop) {
-    throw new Error(`ERPNext Mode of Payment "${mopName}" not found`);
+    throw new Error(`ERPNext Mode of Payment "${cfg.bankTransferMop}" not found`);
   }
 
   const paidTo = mop.accounts.find((a) => a.company === location.erpnextCompany)?.default_account;
   if (!paidTo) {
-    throw new Error(`No account mapped for "${mopName}" under company "${location.erpnextCompany}"`);
+    throw new Error(`No account mapped for "${cfg.bankTransferMop}" under company "${location.erpnextCompany}"`);
   }
 
-  const pe = await erpnextPost<{ name: string }>("/api/resource/Payment Entry", {
+  const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
     doctype: "Payment Entry",
     payment_type: "Receive",
     company: location.erpnextCompany,
@@ -346,16 +404,36 @@ export async function syncBankTransferPaymentToERPNext(
 
 export async function syncOrderToERPNext(
   order: Order,
-  location: CompanyLocation,
+  location: LocationWithErpInstance,
   shopifyData: ShopifyOrderWebhookPayload,
 ): Promise<void> {
-  console.log(`[ERPNext] syncOrderToERPNext called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, BASE_URL=${BASE_URL ? "set" : "missing"}`);
-  if (!BASE_URL || !API_KEY || !API_SECRET) {
-    console.warn("[ERPNext] Skipping sync — ERPNEXT_BASE_URL / API_KEY / API_SECRET not configured");
+  const cfg = getErpConfig(location.erpnextInstance);
+  console.log(`[ERPNext] syncOrderToERPNext called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    console.warn("[ERPNext] Skipping sync — ERP credentials not configured");
     return;
   }
   if (!location.erpnextCompany || !location.erpnextWarehouse) {
     console.warn("[ERPNext] Skipping sync — erpnextCompany or erpnextWarehouse not set on location", location.id);
+    return;
+  }
+
+  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+
+  const existingFilter = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderPoNo],
+      ["company", "=", location.erpnextCompany],
+    ]),
+  );
+  const existingFields = encodeURIComponent(JSON.stringify(["name"]));
+  const existingSI = await erpnextGet<Array<{ name: string }>>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
+  );
+  if (existingSI && existingSI.length > 0) {
+    console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name } });
     return;
   }
 
@@ -377,7 +455,7 @@ export async function syncOrderToERPNext(
   const customerPhone =
     shopifyData.billing_address?.phone || shopifyData.customer?.phone || null;
 
-  await ensureCustomer(customerName, customerEmail, customerPhone, location.erpnextCompany);
+  await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
 
   const dateStr = toDateStr(order.createdAt);
 
@@ -389,14 +467,12 @@ export async function syncOrderToERPNext(
     warehouse: location.erpnextWarehouse,
   }));
 
-  // Add Shopify shipping as a line item so it appears on the printed invoice
   const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
     (sum, line) => sum + parseFloat(line.price ?? "0"), 0,
   );
-  const shippingItem = process.env.ERPNEXT_SHIPPING_ITEM ?? "";
-  if (shopifyShippingAmt > 0 && shippingItem) {
+  if (shopifyShippingAmt > 0 && cfg.shippingItem) {
     siItems.push({
-      item_code: shippingItem,
+      item_code: cfg.shippingItem,
       item_name: "Delivery Charges",
       qty: 1,
       rate: shopifyShippingAmt,
@@ -404,61 +480,51 @@ export async function syncOrderToERPNext(
     });
   }
 
-  // Discount = full item total (incl. shipping line) minus Vault OS total → grand total always matches
   const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
   const vaultTotal = parseFloat(order.totalPrice.toString());
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
-
-  const taxesAndCharges = process.env.ERPNEXT_TAXES_AND_CHARGES ?? "";
-  const shopifyShippingRule = process.env.ERPNEXT_SHOPIFY_SHIPPING_RULE ?? "";
 
   const siBody = {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
     customer: customerName,
     posting_date: dateStr,
-    po_no: (order.name ?? order.shopifyOrderId).slice(0, 140),
+    po_no: orderPoNo,
     update_stock: 1,
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
-    // Use 0-value shipping rule for Shopify orders to satisfy mandatory field without adding charges
-    ...(shopifyShippingRule ? { shipping_rule: shopifyShippingRule } : {}),
-    ...(taxesAndCharges ? { taxes_and_charges: taxesAndCharges } : { taxes: [] }),
+    ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
+    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 
   let si: { name: string; debit_to: string; grand_total: number };
   try {
-    si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", siBody);
+    si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBody);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (taxesAndCharges && msg.includes("417")) {
+    if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
       const { taxes_and_charges: _t, ...siBodyClean } = siBody as Record<string, unknown>;
-      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>("/api/resource/Sales Invoice", siBodyClean);
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyClean);
     } else {
       throw err;
     }
   }
 
-  // Store ERPNext invoice ID back on the vault OS order so it can be searched
   await prisma.order.update({
     where: { id: order.id },
     data: { erpnextInvoiceId: si.name },
   });
 
-  console.log(
-    `[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`,
-  );
+  console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);
 
   const gateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
-  const kokoMop = process.env.ERPNEXT_KOKO_MOP ?? "Koko";
-  const webxpayMop = process.env.ERPNEXT_WEBXPAY_MOP ?? "";
 
   if (gateways.some((g) => g.includes("koko"))) {
-    await createPrepaidPaymentEntry(si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, kokoMop);
-  } else if (webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
-    await createPrepaidPaymentEntry(si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, webxpayMop);
+    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
+  } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
+    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
   }
 }

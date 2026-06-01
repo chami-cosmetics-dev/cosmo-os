@@ -129,6 +129,7 @@ export async function PATCH(
 
   const location = await prisma.companyLocation.findUnique({
     where: { id: order.companyLocationId },
+    include: { erpnextInstance: true },
   });
   if (location) {
     const poNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
