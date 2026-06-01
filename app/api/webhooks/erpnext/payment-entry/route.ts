@@ -30,8 +30,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // Extract company early to resolve the correct instance secret
-  const companyRaw = (rawPayload as Record<string, unknown>)?.company;
+  // ERPNext can send data at root level OR nested under a "data" key — handle both
+  const topLevel = rawPayload as Record<string, unknown>;
+  const unwrapped: Record<string, unknown> =
+    topLevel?.data !== null &&
+    typeof topLevel?.data === "object" &&
+    !Array.isArray(topLevel?.data)
+      ? (topLevel.data as Record<string, unknown>)
+      : topLevel;
+
+  const companyRaw = unwrapped?.company;
   const company = typeof companyRaw === "string" ? companyRaw : "";
 
   const secret = await resolveInstanceSecret(company);
@@ -40,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const parsed = erpnextPaymentEntryWebhookSchema.safeParse(rawPayload);
+  const parsed = erpnextPaymentEntryWebhookSchema.safeParse(unwrapped);
   if (!parsed.success) {
     console.error("[ERPNext payment webhook] Validation failed", parsed.error.flatten());
     return NextResponse.json(
