@@ -72,6 +72,19 @@ const DEFAULT_PERMISSIONS = [
     key: "products.storage.manage",
     description: "Upload and delete files in product item storage",
   },
+  // Contacts
+  {
+    key: "contacts.read",
+    description: "View contact master list, allocation data, and performance",
+  },
+  {
+    key: "contacts.manage",
+    description: "Create, import, backfill, and allocate contacts",
+  },
+  {
+    key: "contacts.allocation.settings",
+    description: "Manage contact allocation option types in Settings",
+  },
   {
     key: "orders.read",
     description: "View received orders from Shopify",
@@ -355,6 +368,9 @@ const DEFAULT_ROLES = [
       "academy.manage",
       "products.storage.read",
       "products.storage.manage",
+      "contacts.read",
+      "contacts.manage",
+      "contacts.allocation.settings",
       "orders.read",
       "orders.manage",
       "orders.create_manual",
@@ -432,6 +448,7 @@ const DEFAULT_ROLES = [
       "users.read",
       "staff.read",
       "roles.read",
+      "contacts.read",
       "products.read",
       "academy.learn",
       "products.storage.read",

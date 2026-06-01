@@ -23,7 +23,7 @@ function normalizeNullableText(value?: string | null) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("orders.manage");
+  const auth = await requirePermission("contacts.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

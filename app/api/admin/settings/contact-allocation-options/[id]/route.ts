@@ -16,7 +16,7 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("settings.company");
+  const auth = await requirePermission("contacts.allocation.settings");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

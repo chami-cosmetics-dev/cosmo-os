@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
 export async function GET() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("contacts.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

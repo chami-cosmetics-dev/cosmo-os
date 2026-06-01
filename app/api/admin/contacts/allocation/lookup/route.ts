@@ -20,7 +20,7 @@ const querySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("contacts.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

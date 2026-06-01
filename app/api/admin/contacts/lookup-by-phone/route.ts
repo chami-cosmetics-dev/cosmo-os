@@ -9,7 +9,7 @@ import {
   pickNameFromShippingJson,
 } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
 
 const querySchema = z.object({
@@ -17,7 +17,7 @@ const querySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("orders.create_manual");
+  const auth = await requireAnyPermission(["contacts.read", "orders.create_manual"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

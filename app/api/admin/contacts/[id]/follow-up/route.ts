@@ -14,7 +14,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("contacts.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

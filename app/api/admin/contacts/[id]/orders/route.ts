@@ -28,7 +28,7 @@ function uniqueDisplayPhones(values: Array<string | null>) {
 }
 
 export async function GET(_request: NextRequest, { params }: Params) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("contacts.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
