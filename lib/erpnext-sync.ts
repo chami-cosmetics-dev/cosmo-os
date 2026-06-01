@@ -499,6 +499,10 @@ export async function syncOrderToERPNext(
   const vaultTotal = parseFloat(order.totalPrice.toString());
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
+  const shopifyCouponCode =
+    (shopifyData.discount_codes as Array<{ code: string }> | undefined)?.[0]?.code?.trim() ||
+    "SHOPIFY";
+
   const siBody = {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
@@ -509,6 +513,7 @@ export async function syncOrderToERPNext(
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
     items: siItems,
+    custom_merchant_coupon_code: shopifyCouponCode,
     ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
     ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
