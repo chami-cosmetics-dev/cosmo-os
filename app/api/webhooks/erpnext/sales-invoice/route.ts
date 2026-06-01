@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Decimal } from "@prisma/client/runtime/library";
 
 import { prisma } from "@/lib/prisma";
+import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales-invoice";
 
 export const dynamic = "force-dynamic";
@@ -156,7 +157,7 @@ export async function POST(request: NextRequest) {
     if (data.set_warehouse) {
       const byWarehouse = await prisma.companyLocation.findFirst({
         where: { erpnextWarehouse: data.set_warehouse, erpnextCompany: data.company },
-        select: { id: true, companyId: true, defaultMerchantUserId: true },
+        select: { id: true, companyId: true, defaultMerchantUserId: true, shadowParentLocationId: true, shopifyLocationId: true },
       });
       if (byWarehouse) return byWarehouse;
     }
@@ -235,11 +236,13 @@ export async function POST(request: NextRequest) {
   if (data.items.length > 0) {
     await prisma.orderLineItem.deleteMany({ where: { orderId: order.id } });
 
+    const sourceLocationId = getShadowSourceLocationId(location);
+
     for (const [idx, item] of data.items.entries()) {
       if (!item.item_code) continue;
 
       let productItem = await prisma.productItem.findFirst({
-        where: { companyLocationId: location.id, sku: item.item_code },
+        where: { companyLocationId: sourceLocationId, sku: item.item_code },
         select: { id: true },
       });
 
@@ -250,17 +253,21 @@ export async function POST(request: NextRequest) {
           update: {},
         });
         const syntheticVariantId = `erp-${item.item_code}`;
+        const sourceLocation = await prisma.companyLocation.findUnique({
+          where: { id: sourceLocationId },
+          select: { shopifyLocationId: true },
+        });
         productItem = await prisma.productItem.upsert({
           where: {
             companyLocationId_shopifyVariantId: {
-              companyLocationId: location.id,
+              companyLocationId: sourceLocationId,
               shopifyVariantId: syntheticVariantId,
             },
           },
           create: {
             companyId: location.companyId,
-            companyLocationId: location.id,
-            shopifyLocationId: location.shopifyLocationId ?? location.id,
+            companyLocationId: sourceLocationId,
+            shopifyLocationId: sourceLocation?.shopifyLocationId ?? sourceLocationId,
             shopifyProductId: syntheticVariantId,
             shopifyVariantId: syntheticVariantId,
             productTitle: (item.item_name ?? item.item_code).slice(0, 255),
