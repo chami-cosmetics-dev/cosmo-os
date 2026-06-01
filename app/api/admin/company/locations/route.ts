@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
         defaultMerchantUserId: true,
         erpnextCompany: true,
         erpnextWarehouse: true,
+        erpnextInstanceId: true,
         createdAt: true,
         updatedAt: true,
       },
