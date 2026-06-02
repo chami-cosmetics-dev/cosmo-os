@@ -50,6 +50,33 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+type ShopifyAddress = {
+  name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  province?: string | null;
+  country?: string | null;
+  zip?: string | null;
+  phone?: string | null;
+} | null | undefined;
+
+function formatAddressHtml(addr: ShopifyAddress): string | null {
+  if (!addr) return null;
+  const fullName = addr.name?.trim() || [addr.first_name, addr.last_name].filter(Boolean).join(" ").trim();
+  const lines: string[] = [];
+  if (fullName) lines.push(fullName);
+  if (addr.address1) lines.push(addr.address1);
+  if (addr.address2) lines.push(addr.address2);
+  const cityLine = [addr.city, addr.province, addr.zip].filter(Boolean).join(", ");
+  if (cityLine) lines.push(cityLine);
+  if (addr.country) lines.push(addr.country);
+  if (addr.phone) lines.push(addr.phone);
+  return lines.length > 0 ? lines.join("<br>") : null;
+}
+
 async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     method: "POST",
@@ -524,6 +551,9 @@ export async function syncOrderToERPNext(
     (shopifyData.discount_codes as Array<{ code: string }> | undefined)?.[0]?.code?.trim() ||
     "SHOPIFY";
 
+  const billingAddressHtml = formatAddressHtml(shopifyData.billing_address);
+  const shippingAddressHtml = formatAddressHtml(shopifyData.shipping_address);
+
   const siBody = {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
@@ -535,6 +565,8 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     custom_merchant_coupon_code: shopifyCouponCode,
+    ...(billingAddressHtml ? { address_display: billingAddressHtml } : {}),
+    ...(shippingAddressHtml ? { shipping_address: shippingAddressHtml } : {}),
     ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
     ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
