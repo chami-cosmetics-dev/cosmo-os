@@ -12,7 +12,7 @@ import {
 } from "@/components/organisms/fulfillment-order-selector";
 import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 
-type QueueMode = "normal" | "rearrange" | "bulk";
+type QueueMode = "normal" | "rearrange";
 
 export function DispatchFulfillmentPage({
   permissions,
@@ -36,6 +36,10 @@ export function DispatchFulfillmentPage({
   return (
     <FulfillmentPermissionsProvider permissions={permissions}>
       <div className="space-y-4">
+        {/* Bulk dispatch — inline, always visible */}
+        <FulfillmentBulkDispatch onRefresh={() => handleRefresh()} />
+
+        {/* Single-order dispatch queue */}
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -51,43 +55,31 @@ export function DispatchFulfillmentPage({
           >
             Rearrange Orders
           </Button>
-          <Button
-            type="button"
-            variant={queueMode === "bulk" ? "default" : "outline"}
-            onClick={() => switchQueueMode("bulk")}
-          >
-            Bulk Dispatch
-          </Button>
         </div>
-
-        {queueMode === "bulk" ? (
-          <FulfillmentBulkDispatch onRefresh={() => handleRefresh()} />
-        ) : (
-          <FulfillmentOrderSelector
-            title={queueMode === "rearrange" ? "Rearrange Orders" : "Ready to Dispatch & Dispatch"}
-            description={
-              queueMode === "rearrange"
-                ? "Returned orders that are ready to dispatch again after sales action."
-                : "Select an order to put on hold, mark ready, or dispatch via rider or courier."
-            }
-            stages="print,ready_to_dispatch"
-            selectedOrderId={selectedOrder?.id ?? null}
-            onSelectOrder={setSelectedOrder}
-            refreshTrigger={refreshTrigger}
-            currentStage="ready_to_dispatch"
-            returnFilter={queueMode === "rearrange" ? "rearrange" : "normal"}
-            showHoldStatus
-            showInvoiceDetails={false}
-            worksheetMode
-            showEmptyWorksheet
-          >
-            <FulfillmentDispatchPanel
-              orderId={selectedOrder?.id ?? null}
-              order={selectedOrder}
-              onRefresh={handleRefresh}
-            />
-          </FulfillmentOrderSelector>
-        )}
+        <FulfillmentOrderSelector
+          title={queueMode === "rearrange" ? "Rearrange Orders" : "Ready to Dispatch & Dispatch"}
+          description={
+            queueMode === "rearrange"
+              ? "Returned orders that are ready to dispatch again after sales action."
+              : "Select an order to put on hold, mark ready, or dispatch via rider or courier."
+          }
+          stages="print,ready_to_dispatch"
+          selectedOrderId={selectedOrder?.id ?? null}
+          onSelectOrder={setSelectedOrder}
+          refreshTrigger={refreshTrigger}
+          currentStage="ready_to_dispatch"
+          returnFilter={queueMode === "rearrange" ? "rearrange" : "normal"}
+          showHoldStatus
+          showInvoiceDetails={false}
+          worksheetMode
+          showEmptyWorksheet
+        >
+          <FulfillmentDispatchPanel
+            orderId={selectedOrder?.id ?? null}
+            order={selectedOrder}
+            onRefresh={handleRefresh}
+          />
+        </FulfillmentOrderSelector>
       </div>
     </FulfillmentPermissionsProvider>
   );
