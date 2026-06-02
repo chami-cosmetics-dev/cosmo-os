@@ -13,7 +13,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   outstanding_amount: z.number().optional().nullable(),
   set_warehouse: z.string().optional().nullable(),
   is_pos: z.number().optional().nullable(),
-  payment_type: z.string().optional().nullable(),
+  payment_type: z.string().optional().nullable().default(null),
   owner: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   contact_mobile: z.string().optional().nullable(),
