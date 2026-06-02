@@ -6,6 +6,8 @@ import { requireAnyPermission } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// ── address helpers ──────────────────────────────────────────────────────────
+
 type ShopifyAddress = {
   name?: string | null;
   first_name?: string | null;
@@ -35,6 +37,48 @@ function formatAddressHtml(addr: ShopifyAddress): string | null {
   return lines.length > 0 ? lines.join("<br>") : null;
 }
 
+function parseErpAddressHtml(html: string | null | undefined, customerName: string): object | null {
+  if (!html?.trim()) return null;
+  const lines = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const addrLines =
+    lines[0]?.toLowerCase() === customerName.toLowerCase() ? lines.slice(1) : lines;
+  if (addrLines.length === 0) return null;
+  return {
+    name: customerName,
+    address1: addrLines[0] ?? null,
+    address2: addrLines.length > 2 ? addrLines[1] : null,
+    city: addrLines.length > 1 ? addrLines[addrLines.length - 2] : null,
+    country: addrLines.length > 1 ? addrLines[addrLines.length - 1] : null,
+  };
+}
+
+// ── ERP API helpers ──────────────────────────────────────────────────────────
+
+function erpAuth(apiKey: string, apiSecret: string) {
+  return `token ${apiKey}:${apiSecret}`;
+}
+
+async function fetchErpInvoiceAddress(
+  baseUrl: string,
+  apiKey: string,
+  apiSecret: string,
+  invoiceName: string,
+): Promise<{ address_display?: string | null; shipping_address?: string | null; customer?: string } | null> {
+  const fields = encodeURIComponent(JSON.stringify(["address_display", "shipping_address", "customer"]));
+  const res = await fetch(
+    `${baseUrl}/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${fields}`,
+    { headers: { Authorization: erpAuth(apiKey, apiSecret) } },
+  );
+  if (!res.ok) return null;
+  const json = (await res.json()) as { data?: { address_display?: string; shipping_address?: string; customer?: string } };
+  return json.data ?? null;
+}
+
 async function setErpInvoiceAddress(
   baseUrl: string,
   apiKey: string,
@@ -43,16 +87,11 @@ async function setErpInvoiceAddress(
   addressDisplay: string | null,
   shippingAddress: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const authHeader = `token ${apiKey}:${apiSecret}`;
-
-  // Update both fields via frappe.client.set_value (works on submitted docs)
   const updates: Record<string, string> = {};
   if (addressDisplay) updates.address_display = addressDisplay;
   if (shippingAddress) updates.shipping_address = shippingAddress;
-
   if (Object.keys(updates).length === 0) return { ok: true };
 
-  // frappe.client.set_value accepts fieldname as a JSON-encoded dict for multi-field updates
   const formBody = new URLSearchParams({
     doctype: "Sales Invoice",
     name: invoiceName,
@@ -64,7 +103,7 @@ async function setErpInvoiceAddress(
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: authHeader,
+      Authorization: erpAuth(apiKey, apiSecret),
     },
     body: formBody.toString(),
   });
@@ -73,9 +112,10 @@ async function setErpInvoiceAddress(
     const text = await res.text().catch(() => "");
     return { ok: false, error: `${res.status}: ${text.slice(0, 200)}` };
   }
-
   return { ok: true };
 }
+
+// ── route ────────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const auth = await requireAnyPermission(["orders.manage"]);
@@ -92,14 +132,16 @@ export async function POST(request: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "50", 10), 200);
   const offset = parseInt(searchParams.get("offset") ?? "0", 10);
   const dryRun = searchParams.get("dry_run") === "1";
+  // mode=shopify (default): patch ERP invoices created from Shopify orders
+  // mode=erp: patch Vault OS shippingAddress for ERP-originated orders
+  const mode = searchParams.get("mode") === "erp" ? "erp" : "shopify";
 
   const eligibleWhere = {
     companyId,
     erpnextInvoiceId: { not: null as string | null },
-    sourceName: { in: ["web", "manual"] },
+    sourceName: { in: mode === "erp" ? ["erpnext"] : ["web", "manual"] },
   };
 
-  // Only Shopify-originated orders that have been synced to ERP
   const orders = await prisma.order.findMany({
     where: eligibleWhere,
     select: {
@@ -117,7 +159,6 @@ export async function POST(request: NextRequest) {
 
   const totalEligible = await prisma.order.count({ where: eligibleWhere });
 
-  // Fetch ERP instance credentials per unique location
   const locationIds = [...new Set(orders.map((o) => o.companyLocationId))];
   const locations = await prisma.companyLocation.findMany({
     where: { id: { in: locationIds } },
@@ -142,61 +183,81 @@ export async function POST(request: NextRequest) {
 
   for (const order of orders) {
     const invoiceId = order.erpnextInvoiceId!;
-
     const instance = locationMap.get(order.companyLocationId)?.erpnextInstance;
     const baseUrl = (instance?.baseUrl ?? baseUrlEnv).replace(/\/$/, "");
     const apiKey = instance?.apiKey ?? apiKeyEnv;
     const apiSecret = instance?.apiSecret ?? apiSecretEnv;
 
     if (!baseUrl || !apiKey || !apiSecret) {
+      results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "No ERP credentials" });
+      continue;
+    }
+
+    if (mode === "erp") {
+      // ── ERP mode: fetch address from ERP, store in Vault OS shippingAddress ──
+      if (dryRun) {
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "dry_run", detail: "Would fetch address from ERP and update Vault OS shippingAddress" });
+        continue;
+      }
+
+      const erpData = await fetchErpInvoiceAddress(baseUrl, apiKey, apiSecret, invoiceId);
+      if (!erpData) {
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "error", detail: "Invoice not found in ERP" });
+        continue;
+      }
+
+      const customerName = erpData.customer ?? order.name ?? invoiceId;
+      const parsed = parseErpAddressHtml(
+        erpData.shipping_address ?? erpData.address_display,
+        customerName,
+      );
+
+      if (!parsed) {
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "No address on ERP invoice" });
+        continue;
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { shippingAddress: parsed },
+      });
+
+      results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "updated" });
+
+    } else {
+      // ── Shopify mode: read address from rawPayload, patch ERP invoice ──
+      const payload = order.rawPayload as Record<string, unknown> | null;
+      const billingAddr = payload?.billing_address as ShopifyAddress;
+      const shippingAddr = payload?.shipping_address as ShopifyAddress;
+
+      const addressDisplay = formatAddressHtml(billingAddr);
+      const shippingAddress = formatAddressHtml(shippingAddr);
+
+      if (!addressDisplay && !shippingAddress) {
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "No address in rawPayload" });
+        continue;
+      }
+
+      if (dryRun) {
+        results.push({
+          orderId: order.id,
+          orderName: order.name,
+          invoiceId,
+          status: "dry_run",
+          detail: `Would patch ERP: address_display="${addressDisplay?.slice(0, 60)}…"`,
+        });
+        continue;
+      }
+
+      const result = await setErpInvoiceAddress(baseUrl, apiKey, apiSecret, invoiceId, addressDisplay, shippingAddress);
       results.push({
         orderId: order.id,
         orderName: order.name,
         invoiceId,
-        status: "skipped",
-        detail: "No ERP credentials configured for this location",
+        status: result.ok ? "updated" : "error",
+        detail: result.error,
       });
-      continue;
     }
-
-    const payload = order.rawPayload as Record<string, unknown> | null;
-    const billingAddr = payload?.billing_address as ShopifyAddress;
-    const shippingAddr = payload?.shipping_address as ShopifyAddress;
-
-    const addressDisplay = formatAddressHtml(billingAddr);
-    const shippingAddress = formatAddressHtml(shippingAddr);
-
-    if (!addressDisplay && !shippingAddress) {
-      results.push({
-        orderId: order.id,
-        orderName: order.name,
-        invoiceId,
-        status: "skipped",
-        detail: "No address found in rawPayload",
-      });
-      continue;
-    }
-
-    if (dryRun) {
-      results.push({
-        orderId: order.id,
-        orderName: order.name,
-        invoiceId,
-        status: "dry_run",
-        detail: `Would set: address_display="${addressDisplay?.slice(0, 60)}…" shipping_address="${shippingAddress?.slice(0, 60)}…"`,
-      });
-      continue;
-    }
-
-    const result = await setErpInvoiceAddress(baseUrl, apiKey, apiSecret, invoiceId, addressDisplay, shippingAddress);
-
-    results.push({
-      orderId: order.id,
-      orderName: order.name,
-      invoiceId,
-      status: result.ok ? "updated" : "error",
-      detail: result.error,
-    });
   }
 
   const updated = results.filter((r) => r.status === "updated").length;
@@ -205,6 +266,7 @@ export async function POST(request: NextRequest) {
   const dryRunCount = results.filter((r) => r.status === "dry_run").length;
 
   return NextResponse.json({
+    mode,
     dryRun,
     totalEligible,
     processed: orders.length,
