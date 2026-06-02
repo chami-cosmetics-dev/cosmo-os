@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { FileSpreadsheet, Package, PackageCheck, PackageSearch, Printer, Truck } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, Package, PackageCheck, PackageSearch, Printer, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FulfillmentNavPermissions } from "@/lib/fulfillment-permissions";
 
@@ -48,6 +48,12 @@ const NAV_ITEMS: Array<{
     label: "Falcon Upload",
     icon: FileSpreadsheet,
     permissionKey: "canViewFalconUpload",
+  },
+  {
+    href: "/dashboard/fulfillment/dispatch-summary",
+    label: "Dispatch Summary",
+    icon: ClipboardList,
+    permissionKey: "canViewReadyDispatch",
   },
 ];
 
