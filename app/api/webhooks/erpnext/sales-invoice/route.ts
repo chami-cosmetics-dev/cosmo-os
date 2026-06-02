@@ -194,6 +194,14 @@ export async function POST(request: NextRequest) {
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
     : [];
 
+  // Resolve payment gateway: POS uses payments[] array; non-POS uses payment_type field
+  const resolvedPaymentMethods =
+    posPaymentMethods.length > 0
+      ? posPaymentMethods
+      : data.payment_type?.trim()
+        ? [data.payment_type.trim()]
+        : [];
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -211,9 +219,9 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
-      ...(posPaymentMethods.length > 0 ? {
-        paymentGatewayNames: posPaymentMethods,
-        paymentGatewayPrimary: posPaymentMethods[0],
+      ...(resolvedPaymentMethods.length > 0 ? {
+        paymentGatewayNames: resolvedPaymentMethods,
+        paymentGatewayPrimary: resolvedPaymentMethods[0],
       } : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
@@ -225,9 +233,9 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: { name: data.customer },
       rawPayload: rawPayload as object,
-      ...(posPaymentMethods.length > 0 ? {
-        paymentGatewayNames: posPaymentMethods,
-        paymentGatewayPrimary: posPaymentMethods[0],
+      ...(resolvedPaymentMethods.length > 0 ? {
+        paymentGatewayNames: resolvedPaymentMethods,
+        paymentGatewayPrimary: resolvedPaymentMethods[0],
       } : {}),
     },
     select: { id: true, name: true },
