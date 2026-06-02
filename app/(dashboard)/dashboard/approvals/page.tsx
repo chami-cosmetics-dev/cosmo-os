@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { FinanceApprovalsPanel, type FinanceApprovalItem } from "@/components/organisms/finance-approvals-panel";
-import { RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 async function fetchInitialApprovals(companyId: string): Promise<FinanceApprovalItem[]> {
   const rows = await prisma.$queryRaw<Array<{
     id: string;
+    type: string;
     status: string;
     requestNote: string | null;
     reviewNote: string | null;
@@ -29,6 +30,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
     Prisma.sql`
       SELECT
         ar."id",
+        ar."type",
         ar."status",
         ar."requestNote",
         ar."reviewNote",
@@ -47,7 +49,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
       LEFT JOIN "User" req ON req."id" = ar."requestedById"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       WHERE ar."companyId" = ${companyId}
-        AND ar."type" = ${RETURN_REARRANGE_PAYMENT_APPROVAL}
+        AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL})
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC

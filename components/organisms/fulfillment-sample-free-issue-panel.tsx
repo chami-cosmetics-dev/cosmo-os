@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
@@ -387,6 +387,14 @@ export function FulfillmentSampleFreeIssuePanel({
   });
   const paymentMethod = paymentMethodInfo.label;
   const isCodOrder = paymentMethodInfo.variant === "cod";
+
+  const requiresFinanceApproval = useMemo(() => {
+    const gateways = [
+      detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
+      ...(detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? []),
+    ].map((g) => g?.toLowerCase().trim() ?? "").filter(Boolean);
+    return gateways.some((g) => g.includes("koko") || g.includes("bank"));
+  }, [detail, order]);
 
   async function handleConfirmBankTransfer() {
     if (!orderId) return;
@@ -811,6 +819,19 @@ export function FulfillmentSampleFreeIssuePanel({
           </div>
         )}
         </div>
+
+        {requiresFinanceApproval && orderId && (
+          <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+            <div>
+              <p className="font-medium text-amber-800 dark:text-amber-400">Finance approval required</p>
+              <p className="text-amber-700 dark:text-amber-500">
+                This order uses {paymentMethod} which requires finance team approval before it can proceed to print.
+                An approval request has been sent automatically when samples were added.
+              </p>
+            </div>
+          </div>
+        )}
 
         {lookups && perms.canManageSampleFreeIssue && (
             <div className="flex justify-end">
