@@ -291,7 +291,7 @@ export function FulfillmentDispatchPanel({
           )}
 
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-3">
-            {isPackageReady && perms.canDispatch ? (
+            {perms.canDispatch ? (
               <>
                 <select
                   value={dispatchService}
@@ -327,17 +327,18 @@ export function FulfillmentDispatchPanel({
                       courierServiceId: selectedDispatchService?.type === "courier" ? selectedDispatchService.id : undefined,
                     })
                   }
-                  disabled={!orderId || isBusy || !selectedDispatchService?.id}
+                  disabled={!orderId || isBusy || !selectedDispatchService?.id || !isPackageReady}
                   className="gap-2"
                 >
                   {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
                   Dispatch
                 </Button>
+                {orderId && !isPackageReady && (
+                  <p className="text-xs text-muted-foreground">Mark package ready first</p>
+                )}
               </>
             ) : (
-              <p className="text-muted-foreground text-sm">
-                {isPackageReady ? "You do not have permission to dispatch orders." : "Mark package ready before dispatch."}
-              </p>
+              <p className="text-muted-foreground text-sm">You do not have permission to dispatch orders.</p>
             )}
           </div>
         </div>
