@@ -229,6 +229,8 @@ export async function POST(request: NextRequest) {
       totalPrice: grandTotal,
       financialStatus,
       erpnextInvoiceId: data.name,
+      sourceName: isPOS ? "erpnext-pos" : "erpnext",
+      ...(isPOS ? { fulfillmentStage: "delivery_complete" } : {}),
       customerEmail,
       customerPhone,
       shippingAddress: { name: data.customer },
