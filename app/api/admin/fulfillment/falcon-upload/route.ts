@@ -96,11 +96,7 @@ async function getCitypakWaybillRows(
     },
   });
 
-  const citypakOrders = orders.filter((order) =>
-    isCitypakCourier(order.dispatchedByCourierService?.name)
-  );
-
-  const waybillRows: FalconWaybillRow[] = citypakOrders.map((order) => {
+  const allRows: (FalconWaybillRow & { courierName: string })[] = orders.map((order) => {
     const shippingAddress = order.shippingAddress;
     const reference = getOrderReference(order);
     const locationName =
@@ -131,9 +127,11 @@ async function getCitypakWaybillRows(
       waybillNo: "",
       barcode: getFirstBarcode(order.lineItems),
       customerNote: "",
+      courierName: order.dispatchedByCourierService?.name ?? "",
     };
   });
 
+  const waybillRows = allRows.filter((row) => isCitypakCourier(row.courierName));
   return waybillRows;
 }
 
@@ -162,6 +160,7 @@ export async function GET(request: NextRequest) {
       amount: row.amount,
       locationPrefix: /^(\d{3})/.exec(row.reference)?.[1] ?? "unknown",
       itemName: row.itemName,
+      courierName: row.courierName,
     })),
   });
 }

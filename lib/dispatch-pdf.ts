@@ -1,22 +1,29 @@
-import type { Readable } from "stream";
-
 /* eslint-disable @typescript-eslint/no-require-imports */
-const vfsFonts = require("pdfmake/build/vfs_fonts") as {
-  pdfMake: { vfs: Record<string, string> };
+const pdfMake = require("pdfmake") as {
+  virtualfs: { writeFileSync(filename: string, content: Buffer): void };
+  addFonts(fonts: Record<string, Record<string, string>>): void;
+  setUrlAccessPolicy(fn: (url: string) => boolean): void;
+  setLocalAccessPolicy(fn: (path: string) => boolean): void;
+  createPdf(docDef: unknown): { getBuffer(): Promise<Buffer> };
 };
-const PdfPrinterCtor = require("pdfmake") as new (fonts: unknown) => {
-  createPdfKitDocument: (def: unknown) => Readable & { end(): void };
-};
+const vfsFonts = require("pdfmake/build/vfs_fonts") as Record<string, string>;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-const fonts = {
+// One-time setup: register fonts in the virtual FS
+for (const [key, val] of Object.entries(vfsFonts)) {
+  pdfMake.virtualfs.writeFileSync(key, Buffer.from(val, "base64"));
+}
+pdfMake.addFonts({
   Roboto: {
-    normal: Buffer.from(vfsFonts.pdfMake.vfs["Roboto-Regular.ttf"], "base64"),
-    bold: Buffer.from(vfsFonts.pdfMake.vfs["Roboto-Medium.ttf"], "base64"),
-    italics: Buffer.from(vfsFonts.pdfMake.vfs["Roboto-Italic.ttf"], "base64"),
-    bolditalics: Buffer.from(vfsFonts.pdfMake.vfs["Roboto-MediumItalic.ttf"], "base64"),
+    normal: "Roboto-Regular.ttf",
+    bold: "Roboto-Medium.ttf",
+    italics: "Roboto-Italic.ttf",
+    bolditalics: "Roboto-MediumItalic.ttf",
   },
-};
+});
+// Block external URL and local FS access — we only use virtual FS fonts
+pdfMake.setUrlAccessPolicy(() => false);
+pdfMake.setLocalAccessPolicy(() => false);
 
 export type DispatchGroupForPdf = {
   dispatcherName: string;
@@ -159,13 +166,5 @@ export async function generateDispatchGroupPdf(
     defaultStyle: { font: "Roboto" },
   };
 
-  return new Promise((resolve, reject) => {
-    const printer = new PdfPrinterCtor(fonts);
-    const doc = printer.createPdfKitDocument(docDef);
-    const chunks: Buffer[] = [];
-    doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
-    doc.end();
-  });
+  return pdfMake.createPdf(docDef).getBuffer();
 }

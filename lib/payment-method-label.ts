@@ -18,8 +18,10 @@ export function getPaymentMethodInfo(input?: {
     .filter((g): g is string => Boolean(g));
 
   const primary = gateways[0];
-  const normalized = primary?.toLowerCase().replace(/[_\-\s]+/g, " ") ?? "";
+  const normalized = primary?.toLowerCase().replace(/[_\-\s]+/g, " ").trim() ?? "";
   const financialNorm = input?.financialStatus?.toLowerCase().trim() ?? "";
+  // Treat ERPNext's literal "None" as no payment method
+  if (normalized === "none") return financialNorm === "paid" ? { label: "Paid", variant: "paid" } : { label: "—", variant: "other" };
 
   if (normalized === "bank transfer" || normalized.includes("bank")) {
     return { label: "Bank Transfer", variant: "bank" };
