@@ -179,6 +179,28 @@ export async function POST(request: NextRequest) {
   const customerEmail = data.contact_email?.trim() || null;
   const customerPhone = data.contact_mobile?.trim() || null;
 
+  function parseErpAddress(html: string | null | undefined, customerName: string): object {
+    if (!html?.trim()) return { name: customerName };
+    // Strip HTML tags, split on <br> variants into lines
+    const lines = html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    // Skip leading line if it's the customer name (ERP sometimes prepends it)
+    const addrLines = lines[0]?.toLowerCase() === customerName.toLowerCase() ? lines.slice(1) : lines;
+    return {
+      name: customerName,
+      address1: addrLines[0] ?? null,
+      address2: addrLines.length > 2 ? addrLines[1] : null,
+      city: addrLines.length > 1 ? addrLines[addrLines.length - 2] : null,
+      country: addrLines.length > 1 ? addrLines[addrLines.length - 1] : null,
+    };
+  }
+
+  const shippingAddressObj = parseErpAddress(data.shipping_address ?? data.address_display, data.customer);
+
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
   // Fall back to location default merchant
   let assignedMerchantId: string | undefined = location.defaultMerchantUserId ?? undefined;
@@ -217,7 +239,7 @@ export async function POST(request: NextRequest) {
       fulfillmentStage: isPOS ? "delivery_complete" : "order_received",
       customerEmail,
       customerPhone,
-      shippingAddress: { name: data.customer },
+      shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
       ...(resolvedPaymentMethods.length > 0 ? {
         paymentGatewayNames: resolvedPaymentMethods,
@@ -233,7 +255,7 @@ export async function POST(request: NextRequest) {
       ...(isPOS ? { fulfillmentStage: "delivery_complete" } : {}),
       customerEmail,
       customerPhone,
-      shippingAddress: { name: data.customer },
+      shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
       ...(resolvedPaymentMethods.length > 0 ? {
         paymentGatewayNames: resolvedPaymentMethods,
