@@ -14,6 +14,11 @@ import {
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
 import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
+import {
+  createOrGetOrderPaymentApproval,
+  getOrderPaymentApproval,
+  isOrderPaymentRequiresApproval,
+} from "@/lib/approval-workflow";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -319,6 +324,21 @@ export async function PATCH(
         });
       }
 
+      // Auto-submit finance approval for KOKO / bank transfer orders
+      if (isOrderPaymentRequiresApproval(order)) {
+        const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id;
+        const paymentType = order.paymentGatewayPrimary ?? "payment";
+        const amount = order.totalPrice.toString();
+        await createOrGetOrderPaymentApproval({
+          companyId,
+          orderId: order.id,
+          requestedById: auth.context!.user!.id,
+          invoiceLabel,
+          paymentType,
+          amount,
+        });
+      }
+
       await logOrderFulfillmentAudit({
         companyId,
         actorUserId: auth.context!.user!.id,
@@ -339,6 +359,24 @@ export async function PATCH(
           { status: 400 }
         );
       }
+
+      // Block KOKO / bank transfer orders until finance team approves
+      if (isOrderPaymentRequiresApproval(order)) {
+        const approval = await getOrderPaymentApproval(order.id);
+        if (!approval || approval.status === "pending") {
+          return NextResponse.json(
+            { error: "Finance approval is pending for this order. Please wait for the finance team to approve." },
+            { status: 409 }
+          );
+        }
+        if (approval.status === "rejected") {
+          return NextResponse.json(
+            { error: "Finance approval was rejected. Please contact the finance team." },
+            { status: 409 }
+          );
+        }
+      }
+
       await prisma.order.update({
         where: { id: order.id },
         data: {

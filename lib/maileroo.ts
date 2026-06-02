@@ -98,6 +98,64 @@ export async function sendInviteEmail(
   }
 }
 
+export async function sendFinanceApprovalEmail(
+  toEmails: string[],
+  invoiceLabel: string,
+  paymentType: string,
+  amount: string,
+): Promise<{ success: boolean; message?: string }> {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromEmail = process.env.MAILEROO_FROM_EMAIL;
+
+  if (!apiKey || !fromEmail) {
+    console.error("MAILEROO_API_KEY or MAILEROO_FROM_EMAIL is not configured");
+    return { success: false, message: "Email service not configured" };
+  }
+
+  const validEmails = toEmails.map((e) => e.trim().toLowerCase()).filter((e) => e && e.includes("@"));
+  if (validEmails.length === 0) return { success: false, message: "No valid recipients" };
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333;">
+  <h2 style="color: #1a1a1a;">Finance Approval Required</h2>
+  <p>A new order requires your finance approval before it can proceed to fulfillment.</p>
+  <table style="border-collapse: collapse; width: 100%; margin: 16px 0;">
+    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f9f9f9;">Invoice</td><td style="padding: 8px; border: 1px solid #ddd;">${invoiceLabel}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f9f9f9;">Payment Type</td><td style="padding: 8px; border: 1px solid #ddd;">${paymentType}</td></tr>
+    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold; background: #f9f9f9;">Amount</td><td style="padding: 8px; border: 1px solid #ddd;">${amount}</td></tr>
+  </table>
+  <p>Please log in to ${APP_NAME} and visit <strong>Finance Approvals</strong> to review this request.</p>
+</body>
+</html>`.trim();
+
+  const plain = `Finance Approval Required\n\nInvoice: ${invoiceLabel}\nPayment Type: ${paymentType}\nAmount: ${amount}\n\nPlease log in to ${APP_NAME} and visit Finance Approvals to review this request.`;
+
+  try {
+    const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
+      body: JSON.stringify({
+        from: { address: fromEmail, display_name: APP_NAME },
+        to: validEmails.map((address) => ({ address })),
+        subject: `Finance Approval Required — ${invoiceLabel}`,
+        html,
+        plain,
+      }),
+    });
+    const { raw, data } = await readMailerooResponse(response);
+    if (!response.ok) {
+      console.error("Maileroo finance approval email error:", { status: response.status, body: data ?? raw });
+      return { success: false, message: data?.message ?? `Maileroo error (${response.status})` };
+    }
+    return { success: data?.success ?? true };
+  } catch (error) {
+    console.error("Failed to send finance approval email:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Failed to send email" };
+  }
+}
+
 export type ResignationStaffData = {
   staffName: string;
   resignationDate: string;
