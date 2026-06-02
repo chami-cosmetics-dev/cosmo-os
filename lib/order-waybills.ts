@@ -96,6 +96,7 @@ export async function findOrderWaybillsByInvoice(
           o."name" IN (${Prisma.join(candidates)})
           OR o."orderNumber" IN (${Prisma.join(candidates)})
           OR o."shopifyOrderId" IN (${Prisma.join(candidates)})
+          OR o."erpnextInvoiceId" IN (${Prisma.join(candidates)})
         )
       ORDER BY o."createdAt" DESC
       LIMIT 1
