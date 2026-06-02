@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { notifyApprovalRequester } from "@/lib/approval-workflow";
+import { ORDER_PAYMENT_APPROVAL, notifyApprovalRequester } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -41,6 +41,7 @@ export async function PATCH(
   const { id } = await params;
   const rows = await prisma.$queryRaw<Array<{
     id: string;
+    type: string;
     status: string;
     orderId: string | null;
     orderReturnId: string | null;
@@ -52,6 +53,7 @@ export async function PATCH(
     Prisma.sql`
       SELECT
         ar."id",
+        ar."type",
         ar."status",
         ar."orderId",
         ar."orderReturnId",
@@ -73,8 +75,12 @@ export async function PATCH(
   if (approval.status !== "pending") {
     return NextResponse.json({ error: "Approval request is already reviewed" }, { status: 400 });
   }
-  if (!approval.orderId || !approval.orderReturnId) {
-    return NextResponse.json({ error: "Approval request is missing linked order data" }, { status: 400 });
+  if (!approval.orderId) {
+    return NextResponse.json({ error: "Approval request is missing linked order" }, { status: 400 });
+  }
+  // Return rearrange approvals also require an orderReturn link
+  if (approval.type !== ORDER_PAYMENT_APPROVAL && !approval.orderReturnId) {
+    return NextResponse.json({ error: "Approval request is missing linked order return" }, { status: 400 });
   }
 
   const now = new Date();
@@ -95,34 +101,44 @@ export async function PATCH(
     );
 
     if (nextStatus === "approved") {
-      await tx.order.update({
-        where: { id: approval.orderId! },
-        data: {
-          financialStatus: "paid",
-          paymentGatewayNames: ["bank_transfer"],
-          paymentGatewayPrimary: "bank_transfer",
-          fulfillmentStage: "ready_to_dispatch",
-          fulfillmentStatus: "unfulfilled",
-          packageReadyAt: now,
-          packageReadyById: reviewerId,
-          packageOnHoldAt: null,
-          packageHoldReasonId: null,
-          deliveryOutcome: "pending",
-          deliveryFailedReason: null,
-        },
-      });
-      await tx.orderReturn.update({
-        where: { id: approval.orderReturnId! },
-        data: {
-          actionStatus: "solved",
-          actionType: "rearrange",
-          actionDate: now,
-          actionById: reviewerId,
-          actionRemark: parsed.data.reviewNote
-            ? `Finance approved bank transfer.\n${parsed.data.reviewNote}`
-            : "Finance approved bank transfer.",
-        },
-      });
+      if (approval.type === ORDER_PAYMENT_APPROVAL) {
+        // Order payment approval: just mark financial status paid.
+        // Fulfillment stage stays at sample_free_issue — merchant advances to print manually.
+        await tx.order.update({
+          where: { id: approval.orderId! },
+          data: { financialStatus: "paid" },
+        });
+      } else {
+        // Return rearrange approval: force to ready_to_dispatch + resolve the return
+        await tx.order.update({
+          where: { id: approval.orderId! },
+          data: {
+            financialStatus: "paid",
+            paymentGatewayNames: ["bank_transfer"],
+            paymentGatewayPrimary: "bank_transfer",
+            fulfillmentStage: "ready_to_dispatch",
+            fulfillmentStatus: "unfulfilled",
+            packageReadyAt: now,
+            packageReadyById: reviewerId,
+            packageOnHoldAt: null,
+            packageHoldReasonId: null,
+            deliveryOutcome: "pending",
+            deliveryFailedReason: null,
+          },
+        });
+        await tx.orderReturn.update({
+          where: { id: approval.orderReturnId! },
+          data: {
+            actionStatus: "solved",
+            actionType: "rearrange",
+            actionDate: now,
+            actionById: reviewerId,
+            actionRemark: parsed.data.reviewNote
+              ? `Finance approved bank transfer.\n${parsed.data.reviewNote}`
+              : "Finance approved bank transfer.",
+          },
+        });
+      }
     }
 
     await tx.$executeRaw(

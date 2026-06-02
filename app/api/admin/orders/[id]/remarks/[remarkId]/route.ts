@@ -46,6 +46,8 @@ export async function PATCH(
   const auth = await requireAnyPermission([
     "orders.manage",
     "fulfillment.remarks.manage",
+    "fulfillment.sample_free_issue.manage_remarks",
+    "fulfillment.ready_dispatch.manage_remarks",
   ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -127,6 +129,8 @@ export async function DELETE(
   const auth = await requireAnyPermission([
     "orders.manage",
     "fulfillment.remarks.manage",
+    "fulfillment.sample_free_issue.manage_remarks",
+    "fulfillment.ready_dispatch.manage_remarks",
   ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

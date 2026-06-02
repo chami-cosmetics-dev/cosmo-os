@@ -1,6 +1,7 @@
 import type { Order, CompanyLocation, ErpnextInstance } from "@prisma/client";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import { prisma } from "@/lib/prisma";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 
 export type LocationWithErpInstance = CompanyLocation & {
   erpnextInstance: ErpnextInstance | null;
@@ -86,17 +87,19 @@ async function ensureCustomer(
   const byName = await erpnextGet<{ name: string }>(cfg, `/api/resource/Customer/${encoded}`);
   if (byName) return byName.name;
 
-  // 2. Phone match — prevents duplicates when name is slightly different
+  // 2. Phone match — prevents duplicates when name or format is slightly different
   if (phone) {
-    const normalizedPhone = phone.trim().slice(0, 20);
-    const phoneFilter = encodeURIComponent(JSON.stringify([["mobile_no", "=", normalizedPhone]]));
-    const byPhone = await erpnextGet<Array<{ name: string }>>(
-      cfg,
-      `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name"]))}&limit=1`,
-    );
-    if (byPhone && byPhone.length > 0) {
-      console.log(`[ERPNext] Found existing customer by phone "${normalizedPhone}" → "${byPhone[0].name}" (incoming name: "${customerName}")`);
-      return byPhone[0].name;
+    const phoneVariants = buildPhoneLookupVariants(phone.trim()).slice(0, 20).map((v) => v.slice(0, 20));
+    if (phoneVariants.length > 0) {
+      const phoneFilter = encodeURIComponent(JSON.stringify([["mobile_no", "in", phoneVariants]]));
+      const byPhone = await erpnextGet<Array<{ name: string }>>(
+        cfg,
+        `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name"]))}&limit=1`,
+      );
+      if (byPhone && byPhone.length > 0) {
+        console.log(`[ERPNext] Found existing customer by phone (variants) → "${byPhone[0].name}" (incoming name: "${customerName}")`);
+        return byPhone[0].name;
+      }
     }
   }
 

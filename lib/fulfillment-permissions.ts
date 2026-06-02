@@ -107,7 +107,10 @@ export function buildFulfillmentPermissions(
     canDispatch: hasPermission(context, "fulfillment.ready_dispatch.dispatch"),
     canMarkDelivered: hasPermission(context, "fulfillment.delivery_invoice.mark_delivered"),
     canMarkInvoiceComplete: hasPermission(context, "fulfillment.delivery_invoice.mark_complete"),
-    canManageRemarks: hasPermission(context, "fulfillment.remarks.manage"),
+    canManageRemarks:
+      hasPermission(context, "fulfillment.remarks.manage") ||
+      hasPermission(context, "fulfillment.sample_free_issue.manage_remarks") ||
+      hasPermission(context, "fulfillment.ready_dispatch.manage_remarks"),
     canResendRiderSms: hasPermission(context, "orders.manage"),
     canChangePaymentMethod: hasPermission(context, "orders.update_payment_method"),
   };

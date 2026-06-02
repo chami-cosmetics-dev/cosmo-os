@@ -10,6 +10,7 @@ import { notify } from "@/lib/notify";
 
 export type FinanceApprovalItem = {
   id: string;
+  type: string;
   status: string;
   invoiceNo: string | null;
   totalPrice: string | null;
@@ -24,6 +25,12 @@ export type FinanceApprovalItem = {
   reviewedByName: string | null;
   reviewedByEmail: string | null;
 };
+
+function typeLabel(type: string) {
+  if (type === "order_payment_approval") return "Order Payment";
+  if (type === "return_rearrange_payment") return "Return Rearrange";
+  return type;
+}
 
 function formatDate(value: string | null) {
   if (!value) return "-";
@@ -98,7 +105,7 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Finance Approvals</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Review bank transfer approvals requested by stores before returned COD orders are rearranged.
+            Review payment approval requests for KOKO, bank transfer, and return rearrangement orders.
           </p>
         </div>
         <Button variant="outline" onClick={() => void refresh()} disabled={busy !== null} className="gap-2">
@@ -118,6 +125,7 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
                 <thead className="border-b bg-muted/35 text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-3 font-medium">Invoice</th>
+                    <th className="px-3 py-3 font-medium">Type</th>
                     <th className="px-3 py-3 font-medium">Amount</th>
                     <th className="px-3 py-3 font-medium">Customer</th>
                     <th className="px-3 py-3 font-medium">Requested By</th>
@@ -136,6 +144,7 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
                       }}
                     >
                       <td className="px-3 py-3 font-medium">{approval.invoiceNo ?? "-"}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{typeLabel(approval.type)}</td>
                       <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
                       <td className="px-3 py-3">{approval.customerPhone ?? approval.customerEmail ?? "-"}</td>
                       <td className="px-3 py-3">{approval.requestedByName ?? approval.requestedByEmail ?? "-"}</td>
@@ -187,7 +196,7 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
                     <div className="grid gap-2">
                       <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
                         {busy === "approve" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                        Approve Bank Transfer
+                        Approve — {typeLabel(selected.type)}
                       </Button>
                       <Button variant="outline" onClick={() => void review("reject")} disabled={busy !== null} className="gap-2">
                         {busy === "reject" ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
