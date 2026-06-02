@@ -217,11 +217,13 @@ export async function POST(request: NextRequest) {
     : [];
 
   // Resolve payment gateway: POS uses payments[] array; non-POS uses payment_type field
+  // Filter out ERPNext's literal "None" default value
+  const cleanPaymentType = data.payment_type?.trim();
   const resolvedPaymentMethods =
     posPaymentMethods.length > 0
       ? posPaymentMethods
-      : data.payment_type?.trim()
-        ? [data.payment_type.trim()]
+      : (cleanPaymentType && cleanPaymentType.toLowerCase() !== "none")
+        ? [cleanPaymentType]
         : [];
 
   const order = await prisma.order.upsert({

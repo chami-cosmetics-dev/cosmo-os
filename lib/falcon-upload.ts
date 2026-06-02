@@ -316,7 +316,7 @@ function u32(value: number) {
   return buffer;
 }
 
-function createZip(files: Array<{ name: string; content: string | Buffer }>) {
+export function createZip(files: Array<{ name: string; content: string | Buffer }>) {
   const now = dosDateTime(new Date());
   const localParts: Buffer[] = [];
   const centralParts: Buffer[] = [];

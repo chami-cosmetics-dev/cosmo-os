@@ -37,6 +37,7 @@ export function FalconUploadFulfillmentPage() {
       amount: string;
       locationPrefix: string;
       itemName: string;
+      courierName: string;
     }>;
     error: string | null;
   }>({ loading: true, totalRows: 0, groupCount: 0, groups: [], orders: [], error: null });
@@ -75,6 +76,7 @@ export function FalconUploadFulfillmentPage() {
             amount?: string;
             locationPrefix?: string;
             itemName?: string;
+            courierName?: string;
           }>;
           error?: string;
         } | null;
@@ -107,6 +109,7 @@ export function FalconUploadFulfillmentPage() {
               amount: order.amount ?? "",
               locationPrefix: order.locationPrefix ?? "unknown",
               itemName: order.itemName ?? "",
+              courierName: order.courierName ?? "",
             })),
           error: null,
         });
@@ -145,6 +148,7 @@ export function FalconUploadFulfillmentPage() {
         order.receiverContact,
         order.locationPrefix,
         order.itemName,
+        order.courierName,
       ]
         .join(" ")
         .toLowerCase()
@@ -323,6 +327,7 @@ export function FalconUploadFulfillmentPage() {
                 <tr className="border-b border-border/70">
                   <th className="w-12 px-3 py-2 text-left font-medium">Pick</th>
                   <th className="px-3 py-2 text-left font-medium">Order</th>
+                  <th className="px-3 py-2 text-left font-medium">Courier</th>
                   <th className="px-3 py-2 text-left font-medium">Prefix</th>
                   <th className="px-3 py-2 text-left font-medium">Receiver</th>
                   <th className="px-3 py-2 text-left font-medium">City</th>
@@ -359,6 +364,7 @@ export function FalconUploadFulfillmentPage() {
                       />
                     </td>
                     <td className="px-3 py-2 font-medium">{order.reference}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{order.courierName || "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground">{order.locationPrefix}</td>
                     <td className="px-3 py-2">{order.receiverName || "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground">{order.receiverCity || "-"}</td>
@@ -368,14 +374,14 @@ export function FalconUploadFulfillmentPage() {
                 })}
                 {!countState.loading && filteredOrders.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
-                      {countState.totalRows === 0 ? "No City Pack dispatched orders found for this date." : "No orders match the search."}
+                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
+                      {countState.totalRows === 0 ? "No courier-dispatched orders found for this date." : "No orders match the search."}
                     </td>
                   </tr>
                 )}
                 {countState.loading && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                       Loading City Pack orders...
                     </td>
                   </tr>

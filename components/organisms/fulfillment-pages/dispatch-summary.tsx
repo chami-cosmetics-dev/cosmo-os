@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarDays, Package, Truck, Users } from "lucide-react";
+import { CalendarDays, Download, Loader2, Package, RefreshCw, Truck, Users } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { notify } from "@/lib/notify";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -53,6 +55,8 @@ export function DispatchSummaryPage() {
   const [data, setData] = useState<SummaryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!date) return;
@@ -74,7 +78,37 @@ export function DispatchSummaryPage() {
       }
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
-  }, [date]);
+  }, [date, refreshTick]);
+
+  async function handleDownload() {
+    if (!date) return;
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/admin/fulfillment/dispatch-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({})) as { error?: string };
+        notify.error(json.error ?? "Download failed.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `dispatch-summary-${date}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      notify.error("Download failed.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -85,21 +119,42 @@ export function DispatchSummaryPage() {
             View orders dispatched per rider and courier service for a given day.
           </p>
         </div>
-        <label className="space-y-1 text-sm">
-          <span className="font-medium text-muted-foreground">Date</span>
-          <div className="relative">
-            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={dateInputRef}
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              onClick={() => dateInputRef.current?.showPicker?.()}
-              onFocus={() => dateInputRef.current?.showPicker?.()}
-              className="h-10 min-w-[220px] pl-9"
-            />
-          </div>
-        </label>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-muted-foreground">Date</span>
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={dateInputRef}
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                onClick={() => dateInputRef.current?.showPicker?.()}
+                onFocus={() => dateInputRef.current?.showPicker?.()}
+                className="h-10 min-w-55 pl-9"
+              />
+            </div>
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 gap-2"
+            disabled={loading}
+            onClick={() => setRefreshTick((t) => t + 1)}
+          >
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button
+            size="sm"
+            className="h-10 gap-2"
+            disabled={downloading || !data || data.totalOrders === 0}
+            onClick={() => void handleDownload()}
+          >
+            {downloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+            Download PDFs
+          </Button>
+        </div>
       </div>
 
       {loading && (
