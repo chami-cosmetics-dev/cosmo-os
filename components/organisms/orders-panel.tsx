@@ -60,14 +60,23 @@ const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
 
 const ALL_FILTER_VALUE = "__all";
 
+const SOURCE_LABEL: Record<string, string> = {
+  "erpnext-pos": "e-pos",
+  "erpnext": "erpnext",
+  "pos": "pos",
+  "manual": "manual",
+  "web": "web",
+};
+
 function SourceBadge({ sourceName }: { sourceName: string }) {
+  const label = SOURCE_LABEL[sourceName] ?? sourceName;
   const cls =
-    sourceName === "pos"
+    sourceName === "pos" || sourceName === "erpnext-pos"
       ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
       : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300";
   return (
     <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${cls}`}>
-      {sourceName}
+      {label}
     </span>
   );
 }
