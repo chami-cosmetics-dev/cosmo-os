@@ -234,6 +234,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     assignedMerchant: { select: { id: true, name: true, email: true } },
     packageHoldReason: { select: { id: true, name: true } },
     _count: { select: { lineItems: true } },
+    approvalRequests: {
+      where: { type: "order_payment_approval", status: "pending" },
+      select: { id: true },
+      take: 1,
+    },
     ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
     ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
   } satisfies Prisma.OrderSelect;
@@ -274,6 +279,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStage: o.fulfillmentStage,
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
+    pendingPaymentApproval: o.approvalRequests.length > 0,
   }));
 
   maybeLogSlowDbRequest("orders.page_data", startedAt, {

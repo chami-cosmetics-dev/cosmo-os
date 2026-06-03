@@ -45,6 +45,7 @@ type Order = {
   lineItemCount: number;
   paymentGatewayNames: string[];
   paymentGatewayPrimary: string | null;
+  pendingPaymentApproval?: boolean;
 };
 
 const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
@@ -163,6 +164,7 @@ type OrderDetail = {
   fulfillmentStatus: string | null;
   paymentGatewayNames?: string[];
   paymentGatewayPrimary?: string | null;
+  pendingPaymentApproval?: boolean;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -667,6 +669,11 @@ export function OrdersPanel({
                         <td className="px-4 py-2 text-right whitespace-nowrap">{formatPrice(order.totalPrice)}</td>
                         <td className="hidden md:table-cell px-4 py-2">
                           <div className="flex flex-wrap gap-1">
+                            {order.pendingPaymentApproval && (
+                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                RA
+                              </span>
+                            )}
                             <FinancialStatusBadge status={order.financialStatus} />
                             <FulfillmentStatusBadge status={order.fulfillmentStatus} />
                           </div>
