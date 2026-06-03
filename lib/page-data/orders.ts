@@ -170,6 +170,12 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
       where.sourceName = { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
+      // Hide orders awaiting finance approval (Koko/bank transfer) until approved
+      where.NOT = {
+        approvalRequests: {
+          some: { type: "order_payment_approval", status: "pending" },
+        },
+      };
       if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
         const sampleSendLater = params.sampleSendLater ?? "available";
         const sendLaterFilter =
