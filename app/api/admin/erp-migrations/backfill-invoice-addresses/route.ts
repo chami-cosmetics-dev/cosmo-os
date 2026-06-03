@@ -287,7 +287,7 @@ export async function POST(request: NextRequest) {
 
       const erpData = await fetchErpInvoice(baseUrl, apiKey, apiSecret, invoiceId);
       if (!erpData) {
-        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "error", detail: "Invoice not found in ERP" });
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "Invoice not found in ERP (deleted or renamed)" });
         continue;
       }
 
@@ -337,57 +337,67 @@ export async function POST(request: NextRequest) {
       // Fetch current ERP invoice to check what's already set
       const erpData = await fetchErpInvoice(baseUrl, apiKey, apiSecret, invoiceId);
       if (!erpData) {
-        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "error", detail: "Invoice not found in ERP" });
+        // 404 = invoice deleted/cancelled in ERP — nothing to patch, skip cleanly
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "Invoice not found in ERP (deleted or renamed)" });
         continue;
       }
 
       const customerName = erpData.customer ?? "";
-      const patches: Record<string, string> = {};
+      const patched: string[] = [];
+      const failed: string[] = [];
 
-      // Update customer name in ERP if phone-matched customer has a different name
+      // Update customer display name if phone-matched customer differs
       if (customerName && order.customerPhone) {
         await ensureCustomerNameUpdated(baseUrl, apiKey, apiSecret, order.customerPhone, customerName);
       }
 
-      // Payment type
-      if (paymentType && !erpData.payment_type) {
-        patches.payment_type = paymentType;
-      }
-
-      // Address — try to create Address documents first, fall back to text
+      // Create Address documents linked to the customer (best-effort, for future invoices)
       if (customerName) {
-        const [billingAddressName, shippingAddressName] = await Promise.all([
+        void Promise.all([
           billingAddr ? ensureErpAddress(baseUrl, apiKey, apiSecret, customerName, billingAddr, "Billing") : Promise.resolve(null),
           shippingAddr ? ensureErpAddress(baseUrl, apiKey, apiSecret, customerName, shippingAddr, "Shipping") : Promise.resolve(null),
         ]);
+      }
 
-        if (billingAddressName && !erpData.customer_address) {
-          patches.customer_address = billingAddressName;
-        } else if (!erpData.address_display) {
-          const html = formatAddressHtml(billingAddr);
-          if (html) patches.address_display = html;
-        }
+      // Patch each field group separately — ERPNext blocks all fields in a batch if any one fails
+      // Payment type first (most likely to succeed)
+      if (paymentType && !erpData.payment_type) {
+        const r = await frappe_set_value(baseUrl, apiKey, apiSecret, "Sales Invoice", invoiceId, { payment_type: paymentType });
+        if (r.ok) patched.push("payment_type"); else failed.push(`payment_type(${r.error?.slice(0, 60)})`);
+      }
 
-        if (shippingAddressName && !erpData.shipping_address_name) {
-          patches.shipping_address_name = shippingAddressName;
-        } else if (!erpData.shipping_address) {
-          const html = formatAddressHtml(shippingAddr);
-          if (html) patches.shipping_address = html;
+      // Billing address display
+      if (!erpData.address_display) {
+        const html = formatAddressHtml(billingAddr);
+        if (html) {
+          const r = await frappe_set_value(baseUrl, apiKey, apiSecret, "Sales Invoice", invoiceId, { address_display: html });
+          if (r.ok) patched.push("address_display"); else failed.push(`address_display(${r.error?.slice(0, 60)})`);
         }
       }
 
-      if (Object.keys(patches).length === 0) {
-        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "ERP invoice already has address and payment type" });
+      // Shipping address display
+      if (!erpData.shipping_address) {
+        const html = formatAddressHtml(shippingAddr);
+        if (html) {
+          const r = await frappe_set_value(baseUrl, apiKey, apiSecret, "Sales Invoice", invoiceId, { shipping_address: html });
+          if (r.ok) patched.push("shipping_address"); else failed.push(`shipping_address(${r.error?.slice(0, 60)})`);
+        }
+      }
+
+      if (patched.length === 0 && failed.length === 0) {
+        results.push({ orderId: order.id, orderName: order.name, invoiceId, status: "skipped", detail: "Already complete in ERP" });
         continue;
       }
 
-      const result = await frappe_set_value(baseUrl, apiKey, apiSecret, "Sales Invoice", invoiceId, patches);
       results.push({
         orderId: order.id,
         orderName: order.name,
         invoiceId,
-        status: result.ok ? "updated" : "error",
-        detail: result.ok ? `Patched: ${Object.keys(patches).join(", ")}` : result.error,
+        status: patched.length > 0 ? "updated" : "error",
+        detail: [
+          patched.length > 0 ? `patched: ${patched.join(", ")}` : null,
+          failed.length > 0 ? `blocked: ${failed.join(", ")}` : null,
+        ].filter(Boolean).join(" | "),
       });
     }
   }
