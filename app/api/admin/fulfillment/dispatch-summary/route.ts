@@ -8,16 +8,21 @@ import { requireAnyPermission } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function parseDate(value: string | null) {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [year, month, day] = value.split("-").map(Number);
+function parseDateRange(from: string | null, to: string | null) {
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!from || !re.test(from)) return null;
+  const toStr = to && re.test(to) ? to : from;
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = toStr.split("-").map(Number);
   return {
-    from: new Date(year, month - 1, day, 0, 0, 0, 0),
-    to: new Date(year, month - 1, day, 23, 59, 59, 999),
+    from: new Date(fy, fm - 1, fd, 0, 0, 0, 0),
+    to: new Date(ty, tm - 1, td, 23, 59, 59, 999),
+    dateFrom: from,
+    dateTo: toStr,
   };
 }
 
-type DateRange = NonNullable<ReturnType<typeof parseDate>>;
+type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
 
 type DispatchGroup = {
   dispatcherId: string;
@@ -26,15 +31,14 @@ type DispatchGroup = {
   orders: Array<{
     orderId: string;
     reference: string;
+    orderDate: string;
     customerName: string;
     customerPhone: string | null;
-    customerCity: string | null;
+    customerAddress: string | null;
     totalPrice: string;
     currency: string;
     paymentType: string | null;
-    dispatchedAt: string;
     locationName: string;
-    items: Array<{ title: string; qty: number }>;
   }>;
 };
 
@@ -59,19 +63,13 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       shippingAddress: true,
       totalPrice: true,
       currency: true,
-      financialStatus: true,
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
+      createdAt: true,
       dispatchedAt: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
-      lineItems: {
-        select: {
-          quantity: true,
-          productItem: { select: { productTitle: true, variantTitle: true } },
-        },
-      },
     },
   });
 
@@ -101,7 +99,11 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       order.customerPhone ||
       "—";
 
-    const city = typeof addr?.city === "string" && addr.city ? addr.city : null;
+    const addrParts = [
+      typeof addr?.address1 === "string" && addr.address1 ? addr.address1 : null,
+      typeof addr?.city === "string" && addr.city ? addr.city : null,
+    ].filter(Boolean);
+    const customerAddress = addrParts.length > 0 ? addrParts.join(", ") : null;
 
     const paymentType =
       order.paymentGatewayPrimary ??
@@ -112,20 +114,14 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
     groupMap.get(dispatcherId)!.orders.push({
       orderId: order.id,
       reference: order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id,
+      orderDate: order.createdAt.toISOString(),
       customerName,
       customerPhone: order.customerPhone,
-      customerCity: city,
+      customerAddress,
       totalPrice: order.totalPrice.toString(),
       currency: order.currency ?? "LKR",
       paymentType,
-      dispatchedAt: order.dispatchedAt!.toISOString(),
       locationName: order.companyLocation.name,
-      items: order.lineItems.map((li) => ({
-        title: [li.productItem.productTitle, li.productItem.variantTitle]
-          .filter(Boolean)
-          .join(" — "),
-        qty: li.quantity,
-      })),
     });
   }
 
@@ -154,15 +150,16 @@ export async function GET(request: NextRequest) {
   const companyId = auth.context?.user?.companyId;
   if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
-  const dateStr = request.nextUrl.searchParams.get("date");
-  const range = parseDate(dateStr);
-  if (!range) return NextResponse.json({ error: "Provide a valid date (YYYY-MM-DD)." }, { status: 400 });
+  const dateFrom = request.nextUrl.searchParams.get("dateFrom");
+  const dateTo = request.nextUrl.searchParams.get("dateTo");
+  const range = parseDateRange(dateFrom, dateTo);
+  if (!range) return NextResponse.json({ error: "Provide a valid dateFrom (YYYY-MM-DD)." }, { status: 400 });
 
   const [data, company] = await Promise.all([
     fetchDispatchGroups(companyId, range),
     prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
   ]);
-  return NextResponse.json({ date: dateStr, companyName: company?.name ?? null, ...data });
+  return NextResponse.json({ dateFrom: range.dateFrom, dateTo: range.dateTo, companyName: company?.name ?? null, ...data });
 }
 
 export async function POST(request: NextRequest) {
@@ -172,30 +169,32 @@ export async function POST(request: NextRequest) {
   const companyId = auth.context?.user?.companyId;
   if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
-  const body = (await request.json().catch(() => ({}))) as { date?: string };
-  const range = parseDate(body.date ?? null);
-  if (!range) return NextResponse.json({ error: "Provide a valid date (YYYY-MM-DD)." }, { status: 400 });
+  const body = (await request.json().catch(() => ({}))) as { dateFrom?: string; dateTo?: string };
+  const range = parseDateRange(body.dateFrom ?? null, body.dateTo ?? null);
+  if (!range) return NextResponse.json({ error: "Provide a valid dateFrom (YYYY-MM-DD)." }, { status: 400 });
 
   const { groups } = await fetchDispatchGroups(companyId, range);
-  if (groups.length === 0) return NextResponse.json({ error: "No dispatches found for this date." }, { status: 404 });
+  if (groups.length === 0) return NextResponse.json({ error: "No dispatches found for this date range." }, { status: 404 });
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {
-    const pdf = await generateDispatchGroupPdf(group, body.date!);
+    const pdf = await generateDispatchGroupPdf(group, range.dateFrom, range.dateTo);
     const safeName = group.dispatcherName
       .replace(/[^a-zA-Z0-9_ -]/g, "")
       .trim()
       .replace(/\s+/g, "_");
     const typePrefix = group.dispatchType === "rider" ? "rider" : "courier";
-    files.push({ name: `${typePrefix}-${safeName}-${body.date}.pdf`, content: pdf });
+    const dateSuffix = range.dateFrom === range.dateTo ? range.dateFrom : `${range.dateFrom}_to_${range.dateTo}`;
+    files.push({ name: `${typePrefix}-${safeName}-${dateSuffix}.pdf`, content: pdf });
   }
 
+  const zipSuffix = range.dateFrom === range.dateTo ? range.dateFrom : `${range.dateFrom}_to_${range.dateTo}`;
   const zip = createZip(files);
 
   return new NextResponse(zip, {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="dispatch-summary-${body.date}.zip"`,
+      "Content-Disposition": `attachment; filename="dispatch-summary-${zipSuffix}.zip"`,
       "Cache-Control": "no-store",
     },
   });
