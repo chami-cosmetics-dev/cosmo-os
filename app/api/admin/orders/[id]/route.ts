@@ -85,6 +85,20 @@ const orderSelect = {
     orderBy: { createdAt: "desc" },
     include: { addedBy: { select: { id: true, name: true, email: true } } },
   },
+  approvalRequests: {
+    where: { type: "order_payment_approval" },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: {
+      id: true,
+      status: true,
+      requestNote: true,
+      createdAt: true,
+      reviewedAt: true,
+      reviewNote: true,
+      reviewedBy: { select: { id: true, name: true, email: true } },
+    },
+  },
   lineItems: {
     include: {
       productItem: {
@@ -307,5 +321,18 @@ export async function GET(
       createdAt: r.createdAt.toISOString(),
       addedBy: r.addedBy ? { id: r.addedBy.id, name: r.addedBy.name, email: r.addedBy.email } : null,
     })),
+    paymentApproval: (() => {
+      const ap = details.approvalRequests[0];
+      if (!ap) return null;
+      return {
+        id: ap.id,
+        status: ap.status,
+        requestNote: ap.requestNote ?? null,
+        createdAt: ap.createdAt.toISOString(),
+        reviewedAt: ap.reviewedAt?.toISOString() ?? null,
+        reviewNote: ap.reviewNote ?? null,
+        reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
+      };
+    })(),
   });
 }

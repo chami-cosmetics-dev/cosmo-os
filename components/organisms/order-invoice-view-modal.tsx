@@ -134,6 +134,15 @@ type OrderDetail = {
     showOnInvoice?: boolean;
     addedBy?: UserRef;
   }>;
+  paymentApproval?: {
+    id: string;
+    status: string;
+    requestNote: string | null;
+    createdAt: string;
+    reviewedAt: string | null;
+    reviewNote: string | null;
+    reviewedBy: UserRef | null;
+  } | null;
 };
 
 interface OrderInvoiceViewModalProps {
@@ -587,6 +596,36 @@ export function OrderInvoiceViewModal({
                       }).label}
                     </p>
                   </div>
+                  {orderDetail.paymentApproval && (
+                    <div>
+                      <span className="text-muted-foreground text-xs">Payment Approval</span>
+                      {orderDetail.paymentApproval.status === "pending" ? (
+                        <p className="flex items-center gap-1.5">
+                          <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                            Pending
+                          </span>
+                          <span className="text-xs text-muted-foreground">Awaiting finance approval</span>
+                        </p>
+                      ) : orderDetail.paymentApproval.status === "approved" ? (
+                        <p className="flex items-center gap-1.5">
+                          <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                            Approved
+                          </span>
+                          {orderDetail.paymentApproval.reviewedBy && (
+                            <span className="text-xs text-muted-foreground">
+                              by {orderDetail.paymentApproval.reviewedBy.name ?? orderDetail.paymentApproval.reviewedBy.email}
+                            </span>
+                          )}
+                        </p>
+                      ) : (
+                        <p>
+                          <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
+                            Rejected
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <div>
                     <span className="text-muted-foreground text-xs">Location</span>
                     <p>{orderDetail.companyLocation?.name ?? "-"}</p>
