@@ -101,8 +101,8 @@ async function erpGet<T>(baseUrl: string, apiKey: string, apiSecret: string, pat
 
 async function fetchErpInvoice(
   baseUrl: string, apiKey: string, apiSecret: string, invoiceName: string,
-): Promise<{ address_display?: string | null; shipping_address?: string | null; customer?: string; customer_address?: string | null; shipping_address_name?: string | null; payment_type?: string | null } | null> {
-  const fields = encodeURIComponent(JSON.stringify(["address_display", "shipping_address", "customer", "customer_address", "shipping_address_name", "payment_type"]));
+): Promise<{ address_display?: string | null; shipping_address?: string | null; customer?: string; customer_address?: string | null; shipping_address_name?: string | null; custom_payment_type?: string | null } | null> {
+  const fields = encodeURIComponent(JSON.stringify(["address_display", "shipping_address", "customer", "customer_address", "shipping_address_name", "custom_payment_type"]));
   return erpGet(baseUrl, apiKey, apiSecret, `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${fields}`);
 }
 
@@ -361,9 +361,9 @@ export async function POST(request: NextRequest) {
 
       // Patch each field group separately — ERPNext blocks all fields in a batch if any one fails
       // Payment type first (most likely to succeed)
-      if (paymentType && !erpData.payment_type) {
-        const r = await frappe_set_value(baseUrl, apiKey, apiSecret, "Sales Invoice", invoiceId, { payment_type: paymentType });
-        if (r.ok) patched.push("payment_type"); else failed.push(`payment_type(${r.error?.slice(0, 60)})`);
+      if (paymentType && !erpData.custom_payment_type) {
+        const r = await frappe_set_value(baseUrl, apiKey, apiSecret, "Sales Invoice", invoiceId, { custom_payment_type: paymentType });
+        if (r.ok) patched.push("custom_payment_type"); else failed.push(`custom_payment_type(${r.error?.slice(0, 60)})`);
       }
 
       // Billing address display

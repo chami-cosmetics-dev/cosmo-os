@@ -674,7 +674,7 @@ export async function syncOrderToERPNext(
     items: siItems,
     custom_merchant_coupon_code: shopifyCouponCode,
     // Payment type mapped from Shopify gateway names
-    ...(erpPaymentType ? { payment_type: erpPaymentType } : {}),
+    ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
     // Address: prefer linked Address documents (ERPNext-native); fall back to raw HTML text
     ...(billingAddressName
       ? { customer_address: billingAddressName }
