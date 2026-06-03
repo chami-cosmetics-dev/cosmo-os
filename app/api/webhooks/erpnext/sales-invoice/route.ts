@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
   }
 
   const erpInvoiceId = `erp-${data.name}`;
-  const isPOS = data.is_pos === 1;
+  const isPOS = data.is_pos === 1 || !!data.posa_pos_opening_shift;
   const isFullyPaid = typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
   let financialStatus: string;
   if (data.docstatus === 2) {
@@ -176,8 +176,12 @@ export async function POST(request: NextRequest) {
   }
 
   const grandTotal = new Decimal(data.grand_total ?? 0);
-  const customerEmail = data.contact_email?.trim() || null;
-  const customerPhone = data.contact_mobile?.trim() || null;
+  const nullIfNone = (v: string | null | undefined) => {
+    const s = v?.trim();
+    return !s || s.toLowerCase() === "none" ? null : s;
+  };
+  const customerEmail = nullIfNone(data.contact_email);
+  const customerPhone = nullIfNone(data.contact_mobile);
 
   function parseErpAddress(html: string | null | undefined, customerName: string): object {
     if (!html?.trim()) return { name: customerName };
@@ -199,7 +203,7 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  const shippingAddressObj = parseErpAddress(data.shipping_address ?? data.address_display, data.customer);
+  const shippingAddressObj = parseErpAddress(nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display), data.customer);
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
   // Fall back to location default merchant
