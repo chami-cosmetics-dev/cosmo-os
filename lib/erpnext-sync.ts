@@ -77,6 +77,72 @@ function formatAddressHtml(addr: ShopifyAddress): string | null {
   return lines.length > 0 ? lines.join("<br>") : null;
 }
 
+function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | null {
+  for (const g of gateways) {
+    const lower = g.toLowerCase().trim();
+    if (lower.includes("koko")) return cfg.kokoMop;
+    if (lower.includes("webxpay")) return cfg.webxpayMop || null;
+    if (lower.includes("credit card") || lower.includes("card delivery")) return cfg.cardDeliveryMop;
+    if (lower.includes("bank transfer") || lower.includes("wire")) return cfg.bankTransferMop;
+    if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
+    if (lower.includes("cash")) return cfg.cashMop;
+  }
+  return gateways[0] ?? null;
+}
+
+async function ensureErpAddress(
+  cfg: ErpConfig,
+  customerName: string,
+  addr: ShopifyAddress,
+  addrType: "Billing" | "Shipping",
+): Promise<string | null> {
+  if (!addr) return null;
+  const address1 = addr.address1?.trim() ?? null;
+  const city = addr.city?.trim() ?? null;
+  if (!address1 && !city) return null;
+
+  try {
+    // Find existing address linked to this customer with same type
+    const filter = encodeURIComponent(
+      JSON.stringify([
+        ["links.link_doctype", "=", "Customer"],
+        ["links.link_name", "=", customerName],
+        ["address_type", "=", addrType],
+      ]),
+    );
+    const fields = encodeURIComponent(JSON.stringify(["name"]));
+    const existing = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Address?filters=${filter}&fields=${fields}&limit=1`,
+    );
+    if (existing && existing.length > 0) return existing[0].name;
+
+    // Create new Address document
+    const newAddr = await erpnextPost<{ name: string }>(cfg, "/api/resource/Address", {
+      doctype: "Address",
+      address_title: `${customerName}-${addrType}`,
+      address_type: addrType,
+      address_line1: address1 ?? "N/A",
+      address_line2: addr.address2?.trim() || null,
+      city: city ?? "N/A",
+      state: addr.province?.trim() || null,
+      country: addr.country?.trim() || "Sri Lanka",
+      pincode: addr.zip?.trim() || null,
+      phone: addr.phone?.trim() || null,
+      is_primary_address: addrType === "Billing" ? 1 : 0,
+      is_shipping_address: addrType === "Shipping" ? 1 : 0,
+      links: [{ link_doctype: "Customer", link_name: customerName }],
+    });
+    return newAddr.name;
+  } catch (err) {
+    console.warn(
+      `[ERPNext] Could not create ${addrType} address for "${customerName}":`,
+      err instanceof Error ? err.message.slice(0, 200) : String(err),
+    );
+    return null;
+  }
+}
+
 async function erpnextPost<T>(cfg: ErpConfig, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     method: "POST",
@@ -119,13 +185,42 @@ async function ensureCustomer(
     const phoneVariants = buildPhoneLookupVariants(phone.trim()).slice(0, 20).map((v) => v.slice(0, 20));
     if (phoneVariants.length > 0) {
       const phoneFilter = encodeURIComponent(JSON.stringify([["mobile_no", "in", phoneVariants]]));
-      const byPhone = await erpnextGet<Array<{ name: string }>>(
+      const byPhone = await erpnextGet<Array<{ name: string; customer_name: string }>>(
         cfg,
-        `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name"]))}&limit=1`,
+        `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name", "customer_name"]))}&limit=1`,
       );
       if (byPhone && byPhone.length > 0) {
-        console.log(`[ERPNext] Found existing customer by phone (variants) → "${byPhone[0].name}" (incoming name: "${customerName}")`);
-        return byPhone[0].name;
+        const existing = byPhone[0];
+        console.log(`[ERPNext] Found existing customer by phone → "${existing.name}" (incoming: "${customerName}")`);
+
+        // Update display name if it differs from what Shopify sent
+        if (existing.customer_name && existing.customer_name !== customerName) {
+          try {
+            const form = new URLSearchParams({
+              doctype: "Customer",
+              name: existing.name,
+              fieldname: "customer_name",
+              value: customerName,
+            });
+            const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.set_value`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
+              },
+              body: form.toString(),
+            });
+            if (res.ok) {
+              console.log(`[ERPNext] Updated customer_name "${existing.customer_name}" → "${customerName}"`);
+            } else {
+              console.warn(`[ERPNext] Could not update customer_name for "${existing.name}": ${res.status}`);
+            }
+          } catch (err) {
+            console.warn(`[ERPNext] Error updating customer_name for "${existing.name}":`, err instanceof Error ? err.message.slice(0, 100) : String(err));
+          }
+        }
+
+        return existing.name;
       }
     }
   }
@@ -520,6 +615,19 @@ export async function syncOrderToERPNext(
 
   const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
 
+  // Use shipping as fallback when billing is absent (common for digital/POS orders)
+  const billingAddr = shopifyData.billing_address ?? shopifyData.shipping_address;
+  const shippingAddr = shopifyData.shipping_address ?? shopifyData.billing_address;
+
+  // Create Address documents in ERPNext and get their names (best-effort, silent on failure)
+  const [billingAddressName, shippingAddressName] = await Promise.all([
+    ensureErpAddress(cfg, erpCustomerName, billingAddr, "Billing"),
+    ensureErpAddress(cfg, erpCustomerName, shippingAddr, "Shipping"),
+  ]);
+
+  // Map Shopify payment gateways to ERPNext mode-of-payment name
+  const erpPaymentType = resolveErpPaymentType(cfg, shopifyData.payment_gateway_names ?? []);
+
   const dateStr = toDateStr(order.createdAt);
 
   const siItems = lineItems.map((li) => ({
@@ -551,8 +659,8 @@ export async function syncOrderToERPNext(
     (shopifyData.discount_codes as Array<{ code: string }> | undefined)?.[0]?.code?.trim() ||
     "SHOPIFY";
 
-  const billingAddressHtml = formatAddressHtml(shopifyData.billing_address);
-  const shippingAddressHtml = formatAddressHtml(shopifyData.shipping_address);
+  const billingAddressHtml = formatAddressHtml(billingAddr);
+  const shippingAddressHtml = formatAddressHtml(shippingAddr);
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -565,8 +673,19 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     custom_merchant_coupon_code: shopifyCouponCode,
-    ...(billingAddressHtml ? { address_display: billingAddressHtml } : {}),
-    ...(shippingAddressHtml ? { shipping_address: shippingAddressHtml } : {}),
+    // Payment type mapped from Shopify gateway names
+    ...(erpPaymentType ? { payment_type: erpPaymentType } : {}),
+    // Address: prefer linked Address documents (ERPNext-native); fall back to raw HTML text
+    ...(billingAddressName
+      ? { customer_address: billingAddressName }
+      : billingAddressHtml
+        ? { address_display: billingAddressHtml }
+        : {}),
+    ...(shippingAddressName
+      ? { shipping_address_name: shippingAddressName }
+      : shippingAddressHtml
+        ? { shipping_address: shippingAddressHtml }
+        : {}),
     ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
     ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
