@@ -53,14 +53,14 @@ export type FalconWaybillRow = {
 const FALCON_COLUMNS = 25;
 
 const SENDER = {
-  name: "Cosmetics.lk",
+  name: "SupplementVault.lk",
   address1: "No 71A, 1st Lane, Pepiliyana Mw, Nugegoda.",
   city: "Nugegoda",
   contact1: "715930200",
   contact2: "703050482",
   billingType: "SENDER ACCOUNT",
   itemType: "PARCEL",
-  description: "Cosmetics",
+  description: "Supplements & Vitamins",
 };
 
 function parseCsvLine(line: string) {
