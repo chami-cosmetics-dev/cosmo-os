@@ -15,6 +15,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   is_pos: z.union([z.number(), z.boolean()]).optional().nullable().transform((v) => (v == null ? null : Number(v))),
   payment_type: z.string().optional().nullable().default(null),
   custom_payment_type: z.string().optional().nullable().default(null),
+  posa_pos_opening_shift: z.string().optional().nullable().default(null),
   owner: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   contact_mobile: z.string().optional().nullable(),

@@ -236,7 +236,7 @@ export function DispatchSummaryPage() {
                           <th className="px-4 py-2 font-medium">Date</th>
                           <th className="px-4 py-2 font-medium">Customer</th>
                           <th className="px-4 py-2 font-medium">Location</th>
-                          <th className="px-4 py-2 font-medium">Amount</th>
+                          <th className="px-4 py-2 font-medium text-right">Amount</th>
                           <th className="px-4 py-2 font-medium">Payment</th>
                         </tr>
                       </thead>
@@ -255,7 +255,7 @@ export function DispatchSummaryPage() {
                               )}
                             </td>
                             <td className="px-4 py-2 text-muted-foreground">{order.locationName}</td>
-                            <td className="px-4 py-2">{formatAmount(order.totalPrice, order.currency)}</td>
+                            <td className="px-4 py-2 text-right">{formatAmount(order.totalPrice, order.currency)}</td>
                             <td className="px-4 py-2 text-muted-foreground">{formatPaymentType(order.paymentType)}</td>
                           </tr>
                         ))}
@@ -265,7 +265,7 @@ export function DispatchSummaryPage() {
                           <td colSpan={4} className="px-4 py-2 text-xs text-muted-foreground">
                             {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
                           </td>
-                          <td className="px-4 py-2">
+                          <td className="px-4 py-2 text-right">
                             {formatAmount(
                               group.orders.reduce((s, o) => s + parseFloat(o.totalPrice || "0"), 0).toFixed(2),
                               group.orders[0]?.currency ?? "LKR",
