@@ -78,7 +78,7 @@ function resolvePaymentType(
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return kokoMop;
     if (lower.includes("webxpay")) return webxMop || null;
-    if (lower.includes("credit card") || lower.includes("card delivery")) return cardMop;
+    if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cardMop;
     if (lower.includes("bank transfer") || lower.includes("wire")) return bankMop;
     if (lower.includes("cash on delivery") || lower === "cod") return codMop;
     if (lower.includes("cash")) return cashMop;
