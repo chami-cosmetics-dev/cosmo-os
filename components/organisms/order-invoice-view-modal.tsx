@@ -35,6 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { notify } from "@/lib/notify";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -577,11 +578,13 @@ export function OrderInvoiceViewModal({
                     <p>{orderDetail.sourceName}</p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground text-xs">Payment gateways</span>
+                    <span className="text-muted-foreground text-xs">Payment Type</span>
                     <p>
-                      {orderDetail.paymentGatewayNames && orderDetail.paymentGatewayNames.length > 0
-                        ? orderDetail.paymentGatewayNames.join(", ")
-                        : orderDetail.paymentGatewayPrimary ?? "-"}
+                      {getPaymentMethodInfo({
+                        paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+                        paymentGatewayNames: orderDetail.paymentGatewayNames,
+                        financialStatus: orderDetail.financialStatus,
+                      }).label}
                     </p>
                   </div>
                   <div>
