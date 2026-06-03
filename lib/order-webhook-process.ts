@@ -10,6 +10,7 @@ import { resolveAssignedMerchant } from "@/lib/order-assignment";
 import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
 import { sendOrderSms } from "@/lib/order-sms";
 import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
+import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -174,6 +175,18 @@ export async function processOrderWebhook(
         invoiceCompleteAt: orderCreatedAt,
       },
     });
+  }
+
+  // Finance approval gate: Koko/bank transfer orders wait for finance approval before fulfillment
+  if (isNewOrder && isOrderPaymentRequiresApproval({ paymentGatewayPrimary: paymentGateways.primary, paymentGatewayNames: paymentGateways.names })) {
+    void createOrGetOrderPaymentApproval({
+      companyId,
+      orderId: order.id,
+      requestedById: null,
+      invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+      paymentType: paymentGateways.primary ?? paymentGateways.names[0] ?? "bank/koko",
+      amount: totalPrice.toString(),
+    }).catch((err) => console.error("[Finance approval] webhook trigger failed:", err));
   }
 
   const assignedMerchant = assignedMerchantId
