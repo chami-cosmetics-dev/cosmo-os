@@ -151,34 +151,32 @@ export async function processOrderWebhook(
   };
 
   const isPaid = data.financial_status?.toLowerCase() === "paid";
+  // Check approval requirement before upsert so we can conditionally set invoiceCompleteAt
+  const requiresApproval = isOrderPaymentRequiresApproval({ paymentGatewayPrimary: paymentGateways.primary, paymentGatewayNames: paymentGateways.names });
+  // Koko/bank transfer orders must not be marked invoice complete at creation — they need finance approval first
+  const markInvoiceComplete = isPaid && !requiresApproval;
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
     create: {
       ...orderData,
-      ...(isPaid && {
-        invoiceCompleteAt: orderCreatedAt,
-      }),
+      ...(markInvoiceComplete && { invoiceCompleteAt: orderCreatedAt }),
     },
     update: {
       ...orderData,
-      ...(isPaid && {
-        invoiceCompleteAt: orderCreatedAt,
-      }),
+      ...(markInvoiceComplete && { invoiceCompleteAt: orderCreatedAt }),
     },
   });
 
-  if (isPaid && !order.invoiceCompleteAt) {
+  if (markInvoiceComplete && !order.invoiceCompleteAt) {
     await prisma.order.update({
       where: { id: order.id },
-      data: {
-        invoiceCompleteAt: orderCreatedAt,
-      },
+      data: { invoiceCompleteAt: orderCreatedAt },
     });
   }
-
-  // Finance approval gate: Koko/bank transfer orders wait for finance approval before fulfillment
-  if (isNewOrder && isOrderPaymentRequiresApproval({ paymentGatewayPrimary: paymentGateways.primary, paymentGatewayNames: paymentGateways.names })) {
+  if (isNewOrder && requiresApproval) {
+    // Mark as pending_approval so ERP sync is skipped until finance approves
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: "pending_approval" } });
     void createOrGetOrderPaymentApproval({
       companyId,
       orderId: order.id,
