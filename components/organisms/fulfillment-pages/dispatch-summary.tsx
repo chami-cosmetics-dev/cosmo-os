@@ -21,18 +21,24 @@ function formatAmount(price: string, currency: string) {
   return Number.isNaN(n) ? price : `${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })} ${currency}`;
 }
 
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleDateString("en-LK", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 type DispatchOrder = {
   orderId: string;
   reference: string;
+  orderDate: string;
   customerName: string;
   customerPhone: string | null;
-  customerCity: string | null;
+  customerAddress: string | null;
   totalPrice: string;
   currency: string;
   paymentType: string | null;
-  dispatchedAt: string;
   locationName: string;
-  items: Array<{ title: string; qty: number }>;
 };
 
 type DispatchGroup = {
@@ -43,7 +49,8 @@ type DispatchGroup = {
 };
 
 type SummaryData = {
-  date: string;
+  dateFrom: string;
+  dateTo: string;
   companyName: string | null;
   totalOrders: number;
   riderOrders: number;
@@ -52,8 +59,10 @@ type SummaryData = {
 } | null;
 
 export function DispatchSummaryPage() {
-  const dateInputRef = useRef<HTMLInputElement | null>(null);
-  const [date, setDate] = useState(todayIso());
+  const fromRef = useRef<HTMLInputElement | null>(null);
+  const toRef = useRef<HTMLInputElement | null>(null);
+  const [dateFrom, setDateFrom] = useState(todayIso());
+  const [dateTo, setDateTo] = useState(todayIso());
   const [data, setData] = useState<SummaryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,13 +70,15 @@ export function DispatchSummaryPage() {
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
-    if (!date) return;
+    if (!dateFrom) return;
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/admin/fulfillment/dispatch-summary?date=${date}`, {
+        const params = new URLSearchParams({ dateFrom });
+        if (dateTo && dateTo >= dateFrom) params.set("dateTo", dateTo);
+        const res = await fetch(`/api/admin/fulfillment/dispatch-summary?${params}`, {
           signal: controller.signal,
         });
         const json = await res.json() as SummaryData & { error?: string };
@@ -80,16 +91,16 @@ export function DispatchSummaryPage() {
       }
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
-  }, [date, refreshTick]);
+  }, [dateFrom, dateTo, refreshTick]);
 
   async function handleDownload() {
-    if (!date) return;
+    if (!dateFrom) return;
     setDownloading(true);
     try {
       const res = await fetch("/api/admin/fulfillment/dispatch-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date }),
+        body: JSON.stringify({ dateFrom, dateTo }),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
@@ -100,7 +111,8 @@ export function DispatchSummaryPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `dispatch-summary-${date}.zip`;
+      const suffix = dateFrom === dateTo ? dateFrom : `${dateFrom}-to-${dateTo}`;
+      a.download = `dispatch-summary-${suffix}.zip`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -123,22 +135,41 @@ export function DispatchSummaryPage() {
           )}
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            View orders dispatched per rider and courier service for a given day.
+            View orders dispatched per rider and courier service.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">Date</span>
+            <span className="font-medium text-muted-foreground">From</span>
             <div className="relative">
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                ref={dateInputRef}
+                ref={fromRef}
                 type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                onClick={() => dateInputRef.current?.showPicker?.()}
-                onFocus={() => dateInputRef.current?.showPicker?.()}
-                className="h-10 min-w-55 pl-9"
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  if (dateTo < e.target.value) setDateTo(e.target.value);
+                }}
+                onClick={() => fromRef.current?.showPicker?.()}
+                onFocus={() => fromRef.current?.showPicker?.()}
+                className="h-10 min-w-44 pl-9"
+              />
+            </div>
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-muted-foreground">To</span>
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={toRef}
+                type="date"
+                value={dateTo}
+                min={dateFrom}
+                onChange={(e) => setDateTo(e.target.value)}
+                onClick={() => toRef.current?.showPicker?.()}
+                onFocus={() => toRef.current?.showPicker?.()}
+                className="h-10 min-w-44 pl-9"
               />
             </div>
           </label>
@@ -164,17 +195,11 @@ export function DispatchSummaryPage() {
         </div>
       </div>
 
-      {loading && (
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      )}
-
-      {!loading && error && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
+      {loading && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {!loading && error && <p className="text-sm text-destructive">{error}</p>}
 
       {!loading && !error && data && (
         <>
-          {/* stat cards */}
           <div className="grid gap-3 sm:grid-cols-3">
             <StatCard icon={Package} label="Total Dispatched" value={data.totalOrders} />
             <StatCard icon={Users} label="Via Rider" value={data.riderOrders} />
@@ -183,7 +208,7 @@ export function DispatchSummaryPage() {
 
           {data.groups.length === 0 ? (
             <p className="rounded-md border border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
-              No dispatches found for {date}.
+              No dispatches found for the selected date range.
             </p>
           ) : (
             <div className="space-y-4">
@@ -204,13 +229,13 @@ export function DispatchSummaryPage() {
                     </span>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] text-sm">
+                    <table className="w-full min-w-175 text-sm">
                       <thead className="border-b bg-muted/30 text-left text-muted-foreground">
                         <tr>
                           <th className="px-4 py-2 font-medium">Order</th>
-                          <th className="px-4 py-2 font-medium">Merchant</th>
+                          <th className="px-4 py-2 font-medium">Date</th>
                           <th className="px-4 py-2 font-medium">Customer</th>
-                          <th className="px-4 py-2 font-medium">Items</th>
+                          <th className="px-4 py-2 font-medium">Location</th>
                           <th className="px-4 py-2 font-medium">Amount</th>
                           <th className="px-4 py-2 font-medium">Payment</th>
                         </tr>
@@ -219,29 +244,36 @@ export function DispatchSummaryPage() {
                         {group.orders.map((order) => (
                           <tr key={order.orderId} className="border-b last:border-0 hover:bg-muted/20">
                             <td className="px-4 py-2 font-medium">{order.reference}</td>
-                            <td className="px-4 py-2 text-muted-foreground">{order.locationName}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{formatDate(order.orderDate)}</td>
                             <td className="px-4 py-2">
                               <p>{order.customerName}</p>
                               {order.customerPhone && (
                                 <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
                               )}
-                              {order.customerCity && (
-                                <p className="text-xs text-muted-foreground">{order.customerCity}</p>
+                              {order.customerAddress && (
+                                <p className="text-xs text-muted-foreground">{order.customerAddress}</p>
                               )}
                             </td>
-                            <td className="px-4 py-2">
-                              {order.items.map((item, i) => (
-                                <p key={i} className="text-xs">
-                                  {item.qty > 1 && <span className="mr-1 font-medium">{item.qty}×</span>}
-                                  {item.title}
-                                </p>
-                              ))}
-                            </td>
+                            <td className="px-4 py-2 text-muted-foreground">{order.locationName}</td>
                             <td className="px-4 py-2">{formatAmount(order.totalPrice, order.currency)}</td>
                             <td className="px-4 py-2 text-muted-foreground">{formatPaymentType(order.paymentType)}</td>
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot>
+                        <tr className="border-t bg-muted/30 font-medium">
+                          <td colSpan={4} className="px-4 py-2 text-xs text-muted-foreground">
+                            {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
+                          </td>
+                          <td className="px-4 py-2">
+                            {formatAmount(
+                              group.orders.reduce((s, o) => s + parseFloat(o.totalPrice || "0"), 0).toFixed(2),
+                              group.orders[0]?.currency ?? "LKR",
+                            )}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 </div>
