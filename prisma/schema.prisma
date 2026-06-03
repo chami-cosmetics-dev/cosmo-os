@@ -655,7 +655,7 @@ model ApprovalRequest {
   status        String       @default("pending")
   orderId       String?
   orderReturnId String?
-  requestedById String
+  requestedById String?
   reviewedById  String?
   requestNote   String?
   reviewNote    String?
@@ -665,7 +665,7 @@ model ApprovalRequest {
   company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   order         Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
   orderReturn   OrderReturn? @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
-  requestedBy   User         @relation("ApprovalRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+  requestedBy   User?        @relation("ApprovalRequestRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   reviewedBy    User?        @relation("ApprovalRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@index([companyId, status, createdAt(sort: Desc)])

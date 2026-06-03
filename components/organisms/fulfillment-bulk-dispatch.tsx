@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { CheckSquare, Loader2, Search, Square, Truck, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ChevronsUpDown, Loader2, Truck, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
 
 type Lookups = {
@@ -18,8 +26,6 @@ type ReadyOrder = {
   name: string | null;
   orderNumber: string | null;
   erpnextInvoiceId: string | null;
-  totalPrice: string;
-  currency: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
   companyLocation: { id: string; name: string } | null;
@@ -35,13 +41,13 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
   const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<Lookups | null>(null);
   const [dispatchService, setDispatchService] = useState("");
-  const [search, setSearch] = useState("");
-  const [orders, setOrders] = useState<ReadyOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(true);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [comboOpen, setComboOpen] = useState(false);
+  const [comboSearch, setComboSearch] = useState("");
+  const [comboOptions, setComboOptions] = useState<ReadyOrder[]>([]);
+  const [comboLoading, setComboLoading] = useState(false);
+  const [selectedOrders, setSelectedOrders] = useState<ReadyOrder[]>([]);
   const [dispatching, setDispatching] = useState(false);
   const [results, setResults] = useState<DispatchResult[] | null>(null);
-  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     fetch("/api/admin/orders/fulfillment-lookups")
@@ -51,23 +57,24 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
+    let cancelled = false;
     const t = window.setTimeout(async () => {
-      setOrdersLoading(true);
+      setComboLoading(true);
       try {
-        const params = new URLSearchParams({ fulfillmentStages: "ready_to_dispatch", pageSize: "100" });
-        if (search.trim()) params.set("search", search.trim());
-        const res = await fetch(`/api/admin/orders/page-data?${params}`, { signal: controller.signal });
+        const params = new URLSearchParams({ fulfillmentStages: "order_received,sample_free_issue,ready_to_dispatch", pageSize: "30" });
+        if (comboSearch.trim()) params.set("search", comboSearch.trim());
+        const res = await fetch(`/api/admin/orders/page-data?${params}`);
+        if (!res.ok) { if (!cancelled) setComboOptions([]); return; }
         const data = (await res.json()) as { orders?: ReadyOrder[] };
-        setOrders(data.orders ?? []);
+        if (!cancelled) setComboOptions(data.orders ?? []);
       } catch {
-        // ignore abort
+        if (!cancelled) setComboOptions([]);
       } finally {
-        setOrdersLoading(false);
+        if (!cancelled) setComboLoading(false);
       }
     }, 300);
-    return () => { controller.abort(); clearTimeout(t); };
-  }, [search, refreshTick]);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [comboSearch]);
 
   const selectedDispatch = dispatchService
     ? {
@@ -76,20 +83,26 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
       }
     : null;
 
-  const toggleOrder = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
+  function orderLabel(order: ReadyOrder) {
+    return order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id;
+  }
 
-  function toggleAll(checked: boolean) {
-    setSelectedIds(checked ? new Set(orders.map((o) => o.id)) : new Set());
+  function addOrder(order: ReadyOrder) {
+    setSelectedOrders((prev) =>
+      prev.some((o) => o.id === order.id) ? prev : [...prev, order]
+    );
+    setResults(null);
+    setComboOpen(false);
+    setComboSearch("");
+  }
+
+  function removeOrder(id: string) {
+    setSelectedOrders((prev) => prev.filter((o) => o.id !== id));
+    setResults(null);
   }
 
   async function handleDispatch() {
-    if (!selectedDispatch || selectedIds.size === 0) return;
+    if (!selectedDispatch || selectedOrders.length === 0) return;
     setDispatching(true);
     setResults(null);
     try {
@@ -97,7 +110,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          orderIds: Array.from(selectedIds),
+          orderIds: selectedOrders.map((o) => o.id),
           riderId: selectedDispatch.type === "rider" ? selectedDispatch.id : undefined,
           courierServiceId: selectedDispatch.type === "courier" ? selectedDispatch.id : undefined,
         }),
@@ -111,12 +124,11 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
       const failed = all.filter((r) => !r.success).length;
       if (succeeded > 0) {
         notify.success(`Dispatched ${succeeded} order${succeeded > 1 ? "s" : ""}${failed > 0 ? `, ${failed} failed` : ""}.`);
+        setSelectedOrders((prev) => prev.filter((o) => !all.find((r) => r.orderId === o.id && r.success)));
+        onRefresh();
       } else {
         notify.error(`All ${failed} dispatch${failed > 1 ? "es" : ""} failed.`);
       }
-      setSelectedIds(new Set());
-      setRefreshTick((t) => t + 1);
-      onRefresh();
     } catch {
       notify.error("Bulk dispatch failed.");
     } finally {
@@ -124,23 +136,19 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
     }
   }
 
-  if (!perms.canDispatch) {
-    return <p className="text-sm text-muted-foreground">You do not have permission to dispatch orders.</p>;
-  }
-
-  const allSelected = orders.length > 0 && selectedIds.size === orders.length;
-  const someSelected = selectedIds.size > 0 && !allSelected;
+  if (!perms.canDispatch) return null;
 
   return (
-    <div className="space-y-4">
-      {/* Dispatcher selector + dispatch button */}
-      <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/70 bg-background p-3">
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">Dispatch via</p>
+    <div className="space-y-3 rounded-md border border-border/70 p-3">
+      <div className="grid gap-3 lg:grid-cols-[200px_minmax(0,1fr)_auto] lg:items-end">
+        {/* Rider / courier selector */}
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium">Dispatch via</p>
           <select
             value={dispatchService}
             onChange={(e) => { setDispatchService(e.target.value); setResults(null); }}
-            className="h-9 w-[240px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+            disabled={dispatching}
+            className="h-9 w-full rounded-md border border-border/70 bg-background/90 px-3 text-sm"
           >
             <option value="">Select rider or courier…</option>
             {lookups && lookups.riders.length > 0 && (
@@ -160,134 +168,131 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
           </select>
         </div>
 
+        {/* Order combobox */}
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium">Add orders</p>
+          <Popover open={comboOpen} onOpenChange={setComboOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={comboOpen}
+                disabled={dispatching}
+                className="h-9 w-full justify-between border-border/70 bg-background font-normal"
+              >
+                Search ready-to-dispatch orders…
+                <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[min(640px,calc(100vw-2rem))] border-border/70 p-0" align="start">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Search invoice, customer, phone…"
+                  value={comboSearch}
+                  onValueChange={setComboSearch}
+                />
+                <CommandList>
+                  <CommandEmpty>
+                    {comboLoading ? "Loading…" : "No ready-to-dispatch orders found."}
+                  </CommandEmpty>
+                  <CommandGroup>
+                    {comboLoading && (
+                      <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Loading…
+                      </div>
+                    )}
+                    {comboOptions.map((order) => {
+                      const alreadyAdded = selectedOrders.some((o) => o.id === order.id);
+                      return (
+                        <CommandItem
+                          key={order.id}
+                          value={`${order.name ?? ""} ${order.orderNumber ?? ""}`}
+                          onSelect={() => addOrder(order)}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{orderLabel(order)}</span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                              {order.companyLocation?.name ?? "No location"}
+                              {" | "}
+                              {order.customerPhone ?? order.customerEmail ?? "No contact"}
+                            </span>
+                          </span>
+                          {alreadyAdded && <Check className="size-4 shrink-0" aria-hidden />}
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        {/* Dispatch button */}
         <Button
-          disabled={!selectedDispatch || selectedIds.size === 0 || dispatching}
+          disabled={!selectedDispatch || selectedOrders.length === 0 || dispatching}
           onClick={() => void handleDispatch()}
-          className="gap-2"
+          className="h-9 gap-2"
         >
           {dispatching
             ? <Loader2 className="size-4 animate-spin" />
             : <Truck className="size-4" />}
-          Dispatch{selectedIds.size > 0 ? ` ${selectedIds.size} order${selectedIds.size > 1 ? "s" : ""}` : " selected"}
+          {selectedOrders.length > 0
+            ? `Dispatch ${selectedOrders.length} order${selectedOrders.length > 1 ? "s" : ""}`
+            : "Dispatch"}
         </Button>
-
-        {!selectedDispatch && selectedIds.size > 0 && (
-          <p className="text-xs text-muted-foreground">Select a rider or courier first</p>
-        )}
       </div>
 
-      {/* Order list */}
-      <div className="rounded-md border border-border/70 bg-background">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 px-3 py-2">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => toggleAll(!allSelected)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              title={allSelected ? "Deselect all" : "Select all"}
+      {/* Selected order chips */}
+      {selectedOrders.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { setSelectedOrders([]); setResults(null); }}
+            disabled={dispatching}
+            className="h-7 text-xs"
+          >
+            Clear all
+          </Button>
+          {selectedOrders.map((order) => (
+            <span
+              key={order.id}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-2 text-xs"
             >
-              {allSelected
-                ? <CheckSquare className="size-4 text-primary" />
-                : someSelected
-                  ? <CheckSquare className="size-4 text-muted-foreground" />
-                  : <Square className="size-4" />}
-              {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select all"}
-            </button>
-            <span className="text-xs text-muted-foreground">
-              — {ordersLoading ? "…" : `${orders.length} ready`}
+              {orderLabel(order)}
+              <button
+                type="button"
+                onClick={() => removeOrder(order.id)}
+                disabled={dispatching}
+                className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                aria-label={`Remove ${orderLabel(order)}`}
+              >
+                <X className="size-3" aria-hidden />
+              </button>
             </span>
-          </div>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search orders…"
-              className="h-8 w-56 pl-9 text-sm"
-            />
-          </div>
+          ))}
         </div>
-
-        <div className="max-h-[420px] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted/70 backdrop-blur">
-              <tr className="border-b border-border/70">
-                <th className="w-10 px-3 py-2" />
-                <th className="px-3 py-2 text-left font-medium">Order</th>
-                <th className="px-3 py-2 text-left font-medium">Customer</th>
-                <th className="px-3 py-2 text-left font-medium">Location</th>
-                <th className="px-3 py-2 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ordersLoading && (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                    <Loader2 className="mx-auto size-4 animate-spin" />
-                  </td>
-                </tr>
-              )}
-              {!ordersLoading && orders.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-muted-foreground">
-                    No ready-to-dispatch orders found.
-                  </td>
-                </tr>
-              )}
-              {!ordersLoading && orders.map((order) => {
-                const isSelected = selectedIds.has(order.id);
-                const ref = order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id;
-                const n = parseFloat(order.totalPrice);
-                const amount = Number.isNaN(n)
-                  ? order.totalPrice
-                  : `${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })}${order.currency ? ` ${order.currency}` : ""}`;
-                return (
-                  <tr
-                    key={order.id}
-                    onClick={() => toggleOrder(order.id)}
-                    className={`cursor-pointer border-b border-border/50 last:border-0 transition-colors hover:bg-muted/20 ${isSelected ? "bg-primary/5" : ""}`}
-                  >
-                    <td className="px-3 py-2.5">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleOrder(order.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="size-4 rounded border-border"
-                      />
-                    </td>
-                    <td className="px-3 py-2.5 font-medium">{ref}</td>
-                    <td className="px-3 py-2.5 text-muted-foreground">
-                      {order.customerPhone ?? order.customerEmail ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-muted-foreground">
-                      {order.companyLocation?.name ?? "—"}
-                    </td>
-                    <td className="px-3 py-2.5 text-right">{amount}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
 
       {/* Results */}
       {results && results.length > 0 && (
-        <div className="rounded-md border border-border/70 bg-background p-3 text-sm">
-          <div className="mb-2 flex items-center justify-between">
+        <div className="space-y-1 rounded-md border border-border/70 bg-background p-3 text-sm">
+          <div className="mb-1.5 flex items-center justify-between">
             <p className="font-medium">Dispatch results</p>
             <button type="button" onClick={() => setResults(null)} className="text-muted-foreground hover:text-foreground">
-              <X className="size-4" />
+              <X className="size-4" aria-hidden />
             </button>
           </div>
-          <div className="space-y-1">
-            {results.map((r) => (
-              <p key={r.orderId} className={r.success ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>
-                {r.success ? "✓" : "✗"} {r.ref}{r.error ? ` — ${r.error}` : ""}
-              </p>
-            ))}
-          </div>
+          {results.map((r) => (
+            <p key={r.orderId} className={r.success ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>
+              {r.success ? "✓" : "✗"} {r.ref}{r.error ? ` — ${r.error}` : ""}
+            </p>
+          ))}
         </div>
       )}
     </div>

@@ -11,9 +11,9 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("en-LK", { hour: "2-digit", minute: "2-digit" });
+function formatPaymentType(raw: string | null) {
+  if (!raw) return "—";
+  return raw.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatAmount(price: string, currency: string) {
@@ -26,9 +26,10 @@ type DispatchOrder = {
   reference: string;
   customerName: string;
   customerPhone: string | null;
+  customerCity: string | null;
   totalPrice: string;
   currency: string;
-  financialStatus: string | null;
+  paymentType: string | null;
   dispatchedAt: string;
   locationName: string;
   items: Array<{ title: string; qty: number }>;
@@ -43,6 +44,7 @@ type DispatchGroup = {
 
 type SummaryData = {
   date: string;
+  companyName: string | null;
   totalOrders: number;
   riderOrders: number;
   courierOrders: number;
@@ -114,6 +116,11 @@ export function DispatchSummaryPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
+          {data?.companyName && (
+            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              {data.companyName}
+            </p>
+          )}
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             View orders dispatched per rider and courier service for a given day.
@@ -201,21 +208,25 @@ export function DispatchSummaryPage() {
                       <thead className="border-b bg-muted/30 text-left text-muted-foreground">
                         <tr>
                           <th className="px-4 py-2 font-medium">Order</th>
+                          <th className="px-4 py-2 font-medium">Merchant</th>
                           <th className="px-4 py-2 font-medium">Customer</th>
                           <th className="px-4 py-2 font-medium">Items</th>
                           <th className="px-4 py-2 font-medium">Amount</th>
                           <th className="px-4 py-2 font-medium">Payment</th>
-                          <th className="px-4 py-2 font-medium">Time</th>
                         </tr>
                       </thead>
                       <tbody>
                         {group.orders.map((order) => (
                           <tr key={order.orderId} className="border-b last:border-0 hover:bg-muted/20">
                             <td className="px-4 py-2 font-medium">{order.reference}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{order.locationName}</td>
                             <td className="px-4 py-2">
                               <p>{order.customerName}</p>
                               {order.customerPhone && (
                                 <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
+                              )}
+                              {order.customerCity && (
+                                <p className="text-xs text-muted-foreground">{order.customerCity}</p>
                               )}
                             </td>
                             <td className="px-4 py-2">
@@ -227,16 +238,7 @@ export function DispatchSummaryPage() {
                               ))}
                             </td>
                             <td className="px-4 py-2">{formatAmount(order.totalPrice, order.currency)}</td>
-                            <td className="px-4 py-2">
-                              <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${
-                                order.financialStatus === "paid"
-                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700"
-                                  : "border-amber-500/30 bg-amber-500/10 text-amber-700"
-                              }`}>
-                                {order.financialStatus ?? "—"}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-muted-foreground">{formatTime(order.dispatchedAt)}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{formatPaymentType(order.paymentType)}</td>
                           </tr>
                         ))}
                       </tbody>

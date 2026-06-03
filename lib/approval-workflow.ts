@@ -99,7 +99,7 @@ export async function getOrderPaymentApproval(orderId: string) {
 export async function createOrGetOrderPaymentApproval(input: {
   companyId: string;
   orderId: string;
-  requestedById: string;
+  requestedById: string | null;
   invoiceLabel: string;
   paymentType: string;
   amount: string;
