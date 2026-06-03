@@ -29,6 +29,9 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "cod" || normalized.includes("cash on delivery")) {
     return { label: "COD", variant: "cod" };
   }
+  if (normalized.includes("card payment on delivery") || normalized.includes("card on delivery")) {
+    return { label: "Card on Delivery", variant: "card" };
+  }
   if (normalized === "cash") {
     return { label: "Cash", variant: "cash" };
   }
