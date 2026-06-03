@@ -34,7 +34,7 @@ export type DispatchGroupForPdf = {
     customerPhone: string | null;
     totalPrice: string;
     currency: string;
-    financialStatus: string | null;
+    paymentType: string | null;
     dispatchedAt: string;
     items: Array<{ title: string; qty: number }>;
   }>;
@@ -94,7 +94,7 @@ export async function generateDispatchGroupPdf(
         })),
       },
       { text: formatAmount(order.totalPrice, order.currency), style: "td" },
-      { text: order.financialStatus ?? "—", style: "td" },
+      { text: order.paymentType ? order.paymentType.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "—", style: "td" },
       { text: formatTime(order.dispatchedAt), style: "td" },
     ]),
     // totals row

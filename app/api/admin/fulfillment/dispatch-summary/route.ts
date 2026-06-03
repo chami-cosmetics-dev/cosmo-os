@@ -28,9 +28,10 @@ type DispatchGroup = {
     reference: string;
     customerName: string;
     customerPhone: string | null;
+    customerCity: string | null;
     totalPrice: string;
     currency: string;
-    financialStatus: string | null;
+    paymentType: string | null;
     dispatchedAt: string;
     locationName: string;
     items: Array<{ title: string; qty: number }>;
@@ -59,6 +60,8 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       totalPrice: true,
       currency: true,
       financialStatus: true,
+      paymentGatewayPrimary: true,
+      paymentGatewayNames: true,
       dispatchedAt: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
@@ -98,14 +101,23 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       order.customerPhone ||
       "—";
 
+    const city = typeof addr?.city === "string" && addr.city ? addr.city : null;
+
+    const paymentType =
+      order.paymentGatewayPrimary ??
+      (Array.isArray(order.paymentGatewayNames) && order.paymentGatewayNames.length > 0
+        ? (order.paymentGatewayNames[0] as string)
+        : null);
+
     groupMap.get(dispatcherId)!.orders.push({
       orderId: order.id,
       reference: order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id,
       customerName,
       customerPhone: order.customerPhone,
+      customerCity: city,
       totalPrice: order.totalPrice.toString(),
       currency: order.currency ?? "LKR",
-      financialStatus: order.financialStatus,
+      paymentType,
       dispatchedAt: order.dispatchedAt!.toISOString(),
       locationName: order.companyLocation.name,
       items: order.lineItems.map((li) => ({
@@ -117,10 +129,15 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
     });
   }
 
-  const groups = Array.from(groupMap.values()).sort((a, b) => {
-    if (a.dispatchType !== b.dispatchType) return a.dispatchType === "rider" ? -1 : 1;
-    return a.dispatcherName.localeCompare(b.dispatcherName);
-  });
+  const groups = Array.from(groupMap.values())
+    .sort((a, b) => {
+      if (a.dispatchType !== b.dispatchType) return a.dispatchType === "rider" ? -1 : 1;
+      return a.dispatcherName.localeCompare(b.dispatcherName);
+    })
+    .map((g) => ({
+      ...g,
+      orders: [...g.orders].sort((a, b) => a.reference.localeCompare(b.reference)),
+    }));
 
   return {
     groups,
@@ -141,8 +158,11 @@ export async function GET(request: NextRequest) {
   const range = parseDate(dateStr);
   if (!range) return NextResponse.json({ error: "Provide a valid date (YYYY-MM-DD)." }, { status: 400 });
 
-  const data = await fetchDispatchGroups(companyId, range);
-  return NextResponse.json({ date: dateStr, ...data });
+  const [data, company] = await Promise.all([
+    fetchDispatchGroups(companyId, range),
+    prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
+  ]);
+  return NextResponse.json({ date: dateStr, companyName: company?.name ?? null, ...data });
 }
 
 export async function POST(request: NextRequest) {
