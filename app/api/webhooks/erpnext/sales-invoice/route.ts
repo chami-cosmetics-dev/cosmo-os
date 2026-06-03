@@ -216,9 +216,9 @@ export async function POST(request: NextRequest) {
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
     : [];
 
-  // Resolve payment gateway: POS uses payments[] array; non-POS uses payment_type field
+  // Resolve payment gateway: POS uses payments[] array; non-POS uses custom_payment_type (falls back to payment_type)
   // Filter out ERPNext's literal "None" default value
-  const cleanPaymentType = data.payment_type?.trim();
+  const cleanPaymentType = (data.custom_payment_type?.trim() || data.payment_type?.trim()) ?? "";
   const resolvedPaymentMethods =
     posPaymentMethods.length > 0
       ? posPaymentMethods
