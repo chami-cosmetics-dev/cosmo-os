@@ -591,7 +591,7 @@ export async function syncOrderToERPNext(
   );
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name } });
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, erpnextSyncError: null, erpnextSyncFailedAt: null } });
     return;
   }
 
@@ -707,7 +707,7 @@ export async function syncOrderToERPNext(
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { erpnextInvoiceId: si.name },
+    data: { erpnextInvoiceId: si.name, erpnextSyncError: null, erpnextSyncFailedAt: null },
   });
 
   console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);

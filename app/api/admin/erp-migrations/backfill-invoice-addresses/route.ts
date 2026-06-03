@@ -215,7 +215,7 @@ export async function POST(request: NextRequest) {
   const eligibleWhere = {
     companyId,
     erpnextInvoiceId: { not: null as string | null },
-    sourceName: { in: mode === "erp" ? ["erpnext"] : ["web", "manual"] },
+    sourceName: { in: mode === "erp" ? ["erpnext", "erpnext-pos"] : ["web", "manual"] },
   };
 
   const orders = await prisma.order.findMany({

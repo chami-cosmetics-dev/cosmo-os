@@ -536,6 +536,8 @@ model Order {
   waybills                     OrderWaybill[]
 
   erpnextInvoiceId             String?
+  erpnextSyncError             String?
+  erpnextSyncFailedAt          DateTime?
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])

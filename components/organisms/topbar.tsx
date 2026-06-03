@@ -36,6 +36,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/audit", label: "Audit Trail" },
     { prefix: "/dashboard/orders/create", label: "Create Manual Order" },
     { prefix: "/dashboard/orders/failed-webhooks", label: "Failed Webhooks" },
+    { prefix: "/dashboard/orders/failed-erp-syncs", label: "Failed ERP Syncs" },
     { prefix: "/dashboard/orders", label: "Orders" },
     { prefix: "/dashboard/settings/email-templates", label: "Email Templates" },
     { prefix: "/dashboard/settings/sms-notifications", label: "SMS Notifications" },

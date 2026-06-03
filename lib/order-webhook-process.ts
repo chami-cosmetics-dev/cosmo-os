@@ -244,10 +244,10 @@ export async function processOrderWebhook(
         await syncOrderToERPNext(order, effectiveLocation, data);
       } catch (err) {
         console.error("[ERPNext] sync failed:", err);
-        // Reset so the next webhook can retry
+        const errMsg = err instanceof Error ? err.message : String(err);
         await prisma.order.update({
           where: { id: order.id },
-          data: { erpnextInvoiceId: null },
+          data: { erpnextInvoiceId: null, erpnextSyncError: errMsg, erpnextSyncFailedAt: new Date() },
         });
       }
     }

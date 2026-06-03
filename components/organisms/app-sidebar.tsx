@@ -2,6 +2,7 @@
 
 import packageJson from "@/package.json";
 import {
+  AlertCircle,
   ContactRound,
   LayoutDashboard,
   Mail,
@@ -258,6 +259,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                   icon={MessageSquareWarning}
                   label="Failed Webhooks"
                   isActive={pathname === "/dashboard/orders/failed-webhooks"}
+                />
+              )}
+              {canViewFailedWebhooks && (
+                <NavItem
+                  href="/dashboard/orders/failed-erp-syncs"
+                  icon={AlertCircle}
+                  label="Failed ERP Syncs"
+                  isActive={pathname === "/dashboard/orders/failed-erp-syncs"}
                 />
               )}
               {canViewReports && (
