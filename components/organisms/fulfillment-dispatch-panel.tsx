@@ -93,8 +93,8 @@ export function FulfillmentDispatchPanel({
       .finally(() => setDetailLoading(false));
   }, [orderId]);
 
-  async function doAction(action: string, body?: Record<string, unknown>) {
-    if (!orderId || !lookups) return;
+  async function doAction(action: string, body?: Record<string, unknown>, opts?: { silent?: boolean }): Promise<boolean> {
+    if (!orderId || !lookups) return false;
     setBusyKey(action);
     try {
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
@@ -105,14 +105,14 @@ export function FulfillmentDispatchPanel({
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
-        return;
+        return false;
       }
-      notify.success("Updated.");
+      if (!opts?.silent) notify.success("Updated.");
       setHoldReasonId("");
       setDispatchService("");
       if (action === "dispatch") {
         onRefresh(true);
-        return;
+        return true;
       }
 
       const now = new Date().toISOString();
@@ -128,11 +128,26 @@ export function FulfillmentDispatchPanel({
       } else if (action === "mark_ready") {
         setPackageStatus({ packageReadyAt: now, packageOnHoldAt: null, packageHoldReason: null });
       }
+      return true;
     } catch {
       notify.error("Action failed");
+      return false;
     } finally {
       setBusyKey(null);
     }
+  }
+
+  async function handleDispatch() {
+    if (!orderId || !lookups || !selectedDispatchService?.id) return;
+    if (!isPackageReady) {
+      const ok = await doAction("mark_ready", undefined, { silent: true });
+      if (!ok) return;
+    }
+    await doAction("dispatch", {
+      action: "dispatch",
+      riderId: selectedDispatchService.type === "rider" ? selectedDispatchService.id : undefined,
+      courierServiceId: selectedDispatchService.type === "courier" ? selectedDispatchService.id : undefined,
+    });
   }
 
   function formatPrice(value?: string | null, currency?: string | null) {
@@ -238,109 +253,97 @@ export function FulfillmentDispatchPanel({
       </div>
 
       {lookups && (!orderId || packageStatus !== null) && (
-        <div className="space-y-3">
-          {!isPackageReady && (perms.canPutOnHold || perms.canRevertHold || perms.canMarkReady) && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-3">
-              {isOnHold ? (
-                <>
-                  <p className="text-muted-foreground text-sm">
-                    On hold: {packageStatus.packageHoldReason?.name ?? "-"}
-                  </p>
-                  {perms.canRevertHold && (
-                    <Button
-                      variant="outline"
-                      onClick={() => doAction("revert_hold", { action: "revert_hold" })}
-                      disabled={isBusy}
-                    >
-                      {busyKey === "revert_hold" ? <Loader2 className="size-4 animate-spin" /> : "Revert Hold"}
-                    </Button>
-                  )}
-                </>
-              ) : (
-                <>
-                  {perms.canPutOnHold && (
-                    <>
-                      <select
-                        value={holdReasonId}
-                        onChange={(e) => setHoldReasonId(e.target.value)}
-                        disabled={!orderId}
-                        className="h-9 w-[200px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                      >
-                        <option value="">Hold reason...</option>
-                        {lookups.packageHoldReasons.map((reason) => (
-                          <option key={reason.id} value={reason.id}>{reason.name}</option>
-                        ))}
-                      </select>
-                      <Button
-                        variant="outline"
-                        onClick={() => doAction("put_on_hold", { action: "put_on_hold", holdReasonId })}
-                        disabled={!orderId || isBusy || !holdReasonId}
-                      >
-                        Put on Hold
-                      </Button>
-                    </>
-                  )}
-                  {perms.canMarkReady && (
-                    <Button onClick={() => doAction("mark_ready")} disabled={!orderId || isBusy}>
-                      {busyKey === "mark_ready" ? <Loader2 className="size-4 animate-spin" /> : "Package is Ready"}
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/70 p-3">
-            {perms.canDispatch ? (
-              <>
-                <select
-                  value={dispatchService}
-                  onChange={(e) => setDispatchService(e.target.value)}
-                  disabled={!orderId}
-                  className="h-9 w-[240px] rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                >
-                  <option value="">Select rider or courier</option>
-                  {lookups.riders.length > 0 && (
-                    <optgroup label="Riders">
-                      {lookups.riders.map((rider) => (
-                        <option key={rider.id} value={`rider:${rider.id}`}>
-                          {rider.name ?? rider.mobile ?? rider.id}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {lookups.courierServices.length > 0 && (
-                    <optgroup label="Courier services">
-                      {lookups.courierServices.map((courier) => (
-                        <option key={courier.id} value={`courier:${courier.id}`}>
-                          {courier.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
+        <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/70 p-3">
+          {isOnHold ? (
+            <>
+              <p className="flex-1 text-sm text-muted-foreground">
+                On hold: {packageStatus.packageHoldReason?.name ?? "-"}
+              </p>
+              {perms.canRevertHold && (
                 <Button
-                  onClick={() =>
-                    doAction("dispatch", {
-                      action: "dispatch",
-                      riderId: selectedDispatchService?.type === "rider" ? selectedDispatchService.id : undefined,
-                      courierServiceId: selectedDispatchService?.type === "courier" ? selectedDispatchService.id : undefined,
-                    })
-                  }
-                  disabled={!orderId || isBusy || !selectedDispatchService?.id || !isPackageReady}
+                  variant="outline"
+                  onClick={() => void doAction("revert_hold", { action: "revert_hold" })}
+                  disabled={isBusy}
+                >
+                  {busyKey === "revert_hold" ? <Loader2 className="size-4 animate-spin" /> : "Revert Hold"}
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              {perms.canPutOnHold && lookups.packageHoldReasons.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Put on hold (optional)</p>
+                  <select
+                    value={holdReasonId}
+                    onChange={(e) => setHoldReasonId(e.target.value)}
+                    disabled={!orderId || isBusy}
+                    className="h-9 w-50 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+                  >
+                    <option value="">No hold</option>
+                    {lookups.packageHoldReasons.map((reason) => (
+                      <option key={reason.id} value={reason.id}>{reason.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {!holdReasonId && perms.canDispatch && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Dispatch via</p>
+                  <select
+                    value={dispatchService}
+                    onChange={(e) => setDispatchService(e.target.value)}
+                    disabled={!orderId || isBusy}
+                    className="h-9 w-60 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+                  >
+                    <option value="">Select rider or courier</option>
+                    {lookups.riders.length > 0 && (
+                      <optgroup label="Riders">
+                        {lookups.riders.map((rider) => (
+                          <option key={rider.id} value={`rider:${rider.id}`}>
+                            {rider.name ?? rider.mobile ?? rider.id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {lookups.courierServices.length > 0 && (
+                      <optgroup label="Courier services">
+                        {lookups.courierServices.map((courier) => (
+                          <option key={courier.id} value={`courier:${courier.id}`}>
+                            {courier.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
+              )}
+
+              {holdReasonId && perms.canPutOnHold ? (
+                <Button
+                  variant="outline"
+                  onClick={() => void doAction("put_on_hold", { action: "put_on_hold", holdReasonId })}
+                  disabled={!orderId || isBusy}
+                >
+                  {busyKey === "put_on_hold" ? <Loader2 className="size-4 animate-spin" /> : "Put on Hold"}
+                </Button>
+              ) : perms.canDispatch ? (
+                <Button
+                  onClick={() => void handleDispatch()}
+                  disabled={!orderId || isBusy || !selectedDispatchService?.id}
                   className="gap-2"
                 >
-                  {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
+                  {busyKey === "dispatch" || busyKey === "mark_ready"
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : <Truck className="size-4" />}
                   Dispatch
                 </Button>
-                {orderId && !isPackageReady && (
-                  <p className="text-xs text-muted-foreground">Mark package ready first</p>
-                )}
-              </>
-            ) : (
-              <p className="text-muted-foreground text-sm">You do not have permission to dispatch orders.</p>
-            )}
-          </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">You do not have permission to dispatch orders.</p>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
