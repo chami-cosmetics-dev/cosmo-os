@@ -78,20 +78,27 @@ export async function POST(request: NextRequest) {
         results.push({ orderId, ref, success: false, error: "Order not found" });
         continue;
       }
-      if (order.fulfillmentStage !== "ready_to_dispatch") {
-        results.push({ orderId, ref, success: false, error: "Not at ready to dispatch stage" });
-        continue;
-      }
-      if (!order.packageReadyAt) {
-        results.push({ orderId, ref, success: false, error: "Package not marked ready" });
+
+      const DISPATCHABLE_STAGES = ["order_received", "sample_free_issue", "ready_to_dispatch"];
+      if (!DISPATCHABLE_STAGES.includes(order.fulfillmentStage)) {
+        results.push({ orderId, ref, success: false, error: "Order is not in a dispatchable stage" });
         continue;
       }
 
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
 
+      // Auto-mark ready if not already — mirrors single dispatch behaviour
+      const needsMarkReady = order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
+
       await prisma.order.update({
         where: { id: orderId },
         data: {
+          ...(needsMarkReady && {
+            packageReadyAt: now,
+            packageReadyById: auth.context!.user!.id,
+            packageOnHoldAt: null,
+            packageHoldReasonId: null,
+          }),
           fulfillmentStage: "dispatched",
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
@@ -169,7 +176,7 @@ export async function POST(request: NextRequest) {
         entityType: "Order",
         entityId: orderId,
         summary: `Bulk dispatched order ${orderNum}`,
-        beforeData: { fulfillmentStage: "ready_to_dispatch" },
+        beforeData: { fulfillmentStage: order.fulfillmentStage },
         afterData: { fulfillmentStage: "dispatched" },
         metadata: { action: "dispatch", riderId: riderId ?? null, courierServiceId: courierServiceId ?? null, bulk: true },
       });
