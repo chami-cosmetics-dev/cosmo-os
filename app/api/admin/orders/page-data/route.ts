@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
     merchantId: searchParams.get("merchant_id") ?? undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
     fulfillmentStages: searchParams.get("fulfillment_stages")?.trim() ?? undefined,
+    dispatchMode: searchParams.get("dispatch_mode") === "true",
     createdFrom: createdFromResult.success ? createdFromResult.data : undefined,
     createdTo: createdToResult.success ? createdToResult.data : undefined,
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
