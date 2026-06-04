@@ -695,9 +695,9 @@ export async function syncOrderToERPNext(
       : shippingAddressHtml
         ? { shipping_address: shippingAddressHtml }
         : {}),
-    // shipping_rule only when shipping isn't handled by a line item or taxes row —
-    // including it alongside shippingItem or shippingTaxRow would double-charge shipping.
-    ...(cfg.shippingRule && !useShippingTaxRow && !useShippingItem ? { shipping_rule: cfg.shippingRule } : {}),
+    // Always include shipping_rule when configured — excluded only when using the taxes-row approach
+    // since that injects an exact amount into taxes directly (shipping_rule would override it).
+    ...(cfg.shippingRule && !useShippingTaxRow ? { shipping_rule: cfg.shippingRule } : {}),
     ...(useShippingTaxRow
       ? {
           taxes: [
