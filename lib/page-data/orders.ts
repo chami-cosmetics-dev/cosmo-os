@@ -168,7 +168,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      where.sourceName = { in: ["web", "manual", "erpnext"] };
+      // Sample/free issue and order_received stages are Shopify-only; other stages include ERP non-POS
+      const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
+      where.sourceName = hasSampleStage
+        ? { in: ["web", "manual"] }
+        : { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
       // Hide orders awaiting finance approval (Koko/bank transfer) until approved
       where.NOT = {
