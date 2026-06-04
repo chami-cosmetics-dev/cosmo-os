@@ -1,21 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, ChevronLeft, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+
+const CANCEL_REASONS = [
+  "Customer not home / not answering",
+  "Couldn't find address",
+  "Customer refused delivery",
+  "Package damaged",
+];
 
 interface RiderDeliveryConfirmProps {
   token: string;
 }
 
+type View = "confirm" | "cancel_reason";
+
 export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
   const [orderName, setOrderName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [result, setResult] = useState<"success" | "declined" | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<"delivered" | "cancelled" | null>(null);
+  const [view, setView] = useState<View>("confirm");
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [otherReason, setOtherReason] = useState("");
 
   useEffect(() => {
     fetch(`/api/public/rider-delivery/${token}`)
@@ -31,26 +44,58 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
       .finally(() => setLoading(false));
   }, [token]);
 
-  async function handleConfirm(confirmed: boolean) {
-    setConfirming(true);
+  async function handleConfirm() {
+    setSubmitting(true);
     try {
       const res = await fetch(`/api/public/rider-delivery/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed }),
+        body: JSON.stringify({ confirmed: true }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) {
         setError(data.error ?? "Failed to update");
         return;
       }
-      setResult(confirmed ? "success" : "declined");
+      setResult("delivered");
     } catch {
       setError("Failed to update");
     } finally {
-      setConfirming(false);
+      setSubmitting(false);
     }
   }
+
+  async function handleCancel() {
+    const reason =
+      selectedReason === "Other"
+        ? otherReason.trim()
+        : selectedReason ?? "";
+
+    if (!reason) return;
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/public/rider-delivery/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: false, failureReason: reason }),
+      });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Failed to update");
+        return;
+      }
+      setResult("cancelled");
+    } catch {
+      setError("Failed to update");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const canSubmitCancel =
+    selectedReason !== null &&
+    (selectedReason !== "Other" || otherReason.trim().length > 0);
 
   if (loading) {
     return (
@@ -66,7 +111,7 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="max-w-md">
+        <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Invalid or Expired Link</CardTitle>
           </CardHeader>
@@ -81,10 +126,10 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
   if (result) {
     return (
       <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="max-w-md">
+        <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>
-              {result === "success" ? (
+              {result === "delivered" ? (
                 <span className="flex items-center gap-2 text-green-600">
                   <Check className="size-5" />
                   Delivery Confirmed
@@ -92,17 +137,91 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
               ) : (
                 <span className="flex items-center gap-2 text-amber-600">
                   <X className="size-5" />
-                  Declined
+                  Delivery Cancelled
                 </span>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground text-sm">
-              {result === "success"
+              {result === "delivered"
                 ? "Thank you. The delivery has been marked as complete."
-                : "You declined the delivery. Staff can mark it complete manually if needed."}
+                : "The order has been returned to the store. Staff have been notified."}
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (view === "cancel_reason") {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <button
+              className="flex items-center gap-1 text-sm text-muted-foreground mb-2 hover:text-foreground transition-colors"
+              onClick={() => {
+                setView("confirm");
+                setSelectedReason(null);
+                setOtherReason("");
+              }}
+            >
+              <ChevronLeft className="size-4" />
+              Back
+            </button>
+            <CardTitle>Why couldn&apos;t you deliver?</CardTitle>
+            <p className="text-muted-foreground text-sm">Order {orderName ?? ""}</p>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
+              {CANCEL_REASONS.map((reason) => (
+                <button
+                  key={reason}
+                  onClick={() => setSelectedReason(reason)}
+                  className={`rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                    selectedReason === reason
+                      ? "border-primary bg-primary/10 text-primary font-medium"
+                      : "border-border hover:border-muted-foreground"
+                  }`}
+                >
+                  {reason}
+                </button>
+              ))}
+              <button
+                onClick={() => setSelectedReason("Other")}
+                className={`rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
+                  selectedReason === "Other"
+                    ? "border-primary bg-primary/10 text-primary font-medium"
+                    : "border-border hover:border-muted-foreground"
+                }`}
+              >
+                Other
+              </button>
+            </div>
+
+            {selectedReason === "Other" && (
+              <Textarea
+                placeholder="Describe the reason..."
+                value={otherReason}
+                onChange={(e) => setOtherReason(e.target.value)}
+                rows={3}
+                className="resize-none"
+              />
+            )}
+
+            <Button
+              variant="destructive"
+              className="mt-1"
+              disabled={!canSubmitCancel || submitting}
+              onClick={handleCancel}
+            >
+              {submitting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                "Confirm Cancellation"
+              )}
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -111,7 +230,7 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="max-w-md w-full">
+      <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Delivery Confirmation</CardTitle>
           <p className="text-muted-foreground text-sm">
@@ -121,10 +240,10 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
         <CardContent className="flex gap-4">
           <Button
             className="flex-1"
-            onClick={() => handleConfirm(true)}
-            disabled={confirming}
+            onClick={handleConfirm}
+            disabled={submitting}
           >
-            {confirming ? (
+            {submitting ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <>
@@ -136,11 +255,11 @@ export function RiderDeliveryConfirm({ token }: RiderDeliveryConfirmProps) {
           <Button
             variant="outline"
             className="flex-1"
-            onClick={() => handleConfirm(false)}
-            disabled={confirming}
+            onClick={() => setView("cancel_reason")}
+            disabled={submitting}
           >
             <X className="size-4" />
-            No
+            Cancel
           </Button>
         </CardContent>
       </Card>

@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
   }
 
   const erpInvoiceId = `erp-${data.name}`;
-  const isPOS = data.is_pos === 1 || !!data.posa_pos_opening_shift;
+  const isPOS = data.is_pos === 1 || (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
   const isFullyPaid = typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
   let financialStatus: string;
   if (data.docstatus === 2) {
