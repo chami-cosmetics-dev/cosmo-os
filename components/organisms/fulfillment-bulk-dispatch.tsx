@@ -270,7 +270,11 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
                 />
                 <CommandList>
                   <CommandEmpty>
-                    {comboLoading ? "Loading…" : "No ready-to-dispatch orders found."}
+                    {comboLoading
+                      ? "Loading…"
+                      : comboSearch.trim()
+                        ? `No order found for "${comboSearch.trim()}".`
+                        : "No ready-to-dispatch orders found."}
                   </CommandEmpty>
                   <CommandGroup>
                     {comboLoading && (
@@ -279,18 +283,29 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
                         Loading…
                       </div>
                     )}
+                    {!comboLoading && comboOptions.length === 0 && (
+                      <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                        {comboSearch.trim()
+                          ? `No order found for "${comboSearch.trim()}".`
+                          : "No ready-to-dispatch orders found."}
+                      </p>
+                    )}
                     {comboOptions.map((order) => {
                       const alreadyAdded = selectedOrders.some((o) => o.id === order.id);
+                      const label = orderLabel(order);
+                      const erpId = order.erpnextInvoiceId;
+                      const showErpId = erpId && erpId !== label;
                       return (
                         <CommandItem
                           key={order.id}
-                          value={`${order.name ?? ""} ${order.orderNumber ?? ""}`}
+                          value={`${order.name ?? ""} ${order.orderNumber ?? ""} ${erpId ?? ""}`}
                           onSelect={() => addOrder(order)}
                           className="flex items-center justify-between gap-3"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">{orderLabel(order)}</span>
+                            <span className="block truncate font-medium">{label}</span>
                             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                              {showErpId && <span className="mr-2 font-mono">{erpId}</span>}
                               {order.companyLocation?.name ?? "No location"}
                               {" | "}
                               {order.customerPhone ?? order.customerEmail ?? "No contact"}
