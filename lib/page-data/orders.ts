@@ -152,11 +152,13 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       ...(Array.isArray(where.AND) ? where.AND : []),
       {
         OR: [
-          { orderNumber: { contains: searchTerm, mode: "insensitive" } },
-          { name: { contains: searchTerm, mode: "insensitive" } },
+          // suffix match: typing last digits finds orders ending with those digits
+          { orderNumber: { endsWith: searchTerm, mode: "insensitive" } },
+          { name: { endsWith: searchTerm, mode: "insensitive" } },
+          { erpnextInvoiceId: { endsWith: searchTerm, mode: "insensitive" } },
+          // substring match for contact fields
           { customerEmail: { contains: searchTerm, mode: "insensitive" } },
           { customerPhone: { contains: searchTerm, mode: "insensitive" } },
-          { erpnextInvoiceId: { contains: searchTerm, mode: "insensitive" } },
         ],
       },
     ];
