@@ -113,7 +113,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
     const t = window.setTimeout(async () => {
       setComboLoading(true);
       try {
-        const params = new URLSearchParams({ dispatch_mode: "true", limit: "30" });
+        const params = new URLSearchParams({ dispatch_mode: "true", limit: "30", sort_by: "created", sort_order: "desc" });
         if (comboSearch.trim()) params.set("search", comboSearch.trim());
         const res = await fetch(`/api/admin/orders/page-data?${params}`);
         if (!res.ok) { if (!cancelled) setComboOptions([]); return; }
