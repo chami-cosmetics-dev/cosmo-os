@@ -57,6 +57,8 @@ interface FulfillmentOrderSelectorProps {
   showEmptyWorksheet?: boolean;
   allowFutureSendLater?: boolean;
   returnFilter?: "normal" | "rearrange";
+  unprintedOnly?: boolean;
+  printMode?: boolean;
   children?: React.ReactNode;
 }
 
@@ -77,6 +79,8 @@ export function FulfillmentOrderSelector({
   showEmptyWorksheet = false,
   allowFutureSendLater = false,
   returnFilter,
+  unprintedOnly = false,
+  printMode = false,
   children,
 }: FulfillmentOrderSelectorProps) {
   const [orders, setOrders] = useState<FulfillmentOrder[]>([]);
@@ -109,6 +113,11 @@ export function FulfillmentOrderSelector({
     if (returnFilter) {
       params.set("return_filter", returnFilter);
     }
+    if (printMode) {
+      params.set("print_mode", "true");
+    } else if (unprintedOnly) {
+      params.set("unprinted_only", "true");
+    }
     if (effectiveSearch) params.set("search", effectiveSearch);
     const res = await fetch(`/api/admin/orders/page-data?${params}`);
     if (!res.ok) {
@@ -124,7 +133,7 @@ export function FulfillmentOrderSelector({
     setOrders(data.orders ?? []);
     setTotal(data.total ?? 0);
     setLoading(false);
-  }, [allowFutureSendLater, effectiveSearch, returnFilter, showFutureSendLater, stages, page, limit]);
+  }, [allowFutureSendLater, effectiveSearch, returnFilter, unprintedOnly, printMode, showFutureSendLater, stages, page, limit]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,7 +219,7 @@ export function FulfillmentOrderSelector({
                     <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[520px] border-border/70 p-0" align="start">
+                <PopoverContent className="w-130 border-border/70 p-0" align="start">
                   <Command shouldFilter={false}>
                     <CommandInput
                       placeholder="Search by order number..."
@@ -349,7 +358,7 @@ export function FulfillmentOrderSelector({
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="max-h-[280px] overflow-y-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
+              <div className="max-h-70 overflow-y-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] backdrop-blur">
                     <tr className="border-b border-border/60">
@@ -381,7 +390,7 @@ export function FulfillmentOrderSelector({
                         </td>
                         <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
                         <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}</td>
-                        <td className="px-4 py-2 max-w-[140px] truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
+                        <td className="px-4 py-2 max-w-35 truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
                           {order.customerEmail ?? order.customerPhone ?? "—"}
                         </td>
                         {showPrintStatus && (

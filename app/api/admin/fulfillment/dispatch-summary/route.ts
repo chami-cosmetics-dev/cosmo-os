@@ -35,6 +35,9 @@ type DispatchGroup = {
     customerName: string;
     customerPhone: string | null;
     customerAddress: string | null;
+    city: string | null;
+    address: string | null;
+    merchantName: string | null;
     totalPrice: string;
     currency: string;
     paymentType: string | null;
@@ -70,6 +73,7 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
+      assignedMerchant: { select: { name: true } },
     },
   });
 
@@ -99,11 +103,9 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       order.customerPhone ||
       "—";
 
-    const addrParts = [
-      typeof addr?.address1 === "string" && addr.address1 ? addr.address1 : null,
-      typeof addr?.city === "string" && addr.city ? addr.city : null,
-    ].filter(Boolean);
-    const customerAddress = addrParts.length > 0 ? addrParts.join(", ") : null;
+    const city = typeof addr?.city === "string" && addr.city ? addr.city : null;
+    const address = typeof addr?.address1 === "string" && addr.address1 ? addr.address1 : null;
+    const customerAddress = [address, city].filter(Boolean).join(", ") || null;
 
     const paymentType =
       order.paymentGatewayPrimary ??
@@ -118,6 +120,9 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       customerName,
       customerPhone: order.customerPhone,
       customerAddress,
+      city,
+      address,
+      merchantName: order.assignedMerchant?.name ?? null,
       totalPrice: order.totalPrice.toString(),
       currency: order.currency ?? "LKR",
       paymentType,
