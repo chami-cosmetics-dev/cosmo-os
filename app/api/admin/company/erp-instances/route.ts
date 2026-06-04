@@ -20,6 +20,7 @@ const erpInstanceSchema = z.object({
   taxesAndCharges: z.string().max(200).optional().nullable(),
   shippingRule: z.string().max(200).optional().nullable(),
   shippingItem: z.string().max(200).optional().nullable(),
+  shippingChargeAccount: z.string().max(200).optional().nullable(),
 });
 
 // GET /api/admin/company/erp-instances — list all instances for the company

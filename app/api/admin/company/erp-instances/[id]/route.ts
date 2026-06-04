@@ -20,6 +20,7 @@ const updateErpInstanceSchema = z.object({
   taxesAndCharges: z.string().max(200).optional().nullable(),
   shippingRule: z.string().max(200).optional().nullable(),
   shippingItem: z.string().max(200).optional().nullable(),
+  shippingChargeAccount: z.string().max(200).optional().nullable(),
 });
 
 async function resolveInstance(id: string, companyId: string) {
