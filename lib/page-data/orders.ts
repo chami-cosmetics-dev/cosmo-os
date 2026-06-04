@@ -24,6 +24,8 @@ export type OrdersPageParams = {
   paymentGateway?: string | null;
   sampleSendLater?: "available" | "future" | "all";
   returnFilter?: "normal" | "rearrange";
+  /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
+  dispatchMode?: boolean;
 };
 
 function startOfTomorrowUtc() {
@@ -160,7 +162,21 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     "invoice_complete",
     "delivery_complete",
   ] as const;
-  if (params.fulfillmentStages?.trim()) {
+
+  if (params.dispatchMode) {
+    // Shopify direct orders: only show when ready_to_dispatch (after sample stage)
+    // ERP non-POS orders: show at order_received or ready_to_dispatch (skip sample stage)
+    where.OR = [
+      { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "ready_to_dispatch" },
+      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch"] } },
+    ];
+    where.financialStatus = { not: "voided" };
+    where.NOT = {
+      approvalRequests: {
+        some: { type: "order_payment_approval", status: "pending" },
+      },
+    };
+  } else if (params.fulfillmentStages?.trim()) {
     const stages = params.fulfillmentStages
       .trim()
       .split(",")
@@ -168,14 +184,13 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      // Sample page (no ready_to_dispatch) = Shopify only; dispatch/other pages include ERP non-POS
+      // Sample page (only sample stages) = Shopify only; other pages include ERP non-POS
       const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
       const hasDispatchStage = stages.includes("ready_to_dispatch");
       where.sourceName = (hasSampleStage && !hasDispatchStage)
         ? { in: ["web", "manual"] }
         : { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
-      // Hide orders awaiting finance approval (Koko/bank transfer) until approved
       where.NOT = {
         approvalRequests: {
           some: { type: "order_payment_approval", status: "pending" },
