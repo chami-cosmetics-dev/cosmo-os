@@ -274,6 +274,12 @@ export async function PATCH(
 
   try {
     if (data.action === "add_samples") {
+      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
+        return NextResponse.json(
+          { error: "Sample/free issue stage does not apply to ERPNext orders" },
+          { status: 400 }
+        );
+      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Samples can only be added at sample/free issue stage" },
