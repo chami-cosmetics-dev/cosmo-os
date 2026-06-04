@@ -141,15 +141,21 @@ export async function PATCH(
       }
     }
 
+    // Mark read for this approval AND any other approval_requested notifications
+    // linked to the same order (handles orphaned notifications from duplicate approvals)
     await tx.$executeRaw(
       Prisma.sql`
         UPDATE "Notification"
         SET "readAt" = COALESCE("readAt", ${now})
         WHERE "companyId" = ${companyId}
           AND "entityType" = 'ApprovalRequest'
-          AND "entityId" = ${approval.id}
           AND "type" = 'approval_requested'
           AND "readAt" IS NULL
+          AND "entityId" IN (
+            SELECT "id" FROM "ApprovalRequest"
+            WHERE "orderId" = ${approval.orderId}
+              AND "companyId" = ${companyId}
+          )
       `
     );
   });
