@@ -147,12 +147,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   }
 
   if (params.search?.trim()) {
-    where.OR = [
-      { orderNumber: { contains: params.search.trim(), mode: "insensitive" } },
-      { name: { contains: params.search.trim(), mode: "insensitive" } },
-      { customerEmail: { contains: params.search.trim(), mode: "insensitive" } },
-      { customerPhone: { contains: params.search.trim(), mode: "insensitive" } },
-      { erpnextInvoiceId: { contains: params.search.trim(), mode: "insensitive" } },
+    const searchTerm = params.search.trim();
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: [
+          { orderNumber: { contains: searchTerm, mode: "insensitive" } },
+          { name: { contains: searchTerm, mode: "insensitive" } },
+          { customerEmail: { contains: searchTerm, mode: "insensitive" } },
+          { customerPhone: { contains: searchTerm, mode: "insensitive" } },
+          { erpnextInvoiceId: { contains: searchTerm, mode: "insensitive" } },
+        ],
+      },
     ];
   }
 
