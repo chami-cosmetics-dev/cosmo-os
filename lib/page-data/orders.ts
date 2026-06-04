@@ -168,9 +168,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      // Sample/free issue and order_received stages are Shopify-only; other stages include ERP non-POS
+      // Sample page (no ready_to_dispatch) = Shopify only; dispatch/other pages include ERP non-POS
       const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
-      where.sourceName = hasSampleStage
+      const hasDispatchStage = stages.includes("ready_to_dispatch");
+      where.sourceName = (hasSampleStage && !hasDispatchStage)
         ? { in: ["web", "manual"] }
         : { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
