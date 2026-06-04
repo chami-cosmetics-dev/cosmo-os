@@ -108,6 +108,8 @@ export function FulfillmentOrderSelector({
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
     params.set("limit", String(limit));
+    params.set("sort_by", "created");
+    params.set("sort_order", "desc");
     if (allowFutureSendLater) {
       params.set("sample_send_later", showFutureSendLater ? "future" : "available");
     }
@@ -353,7 +355,7 @@ export function FulfillmentOrderSelector({
             <div className="relative">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
-                placeholder="Search by order number or name..."
+                placeholder="Search by invoice, order number, phone…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -369,7 +371,11 @@ export function FulfillmentOrderSelector({
             </div>
           ) : orders.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_97%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] px-6 py-8 text-center">
-              <p className="text-muted-foreground text-sm">No orders at this stage.</p>
+              <p className="text-muted-foreground text-sm">
+                {search.trim()
+                  ? `No order found for "${search.trim()}".`
+                  : "No orders at this stage."}
+              </p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -400,8 +406,11 @@ export function FulfillmentOrderSelector({
                           selectedOrderId === order.id ? "bg-primary/10" : "hover:bg-secondary/10"
                         }`}
                       >
-                        <td className="px-4 py-2 font-medium">
-                          {order.name ?? order.orderNumber ?? "—"}
+                        <td className="px-4 py-2">
+                          <span className="block font-medium">{order.name ?? order.orderNumber ?? "—"}</span>
+                          {order.erpnextInvoiceId && order.erpnextInvoiceId !== (order.name ?? order.orderNumber) && (
+                            <span className="block font-mono text-xs text-muted-foreground">{order.erpnextInvoiceId}</span>
+                          )}
                         </td>
                         <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
                         <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}</td>
