@@ -38,6 +38,7 @@ export function PrintFulfillmentPage({
         showInvoiceDetails={false}
         worksheetMode
         bulkPrintUnprinted
+        printMode
         showEmptyWorksheet
       >
         <FulfillmentPrintPanel
