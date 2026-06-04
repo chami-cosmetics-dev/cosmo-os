@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
       financialStatus,
-      fulfillmentStage: isPOS ? "delivery_complete" : "order_received",
+      fulfillmentStage: isPOS ? "delivery_complete" : "ready_to_dispatch",
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
