@@ -26,6 +26,10 @@ export type OrdersPageParams = {
   returnFilter?: "normal" | "rearrange";
   /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
   dispatchMode?: boolean;
+  /** Print queue mode: Shopify at print stage (unprinted); ERP at order_received/ready_to_dispatch/print (unprinted) */
+  printMode?: boolean;
+  /** Generic unprinted-only filter (printCount === 0) */
+  unprintedOnly?: boolean;
 };
 
 function startOfTomorrowUtc() {
@@ -163,7 +167,20 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     "delivery_complete",
   ] as const;
 
-  if (params.dispatchMode) {
+  if (params.printMode) {
+    // Shopify: only at print stage, unprinted
+    // ERP: at order_received / ready_to_dispatch / print, unprinted (covers old and new orders)
+    where.OR = [
+      { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "print", printCount: 0 },
+      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch", "print"] }, printCount: 0 },
+    ];
+    where.financialStatus = { not: "voided" };
+    where.NOT = {
+      approvalRequests: {
+        some: { type: "order_payment_approval", status: "pending" },
+      },
+    };
+  } else if (params.dispatchMode) {
     // Shopify direct orders: only show when ready_to_dispatch (after sample stage)
     // ERP non-POS orders: show at order_received or ready_to_dispatch (skip sample stage)
     where.OR = [
@@ -217,6 +234,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         }
       }
     }
+  }
+
+  if (params.unprintedOnly) {
+    where.printCount = 0;
   }
 
   if (params.createdFrom || params.createdTo) {

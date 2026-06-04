@@ -34,7 +34,9 @@ type DispatchOrder = {
   orderDate: string;
   customerName: string;
   customerPhone: string | null;
-  customerAddress: string | null;
+  city: string | null;
+  address: string | null;
+  merchantName: string | null;
   totalPrice: string;
   currency: string;
   paymentType: string | null;
@@ -229,49 +231,46 @@ export function DispatchSummaryPage() {
                     </span>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-175 text-sm">
+                    <table className="w-full min-w-225 text-sm">
                       <thead className="border-b bg-muted/30 text-left text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-2 font-medium">Order</th>
-                          <th className="px-4 py-2 font-medium">Date</th>
-                          <th className="px-4 py-2 font-medium">Customer</th>
-                          <th className="px-4 py-2 font-medium">Location</th>
-                          <th className="px-4 py-2 font-medium text-right">Amount</th>
-                          <th className="px-4 py-2 font-medium">Payment</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Invoice No</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Location</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Date</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Merchant</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Payment</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Phone</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">City</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Address</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap text-right">Total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {group.orders.map((order) => (
                           <tr key={order.orderId} className="border-b last:border-0 hover:bg-muted/20">
-                            <td className="px-4 py-2 font-medium">{order.reference}</td>
-                            <td className="px-4 py-2 text-muted-foreground">{formatDate(order.orderDate)}</td>
-                            <td className="px-4 py-2">
-                              <p>{order.customerName}</p>
-                              {order.customerPhone && (
-                                <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
-                              )}
-                              {order.customerAddress && (
-                                <p className="text-xs text-muted-foreground">{order.customerAddress}</p>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 text-muted-foreground">{order.locationName}</td>
-                            <td className="px-4 py-2 text-right">{formatAmount(order.totalPrice, order.currency)}</td>
-                            <td className="px-4 py-2 text-muted-foreground">{formatPaymentType(order.paymentType)}</td>
+                            <td className="px-4 py-2 font-medium whitespace-nowrap">{order.reference}</td>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.locationName}</td>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatDate(order.orderDate)}</td>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.merchantName ?? "—"}</td>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatPaymentType(order.paymentType)}</td>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.customerPhone ?? "—"}</td>
+                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.city ?? "—"}</td>
+                            <td className="px-4 py-2 text-muted-foreground">{order.address ?? "—"}</td>
+                            <td className="px-4 py-2 text-right whitespace-nowrap">{formatAmount(order.totalPrice, order.currency)}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
                         <tr className="border-t bg-muted/30 font-medium">
-                          <td colSpan={4} className="px-4 py-2 text-xs text-muted-foreground">
+                          <td colSpan={8} className="px-4 py-2 text-xs text-muted-foreground">
                             {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
                           </td>
-                          <td className="px-4 py-2 text-right">
+                          <td className="px-4 py-2 text-right whitespace-nowrap">
                             {formatAmount(
                               group.orders.reduce((s, o) => s + parseFloat(o.totalPrice || "0"), 0).toFixed(2),
                               group.orders[0]?.currency ?? "LKR",
                             )}
                           </td>
-                          <td />
                         </tr>
                       </tfoot>
                     </table>
