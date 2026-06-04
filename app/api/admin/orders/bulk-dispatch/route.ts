@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
         await prisma.riderDeliveryTask.deleteMany({ where: { orderId } });
       }
 
-      const orderNum = order.orderNumber ?? order.name ?? order.shopifyOrderId;
+      const orderNum = order.name ?? order.orderNumber ?? order.shopifyOrderId;
       sendOrderSms(companyId, orderId, "dispatched", {
         orderNumber: orderNum,
         customerPhone: order.customerPhone ?? undefined,

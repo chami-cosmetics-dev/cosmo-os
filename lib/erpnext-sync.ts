@@ -645,11 +645,11 @@ export async function syncOrderToERPNext(
   );
 
   // Two ways to add shipping: as a line item (shippingItem) or as a taxes row (shippingChargeAccount).
-  // shippingChargeAccount takes priority — it keeps shipping in the Taxes & Charges section with
-  // the exact Shopify amount, bypassing the static ERPNext shipping rule.
+  // shippingChargeAccount takes priority over shippingItem when both are configured.
   const useShippingTaxRow = shopifyShippingAmt > 0 && !!cfg.shippingChargeAccount;
+  const useShippingItem = shopifyShippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
 
-  if (shopifyShippingAmt > 0 && cfg.shippingItem && !useShippingTaxRow) {
+  if (useShippingItem) {
     siItems.push({
       item_code: cfg.shippingItem,
       item_name: "Delivery Charges",
@@ -695,9 +695,9 @@ export async function syncOrderToERPNext(
       : shippingAddressHtml
         ? { shipping_address: shippingAddressHtml }
         : {}),
-    // When shippingChargeAccount is set, inject the exact Shopify amount as an "Actual" taxes row
-    // instead of using the static shipping rule (which has a fixed amount and can't be overridden).
-    ...(cfg.shippingRule && !useShippingTaxRow ? { shipping_rule: cfg.shippingRule } : {}),
+    // shipping_rule only when shipping isn't handled by a line item or taxes row —
+    // including it alongside shippingItem or shippingTaxRow would double-charge shipping.
+    ...(cfg.shippingRule && !useShippingTaxRow && !useShippingItem ? { shipping_rule: cfg.shippingRule } : {}),
     ...(useShippingTaxRow
       ? {
           taxes: [
@@ -720,7 +720,14 @@ export async function syncOrderToERPNext(
     si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBody);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (cfg.taxesAndCharges && msg.includes("417")) {
+    if (msg.includes("417") && msg.includes("shipping_rule") && cfg.shippingRule) {
+      // ERPNext has shipping_rule marked as mandatory — add it and retry.
+      // Note: ERPNext may override the exact Shopify shipping amount with the rule's fixed amount.
+      // To use exact amounts, uncheck "Required" on shipping_rule in ERPNext Customize Form → Sales Invoice.
+      console.warn("[ERPNext] SI creation failed — mandatory shipping_rule, retrying with rule:", msg.slice(0, 200));
+      const siBodyWithRule = { ...(siBody as Record<string, unknown>), shipping_rule: cfg.shippingRule };
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyWithRule);
+    } else if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
       const { taxes_and_charges: _t, ...siBodyClean } = siBody as Record<string, unknown>;
       si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyClean);
