@@ -119,7 +119,7 @@ export async function createOrGetOrderPaymentApproval(input: {
   if (existing[0]) return existing[0];
 
   const id = randomUUID();
-  await prisma.$executeRaw(
+  const rowsAffected = await prisma.$executeRaw(
     Prisma.sql`
       INSERT INTO "ApprovalRequest" (
         "id", "companyId", "type", "status", "orderId",
@@ -130,8 +130,25 @@ export async function createOrGetOrderPaymentApproval(input: {
         ${input.requestedById}, ${`${input.paymentType} — amount: ${input.amount}`},
         ${new Date()}, ${new Date()}
       )
+      ON CONFLICT DO NOTHING
     `
   );
+
+  // Concurrent insert won the race — return the existing pending approval
+  if (rowsAffected === 0) {
+    const concurrent = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "type" = ${ORDER_PAYMENT_APPROVAL}
+          AND "orderId" = ${input.orderId}
+          AND "status" = 'pending'
+        LIMIT 1
+      `
+    );
+    return concurrent[0]!;
+  }
 
   const financeUsers = await getFinanceApprovalUsers(input.companyId);
 
@@ -185,7 +202,7 @@ export async function createOrGetReturnRearrangeApproval(input: {
   }
 
   const id = randomUUID();
-  await prisma.$executeRaw(
+  const rowsAffected = await prisma.$executeRaw(
     Prisma.sql`
       INSERT INTO "ApprovalRequest" (
         "id",
@@ -211,8 +228,25 @@ export async function createOrGetReturnRearrangeApproval(input: {
         ${new Date()},
         ${new Date()}
       )
+      ON CONFLICT DO NOTHING
     `
   );
+
+  // Concurrent insert won the race — return the existing pending approval
+  if (rowsAffected === 0) {
+    const concurrent = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "type" = ${RETURN_REARRANGE_PAYMENT_APPROVAL}
+          AND "orderReturnId" = ${input.orderReturnId}
+          AND "status" = 'pending'
+        LIMIT 1
+      `
+    );
+    return concurrent[0]!;
+  }
 
   const financeUserIds = await getFinanceApprovalUserIds(input.companyId);
   await Promise.all(
