@@ -137,19 +137,13 @@ export async function fetchMerchantReviewSheetData(input: {
   const startedAt = Date.now();
   const where: Prisma.OrderWhereInput = {
     companyId: input.companyId,
-    OR: [
-      { invoiceCompleteAt: { not: null } },
-      { deliveryCompleteAt: { not: null } },
-      { fulfillmentStage: "invoice_complete" as const },
-      { fulfillmentStage: "delivery_complete" as const },
-    ],
+    sourceName: { not: "erpnext-pos" },
   };
-  where.assignedMerchantId = input.canManage ? { not: null } : input.viewerUserId;
 
   const orders = await prisma.order.findMany({
     where,
-    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-    take: 150,
+    orderBy: [{ createdAt: "desc" }],
+    take: 300,
     select: {
       id: true,
       orderNumber: true,

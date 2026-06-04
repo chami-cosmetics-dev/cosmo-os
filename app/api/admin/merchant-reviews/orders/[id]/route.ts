@@ -16,12 +16,11 @@ const reviewSchema = z.object({
   followUpNeeded: z.boolean(),
 });
 
-async function resolveOrderForViewer(orderId: string, companyId: string, viewerUserId: string, canManage: boolean) {
+async function resolveOrderForViewer(orderId: string, companyId: string) {
   return prisma.order.findFirst({
     where: {
       id: orderId,
       companyId,
-      ...(canManage ? {} : { assignedMerchantId: viewerUserId }),
     },
     select: {
       id: true,
@@ -74,8 +73,7 @@ export async function GET(
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
-  const canManage = auth.context!.permissionKeys.includes("orders.manage");
-  const order = await resolveOrderForViewer(parsedId.data, companyId, viewerUserId, canManage);
+  const order = await resolveOrderForViewer(parsedId.data, companyId);
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
@@ -147,8 +145,7 @@ export async function PUT(
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
-  const canManage = auth.context!.permissionKeys.includes("orders.manage");
-  const order = await resolveOrderForViewer(parsedId.data, companyId, viewerUserId, canManage);
+  const order = await resolveOrderForViewer(parsedId.data, companyId);
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }

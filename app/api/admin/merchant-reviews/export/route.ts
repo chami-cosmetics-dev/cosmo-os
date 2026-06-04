@@ -49,13 +49,12 @@ export async function GET(request: NextRequest) {
   }
 
   const viewerUserId = auth.context!.user!.id;
-  const canManage = auth.context!.permissionKeys.includes("orders.manage");
   const status = parseStatus(request.nextUrl.searchParams.get("status"));
 
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...(canManage ? {} : { assignedMerchantId: viewerUserId }),
+      sourceName: { not: "erpnext-pos" },
       merchantReview: status === "all" ? { isNot: null } : { is: { reviewStatus: status } },
     },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
