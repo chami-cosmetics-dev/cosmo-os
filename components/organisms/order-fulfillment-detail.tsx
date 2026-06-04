@@ -182,6 +182,7 @@ export function OrderFulfillmentDetail({
   const isBusy = busyKey !== null;
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
   const isPos = orderDetail?.sourceName === "pos";
+  const isErpOrder = orderDetail?.sourceName === "erpnext" || orderDetail?.sourceName === "erpnext-pos";
   const isComplete = stage === "delivery_complete";
   const selectedDispatchService = dispatchService
     ? {
@@ -343,8 +344,8 @@ export function OrderFulfillmentDetail({
               </div>
             )}
 
-            {/* Sample/Free Issue */}
-            {!isPos && (stage === "order_received" || stage === "sample_free_issue") && lookups && (
+            {/* Sample/Free Issue — Shopify direct orders only */}
+            {!isPos && !isErpOrder && (stage === "order_received" || stage === "sample_free_issue") && lookups && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Sample / Free Issue</h4>
                 {orderDetail.sampleFreeIssues && orderDetail.sampleFreeIssues.length > 0 && (
@@ -436,7 +437,7 @@ export function OrderFulfillmentDetail({
             )}
 
             {/* Print */}
-            {!isPos && (stage === "print" || stage === "sample_free_issue") && (
+            {!isPos && !isErpOrder && (stage === "print" || stage === "sample_free_issue") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Print Invoice</h4>
                 <Button onClick={handlePrint} variant="outline">
