@@ -23,6 +23,7 @@ export type FulfillmentOrder = {
   id: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   currency: string | null;
@@ -222,7 +223,7 @@ export function FulfillmentOrderSelector({
                 <PopoverContent className="w-130 border-border/70 p-0" align="start">
                   <Command shouldFilter={false}>
                     <CommandInput
-                      placeholder="Search by order number..."
+                      placeholder="Search by invoice, order number…"
                       value={search}
                       onValueChange={(value) => {
                         setSearch(value);
@@ -230,34 +231,48 @@ export function FulfillmentOrderSelector({
                       }}
                     />
                     <CommandList>
-                      <CommandEmpty>{loading ? "Loading orders..." : showFutureSendLater ? "No future order found." : "No order found."}</CommandEmpty>
+                      <CommandEmpty>
+                        {loading
+                          ? "Loading orders..."
+                          : search.trim()
+                            ? `No order found for "${search.trim()}".`
+                            : showFutureSendLater
+                              ? "No future order found."
+                              : "No order found."}
+                      </CommandEmpty>
                       <CommandGroup>
-                        {orders.map((order) => (
-                          <CommandItem
-                            key={order.id}
-                            value={`${order.name ?? ""} ${order.orderNumber ?? ""}`}
-                            onSelect={() => handleWorksheetSelect(order)}
-                            className="flex items-center justify-between gap-3"
-                          >
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate">
-                                <span className="font-medium">{order.name ?? order.orderNumber ?? order.id}</span>
-                                <span className="text-muted-foreground ml-2 text-xs">
-                                  {merchantLabel(order)}
+                        {orders.map((order) => {
+                          const label = order.name ?? order.orderNumber ?? order.id;
+                          const erpId = order.erpnextInvoiceId;
+                          const showErpId = erpId && erpId !== label;
+                          return (
+                            <CommandItem
+                              key={order.id}
+                              value={`${order.name ?? ""} ${order.orderNumber ?? ""} ${erpId ?? ""}`}
+                              onSelect={() => handleWorksheetSelect(order)}
+                              className="flex items-center justify-between gap-3"
+                            >
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">
+                                  <span className="font-medium">{label}</span>
+                                  <span className="text-muted-foreground ml-2 text-xs">
+                                    {merchantLabel(order)}
+                                  </span>
                                 </span>
-                              </span>
-                              <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                                {order.companyLocation?.name ?? "No location"}
-                              </span>
-                              {showFutureSendLater && order.sampleFreeIssueSendLaterDate && (
-                                <span className="mt-0.5 block text-xs text-muted-foreground">
-                                  Send {new Date(order.sampleFreeIssueSendLaterDate).toISOString().slice(0, 10)}
+                                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                                  {showErpId && <span className="mr-2 font-mono">{erpId}</span>}
+                                  {order.companyLocation?.name ?? "No location"}
                                 </span>
-                              )}
-                            </span>
-                            {selectedOrderId === order.id && <Check className="size-4" aria-hidden />}
-                          </CommandItem>
-                        ))}
+                                {showFutureSendLater && order.sampleFreeIssueSendLaterDate && (
+                                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                                    Send {new Date(order.sampleFreeIssueSendLaterDate).toISOString().slice(0, 10)}
+                                  </span>
+                                )}
+                              </span>
+                              {selectedOrderId === order.id && <Check className="size-4" aria-hidden />}
+                            </CommandItem>
+                          );
+                        })}
                       </CommandGroup>
                     </CommandList>
                   </Command>
