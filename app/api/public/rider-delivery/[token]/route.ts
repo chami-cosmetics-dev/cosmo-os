@@ -51,6 +51,11 @@ export async function POST(
 
   const body = await request.json().catch(() => ({}));
   const confirmed = body.confirmed === true;
+  const failureReason = typeof body.failureReason === "string" ? body.failureReason.trim() : null;
+
+  if (!confirmed && !failureReason) {
+    return NextResponse.json({ error: "Cancellation reason is required" }, { status: 400 });
+  }
 
   const order = await prisma.order.findFirst({
     where: { riderDeliveryToken: token },
@@ -97,6 +102,39 @@ export async function POST(
       customerPhone: updated.customerPhone ?? undefined,
       locationName: updated.companyLocation?.name ?? undefined,
     }).catch((err) => console.error("[Rider delivery] SMS failed:", err));
+  } else {
+    // Rider could not deliver — record reason and return order to store
+    await prisma.$transaction(async (tx) => {
+      await tx.riderDeliveryTask.updateMany({
+        where: { orderId: order.id },
+        data: {
+          status: "failed",
+          failedAt: now,
+          failureReason: failureReason,
+          completedAt: null,
+          latestSyncAt: now,
+        },
+      });
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          fulfillmentStage: "returned_to_store",
+          fulfillmentStatus: "unfulfilled",
+          packageReadyAt: null,
+          packageReadyById: null,
+          packageOnHoldAt: null,
+          packageHoldReasonId: null,
+          dispatchedAt: null,
+          dispatchedById: null,
+          dispatchedByRiderId: null,
+          dispatchedByCourierServiceId: null,
+          deliveryOutcome: "failed",
+          deliveryFailedReason: failureReason,
+          lastRiderUpdateAt: now,
+          riderDeliveryToken: null,
+        },
+      });
+    });
   }
 
   return NextResponse.json({ success: true });

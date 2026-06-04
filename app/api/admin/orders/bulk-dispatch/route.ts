@@ -39,14 +39,16 @@ export async function POST(request: NextRequest) {
   if (!riderId && !courierServiceId) return NextResponse.json({ error: "Select either rider or courier" }, { status: 400 });
 
   // Validate rider / courier once up front
+  let riderMobile: string | null = null;
   if (riderId) {
     const rider = await prisma.user.findFirst({
       where: { id: riderId, companyId },
-      include: { employeeProfile: true },
+      select: { mobile: true, employeeProfile: { select: { isRider: true } } },
     });
     if (!rider?.employeeProfile?.isRider) {
       return NextResponse.json({ error: "Selected user is not a rider" }, { status: 400 });
     }
+    riderMobile = rider.mobile ?? null;
   }
   if (courierServiceId) {
     const svc = await prisma.courierService.findFirst({ where: { id: courierServiceId, companyId } });
@@ -165,6 +167,7 @@ export async function POST(request: NextRequest) {
         sendOrderSms(companyId, orderId, "rider_dispatched", {
           orderNumber: orderNum,
           deliveryUrl,
+          riderPhone: riderMobile ?? undefined,
         }).catch((err) => console.error("[bulk-dispatch] rider SMS failed:", err));
       }
 

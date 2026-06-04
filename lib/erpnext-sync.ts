@@ -20,6 +20,7 @@ type ErpConfig = {
   taxesAndCharges: string;
   shippingRule: string;
   shippingItem: string;
+  shippingChargeAccount: string;
 };
 
 function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
@@ -36,6 +37,7 @@ function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
     shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
     shippingItem: instance?.shippingItem ?? process.env.ERPNEXT_SHIPPING_ITEM ?? "",
+    shippingChargeAccount: instance?.shippingChargeAccount ?? process.env.ERPNEXT_SHIPPING_CHARGE_ACCOUNT ?? "",
   };
 }
 
@@ -641,7 +643,13 @@ export async function syncOrderToERPNext(
   const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
     (sum, line) => sum + parseFloat(line.price ?? "0"), 0,
   );
-  if (shopifyShippingAmt > 0 && cfg.shippingItem) {
+
+  // Two ways to add shipping: as a line item (shippingItem) or as a taxes row (shippingChargeAccount).
+  // shippingChargeAccount takes priority — it keeps shipping in the Taxes & Charges section with
+  // the exact Shopify amount, bypassing the static ERPNext shipping rule.
+  const useShippingTaxRow = shopifyShippingAmt > 0 && !!cfg.shippingChargeAccount;
+
+  if (shopifyShippingAmt > 0 && cfg.shippingItem && !useShippingTaxRow) {
     siItems.push({
       item_code: cfg.shippingItem,
       item_name: "Delivery Charges",
@@ -653,7 +661,8 @@ export async function syncOrderToERPNext(
 
   const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
   const vaultTotal = parseFloat(order.totalPrice.toString());
-  const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
+  // When shipping goes to taxes (not items), add it back so the discount calc stays correct
+  const discountAmt = parseFloat((itemsTotal + (useShippingTaxRow ? shopifyShippingAmt : 0) - vaultTotal).toFixed(2));
 
   const shopifyCouponCode =
     (shopifyData.discount_codes as Array<{ code: string }> | undefined)?.[0]?.code?.trim() ||
@@ -686,8 +695,23 @@ export async function syncOrderToERPNext(
       : shippingAddressHtml
         ? { shipping_address: shippingAddressHtml }
         : {}),
-    ...(cfg.shippingRule ? { shipping_rule: cfg.shippingRule } : {}),
-    ...(cfg.taxesAndCharges ? { taxes_and_charges: cfg.taxesAndCharges } : { taxes: [] }),
+    // When shippingChargeAccount is set, inject the exact Shopify amount as an "Actual" taxes row
+    // instead of using the static shipping rule (which has a fixed amount and can't be overridden).
+    ...(cfg.shippingRule && !useShippingTaxRow ? { shipping_rule: cfg.shippingRule } : {}),
+    ...(useShippingTaxRow
+      ? {
+          taxes: [
+            {
+              charge_type: "Actual",
+              account_head: cfg.shippingChargeAccount,
+              description: "Shipping Fee",
+              tax_amount: shopifyShippingAmt,
+            },
+          ],
+        }
+      : cfg.taxesAndCharges
+        ? { taxes_and_charges: cfg.taxesAndCharges }
+        : { taxes: [] }),
     ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
   };
 

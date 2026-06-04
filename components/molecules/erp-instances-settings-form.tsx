@@ -32,6 +32,7 @@ type ErpInstance = {
   taxesAndCharges: string | null;
   shippingRule: string | null;
   shippingItem: string | null;
+  shippingChargeAccount: string | null;
   createdAt: string;
   _count: { locations: number };
 };
@@ -51,6 +52,7 @@ type InstanceForm = {
   taxesAndCharges: string;
   shippingRule: string;
   shippingItem: string;
+  shippingChargeAccount: string;
 };
 
 const emptyForm = (): InstanceForm => ({
@@ -68,6 +70,7 @@ const emptyForm = (): InstanceForm => ({
   taxesAndCharges: "",
   shippingRule: "",
   shippingItem: "",
+  shippingChargeAccount: "",
 });
 
 interface ErpInstancesSettingsFormProps {
@@ -101,7 +104,8 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
     form.webxpayMop.trim() !== savedForm.webxpayMop.trim() ||
     form.taxesAndCharges.trim() !== savedForm.taxesAndCharges.trim() ||
     form.shippingRule.trim() !== savedForm.shippingRule.trim() ||
-    form.shippingItem.trim() !== savedForm.shippingItem.trim();
+    form.shippingItem.trim() !== savedForm.shippingItem.trim() ||
+    form.shippingChargeAccount.trim() !== savedForm.shippingChargeAccount.trim();
 
   function setField(key: keyof InstanceForm, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -152,6 +156,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
       taxesAndCharges: instance.taxesAndCharges ?? "",
       shippingRule: instance.shippingRule ?? "",
       shippingItem: instance.shippingItem ?? "",
+      shippingChargeAccount: instance.shippingChargeAccount ?? "",
     };
     setForm(f);
     setSavedForm(f);
@@ -187,6 +192,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
         taxesAndCharges: form.taxesAndCharges.trim() || null,
         shippingRule: form.shippingRule.trim() || null,
         shippingItem: form.shippingItem.trim() || null,
+        shippingChargeAccount: form.shippingChargeAccount.trim() || null,
       };
       if (form.apiSecret.trim()) body.apiSecret = form.apiSecret.trim();
 
@@ -478,6 +484,19 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
                   placeholder="e.g. DELIVERY-CHARGES"
                   maxLength={200}
                 />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Shipping Charge Account</label>
+                <Input
+                  value={form.shippingChargeAccount}
+                  onChange={(e) => setField("shippingChargeAccount", e.target.value)}
+                  disabled={!canEdit || isBusy}
+                  placeholder="e.g. Freight and Forwarding Charges - SV-1"
+                  maxLength={200}
+                />
+                <p className="text-xs text-muted-foreground">
+                  ERPNext account head for shipping. When set, the exact Shopify shipping amount is added to Taxes &amp; Charges dynamically (overrides Shipping Rule).
+                </p>
               </div>
             </div>
           </div>
