@@ -796,7 +796,7 @@ export async function PATCH(
           where: { orderId: order.id },
         });
       }
-      const orderNum = updated.orderNumber ?? updated.name ?? updated.shopifyOrderId;
+      const orderNum = updated.name ?? updated.orderNumber ?? updated.shopifyOrderId;
       sendOrderSms(companyId, order.id, "dispatched", {
         orderNumber: orderNum,
         customerPhone: updated.customerPhone ?? undefined,
