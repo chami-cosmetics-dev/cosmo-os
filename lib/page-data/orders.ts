@@ -254,6 +254,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     where.printCount = 0;
   }
 
+  // Exclude orders from locations that have been temporarily blocked from fulfillment
+  if (params.printMode || params.dispatchMode || params.fulfillmentStages?.trim()) {
+    where.companyLocation = { fulfillmentBlocked: false };
+  }
+
   if (params.printHistoryMode) {
     where.printCount = { gt: 0 };
     where.sourceName = { in: ["web", "manual", "erpnext"] };
