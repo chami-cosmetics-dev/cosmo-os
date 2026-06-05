@@ -30,6 +30,11 @@ export type OrdersPageParams = {
   printMode?: boolean;
   /** Generic unprinted-only filter (printCount === 0) */
   unprintedOnly?: boolean;
+  /** Print history mode: orders with printCount > 0, optionally filtered by lastPrintedAt range */
+  printHistoryMode?: boolean;
+  /** Inclusive bounds on `Order.lastPrintedAt` (used by printHistoryMode). */
+  lastPrintedFrom?: Date;
+  lastPrintedTo?: Date;
 };
 
 function startOfTomorrowUtc() {
@@ -249,6 +254,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     where.printCount = 0;
   }
 
+  if (params.printHistoryMode) {
+    where.printCount = { gt: 0 };
+    where.sourceName = { in: ["web", "manual", "erpnext"] };
+    where.financialStatus = { not: "voided" };
+    if (params.lastPrintedFrom || params.lastPrintedTo) {
+      where.lastPrintedAt = {
+        ...(params.lastPrintedFrom ? { gte: params.lastPrintedFrom } : {}),
+        ...(params.lastPrintedTo ? { lte: params.lastPrintedTo } : {}),
+      };
+    }
+  }
+
   if (params.createdFrom || params.createdTo) {
     where.createdAt = {
       ...(params.createdFrom ? { gte: params.createdFrom } : {}),
@@ -278,6 +295,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     createdAt: true,
     fulfillmentStage: true,
     printCount: true,
+    lastPrintedAt: true,
     packageOnHoldAt: true,
     sampleFreeIssueSendLaterDate: true,
     companyLocation: { select: { id: true, name: true } },
@@ -323,6 +341,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     assignedMerchant: o.assignedMerchant,
     lineItemCount: o._count.lineItems,
     printCount: o.printCount,
+    lastPrintedAt: o.lastPrintedAt?.toISOString() ?? null,
     packageOnHoldAt: o.packageOnHoldAt?.toISOString() ?? null,
     sampleFreeIssueSendLaterDate: o.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
     packageHoldReason: o.packageHoldReason,

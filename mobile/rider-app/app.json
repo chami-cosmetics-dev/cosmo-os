@@ -18,6 +18,13 @@
       "versionCode": 1,
       "permissions": []
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "45689b04-33f8-4ae7-9bf5-08970df45f0f"
+      }
+    }
   }
 }

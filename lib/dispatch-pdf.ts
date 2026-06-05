@@ -29,9 +29,10 @@ export type DispatchGroupForPdf = {
   orders: Array<{
     reference: string;
     orderDate: string;
-    customerName: string;
     customerPhone: string | null;
-    customerAddress: string | null;
+    merchantName: string | null;
+    city: string | null;
+    address: string | null;
     totalPrice: string;
     currency: string;
     paymentType: string | null;
@@ -78,34 +79,37 @@ export async function generateDispatchGroupPdf(
 
   const tableBody: unknown[][] = [
     [
-      { text: "Order #", style: "th" },
-      { text: "Date", style: "th" },
-      { text: "Customer", style: "th" },
+      { text: "Invoice No", style: "th" },
       { text: "Location", style: "th" },
-      { text: "Amount", style: "th" },
+      { text: "Date", style: "th" },
+      { text: "Merchant", style: "th" },
       { text: "Payment", style: "th" },
+      { text: "Phone", style: "th" },
+      { text: "City", style: "th" },
+      { text: "Address", style: "th" },
+      { text: "Total", style: "th", alignment: "right" },
     ],
     ...group.orders.map((order) => [
       { text: order.reference, style: "td" },
-      { text: formatDate(order.orderDate), style: "td" },
-      {
-        stack: [
-          { text: order.customerName, style: "td" },
-          ...(order.customerPhone ? [{ text: order.customerPhone, style: "cellSub" }] : []),
-          ...(order.customerAddress ? [{ text: order.customerAddress, style: "cellSub" }] : []),
-        ],
-      },
       { text: order.locationName, style: "td" },
-      { text: formatAmount(order.totalPrice, order.currency), style: "td" },
+      { text: formatDate(order.orderDate), style: "td" },
+      { text: order.merchantName ?? "—", style: "td" },
       { text: formatPayment(order.paymentType), style: "td" },
+      { text: order.customerPhone ?? "—", style: "td" },
+      { text: order.city ?? "—", style: "td" },
+      { text: order.address ?? "—", style: "td" },
+      { text: formatAmount(order.totalPrice, order.currency), style: "td", alignment: "right" },
     ]),
     [
-      { text: `Total: ${group.orders.length} order${group.orders.length !== 1 ? "s" : ""}`, colSpan: 4, style: "total" },
+      { text: `Total: ${group.orders.length} order${group.orders.length !== 1 ? "s" : ""}`, colSpan: 8, style: "total" },
       { text: "" },
       { text: "" },
       { text: "" },
-      { text: formatAmount(totalAmount.toFixed(2), currency), style: "total" },
       { text: "" },
+      { text: "" },
+      { text: "" },
+      { text: "" },
+      { text: formatAmount(totalAmount.toFixed(2), currency), style: "total", alignment: "right" },
     ],
   ];
 
@@ -158,7 +162,7 @@ export async function generateDispatchGroupPdf(
       {
         table: {
           headerRows: 1,
-          widths: ["auto", "auto", "*", "auto", "auto", "auto"],
+          widths: ["auto", "auto", "auto", "auto", "auto", "auto", "auto", "*", "auto"],
           body: tableBody,
         },
         layout: {
