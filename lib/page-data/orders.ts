@@ -107,6 +107,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
 
   const SORT_FIELDS: Record<string, Prisma.OrderOrderByWithRelationInput> = {
     created: { createdAt: sortOrder },
+    updated: { updatedAt: sortOrder },
     total: { totalPrice: sortOrder },
     order_number: { orderNumber: sortOrder },
     name: { name: sortOrder },

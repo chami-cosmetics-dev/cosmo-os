@@ -214,15 +214,14 @@ export async function GET(
   const printedAt = new Date();
   if (shouldIncrementPrint) {
     const userId = auth.context!.user!.id;
-    const advanceErpToDispatch =
-      order.sourceName === "erpnext" && order.fulfillmentStage === "print";
+    const advanceToDispatch = order.fulfillmentStage === "print";
     await prisma.order.update({
       where: { id: order.id },
       data: {
         printCount: { increment: 1 },
         lastPrintedAt: printedAt,
         lastPrintedById: userId,
-        ...(advanceErpToDispatch ? { fulfillmentStage: "ready_to_dispatch" } : {}),
+        ...(advanceToDispatch ? { fulfillmentStage: "ready_to_dispatch" } : {}),
       },
     });
   }
