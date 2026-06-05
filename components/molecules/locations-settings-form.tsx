@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
+  Ban,
   FileText,
   Loader2,
   MapPin,
@@ -62,6 +63,7 @@ type Location = {
   erpnextCompany?: string | null;
   erpnextWarehouse?: string | null;
   erpnextInstanceId?: string | null;
+  fulfillmentBlocked?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -99,6 +101,7 @@ const emptyForm = (): LocationForm => ({
   erpnextCompany: "",
   erpnextWarehouse: "",
   erpnextInstanceId: null,
+  fulfillmentBlocked: false,
 });
 
 interface LocationsSettingsFormProps {
@@ -282,6 +285,7 @@ export function LocationsSettingsForm({
       erpnextCompany: loc.erpnextCompany ?? "",
       erpnextWarehouse: loc.erpnextWarehouse ?? "",
       erpnextInstanceId: loc.erpnextInstanceId ?? null,
+      fulfillmentBlocked: loc.fulfillmentBlocked ?? false,
     });
     setSheetOpen(true);
   }
@@ -395,7 +399,8 @@ export function LocationsSettingsForm({
           (form.manualInvoiceSeqPadding ?? 3) !== (editingLocation.manualInvoiceSeqPadding ?? 3) ||
           (form.erpnextCompany?.trim() ?? "") !== (editingLocation.erpnextCompany ?? "").trim() ||
           (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim() ||
-          (form.erpnextInstanceId ?? null) !== (editingLocation.erpnextInstanceId ?? null)
+          (form.erpnextInstanceId ?? null) !== (editingLocation.erpnextInstanceId ?? null) ||
+          (form.fulfillmentBlocked ?? false) !== (editingLocation.fulfillmentBlocked ?? false)
         : false;
 
   async function handleLocationLogoChange(url: string | null) {
@@ -431,6 +436,7 @@ export function LocationsSettingsForm({
         erpnextCompany: form.erpnextCompany?.trim() || null,
         erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
         erpnextInstanceId: form.erpnextInstanceId ?? null,
+        fulfillmentBlocked: form.fulfillmentBlocked ?? false,
       };
       const res = await fetch(`/api/admin/company/locations/${editingId}`, {
         method: "PATCH",
@@ -491,6 +497,7 @@ export function LocationsSettingsForm({
       erpnextCompany: form.erpnextCompany?.trim() || null,
       erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
       erpnextInstanceId: form.erpnextInstanceId ?? null,
+      fulfillmentBlocked: form.fulfillmentBlocked ?? false,
     };
 
     if (sheetMode === "add") {
@@ -678,7 +685,15 @@ export function LocationsSettingsForm({
                     )}
                   </div>
                   <div>
-                    <p className="font-medium">{loc.name}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium">{loc.name}</p>
+                      {loc.fulfillmentBlocked && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+                          <Ban className="size-3" aria-hidden />
+                          Fulfillment blocked
+                        </span>
+                      )}
+                    </div>
                   {loc.shortName && (
                     <p className="text-muted-foreground text-xs">
                       Short name: {loc.shortName} (for SMS)
@@ -1165,6 +1180,31 @@ export function LocationsSettingsForm({
                 disabled={isBusy}
                 maxLength={100}
               />
+            </div>
+
+            <div className={`space-y-3 rounded-2xl border p-4 shadow-xs ${form.fulfillmentBlocked ? "border-destructive/40 bg-destructive/5" : "border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]"}`}>
+              <h4 className="flex items-center gap-2 text-sm font-medium">
+                <Ban className={`size-4 ${form.fulfillmentBlocked ? "text-destructive" : "text-muted-foreground"}`} aria-hidden />
+                Fulfillment
+              </h4>
+              <p className="text-muted-foreground text-xs">
+                When blocked, orders from this location will not appear in any fulfillment stage — Print Queue, Dispatch, Samples, etc.
+              </p>
+              <Select
+                value={form.fulfillmentBlocked ? "blocked" : "active"}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, fulfillmentBlocked: v === "blocked" }))
+                }
+                disabled={isBusy}
+              >
+                <SelectTrigger className="w-full bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active — orders appear in fulfillment</SelectItem>
+                  <SelectItem value="blocked">Blocked — orders hidden from fulfillment</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">

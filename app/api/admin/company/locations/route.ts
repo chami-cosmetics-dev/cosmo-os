@@ -81,6 +81,7 @@ export async function GET(request: NextRequest) {
         erpnextCompany: true,
         erpnextWarehouse: true,
         erpnextInstanceId: true,
+        fulfillmentBlocked: true,
         createdAt: true,
         updatedAt: true,
       },

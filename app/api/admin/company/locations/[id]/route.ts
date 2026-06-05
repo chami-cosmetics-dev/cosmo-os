@@ -37,6 +37,7 @@ const updateLocationSchema = z.object({
   erpnextCompany: z.string().max(140).optional().nullable(),
   erpnextWarehouse: z.string().max(140).optional().nullable(),
   erpnextInstanceId: cuidSchema.nullable().optional(),
+  fulfillmentBlocked: z.boolean().optional(),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -149,6 +150,7 @@ export async function PATCH(
       erpnextCompany: toOpt(d.erpnextCompany ?? undefined),
       erpnextWarehouse: toOpt(d.erpnextWarehouse ?? undefined),
       erpnextInstanceId: d.erpnextInstanceId ?? null,
+      ...(d.fulfillmentBlocked !== undefined && { fulfillmentBlocked: d.fulfillmentBlocked }),
     },
     select: {
       id: true,
@@ -176,6 +178,7 @@ export async function PATCH(
       erpnextCompany: true,
       erpnextWarehouse: true,
       erpnextInstanceId: true,
+      fulfillmentBlocked: true,
       createdAt: true,
       updatedAt: true,
     },
