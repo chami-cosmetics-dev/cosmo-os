@@ -28,6 +28,7 @@ export type LocationsSettingsLocation = {
   manualInvoiceSeqPadding: number;
   erpnextCompany: string | null;
   erpnextWarehouse: string | null;
+  fulfillmentBlocked: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -76,6 +77,7 @@ export async function getLocationsSettingsInitialData(
         defaultMerchantUserId: true,
         erpnextCompany: true,
         erpnextWarehouse: true,
+        fulfillmentBlocked: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -96,6 +98,7 @@ export async function getLocationsSettingsInitialData(
     manualInvoiceSeqPadding: invoiceFields.get(l.id)?.manualInvoiceSeqPadding ?? 3,
     erpnextCompany: l.erpnextCompany,
     erpnextWarehouse: l.erpnextWarehouse,
+    fulfillmentBlocked: l.fulfillmentBlocked,
     createdAt: l.createdAt.toISOString(),
     updatedAt: l.updatedAt.toISOString(),
   }));
