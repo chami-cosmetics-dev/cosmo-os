@@ -49,6 +49,12 @@ export async function GET(request: NextRequest) {
   const createdToResult = optionalIsoDateTimeQuerySchema.safeParse(
     searchParams.get("created_to") ?? undefined
   );
+  const lastPrintedFromResult = optionalIsoDateTimeQuerySchema.safeParse(
+    searchParams.get("last_printed_from") ?? undefined
+  );
+  const lastPrintedToResult = optionalIsoDateTimeQuerySchema.safeParse(
+    searchParams.get("last_printed_to") ?? undefined
+  );
   const paymentGatewayResult = orderPaymentGatewayFilterSchema.safeParse(
     searchParams.get("payment_gateway") ?? undefined
   );
@@ -80,6 +86,9 @@ export async function GET(request: NextRequest) {
     unprintedOnly: searchParams.get("unprinted_only") === "true",
     createdFrom: createdFromResult.success ? createdFromResult.data : undefined,
     createdTo: createdToResult.success ? createdToResult.data : undefined,
+    printHistoryMode: searchParams.get("print_history_mode") === "true",
+    lastPrintedFrom: lastPrintedFromResult.success ? lastPrintedFromResult.data : undefined,
+    lastPrintedTo: lastPrintedToResult.success ? lastPrintedToResult.data : undefined,
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
     sampleSendLater,
     returnFilter,
