@@ -122,8 +122,15 @@ function PrintQueueInner() {
 
   const unprinted = orders.filter((o) => o.printCount === 0);
   const selectedUnprinted = unprinted.filter((o) => selected.has(o.id));
-  const allSelected = unprinted.length > 0 && unprinted.every((o) => selected.has(o.id));
-  const someSelected = unprinted.some((o) => selected.has(o.id));
+  // queue tab
+  const queueAllSelected = unprinted.length > 0 && unprinted.every((o) => selected.has(o.id));
+  const queueSomeSelected = unprinted.some((o) => selected.has(o.id));
+  // history tab
+  const historyAllSelected = orders.length > 0 && orders.every((o) => selected.has(o.id));
+  const historySomeSelected = orders.some((o) => selected.has(o.id));
+
+  const allSelected = view === "queue" ? queueAllSelected : historyAllSelected;
+  const someSelected = view === "queue" ? queueSomeSelected : historySomeSelected;
 
   // Drive the indeterminate state of the select-all checkbox
   useEffect(() => {
@@ -145,7 +152,8 @@ function PrintQueueInner() {
     if (allSelected) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(unprinted.map((o) => o.id)));
+      const ids = view === "queue" ? unprinted.map((o) => o.id) : orders.map((o) => o.id);
+      setSelected(new Set(ids));
     }
   }
 
@@ -178,6 +186,13 @@ function PrintQueueInner() {
     }
     setPrinting(true);
     void doPrint(unprinted.map((o) => o.id));
+  }
+
+  function handleReprint() {
+    const ids = orders.filter((o) => selected.has(o.id)).map((o) => o.id);
+    if (ids.length === 0) return;
+    setPrinting(true);
+    void doPrint(ids);
   }
 
   return (
@@ -234,12 +249,32 @@ function PrintQueueInner() {
           </div>
 
           {view === "history" && (
-            <Input
-              type="date"
-              value={historyDate}
-              onChange={(e) => setHistoryDate(e.target.value)}
-              className="h-9 w-44"
-            />
+            <>
+              <Input
+                type="date"
+                value={historyDate}
+                onChange={(e) => setHistoryDate(e.target.value)}
+                className="h-9 w-44"
+              />
+              {perms.canPrint && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 gap-1.5"
+                  disabled={!orders.some((o) => selected.has(o.id)) || printing}
+                  onClick={handleReprint}
+                >
+                  {printing ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Printer className="size-4" />
+                  )}
+                  Reprint Selected
+                  {orders.filter((o) => selected.has(o.id)).length > 0 &&
+                    ` (${orders.filter((o) => selected.has(o.id)).length})`}
+                </Button>
+              )}
+            </>
           )}
 
           {view === "queue" && perms.canPrint && (
@@ -297,18 +332,16 @@ function PrintQueueInner() {
             <table className="w-full min-w-200 text-sm">
               <thead>
                 <tr className="border-b border-border/70 bg-muted/40">
-                  {view === "queue" && (
-                    <th className="w-12 px-4 py-2.5">
-                      <input
-                        ref={selectAllRef}
-                        type="checkbox"
-                        checked={allSelected}
-                        onChange={toggleAll}
-                        className="size-4 cursor-pointer rounded border-border accent-primary"
-                        aria-label="Select all unprinted"
-                      />
-                    </th>
-                  )}
+                  <th className="w-12 px-4 py-2.5">
+                    <input
+                      ref={selectAllRef}
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      className="size-4 cursor-pointer rounded border-border accent-primary"
+                      aria-label="Select all"
+                    />
+                  </th>
                   <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Invoice
                   </th>
@@ -356,37 +389,31 @@ function PrintQueueInner() {
                     <tr
                       key={order.id}
                       onClick={
-                        view === "queue" && !isPrinted
-                          ? () => toggleOne(order.id)
-                          : undefined
+                        view === "queue" && isPrinted ? undefined : () => toggleOne(order.id)
                       }
                       className={`transition-colors ${
-                        view === "queue" && !isPrinted ? "cursor-pointer" : ""
+                        view === "history" || !isPrinted ? "cursor-pointer" : ""
                       } ${
-                        isPrinted
-                          ? "opacity-55"
-                          : isSelected
-                            ? "bg-primary/5"
-                            : view === "queue"
-                              ? "hover:bg-muted/30"
-                              : ""
+                        isSelected
+                          ? "bg-primary/5"
+                          : view === "queue" && isPrinted
+                            ? "opacity-55"
+                            : "hover:bg-muted/30"
                       }`}
                     >
-                      {view === "queue" && (
-                        <td
-                          className="px-4 py-3"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={isPrinted}
-                            onChange={() => toggleOne(order.id)}
-                            className="size-4 cursor-pointer rounded border-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
-                            aria-label={`Select ${label}`}
-                          />
-                        </td>
-                      )}
+                      <td
+                        className="px-4 py-3"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={view === "queue" && isPrinted}
+                          onChange={() => toggleOne(order.id)}
+                          className="size-4 cursor-pointer rounded border-border accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-label={`Select ${label}`}
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <span className="block font-medium leading-tight">{label}</span>
                         {showErpId && (

@@ -298,19 +298,21 @@ export async function GET(
       padding: 28px;
       background: #fff;
     }
-    .watermark {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%) rotate(-45deg);
-      font-size: 140px;
-      font-weight: 300;
-      letter-spacing: 0.1em;
-      color: rgba(0,0,0,0.06);
-      pointer-events: none;
-      z-index: 1;
+    .copy-banner {
+      text-align: center;
+      padding: 7px 20px;
+      background: #fffbeb;
+      border: 1.5px solid #f59e0b;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.25em;
+      color: #92400e;
+      margin-bottom: 20px;
     }
-    .content { position: relative; z-index: 2; }
+    @media print {
+      .copy-banner { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
     .top-accent {
       height: 4px;
       background: linear-gradient(90deg, #1e3a5f 0%, #2d5a87 100%);
@@ -528,7 +530,6 @@ export async function GET(
     @media print {
       body { padding: 16px; }
       .top-accent { margin: -16px -16px 20px -16px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .watermark { color: rgba(0,0,0,0.1); }
       .invoice-meta { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .grand-total-wrap { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -538,9 +539,9 @@ export async function GET(
   </style>
 </head>
 <body>
-  ${showWatermark ? '<div class="watermark">COPY</div>' : ""}
   <div class="content">
     <div class="top-accent"></div>
+    ${showWatermark ? '<div class="copy-banner">COPY</div>' : ""}
     <div class="invoice-header">
       <div class="invoice-meta">
         <div class="inv-label">Invoice</div>
