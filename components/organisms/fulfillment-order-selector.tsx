@@ -108,7 +108,7 @@ export function FulfillmentOrderSelector({
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
     params.set("limit", String(limit));
-    params.set("sort_by", "created");
+    params.set("sort_by", printMode ? "updated" : "created");
     params.set("sort_order", "desc");
     if (allowFutureSendLater) {
       params.set("sample_send_later", showFutureSendLater ? "future" : "available");
