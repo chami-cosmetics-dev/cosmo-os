@@ -320,7 +320,7 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
   // 6. Invoice Delivered
   items.push({
     id: "invoice_delivered",
-    label: "Invoice Delivered",
+    label: "Delivered",
     date: orderDetail.deliveryCompleteAt ?? null,
     who: orderDetail.deliveryCompleteBy ? userName(orderDetail.deliveryCompleteBy) : "-",
     done: !!orderDetail.deliveryCompleteAt,
