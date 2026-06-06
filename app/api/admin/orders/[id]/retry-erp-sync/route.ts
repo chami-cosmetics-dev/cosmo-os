@@ -38,7 +38,8 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (!order.erpnextSyncError) {
+  const isPendingApproval = order.erpnextInvoiceId === "pending_approval";
+  if (!order.erpnextSyncError && !isPendingApproval) {
     return NextResponse.json({ error: "No failed ERP sync on this order" }, { status: 400 });
   }
 
