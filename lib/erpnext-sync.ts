@@ -139,10 +139,13 @@ async function ensureErpAddress(
     });
     return newAddr.name;
   } catch (err) {
-    console.warn(
-      `[ERPNext] Could not create ${addrType} address for "${customerName}":`,
-      err instanceof Error ? err.message.slice(0, 200) : String(err),
-    );
+    const msg = err instanceof Error ? err.message : String(err);
+    // Extract status code from "ERPNext GET ... [STATUS]: body" format
+    const statusMatch = msg.match(/\[(\d+)\]:/);
+    const summary = statusMatch
+      ? `HTTP ${statusMatch[1]} — ${msg.slice(msg.indexOf("]:") + 2).trim().slice(0, 150)}`
+      : msg.slice(0, 200);
+    console.warn(`[ERPNext] Could not create ${addrType} address for "${customerName}": ${summary}`);
     return null;
   }
 }
