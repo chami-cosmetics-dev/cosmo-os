@@ -42,14 +42,14 @@ export function DeliveryInvoiceFulfillmentPage({
     <FulfillmentPermissionsProvider permissions={permissions}>
       <div className="space-y-4">
         <FulfillmentOrderSelector
-        title="Delivery Complete & Invoice Complete"
-        description="Select an order. First mark delivery complete when delivered, then mark invoice complete."
-        stages="dispatched,delivery_complete"
+        title="Delivery & Invoice"
+        description="Select a dispatched order and mark it as delivered to complete the invoice."
+        stages="dispatched,delivery_complete,invoice_complete"
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
         refreshTrigger={orderListRefreshTrigger}
         invoiceRefreshTrigger={invoiceRefreshTrigger}
-        currentStage="delivery_complete"
+        currentStage="invoice_complete"
         showInvoiceDetails={false}
         worksheetMode
         showEmptyWorksheet
