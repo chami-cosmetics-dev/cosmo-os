@@ -907,6 +907,7 @@ export async function PATCH(
         data: {
           fulfillmentStage: "invoice_complete",
           fulfillmentStatus: "fulfilled",
+          ...(order.financialStatus !== "paid" && { financialStatus: "paid" }),
           deliveryCompleteAt: now,
           deliveryCompleteById: auth.context!.user!.id,
           invoiceCompleteAt: now,

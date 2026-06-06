@@ -93,6 +93,7 @@ export async function POST(
           deliveryFailedReason: null,
           lastRiderUpdateAt: now,
           riderDeliveryToken: null,
+          ...(order.financialStatus !== "paid" && { financialStatus: "paid" }),
         },
         include: { companyLocation: true },
       });
