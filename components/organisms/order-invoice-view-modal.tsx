@@ -317,12 +317,22 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     icon: <Truck className="size-4" />,
   });
 
-  // 6. Invoice Delivered
+  // 6. Delivered
+  const courierOrRider =
+    orderDetail.dispatchedByCourierService?.name ??
+    orderDetail.dispatchedByRider?.name ??
+    null;
+  const deliveredByUser = orderDetail.deliveryCompleteBy
+    ? userName(orderDetail.deliveryCompleteBy)
+    : null;
+  const deliveredWho = courierOrRider && deliveredByUser
+    ? `${courierOrRider} · marked by ${deliveredByUser}`
+    : deliveredByUser ?? courierOrRider ?? "-";
   items.push({
     id: "invoice_delivered",
     label: "Delivered",
     date: orderDetail.deliveryCompleteAt ?? null,
-    who: orderDetail.deliveryCompleteBy ? userName(orderDetail.deliveryCompleteBy) : "-",
+    who: deliveredWho,
     done: !!orderDetail.deliveryCompleteAt,
     icon: <PackageCheck className="size-4" />,
   });
