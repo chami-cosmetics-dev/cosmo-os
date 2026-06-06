@@ -29,8 +29,10 @@ export async function GET(request: NextRequest) {
 
   const where = {
     companyId,
-    erpnextSyncError: { not: null as string | null },
-    erpnextInvoiceId: null,
+    OR: [
+      { erpnextSyncError: { not: null as string | null }, erpnextInvoiceId: null },
+      { erpnextInvoiceId: "pending_approval" },
+    ],
   };
 
   const [total, orders] = await Promise.all([
@@ -49,6 +51,7 @@ export async function GET(request: NextRequest) {
         customerPhone: true,
         erpnextSyncError: true,
         erpnextSyncFailedAt: true,
+        erpnextInvoiceId: true,
         createdAt: true,
         companyLocation: { select: { id: true, name: true } },
       },
@@ -64,6 +67,7 @@ export async function GET(request: NextRequest) {
     customerPhone: o.customerPhone,
     erpnextSyncError: o.erpnextSyncError,
     erpnextSyncFailedAt: o.erpnextSyncFailedAt?.toISOString() ?? null,
+    erpnextInvoiceId: o.erpnextInvoiceId,
     createdAt: o.createdAt.toISOString(),
     companyLocation: o.companyLocation,
   }));
