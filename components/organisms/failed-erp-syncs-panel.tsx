@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { AlertCircle, Clock, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +38,7 @@ export function FailedErpSyncsPanel() {
   const [total, setTotal] = useState(0);
   const [selectedItem, setSelectedItem] = useState<FailedErpSync | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [approvalBlockedOrder, setApprovalBlockedOrder] = useState<FailedErpSync | null>(null);
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -72,8 +73,14 @@ export function FailedErpSyncsPanel() {
     setRetryingId(id);
     try {
       const res = await fetch(`/api/admin/orders/${id}/retry-erp-sync`, { method: "POST" });
-      const data = (await res.json()) as { error?: string; message?: string };
+      const data = (await res.json()) as { error?: string; message?: string; code?: string };
       if (!res.ok) {
+        if (data.code === "PENDING_APPROVAL") {
+          const item = items.find((i) => i.id === id) ?? null;
+          setApprovalBlockedOrder(item);
+          setSelectedItem(null);
+          return;
+        }
         notify.error(data.error ?? "Retry failed");
         return;
       }
@@ -264,6 +271,28 @@ export function FailedErpSyncsPanel() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!approvalBlockedOrder} onOpenChange={(open) => { if (!open) setApprovalBlockedOrder(null); }}>
+        <DialogContent className="max-w-md border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="size-5 text-amber-500" />
+              Finance Approval Required
+            </DialogTitle>
+            <DialogDescription>
+              Order {approvalBlockedOrder?.name ?? approvalBlockedOrder?.shopifyOrderId ?? ""}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>This order is still <span className="font-semibold text-amber-500">awaiting finance approval</span>. The ERP invoice cannot be created until the payment is approved.</p>
+            <p className="text-muted-foreground">Once the finance manager approves this order, the ERP invoice will be created automatically.</p>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" className="border-border/70 bg-background/85 hover:bg-secondary/10" onClick={() => setApprovalBlockedOrder(null)}>
+              OK
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
