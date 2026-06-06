@@ -85,11 +85,13 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
     if (lower.includes("koko")) return cfg.kokoMop;
     if (lower.includes("webxpay")) return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
-    if (lower.includes("bank transfer") || lower.includes("wire")) return cfg.bankTransferMop;
+    if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
     if (lower.includes("cash")) return cfg.cashMop;
   }
-  return gateways[0] ?? null;
+  // Return null for unrecognised gateways — passing an unknown value to ERPNext's
+  // custom_payment_type Link field causes a LinkValidationError.
+  return null;
 }
 
 async function ensureErpAddress(
