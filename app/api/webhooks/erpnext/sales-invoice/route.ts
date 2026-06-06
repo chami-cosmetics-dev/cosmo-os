@@ -4,6 +4,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales-invoice";
+import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -270,6 +271,32 @@ export async function POST(request: NextRequest) {
     },
     select: { id: true, name: true },
   });
+
+  // For non-POS ERP orders: if payment requires approval and is unpaid, create an approval
+  // request. The print/dispatch queue filters already exclude orders with pending approvals,
+  // so no stage change is needed — the order is blocked automatically until finance approves.
+  if (!isPOS && financialStatus !== "paid") {
+    const needsApproval = isOrderPaymentRequiresApproval({
+      paymentGatewayPrimary: resolvedPaymentMethods[0] ?? null,
+      paymentGatewayNames: resolvedPaymentMethods,
+    });
+    if (needsApproval) {
+      const existingApproval = await prisma.approvalRequest.findFirst({
+        where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+        select: { id: true },
+      });
+      if (!existingApproval) {
+        void createOrGetOrderPaymentApproval({
+          companyId: location.companyId,
+          orderId: order.id,
+          requestedById: null,
+          invoiceLabel: order.name ?? data.name,
+          paymentType: resolvedPaymentMethods[0] ?? "bank transfer",
+          amount: grandTotal.toString(),
+        }).catch((err) => console.error("[ERP webhook] approval creation failed:", err));
+      }
+    }
+  }
 
   // Rebuild line items on every save
   if (data.items.length > 0) {
