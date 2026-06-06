@@ -199,7 +199,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     // ERP non-POS orders: order_received or ready_to_dispatch (skip sample stage)
     where.OR = [
       { sourceName: { in: ["web", "manual"] }, fulfillmentStage: { in: ["print", "ready_to_dispatch"] } },
-      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch"] } },
+      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "print", "ready_to_dispatch"] } },
     ];
     where.financialStatus = { not: "voided" };
     where.NOT = {

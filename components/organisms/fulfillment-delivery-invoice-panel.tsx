@@ -17,6 +17,10 @@ type DeliveryOrderDetail = {
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
+  dispatchedAt: string | null;
+  dispatchedBy: { id: string; name: string | null; email: string | null } | null;
+  dispatchedByRider: { id: string; name: string | null; mobile: string | null } | null;
+  dispatchedByCourierService: { id: string; name: string } | null;
   lineItems: Array<{
     id: string;
     productTitle: string;
@@ -47,7 +51,6 @@ export function FulfillmentDeliveryInvoicePanel({
   const isBusy = busyKey !== null;
   const stage = order?.fulfillmentStage ?? "dispatched";
   const canMarkDelivered = stage === "dispatched";
-  const canMarkInvoiceComplete = stage === "delivery_complete";
 
   useEffect(() => {
     if (!orderId) {
@@ -92,11 +95,7 @@ export function FulfillmentDeliveryInvoicePanel({
         return;
       }
       notify.success("Updated.");
-      if (action === "mark_delivered") {
-        onRefresh(false, "delivery_complete");
-      } else {
-        onRefresh(true);
-      }
+      onRefresh(true);
     } catch {
       notify.error("Action failed");
     } finally {
@@ -153,11 +152,21 @@ export function FulfillmentDeliveryInvoicePanel({
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
           <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? "-"}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
+          <p>
+            <span className="font-medium">Dispatched via:</span>{" "}
+            {detail
+              ? (detail.dispatchedByRider?.name ?? detail.dispatchedByCourierService?.name ?? detail.dispatchedBy?.name ?? "-")
+              : "-"}
+          </p>
         </div>
         <div className="space-y-1">
           <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
           <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
           <p><span className="font-medium">Stage:</span> {order?.fulfillmentStage ?? "-"}</p>
+          <p>
+            <span className="font-medium">Dispatched at:</span>{" "}
+            {detail?.dispatchedAt ? new Date(detail.dispatchedAt).toLocaleString("en-LK") : "-"}
+          </p>
         </div>
       </div>
 
@@ -196,36 +205,21 @@ export function FulfillmentDeliveryInvoicePanel({
         </table>
       </div>
 
-      {perms.canMarkDelivered || perms.canMarkInvoiceComplete ? (
+      {perms.canMarkDelivered ? (
         <div className="space-y-3 rounded-md border border-border/70 p-3">
           <div className="flex flex-wrap gap-2">
-            {perms.canMarkDelivered && (
-              <Button
-                onClick={() => doAction("mark_delivered")}
-                disabled={!orderId || isBusy || !canMarkDelivered}
-                className="gap-2"
-              >
-                {busyKey === "mark_delivered" ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : (
-                  <Check className="size-4" aria-hidden />
-                )}
-                Mark Delivered
-              </Button>
-            )}
-            {perms.canMarkInvoiceComplete && (
-              <Button
-                variant="outline"
-                onClick={() => doAction("mark_invoice_complete")}
-                disabled={!orderId || isBusy || !canMarkInvoiceComplete}
-                className="border-border/70 bg-background/85 hover:bg-secondary/10"
-              >
-                {busyKey === "mark_invoice_complete" ? (
-                  <Loader2 className="size-4 animate-spin" aria-hidden />
-                ) : null}
-                Mark Invoice Complete
-              </Button>
-            )}
+            <Button
+              onClick={() => doAction("mark_delivered")}
+              disabled={!orderId || isBusy || !canMarkDelivered}
+              className="gap-2"
+            >
+              {busyKey === "mark_delivered" ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Check className="size-4" aria-hidden />
+              )}
+              Mark Delivered
+            </Button>
           </div>
         </div>
       ) : (
