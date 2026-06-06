@@ -195,10 +195,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       },
     };
   } else if (params.dispatchMode) {
-    // Shopify direct orders: only show when ready_to_dispatch (after sample stage)
-    // ERP non-POS orders: show at order_received or ready_to_dispatch (skip sample stage)
+    // Shopify direct orders: print or ready_to_dispatch (mirrors single dispatch selector)
+    // ERP non-POS orders: order_received or ready_to_dispatch (skip sample stage)
     where.OR = [
-      { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "ready_to_dispatch" },
+      { sourceName: { in: ["web", "manual"] }, fulfillmentStage: { in: ["print", "ready_to_dispatch"] } },
       { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch"] } },
     ];
     where.financialStatus = { not: "voided" };
