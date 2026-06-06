@@ -25,6 +25,7 @@ type FailedErpSync = {
   customerPhone: string | null;
   erpnextSyncError: string | null;
   erpnextSyncFailedAt: string | null;
+  erpnextInvoiceId: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string };
 };
@@ -149,8 +150,12 @@ export function FailedErpSyncsPanel() {
                           <div className="text-xs text-muted-foreground">{item.customerPhone ?? ""}</div>
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
-                        <td className="max-w-[260px] truncate px-4 py-2 text-destructive text-xs" title={item.erpnextSyncError ?? ""}>
-                          {item.erpnextSyncError ?? "—"}
+                        <td className="max-w-[260px] truncate px-4 py-2 text-xs" title={item.erpnextSyncError ?? ""}>
+                          {item.erpnextSyncError ? (
+                            <span className="text-destructive">{item.erpnextSyncError}</span>
+                          ) : item.erpnextInvoiceId === "pending_approval" ? (
+                            <span className="text-amber-500">Awaiting ERP sync — payment was approved</span>
+                          ) : "—"}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground text-xs">{formatDate(item.erpnextSyncFailedAt)}</td>
                         <td className="px-4 py-2">
@@ -234,9 +239,11 @@ export function FailedErpSyncsPanel() {
                 </div>
               </div>
               <div>
-                <h4 className="mb-1 text-sm font-medium">Error</h4>
-                <pre className="max-h-48 overflow-auto rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive whitespace-pre-wrap">
-                  {selectedItem.erpnextSyncError ?? "—"}
+                <h4 className="mb-1 text-sm font-medium">
+                  {selectedItem.erpnextInvoiceId === "pending_approval" && !selectedItem.erpnextSyncError ? "Status" : "Error"}
+                </h4>
+                <pre className={`max-h-48 overflow-auto rounded-xl border p-3 text-xs whitespace-pre-wrap ${selectedItem.erpnextInvoiceId === "pending_approval" && !selectedItem.erpnextSyncError ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
+                  {selectedItem.erpnextSyncError ?? (selectedItem.erpnextInvoiceId === "pending_approval" ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now." : "—")}
                 </pre>
               </div>
               <div className="flex justify-end gap-2">
