@@ -905,9 +905,12 @@ export async function PATCH(
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "delivery_complete",
+          fulfillmentStage: "invoice_complete",
+          fulfillmentStatus: "fulfilled",
           deliveryCompleteAt: now,
           deliveryCompleteById: auth.context!.user!.id,
+          invoiceCompleteAt: now,
+          invoiceCompleteById: auth.context!.user!.id,
           deliveryOutcome: "delivered",
           deliveryFailedReason: null,
           lastRiderUpdateAt: now,
@@ -934,11 +937,22 @@ export async function PATCH(
         companyId,
         actorUserId: auth.context!.user!.id,
         orderId: order.id,
-        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered`,
+        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered and invoice complete`,
         beforeStage: order.fulfillmentStage,
-        afterStage: "delivery_complete",
+        afterStage: "invoice_complete",
         metadata: { action: data.action },
       });
+      if (order.companyLocationId) {
+        const location = await prisma.companyLocation.findUnique({
+          where: { id: order.companyLocationId },
+          include: { erpnextInstance: true },
+        });
+        if (location) {
+          createDeliveryPaymentEntry(order, location, now).catch((err) =>
+            console.error("[ERPNext] delivery PE failed:", err),
+          );
+        }
+      }
       return NextResponse.json({ success: true });
     }
 
