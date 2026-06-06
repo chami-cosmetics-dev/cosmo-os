@@ -5,6 +5,8 @@ import { z } from "zod";
 import { ORDER_PAYMENT_APPROVAL, notifyApprovalRequester } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { syncOrderToERPNext } from "@/lib/erpnext-sync";
+import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 
 export const dynamic = "force-dynamic";
 
@@ -171,6 +173,30 @@ export async function PATCH(
       shopifyOrderId: approval.shopifyOrderId,
     }),
   });
+
+  // Trigger ERP sync for Koko/bank-transfer orders after finance approves.
+  // These orders had ERP sync skipped at creation (erpnextInvoiceId = "pending_approval").
+  if (nextStatus === "approved" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
+    void (async () => {
+      try {
+        const orderForSync = await prisma.order.findUnique({
+          where: { id: approval.orderId! },
+          include: { companyLocation: { include: { erpnextInstance: true } } },
+        });
+        if (!orderForSync?.rawPayload || !orderForSync.companyLocation) return;
+        const payloadParsed = shopifyOrderWebhookSchema.safeParse(orderForSync.rawPayload);
+        if (!payloadParsed.success) return;
+        await syncOrderToERPNext(orderForSync, orderForSync.companyLocation, payloadParsed.data);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("[ERPNext] post-approval sync failed:", errMsg);
+        await prisma.order.update({
+          where: { id: approval.orderId! },
+          data: { erpnextSyncError: errMsg, erpnextSyncFailedAt: new Date() },
+        });
+      }
+    })();
+  }
 
   return NextResponse.json({ ok: true, status: nextStatus });
 }
