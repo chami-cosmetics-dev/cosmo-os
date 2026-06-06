@@ -103,7 +103,12 @@ export async function processOrderWebhook(
 
   const customerEmail =
     data.contact_email ?? data.email ?? data.customer?.email ?? null;
-  const customerPhone = data.phone ?? data.customer?.phone ?? null;
+  const customerPhone =
+    data.phone ??
+    data.customer?.phone ??
+    data.billing_address?.phone ??
+    data.shipping_address?.phone ??
+    null;
   const paymentGateways = normalizePaymentGateways(data.payment_gateway_names);
 
   const orderData = {
