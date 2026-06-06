@@ -680,7 +680,9 @@ export function OrdersPanel({
                         </td>
                         <td className="hidden lg:table-cell px-4 py-2">
                           <span className="text-muted-foreground block text-xs leading-5">
-                            {order.fulfillmentStage
+                            {parseFloat(order.totalPrice) < 0
+                              ? <span className="text-blue-500 font-medium">Credit Note</span>
+                              : order.fulfillmentStage
                               ? FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage
                               : "—"}
                           </span>

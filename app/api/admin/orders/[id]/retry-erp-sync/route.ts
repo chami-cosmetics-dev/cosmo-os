@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { syncOrderToERPNext } from "@/lib/erpnext-sync";
+import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 
 export async function POST(
   _request: NextRequest,
@@ -41,6 +42,20 @@ export async function POST(
   const isPendingApproval = order.erpnextInvoiceId === "pending_approval";
   if (!order.erpnextSyncError && !isPendingApproval) {
     return NextResponse.json({ error: "No failed ERP sync on this order" }, { status: 400 });
+  }
+
+  // Block retry if finance approval is still pending — creating an ERP invoice before approval is wrong
+  if (isPendingApproval) {
+    const pendingApproval = await prisma.approvalRequest.findFirst({
+      where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+      select: { id: true },
+    });
+    if (pendingApproval) {
+      return NextResponse.json(
+        { error: "This order is awaiting finance approval. The ERP invoice will be created automatically once approved.", code: "PENDING_APPROVAL" },
+        { status: 400 },
+      );
+    }
   }
 
   if (!order.rawPayload) {
