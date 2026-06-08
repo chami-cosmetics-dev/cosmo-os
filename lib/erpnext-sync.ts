@@ -728,6 +728,10 @@ export async function syncOrderToERPNext(
       console.warn("[ERPNext] SI creation failed — mandatory shipping_rule, retrying with rule:", msg.slice(0, 200));
       const siBodyWithRule = { ...(siBody as Record<string, unknown>), shipping_rule: cfg.shippingRule };
       si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyWithRule);
+    } else if (msg.includes("417") && msg.includes("Merchant Coupon Code")) {
+      console.warn("[ERPNext] SI creation failed — Merchant Coupon Code not found, retrying without custom_merchant_coupon_code:", msg.slice(0, 200));
+      const { custom_merchant_coupon_code: _c, ...siBodyNoCoupon } = siBody as Record<string, unknown>;
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyNoCoupon);
     } else if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
       const { taxes_and_charges: _t, ...siBodyClean } = siBody as Record<string, unknown>;
@@ -750,5 +754,154 @@ export async function syncOrderToERPNext(
     await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
   } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
     await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
+  }
+}
+
+// ─── Vault OS Order-data fallback ──────────────────────────────────────────────
+// Used when rawPayload (Shopify webhook) is absent — builds the ERP invoice from
+// the order's own stored fields (lineItems relation, shippingAddress JSON, etc.)
+
+type OrderLineItemForSync = {
+  quantity: number;
+  price: { toString(): string };
+  productItem: {
+    productTitle: string;
+    variantTitle: string | null;
+    sku: string | null;
+  };
+};
+
+type OrderWithVaultData = Order & {
+  companyLocation: LocationWithErpInstance;
+  lineItems: OrderLineItemForSync[];
+};
+
+export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Promise<void> {
+  const location = order.companyLocation;
+  const cfg = getErpConfig(location.erpnextInstance);
+  console.log(`[ERPNext] syncOrderToERPNextFromOrder called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    console.warn("[ERPNext] Skipping sync — ERP credentials not configured");
+    return;
+  }
+  if (!location.erpnextCompany || !location.erpnextWarehouse) {
+    console.warn("[ERPNext] Skipping sync — erpnextCompany or erpnextWarehouse not set on location", location.id);
+    return;
+  }
+  const erpnextCompany = location.erpnextCompany;
+  const erpnextWarehouse = location.erpnextWarehouse;
+
+  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+
+  const existingFilter = encodeURIComponent(
+    JSON.stringify([["po_no", "=", orderPoNo], ["company", "=", erpnextCompany]]),
+  );
+  const existingFields = encodeURIComponent(JSON.stringify(["name"]));
+  const existingSI = await erpnextGet<Array<{ name: string }>>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
+  );
+  if (existingSI && existingSI.length > 0) {
+    console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, erpnextSyncError: null, erpnextSyncFailedAt: null } });
+    return;
+  }
+
+  const lineItems = order.lineItems.filter((li) => li.quantity > 0);
+  if (lineItems.length === 0) return;
+
+  const addr = order.shippingAddress as ShopifyAddress;
+  const rawName = typeof addr?.name === "string" ? addr.name.trim() : "";
+  const rawFullName = [addr?.first_name, addr?.last_name].filter(Boolean).join(" ").trim();
+  const customerName = rawName || rawFullName || order.customerEmail || order.customerPhone || "Guest";
+  const customerEmail = order.customerEmail ?? null;
+  const customerPhone = order.customerPhone ?? (typeof addr?.phone === "string" ? addr.phone : null);
+
+  const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, erpnextCompany);
+
+  const [billingAddressName, shippingAddressName] = await Promise.all([
+    ensureErpAddress(cfg, erpCustomerName, addr, "Billing"),
+    ensureErpAddress(cfg, erpCustomerName, addr, "Shipping"),
+  ]);
+
+  const allGateways = ([order.paymentGatewayPrimary, ...order.paymentGatewayNames] as (string | null)[])
+    .filter((g): g is string => typeof g === "string" && g.length > 0);
+  const erpPaymentType = resolveErpPaymentType(cfg, allGateways);
+
+  const dateStr = toDateStr(order.createdAt);
+
+  const siItems: Array<{ item_code: string; item_name?: string; qty: number; rate: number; warehouse: string }> = lineItems.map((li) => ({
+    item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
+    item_name: [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ") || undefined,
+    qty: li.quantity,
+    rate: parseFloat(li.price.toString()),
+    warehouse: erpnextWarehouse,
+  }));
+
+  const shippingAmt = order.totalShipping ? parseFloat(order.totalShipping.toString()) : 0;
+  const useShippingTaxRow = shippingAmt > 0 && !!cfg.shippingChargeAccount;
+  const useShippingItem = shippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
+
+  if (useShippingItem) {
+    siItems.push({ item_code: cfg.shippingItem, item_name: "Delivery Charges", qty: 1, rate: shippingAmt, warehouse: erpnextWarehouse });
+  }
+
+  const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+  const discountAmt = parseFloat((itemsTotal + (useShippingTaxRow ? shippingAmt : 0) - vaultTotal).toFixed(2));
+
+  const addrHtml = formatAddressHtml(addr);
+
+  const siBody = {
+    doctype: "Sales Invoice",
+    company: erpnextCompany,
+    customer: erpCustomerName,
+    posting_date: dateStr,
+    po_no: orderPoNo,
+    update_stock: 1,
+    set_warehouse: erpnextWarehouse,
+    docstatus: 1,
+    items: siItems,
+    ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
+    ...(billingAddressName ? { customer_address: billingAddressName } : addrHtml ? { address_display: addrHtml } : {}),
+    ...(shippingAddressName ? { shipping_address_name: shippingAddressName } : addrHtml ? { shipping_address: addrHtml } : {}),
+    ...(cfg.shippingRule && !useShippingTaxRow ? { shipping_rule: cfg.shippingRule } : {}),
+    ...(useShippingTaxRow
+      ? { taxes: [{ charge_type: "Actual", account_head: cfg.shippingChargeAccount, description: "Shipping Fee", tax_amount: shippingAmt }] }
+      : cfg.taxesAndCharges
+        ? { taxes_and_charges: cfg.taxesAndCharges }
+        : { taxes: [] }),
+    ...(discountAmt > 0 ? { discount_amount: discountAmt, apply_discount_on: "Net Total" } : {}),
+  };
+
+  let si: { name: string; debit_to: string; grand_total: number };
+  try {
+    si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBody);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("417") && msg.includes("shipping_rule") && cfg.shippingRule) {
+      console.warn("[ERPNext] SI creation failed — mandatory shipping_rule, retrying with rule:", msg.slice(0, 200));
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", { ...(siBody as Record<string, unknown>), shipping_rule: cfg.shippingRule });
+    } else if (cfg.taxesAndCharges && msg.includes("417")) {
+      console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
+      const { taxes_and_charges: _t, ...siBodyClean } = siBody as Record<string, unknown>;
+      si = await erpnextPost<{ name: string; debit_to: string; grand_total: number }>(cfg, "/api/resource/Sales Invoice", siBodyClean);
+    } else {
+      throw err;
+    }
+  }
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { erpnextInvoiceId: si.name, erpnextSyncError: null, erpnextSyncFailedAt: null },
+  });
+
+  console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
+
+  const gatewayNamesLower = allGateways.map((g) => g.toLowerCase().trim());
+  if (gatewayNamesLower.some((g) => g.includes("koko"))) {
+    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
+  } else if (cfg.webxpayMop && gatewayNamesLower.some((g) => g.includes("webxpay"))) {
+    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
   }
 }
