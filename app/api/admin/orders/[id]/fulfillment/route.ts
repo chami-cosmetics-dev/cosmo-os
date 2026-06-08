@@ -835,11 +835,14 @@ export async function PATCH(
       }
       const orderNum = updated.name ?? updated.orderNumber ?? updated.shopifyOrderId;
       const invoiceNum = resolveInvoiceNumber(updated);
+      const addrPhone = (order.shippingAddress as Record<string, string> | null)?.phone ?? null;
+      const dispatchDeliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
       sendOrderSms(companyId, order.id, "dispatched", {
         orderNumber: orderNum,
         invoiceNumber: invoiceNum,
-        customerPhone: updated.customerPhone ?? undefined,
+        customerPhone: updated.customerPhone ?? addrPhone ?? undefined,
         locationName: updated.companyLocation.name,
+        deliveryUrl: dispatchDeliveryUrl,
       }).catch((err) => console.error("[Order SMS] dispatched failed:", err));
       if (data.riderId && riderDeliveryToken) {
         const rider = updated.dispatchedByRider as { name: string | null; mobile: string | null } | undefined;
