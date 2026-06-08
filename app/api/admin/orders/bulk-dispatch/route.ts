@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const DISPATCHABLE_STAGES = ["order_received", "sample_free_issue", "ready_to_dispatch"];
+      const DISPATCHABLE_STAGES = ["order_received", "sample_free_issue", "print", "ready_to_dispatch"];
       if (!DISPATCHABLE_STAGES.includes(order.fulfillmentStage)) {
         results.push({ orderId, ref, success: false, error: "Order is not in a dispatchable stage" });
         continue;
