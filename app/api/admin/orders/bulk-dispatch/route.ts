@@ -70,6 +70,7 @@ export async function POST(request: NextRequest) {
           fulfillmentStage: true,
           packageReadyAt: true,
           customerPhone: true,
+          shippingAddress: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -156,14 +157,27 @@ export async function POST(request: NextRequest) {
       }
 
       const orderNum = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+      const locationName = order.companyLocation?.name ?? "";
+      const addrPhone = (order.shippingAddress as Record<string, string> | null)?.phone ?? null;
+      const customerPhone = order.customerPhone ?? addrPhone ?? undefined;
+
+      if (needsMarkReady) {
+        sendOrderSms(companyId, orderId, "package_ready", {
+          orderNumber: orderNum,
+          customerPhone,
+          locationName,
+        }).catch((err) => console.error("[bulk-dispatch] package_ready SMS failed:", err));
+      }
+
+      const deliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
       sendOrderSms(companyId, orderId, "dispatched", {
         orderNumber: orderNum,
-        customerPhone: order.customerPhone ?? undefined,
-        locationName: order.companyLocation?.name ?? "",
-      }).catch((err) => console.error("[bulk-dispatch] SMS failed:", err));
+        customerPhone,
+        locationName,
+        deliveryUrl,
+      }).catch((err) => console.error("[bulk-dispatch] dispatched SMS failed:", err));
 
       if (riderId && riderDeliveryToken) {
-        const deliveryUrl = getDeliveryUrl({ riderDeliveryToken });
         sendOrderSms(companyId, orderId, "rider_dispatched", {
           orderNumber: orderNum,
           deliveryUrl,
