@@ -169,7 +169,7 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
           </CardContent>
         </Card>
 
-        <Card className="border-border/70">
+        <Card className="border-border/70 self-start sticky top-4">
           <CardHeader>
             <CardTitle>Review</CardTitle>
           </CardHeader>
