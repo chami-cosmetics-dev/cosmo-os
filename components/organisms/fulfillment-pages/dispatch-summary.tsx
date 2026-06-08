@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarDays, Download, Loader2, Package, RefreshCw, Truck, Users } from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock, Download, Loader2, Package, RefreshCw, Truck, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,17 +21,27 @@ function formatAmount(price: string, currency: string) {
   return Number.isNaN(n) ? price : `${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })} ${currency}`;
 }
 
-function formatDate(iso: string) {
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? "—"
-    : d.toLocaleDateString("en-LK", { day: "2-digit", month: "short", year: "numeric" });
+    : d.toLocaleString("en-LK", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function outcomeLabel(outcome: string | null) {
+  if (outcome === "delivered") return { label: "Delivered", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" };
+  if (outcome === "failed") return { label: "Failed", cls: "border-rose-500/30 bg-rose-500/10 text-rose-700" };
+  return { label: "Pending", cls: "border-amber-500/30 bg-amber-500/10 text-amber-700" };
 }
 
 type DispatchOrder = {
   orderId: string;
   reference: string;
   orderDate: string;
+  dispatchedAt: string;
+  deliveryCompleteAt: string | null;
+  deliveryOutcome: string | null;
   customerName: string;
   customerPhone: string | null;
   city: string | null;
@@ -51,8 +61,9 @@ type DispatchGroup = {
 };
 
 type SummaryData = {
-  dateFrom: string;
-  dateTo: string;
+  status: "pending" | "completed";
+  dateFrom: string | null;
+  dateTo: string | null;
   companyName: string | null;
   totalOrders: number;
   riderOrders: number;
@@ -63,6 +74,7 @@ type SummaryData = {
 export function DispatchSummaryPage() {
   const fromRef = useRef<HTMLInputElement | null>(null);
   const toRef = useRef<HTMLInputElement | null>(null);
+  const [status, setStatus] = useState<"pending" | "completed">("pending");
   const [dateFrom, setDateFrom] = useState(todayIso());
   const [dateTo, setDateTo] = useState(todayIso());
   const [data, setData] = useState<SummaryData>(null);
@@ -72,14 +84,16 @@ export function DispatchSummaryPage() {
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
-    if (!dateFrom) return;
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ dateFrom });
-        if (dateTo && dateTo >= dateFrom) params.set("dateTo", dateTo);
+        const params = new URLSearchParams({ status });
+        if (status === "completed" && dateFrom) {
+          params.set("dateFrom", dateFrom);
+          if (dateTo && dateTo >= dateFrom) params.set("dateTo", dateTo);
+        }
         const res = await fetch(`/api/admin/fulfillment/dispatch-summary?${params}`, {
           signal: controller.signal,
         });
@@ -93,16 +107,20 @@ export function DispatchSummaryPage() {
       }
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
-  }, [dateFrom, dateTo, refreshTick]);
+  }, [status, dateFrom, dateTo, refreshTick]);
 
   async function handleDownload() {
-    if (!dateFrom) return;
     setDownloading(true);
     try {
+      const body: Record<string, string> = { status };
+      if (status === "completed" && dateFrom) {
+        body.dateFrom = dateFrom;
+        if (dateTo) body.dateTo = dateTo;
+      }
       const res = await fetch("/api/admin/fulfillment/dispatch-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dateFrom, dateTo }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
@@ -113,7 +131,12 @@ export function DispatchSummaryPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const suffix = dateFrom === dateTo ? dateFrom : `${dateFrom}-to-${dateTo}`;
+      const suffix =
+        status === "pending"
+          ? `pending-${todayIso()}`
+          : dateFrom === dateTo
+            ? dateFrom
+            : `${dateFrom}-to-${dateTo}`;
       a.download = `dispatch-summary-${suffix}.zip`;
       document.body.appendChild(a);
       a.click();
@@ -126,6 +149,8 @@ export function DispatchSummaryPage() {
     }
   }
 
+  const isCompleted = status === "completed";
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -137,44 +162,63 @@ export function DispatchSummaryPage() {
           )}
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            View orders dispatched per rider and courier service.
+            {isCompleted
+              ? "Completed deliveries grouped by rider and courier."
+              : "All outstanding dispatches awaiting delivery."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">From</span>
-            <div className="relative">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={fromRef}
-                type="date"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value);
-                  if (dateTo < e.target.value) setDateTo(e.target.value);
-                }}
-                onClick={() => fromRef.current?.showPicker?.()}
-                onFocus={() => fromRef.current?.showPicker?.()}
-                className="h-10 min-w-44 pl-9"
-              />
-            </div>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">To</span>
-            <div className="relative">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                ref={toRef}
-                type="date"
-                value={dateTo}
-                min={dateFrom}
-                onChange={(e) => setDateTo(e.target.value)}
-                onClick={() => toRef.current?.showPicker?.()}
-                onFocus={() => toRef.current?.showPicker?.()}
-                className="h-10 min-w-44 pl-9"
-              />
-            </div>
-          </label>
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">View</p>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as "pending" | "completed")}
+              className="h-10 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+            >
+              <option value="pending">Pending (Not Delivered)</option>
+              <option value="completed">Completed (Delivered)</option>
+            </select>
+          </div>
+
+          {isCompleted && (
+            <>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-muted-foreground">From</span>
+                <div className="relative">
+                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={fromRef}
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => {
+                      setDateFrom(e.target.value);
+                      if (dateTo < e.target.value) setDateTo(e.target.value);
+                    }}
+                    onClick={() => fromRef.current?.showPicker?.()}
+                    onFocus={() => fromRef.current?.showPicker?.()}
+                    className="h-10 min-w-44 pl-9"
+                  />
+                </div>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-muted-foreground">To</span>
+                <div className="relative">
+                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={toRef}
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    onClick={() => toRef.current?.showPicker?.()}
+                    onFocus={() => toRef.current?.showPicker?.()}
+                    className="h-10 min-w-44 pl-9"
+                  />
+                </div>
+              </label>
+            </>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -203,14 +247,28 @@ export function DispatchSummaryPage() {
       {!loading && !error && data && (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard icon={Package} label="Total Dispatched" value={data.totalOrders} />
-            <StatCard icon={Users} label="Via Rider" value={data.riderOrders} />
-            <StatCard icon={Truck} label="Via Courier" value={data.courierOrders} />
+            <StatCard
+              icon={isCompleted ? CheckCircle2 : Package}
+              label={isCompleted ? "Total Completed" : "Total Pending"}
+              value={data.totalOrders}
+            />
+            <StatCard
+              icon={Users}
+              label={isCompleted ? "Rider Completed" : "Rider Pending"}
+              value={data.riderOrders}
+            />
+            <StatCard
+              icon={Truck}
+              label={isCompleted ? "Courier Completed" : "Courier Pending"}
+              value={data.courierOrders}
+            />
           </div>
 
           {data.groups.length === 0 ? (
             <p className="rounded-md border border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
-              No dispatches found for the selected date range.
+              {isCompleted
+                ? "No completed deliveries found for the selected date range."
+                : "No pending dispatches. All orders have been delivered."}
             </p>
           ) : (
             <div className="space-y-4">
@@ -231,12 +289,20 @@ export function DispatchSummaryPage() {
                     </span>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-225 text-sm">
+                    <table className="w-full text-sm">
                       <thead className="border-b bg-muted/30 text-left text-muted-foreground">
                         <tr>
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Invoice No</th>
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Location</th>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap">Date</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">
+                            {isCompleted ? "Dispatched" : "Dispatched"}
+                          </th>
+                          {isCompleted && (
+                            <>
+                              <th className="px-4 py-2 font-medium whitespace-nowrap">Delivered</th>
+                              <th className="px-4 py-2 font-medium whitespace-nowrap">Status</th>
+                            </>
+                          )}
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Merchant</th>
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Payment</th>
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Phone</th>
@@ -246,23 +312,43 @@ export function DispatchSummaryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {group.orders.map((order) => (
-                          <tr key={order.orderId} className="border-b last:border-0 hover:bg-muted/20">
-                            <td className="px-4 py-2 font-medium whitespace-nowrap">{order.reference}</td>
-                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.locationName}</td>
-                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatDate(order.orderDate)}</td>
-                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.merchantName ?? "—"}</td>
-                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatPaymentType(order.paymentType)}</td>
-                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.customerPhone ?? "—"}</td>
-                            <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.city ?? "—"}</td>
-                            <td className="px-4 py-2 text-muted-foreground">{order.address ?? "—"}</td>
-                            <td className="px-4 py-2 text-right whitespace-nowrap">{formatAmount(order.totalPrice, order.currency)}</td>
-                          </tr>
-                        ))}
+                        {group.orders.map((order) => {
+                          const outcome = outcomeLabel(order.deliveryOutcome);
+                          return (
+                            <tr key={order.orderId} className="border-b last:border-0 hover:bg-muted/20">
+                              <td className="px-4 py-2 font-medium whitespace-nowrap">{order.reference}</td>
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.locationName}</td>
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="size-3 shrink-0" />
+                                  {formatDate(order.dispatchedAt)}
+                                </span>
+                              </td>
+                              {isCompleted && (
+                                <>
+                                  <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
+                                    {order.deliveryCompleteAt ? formatDate(order.deliveryCompleteAt) : "—"}
+                                  </td>
+                                  <td className="px-4 py-2 whitespace-nowrap">
+                                    <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${outcome.cls}`}>
+                                      {outcome.label}
+                                    </span>
+                                  </td>
+                                </>
+                              )}
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.merchantName ?? "—"}</td>
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatPaymentType(order.paymentType)}</td>
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.customerPhone ?? "—"}</td>
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.city ?? "—"}</td>
+                              <td className="px-4 py-2 text-muted-foreground">{order.address ?? "—"}</td>
+                              <td className="px-4 py-2 text-right whitespace-nowrap">{formatAmount(order.totalPrice, order.currency)}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                       <tfoot>
                         <tr className="border-t bg-muted/30 font-medium">
-                          <td colSpan={8} className="px-4 py-2 text-xs text-muted-foreground">
+                          <td colSpan={isCompleted ? 10 : 8} className="px-4 py-2 text-xs text-muted-foreground">
                             {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
                           </td>
                           <td className="px-4 py-2 text-right whitespace-nowrap">

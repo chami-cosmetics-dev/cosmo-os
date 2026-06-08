@@ -32,6 +32,9 @@ type DispatchGroup = {
     orderId: string;
     reference: string;
     orderDate: string;
+    dispatchedAt: string;
+    deliveryCompleteAt: string | null;
+    deliveryOutcome: string | null;
     customerName: string;
     customerPhone: string | null;
     customerAddress: string | null;
@@ -45,11 +48,22 @@ type DispatchGroup = {
   }>;
 };
 
-async function fetchDispatchGroups(companyId: string, range: DateRange) {
+async function fetchDispatchGroups(
+  companyId: string,
+  status: "pending" | "completed",
+  range: DateRange | null,
+) {
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      dispatchedAt: { gte: range.from, lte: range.to },
+      fulfillmentStage:
+        status === "pending"
+          ? "dispatched"
+          : { in: ["delivery_complete", "invoice_complete"] },
+      dispatchedAt:
+        status === "completed" && range
+          ? { gte: range.from, lte: range.to }
+          : undefined,
       OR: [
         { dispatchedByRiderId: { not: null } },
         { dispatchedByCourierServiceId: { not: null } },
@@ -70,6 +84,8 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       paymentGatewayNames: true,
       createdAt: true,
       dispatchedAt: true,
+      deliveryCompleteAt: true,
+      deliveryOutcome: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
@@ -117,6 +133,9 @@ async function fetchDispatchGroups(companyId: string, range: DateRange) {
       orderId: order.id,
       reference: order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id,
       orderDate: order.createdAt.toISOString(),
+      dispatchedAt: order.dispatchedAt?.toISOString() ?? order.createdAt.toISOString(),
+      deliveryCompleteAt: order.deliveryCompleteAt?.toISOString() ?? null,
+      deliveryOutcome: order.deliveryOutcome ?? null,
       customerName,
       customerPhone: order.customerPhone,
       customerAddress,
@@ -153,18 +172,34 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const companyId = auth.context?.user?.companyId;
-  if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+  if (!companyId)
+    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
+  const status =
+    request.nextUrl.searchParams.get("status") === "completed" ? "completed" : "pending";
   const dateFrom = request.nextUrl.searchParams.get("dateFrom");
   const dateTo = request.nextUrl.searchParams.get("dateTo");
   const range = parseDateRange(dateFrom, dateTo);
-  if (!range) return NextResponse.json({ error: "Provide a valid dateFrom (YYYY-MM-DD)." }, { status: 400 });
+
+  if (status === "completed" && !range) {
+    return NextResponse.json(
+      { error: "Provide a valid dateFrom (YYYY-MM-DD) for completed view." },
+      { status: 400 },
+    );
+  }
 
   const [data, company] = await Promise.all([
-    fetchDispatchGroups(companyId, range),
+    fetchDispatchGroups(companyId, status, range),
     prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
   ]);
-  return NextResponse.json({ dateFrom: range.dateFrom, dateTo: range.dateTo, companyName: company?.name ?? null, ...data });
+
+  return NextResponse.json({
+    status,
+    dateFrom: range?.dateFrom ?? null,
+    dateTo: range?.dateTo ?? null,
+    companyName: company?.name ?? null,
+    ...data,
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -172,28 +207,56 @@ export async function POST(request: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const companyId = auth.context?.user?.companyId;
-  if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+  if (!companyId)
+    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
-  const body = (await request.json().catch(() => ({}))) as { dateFrom?: string; dateTo?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    dateFrom?: string;
+    dateTo?: string;
+    status?: string;
+  };
+
+  const status = body.status === "completed" ? "completed" : "pending";
   const range = parseDateRange(body.dateFrom ?? null, body.dateTo ?? null);
-  if (!range) return NextResponse.json({ error: "Provide a valid dateFrom (YYYY-MM-DD)." }, { status: 400 });
 
-  const { groups } = await fetchDispatchGroups(companyId, range);
-  if (groups.length === 0) return NextResponse.json({ error: "No dispatches found for this date range." }, { status: 404 });
+  if (status === "completed" && !range) {
+    return NextResponse.json(
+      { error: "Provide a valid dateFrom (YYYY-MM-DD)." },
+      { status: 400 },
+    );
+  }
+
+  const { groups } = await fetchDispatchGroups(companyId, status, range);
+  if (groups.length === 0)
+    return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
+
+  const today = new Date().toISOString().slice(0, 10);
+  const pdfDateFrom = range?.dateFrom ?? today;
+  const pdfDateTo = range?.dateTo ?? today;
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {
-    const pdf = await generateDispatchGroupPdf(group, range.dateFrom, range.dateTo);
+    const pdf = await generateDispatchGroupPdf(group, pdfDateFrom, pdfDateTo);
     const safeName = group.dispatcherName
       .replace(/[^a-zA-Z0-9_ -]/g, "")
       .trim()
       .replace(/\s+/g, "_");
     const typePrefix = group.dispatchType === "rider" ? "rider" : "courier";
-    const dateSuffix = range.dateFrom === range.dateTo ? range.dateFrom : `${range.dateFrom}_to_${range.dateTo}`;
+    const dateSuffix =
+      status === "pending"
+        ? `pending-${today}`
+        : range!.dateFrom === range!.dateTo
+          ? range!.dateFrom
+          : `${range!.dateFrom}_to_${range!.dateTo}`;
     files.push({ name: `${typePrefix}-${safeName}-${dateSuffix}.pdf`, content: pdf });
   }
 
-  const zipSuffix = range.dateFrom === range.dateTo ? range.dateFrom : `${range.dateFrom}_to_${range.dateTo}`;
+  const zipSuffix =
+    status === "pending"
+      ? `pending-${today}`
+      : range!.dateFrom === range!.dateTo
+        ? range!.dateFrom
+        : `${range!.dateFrom}_to_${range!.dateTo}`;
   const zip = createZip(files);
 
   return new NextResponse(zip, {
