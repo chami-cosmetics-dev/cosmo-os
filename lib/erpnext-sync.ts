@@ -106,13 +106,9 @@ async function ensureErpAddress(
   if (!address1 && !city) return null;
 
   try {
-    // Find existing address linked to this customer with same type
+    // Find existing address by title — link-based child-table filters are not supported in all ERPNext versions
     const filter = encodeURIComponent(
-      JSON.stringify([
-        ["links.link_doctype", "=", "Customer"],
-        ["links.link_name", "=", customerName],
-        ["address_type", "=", addrType],
-      ]),
+      JSON.stringify([["address_title", "=", `${customerName}-${addrType}`]]),
     );
     const fields = encodeURIComponent(JSON.stringify(["name"]));
     const existing = await erpnextGet<Array<{ name: string }>>(
