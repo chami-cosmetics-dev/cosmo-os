@@ -42,6 +42,7 @@ interface SmsNotificationsSettingsFormProps {
 
 const PLACEHOLDERS = [
   "{orderNumber}",
+  "{invoiceNumber}",
   "{customerName}",
   "{locationName}",
   "{deliveryUrl}",

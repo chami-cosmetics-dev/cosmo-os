@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
           packageReadyAt: true,
           customerPhone: true,
           shippingAddress: true,
+          erpnextInvoiceId: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -161,9 +162,14 @@ export async function POST(request: NextRequest) {
       const addrPhone = (order.shippingAddress as Record<string, string> | null)?.phone ?? null;
       const customerPhone = order.customerPhone ?? addrPhone ?? undefined;
 
+      const invoiceNumber = (order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending_approval" && order.erpnextInvoiceId !== "pending")
+        ? order.erpnextInvoiceId
+        : undefined;
+
       if (needsMarkReady) {
         sendOrderSms(companyId, orderId, "package_ready", {
           orderNumber: orderNum,
+          invoiceNumber,
           customerPhone,
           locationName,
         }).catch((err) => console.error("[bulk-dispatch] package_ready SMS failed:", err));
@@ -172,6 +178,7 @@ export async function POST(request: NextRequest) {
       const deliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
       sendOrderSms(companyId, orderId, "dispatched", {
         orderNumber: orderNum,
+        invoiceNumber,
         customerPhone,
         locationName,
         deliveryUrl,
