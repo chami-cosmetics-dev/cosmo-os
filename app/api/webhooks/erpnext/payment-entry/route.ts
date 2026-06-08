@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { erpnextPaymentEntryWebhookSchema } from "@/lib/validation/erpnext-payment-entry";
-import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -156,20 +155,10 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    const now = new Date();
     await prisma.order.update({
       where: { id: order.id },
       data: { financialStatus: "paid" },
     });
-
-    // Auto-resolve any pending finance approval — payment confirmed by ERPNext
-    await prisma.$executeRaw`
-      UPDATE "ApprovalRequest"
-      SET "status" = 'approved', "reviewNote" = 'Auto-approved: payment confirmed by ERPNext', "reviewedAt" = ${now}, "updatedAt" = ${now}
-      WHERE "orderId" = ${order.id}
-        AND "type" = ${ORDER_PAYMENT_APPROVAL}
-        AND "status" = 'pending'
-    `;
 
     console.log(`[ERPNext PE webhook] Order ${order.name} marked paid via Payment Entry ${data.name}`);
     updated.push(order.name ?? invoiceName);

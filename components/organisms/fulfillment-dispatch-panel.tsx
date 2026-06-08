@@ -207,7 +207,7 @@ export function FulfillmentDispatchPanel({
         <div className="space-y-1">
           <p><span className="font-medium">Invoice:</span> {orderLabel}</p>
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
-          <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? "-"}</p>
+          <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? (detail?.shippingAddress as Record<string, string> | null)?.phone ?? "-"}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
         </div>
         <div className="space-y-1">

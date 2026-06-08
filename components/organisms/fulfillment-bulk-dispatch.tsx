@@ -29,6 +29,7 @@ type ReadyOrder = {
   erpnextInvoiceId: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  shippingAddress: { phone?: string | null } | null;
   totalPrice: string;
   currency: string | null;
   fulfillmentStage: string;
@@ -423,7 +424,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
               <div className="space-y-1">
                 <p><span className="font-medium">Invoice:</span> {activeOrder ? orderLabel(activeOrder) : "-"}</p>
                 <p><span className="font-medium">Email:</span> {activeOrder?.customerEmail ?? "-"}</p>
-                <p><span className="font-medium">Phone:</span> {activeOrder?.customerPhone ?? "-"}</p>
+                <p><span className="font-medium">Phone:</span> {activeOrder?.customerPhone ?? activeOrder?.shippingAddress?.phone ?? "-"}</p>
                 <p><span className="font-medium">Address:</span> {addrLine || "-"}</p>
                 <p><span className="font-medium">Name:</span> {addr?.name ?? "-"}</p>
               </div>
