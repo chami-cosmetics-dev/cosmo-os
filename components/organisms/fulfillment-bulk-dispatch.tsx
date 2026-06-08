@@ -29,6 +29,7 @@ type ReadyOrder = {
   erpnextInvoiceId: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  shippingAddress: { phone?: string | null } | null;
   totalPrice: string;
   currency: string | null;
   fulfillmentStage: string;
