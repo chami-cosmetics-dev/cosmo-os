@@ -11,6 +11,7 @@ export type SmsTrigger =
 export type SmsContext = {
   orderNumber?: string;
   orderName?: string;
+  invoiceNumber?: string;
   customerName?: string;
   customerPhone?: string;
   locationName?: string;
@@ -43,6 +44,7 @@ export async function sendOrderSms(
   let message = config.template;
   message = message.replace(/\{orderNumber\}/g, context.orderNumber ?? "");
   message = message.replace(/\{orderName\}/g, context.orderName ?? "");
+  message = message.replace(/\{invoiceNumber\}/g, context.invoiceNumber ?? context.orderNumber ?? "");
   message = message.replace(/\{customerName\}/g, context.customerName ?? "");
   message = message.replace(/\{locationName\}/g, context.locationName ?? "");
   message = message.replace(/\{deliveryUrl\}/g, context.deliveryUrl ?? "");

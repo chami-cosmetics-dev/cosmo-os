@@ -222,6 +222,12 @@ async function logOrderFulfillmentAudit(input: {
     metadata: input.metadata,
   });
 }
+function resolveInvoiceNumber(order: { erpnextInvoiceId: string | null }): string | undefined {
+  const id = order.erpnextInvoiceId;
+  if (!id || id === "pending" || id === "pending_approval") return undefined;
+  return id;
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -588,6 +594,7 @@ export async function PATCH(
       });
       sendOrderSms(companyId, order.id, "package_ready", {
         orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
+        invoiceNumber: resolveInvoiceNumber(updated),
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] package_ready failed:", err));
@@ -827,8 +834,10 @@ export async function PATCH(
         });
       }
       const orderNum = updated.name ?? updated.orderNumber ?? updated.shopifyOrderId;
+      const invoiceNum = resolveInvoiceNumber(updated);
       sendOrderSms(companyId, order.id, "dispatched", {
         orderNumber: orderNum,
+        invoiceNumber: invoiceNum,
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] dispatched failed:", err));
@@ -837,6 +846,7 @@ export async function PATCH(
         const deliveryUrl = getDeliveryUrl({ riderDeliveryToken });
         sendOrderSms(companyId, order.id, "rider_dispatched", {
           orderNumber: orderNum,
+          invoiceNumber: invoiceNum,
           riderName: rider?.name ?? undefined,
           riderPhone: rider?.mobile ?? undefined,
           deliveryUrl,
@@ -931,6 +941,7 @@ export async function PATCH(
       });
       sendOrderSms(companyId, order.id, "delivery_complete", {
         orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
+        invoiceNumber: resolveInvoiceNumber(updated),
         customerPhone: updated.customerPhone ?? undefined,
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
