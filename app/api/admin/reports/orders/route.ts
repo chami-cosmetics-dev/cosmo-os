@@ -16,6 +16,7 @@ import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
 } from "@/lib/reports/order-dump";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
@@ -99,7 +100,6 @@ export async function GET(request: NextRequest) {
         gte: from,
         lte: to,
       },
-      sourceName: { in: ["web", "manual"] },
     },
     orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
     include: {
@@ -134,12 +134,20 @@ export async function GET(request: NextRequest) {
       const merchantName = order.assignedMerchant?.name ?? "";
       const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
 
+      const merchantCouponCode = getMerchantCouponCode({
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+      });
+
       return order.lineItems.map((item) =>
         createOrderInvoiceItemRow({
           invoiceId: order.id,
           invoiceNo,
+          erpInvoiceId: order.erpnextInvoiceId,
           orderNumber: order.orderNumber,
           sourceName: order.sourceName,
+          merchantCouponCode,
           createdAt: order.createdAt,
           locationName: order.companyLocation.name,
           customerName,
@@ -196,8 +204,14 @@ export async function GET(request: NextRequest) {
     return createOrderInvoiceRow({
       invoiceId: order.id,
       invoiceNo,
+      erpInvoiceId: order.erpnextInvoiceId,
       orderNumber: order.orderNumber,
       sourceName: order.sourceName,
+      merchantCouponCode: getMerchantCouponCode({
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+      }),
       createdAt: order.createdAt,
       locationName: order.companyLocation.name,
       customerName,

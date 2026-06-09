@@ -72,6 +72,7 @@ type OrderDetail = {
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
+  merchantCouponCode: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -448,7 +449,7 @@ export function OrderInvoiceViewModal({
             Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}
           </DialogTitle>
           <DialogDescription>
-            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
+            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}{orderDetail?.merchantCouponCode ? ` · Coupon: ${orderDetail.merchantCouponCode}` : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -700,6 +701,11 @@ export function OrderInvoiceViewModal({
                       </tbody>
                     </table>
                   </div>
+                  {orderDetail.merchantCouponCode && (
+                    <p className="mt-1 text-right text-sm text-muted-foreground">
+                      Coupon: {orderDetail.merchantCouponCode}{orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? ` (−${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)})` : ""}
+                    </p>
+                  )}
                   {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
                     <p className="mt-1 text-right text-sm text-muted-foreground">
                       Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}

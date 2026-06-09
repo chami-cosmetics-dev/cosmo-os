@@ -81,6 +81,7 @@ export function DispatchSummaryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -109,18 +110,31 @@ export function DispatchSummaryPage() {
     return () => { controller.abort(); clearTimeout(timeout); };
   }, [status, dateFrom, dateTo, refreshTick]);
 
-  async function handleDownload() {
-    setDownloading(true);
+  function buildDownloadBody() {
+    const body: Record<string, string> = { status };
+    if (status === "completed" && dateFrom) {
+      body.dateFrom = dateFrom;
+      if (dateTo) body.dateTo = dateTo;
+    }
+    return body;
+  }
+
+  function fileSuffix() {
+    return status === "pending"
+      ? `pending-${todayIso()}`
+      : dateFrom === dateTo
+        ? dateFrom
+        : `${dateFrom}-to-${dateTo}`;
+  }
+
+  async function triggerDownload(format: "pdf" | "csv") {
+    const setter = format === "csv" ? setDownloadingCsv : setDownloading;
+    setter(true);
     try {
-      const body: Record<string, string> = { status };
-      if (status === "completed" && dateFrom) {
-        body.dateFrom = dateFrom;
-        if (dateTo) body.dateTo = dateTo;
-      }
       const res = await fetch("/api/admin/fulfillment/dispatch-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ ...buildDownloadBody(), format }),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({})) as { error?: string };
@@ -131,13 +145,7 @@ export function DispatchSummaryPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const suffix =
-        status === "pending"
-          ? `pending-${todayIso()}`
-          : dateFrom === dateTo
-            ? dateFrom
-            : `${dateFrom}-to-${dateTo}`;
-      a.download = `dispatch-summary-${suffix}.zip`;
+      a.download = `dispatch-summary-${fileSuffix()}.${format === "csv" ? "csv" : "zip"}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -145,9 +153,12 @@ export function DispatchSummaryPage() {
     } catch {
       notify.error("Download failed.");
     } finally {
-      setDownloading(false);
+      setter(false);
     }
   }
+
+  function handleDownload() { void triggerDownload("pdf"); }
+  function handleDownloadCsv() { void triggerDownload("csv"); }
 
   const isCompleted = status === "completed";
 
@@ -233,10 +244,20 @@ export function DispatchSummaryPage() {
             size="sm"
             className="h-10 gap-2"
             disabled={downloading || !data || data.totalOrders === 0}
-            onClick={() => void handleDownload()}
+            onClick={handleDownload}
           >
             {downloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
             Download PDFs
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-10 gap-2"
+            disabled={downloadingCsv || !data || data.totalOrders === 0}
+            onClick={handleDownloadCsv}
+          >
+            {downloadingCsv ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+            Download CSV
           </Button>
         </div>
       </div>
