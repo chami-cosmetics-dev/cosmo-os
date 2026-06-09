@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     companyId,
     OR: [
       { erpnextSyncError: { not: null as string | null }, erpnextInvoiceId: null },
-      { erpnextInvoiceId: "pending_approval" },
+      { erpnextInvoiceId: "pending_approval", erpnextSyncError: { not: null as string | null } },
     ],
   };
 
