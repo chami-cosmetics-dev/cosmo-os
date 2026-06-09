@@ -659,11 +659,19 @@ export function OrdersPanel({
                           <div className="truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
                             {order.customerEmail ?? order.customerPhone ?? "—"}
                           </div>
-                          {order.assignedMerchant && (
-                            <div className="truncate text-xs text-muted-foreground" title={order.assignedMerchant.name ?? order.assignedMerchant.email ?? undefined}>
-                              {order.assignedMerchant.name ?? order.assignedMerchant.email}
-                            </div>
-                          )}
+                          {(() => {
+                            const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
+                            const coupon = Array.isArray(order.discountCodes)
+                              ? ((order.discountCodes as Array<{ code?: string }>)[0]?.code?.trim() || null)
+                              : null;
+                            const display = merchant ?? coupon;
+                            if (!display) return null;
+                            return (
+                              <div className="truncate text-xs text-muted-foreground" title={display}>
+                                {display}
+                              </div>
+                            );
+                          })()}
                           <div className="text-xs text-muted-foreground whitespace-nowrap">
                             {formatPrice(order.totalPrice)}
                           </div>

@@ -759,6 +759,20 @@ export function OrderFulfillmentDetail({
                     <h4 className="mb-1 text-muted-foreground">Shipping</h4>
                     <p>{formatAddress(orderDetail.shippingAddress)}</p>
                   </div>
+                  {(() => {
+                    const merCoupon = Array.isArray(orderDetail.discountCodes)
+                      ? ((orderDetail.discountCodes as Array<{ code?: string }>)[0]?.code?.trim() || null)
+                      : null;
+                    const merchant = orderDetail.assignedMerchant?.name ?? orderDetail.assignedMerchant?.email ?? null;
+                    const display = merCoupon ?? merchant;
+                    if (!display) return null;
+                    return (
+                      <div>
+                        <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
+                        <p>{display}</p>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div>
                   <h4 className="mb-2 text-sm font-medium">Line Items</h4>
@@ -785,7 +799,9 @@ export function OrderFulfillmentDetail({
                     </table>
                   </div>
                   {(() => {
-                    const codes = Array.isArray(orderDetail.discountCodes) ? (orderDetail.discountCodes as string[]) : [];
+                    const codes = Array.isArray(orderDetail.discountCodes)
+                      ? (orderDetail.discountCodes as Array<{ code?: string }>).map((d) => d.code).filter(Boolean)
+                      : [];
                     if (codes.length === 0) return null;
                     return (
                       <p className="mt-1 text-right text-sm text-muted-foreground">
