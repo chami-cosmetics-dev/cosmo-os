@@ -14,6 +14,7 @@ type DeliveryOrderDetail = {
   orderNumber: string | null;
   totalPrice: string;
   currency: string | null;
+  merchantCouponCode: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -162,6 +163,7 @@ export function FulfillmentDeliveryInvoicePanel({
         <div className="space-y-1">
           <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
           <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
+          {detail?.merchantCouponCode && <p><span className="font-medium">Coupon:</span> {detail.merchantCouponCode}</p>}
           <p><span className="font-medium">Stage:</span> {order?.fulfillmentStage ?? "-"}</p>
           <p>
             <span className="font-medium">Dispatched at:</span>{" "}

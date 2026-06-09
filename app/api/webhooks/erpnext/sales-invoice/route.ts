@@ -123,6 +123,26 @@ export async function POST(request: NextRequest) {
   }
 
   const erpInvoiceId = `erp-${data.name}`;
+
+  // Credit notes (return invoices) are financial reversals, not fulfillment orders — skip them.
+  // Detected by is_return=1 OR negative grand_total (some ERP setups omit is_return from the payload).
+  // If a credit note order somehow already exists in the DB, void it so it leaves the print queue.
+  if (data.is_return === 1 || (data.grand_total != null && data.grand_total < 0)) {
+    const existing = await prisma.order.findUnique({
+      where: { shopifyOrderId: erpInvoiceId },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.order.update({
+        where: { id: existing.id },
+        data: { financialStatus: "voided" },
+      });
+      console.log(`[ERPNext webhook] Credit note ${data.name} — voided existing order ${existing.id}`);
+    } else {
+      console.log(`[ERPNext webhook] Credit note ${data.name} — skipped (no fulfillment order created)`);
+    }
+    return NextResponse.json({ ok: true, skipped: true });
+  }
   const isPOS = data.is_pos === 1 || (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
   const isFullyPaid = typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
   let financialStatus: string;

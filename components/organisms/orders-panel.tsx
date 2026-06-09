@@ -48,6 +48,7 @@ type Order = {
   pendingPaymentApproval?: boolean;
   discountCodes?: unknown;
   erpMerchantCouponCode?: string | null;
+  merchantCouponCode?: string | null;
 };
 
 const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
@@ -183,6 +184,7 @@ type OrderDetail = {
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
+  merchantCouponCode?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -690,17 +692,24 @@ export function OrdersPanel({
                           </div>
                         </td>
                         <td className="hidden lg:table-cell px-4 py-2">
-                          {parseFloat(order.totalPrice) < 0 ? (
-                            <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                              Credit Note
-                            </span>
-                          ) : order.fulfillmentStage ? (
-                            <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${FULFILLMENT_STAGE_COLORS[order.fulfillmentStage] ?? "bg-secondary text-secondary-foreground"}`}>
-                              {FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
+                          <div className="flex flex-col gap-1">
+                            {parseFloat(order.totalPrice) < 0 ? (
+                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                                Credit Note
+                              </span>
+                            ) : order.fulfillmentStage ? (
+                              <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${FULFILLMENT_STAGE_COLORS[order.fulfillmentStage] ?? "bg-secondary text-secondary-foreground"}`}>
+                                {FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                            {order.merchantCouponCode && (
+                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                                {order.merchantCouponCode}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-2">
                           {order.companyLocation?.name ? (

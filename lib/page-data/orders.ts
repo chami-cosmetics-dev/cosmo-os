@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
@@ -189,6 +190,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch", "print"] }, printCount: 0 },
     ];
     where.financialStatus = { not: "voided" };
+    where.totalPrice = { gte: 0 };
     where.NOT = {
       approvalRequests: {
         some: { type: "order_payment_approval", status: "pending" },
@@ -202,6 +204,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "print", "ready_to_dispatch"] } },
     ];
     where.financialStatus = { not: "voided" };
+    where.totalPrice = { gte: 0 };
     where.NOT = {
       approvalRequests: {
         some: { type: "order_payment_approval", status: "pending" },
@@ -291,6 +294,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     name: true,
     erpnextInvoiceId: true,
     sourceName: true,
+    discountCodes: true,
     totalPrice: true,
     currency: true,
     financialStatus: true,
@@ -356,6 +360,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
     pendingPaymentApproval: o.approvalRequests.length > 0,
+    merchantCouponCode: getMerchantCouponCode({
+      sourceName: o.sourceName,
+      discountCodes: o.discountCodes,
+      rawPayload: null,
+    }),
   }));
 
   maybeLogSlowDbRequest("orders.page_data", startedAt, {

@@ -1,10 +1,22 @@
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 
+function formatSourceName(sourceName: string): string {
+  switch (sourceName) {
+    case "web": return "Shopify";
+    case "manual": return "Manual";
+    case "erpnext": return "ERPNext";
+    case "erpnext-pos": return "ERPNext POS";
+    default: return sourceName;
+  }
+}
+
 export type OrderInvoiceCsvRow = {
   invoice_id: string;
   invoice_no: string;
+  erp_invoice_id: string;
   order_number: string;
   source_name: string;
+  merchant_coupon_code: string;
   invoice_date: string;
   location_name: string;
   customer_name: string;
@@ -30,8 +42,10 @@ export type OrderInvoiceCsvRow = {
 export type OrderInvoiceItemCsvRow = {
   invoice_id: string;
   invoice_no: string;
+  erp_invoice_id: string;
   order_number: string;
   source_name: string;
+  merchant_coupon_code: string;
   invoice_date: string;
   location_name: string;
   customer_name: string;
@@ -55,8 +69,10 @@ export type OrderInvoiceItemCsvRow = {
 const ORDER_INVOICE_HEADERS = [
   "invoice_id",
   "invoice_no",
+  "erp_invoice_id",
   "order_number",
   "source_name",
+  "merchant_coupon_code",
   "invoice_date",
   "location_name",
   "customer_name",
@@ -82,8 +98,10 @@ const ORDER_INVOICE_HEADERS = [
 const ORDER_INVOICE_ITEM_HEADERS = [
   "invoice_id",
   "invoice_no",
+  "erp_invoice_id",
   "order_number",
   "source_name",
+  "merchant_coupon_code",
   "invoice_date",
   "location_name",
   "customer_name",
@@ -115,8 +133,10 @@ export function buildOrderInvoiceItemCsv(rows: OrderInvoiceItemCsvRow[]) {
 export function createOrderInvoiceRow(input: {
   invoiceId: string;
   invoiceNo: string;
+  erpInvoiceId: string | null;
   orderNumber: string | null;
   sourceName: string;
+  merchantCouponCode: string | null;
   createdAt: Date;
   locationName: string;
   customerName: string;
@@ -141,8 +161,10 @@ export function createOrderInvoiceRow(input: {
   return {
     invoice_id: input.invoiceId,
     invoice_no: input.invoiceNo,
+    erp_invoice_id: input.erpInvoiceId ?? "",
     order_number: input.orderNumber ?? "",
-    source_name: input.sourceName,
+    source_name: formatSourceName(input.sourceName),
+    merchant_coupon_code: input.merchantCouponCode ?? "",
     invoice_date: formatIsoDate(input.createdAt),
     location_name: input.locationName,
     customer_name: input.customerName,
@@ -169,8 +191,10 @@ export function createOrderInvoiceRow(input: {
 export function createOrderInvoiceItemRow(input: {
   invoiceId: string;
   invoiceNo: string;
+  erpInvoiceId: string | null;
   orderNumber: string | null;
   sourceName: string;
+  merchantCouponCode: string | null;
   createdAt: Date;
   locationName: string;
   customerName: string;
@@ -193,8 +217,10 @@ export function createOrderInvoiceItemRow(input: {
   return {
     invoice_id: input.invoiceId,
     invoice_no: input.invoiceNo,
+    erp_invoice_id: input.erpInvoiceId ?? "",
     order_number: input.orderNumber ?? "",
-    source_name: input.sourceName,
+    source_name: formatSourceName(input.sourceName),
+    merchant_coupon_code: input.merchantCouponCode ?? "",
     invoice_date: formatIsoDate(input.createdAt),
     location_name: input.locationName,
     customer_name: input.customerName,
