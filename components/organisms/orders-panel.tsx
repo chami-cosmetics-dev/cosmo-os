@@ -46,6 +46,8 @@ type Order = {
   paymentGatewayNames: string[];
   paymentGatewayPrimary: string | null;
   pendingPaymentApproval?: boolean;
+  discountCodes?: unknown;
+  erpMerchantCouponCode?: string | null;
 };
 
 const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
