@@ -32,6 +32,7 @@ export type FulfillmentOrder = {
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  discountCodes?: unknown;
   customerEmail: string | null;
   customerPhone: string | null;
   printCount?: number;
@@ -163,7 +164,10 @@ export function FulfillmentOrderSelector({
   }
 
   function merchantLabel(order: FulfillmentOrder) {
-    return order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "No merchant";
+    const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
+    if (merchant) return merchant;
+    const codes = Array.isArray(order.discountCodes) ? order.discountCodes as Array<{ code?: string }> : [];
+    return codes[0]?.code?.trim() || "No merchant";
   }
 
   if (worksheetMode) {

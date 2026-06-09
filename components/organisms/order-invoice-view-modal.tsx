@@ -457,6 +457,13 @@ export function OrderInvoiceViewModal({
           </DialogTitle>
           <DialogDescription>
             Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
+            {(() => {
+              const coupon = getMerchantCouponCode(orderDetail?.discountCodes);
+              const merchant = orderDetail?.assignedMerchant?.name ?? orderDetail?.assignedMerchant?.email ?? null;
+              const display = coupon ?? merchant;
+              if (!display) return null;
+              return <span className="ml-2 inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-foreground">Mer: {display}</span>;
+            })()}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
