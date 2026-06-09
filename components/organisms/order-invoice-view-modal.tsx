@@ -185,6 +185,14 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
+function getMerchantCouponCode(discountCodes: unknown): string | null {
+  if (!Array.isArray(discountCodes) || discountCodes.length === 0) return null;
+  const first = discountCodes[0] as Record<string, unknown> | null;
+  if (!first || typeof first !== "object") return null;
+  const code = first.code;
+  return typeof code === "string" && code.trim() ? code.trim() : null;
+}
+
 function formatDateOnly(value?: string | null): string {
   if (!value) return "-";
   const date = new Date(value);
@@ -591,85 +599,98 @@ export function OrderInvoiceViewModal({
             <details className="rounded-lg border">
               <summary className="cursor-pointer p-4 font-medium">Order Details</summary>
               <div className="space-y-4 border-t p-4">
-                <div className="grid gap-4 sm:grid-cols-2 text-sm">
-                  <div>
-                    <span className="text-muted-foreground text-xs">Source</span>
-                    <p>{orderDetail.sourceName}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground text-xs">Payment Type</span>
-                    <p>
-                      {getPaymentMethodInfo({
-                        paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
-                        paymentGatewayNames: orderDetail.paymentGatewayNames,
-                        financialStatus: orderDetail.financialStatus,
-                      }).label}
-                    </p>
-                  </div>
-                  {orderDetail.paymentApproval && (
+                <div className="grid gap-6 sm:grid-cols-2 text-sm">
+                  {/* Left column: Source, Payment Approval, Customer, Shipping address */}
+                  <div className="space-y-4">
                     <div>
-                      <span className="text-muted-foreground text-xs">Payment Approval</span>
-                      {orderDetail.paymentApproval.status === "pending" ? (
-                        <p className="flex items-center gap-1.5">
-                          <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-                            Pending
-                          </span>
-                          <span className="text-xs text-muted-foreground">Awaiting finance approval</span>
-                        </p>
-                      ) : orderDetail.paymentApproval.status === "approved" ? (
-                        <p className="flex items-center gap-1.5">
-                          <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
-                            Approved
-                          </span>
-                          {orderDetail.paymentApproval.reviewedBy && (
-                            <span className="text-xs text-muted-foreground">
-                              by {orderDetail.paymentApproval.reviewedBy.name ?? orderDetail.paymentApproval.reviewedBy.email}
-                            </span>
-                          )}
-                        </p>
-                      ) : (
-                        <p>
-                          <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
-                            Rejected
-                          </span>
-                        </p>
-                      )}
+                      <span className="text-muted-foreground text-xs">Source</span>
+                      <p>{orderDetail.sourceName}</p>
                     </div>
-                  )}
-                  <div>
-                    <span className="text-muted-foreground text-xs">Location</span>
-                    <p>{orderDetail.companyLocation?.name ?? "-"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground text-xs">Customer</span>
-                    <p>
-                      {getCustomerName(orderDetail.shippingAddress) ??
-                        getCustomerName(orderDetail.billingAddress) ??
-                        "-"}
-                    </p>
-                  </div>
-                  {orderDetail.assignedMerchant && (
+                    {orderDetail.paymentApproval && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Payment Approval</span>
+                        {orderDetail.paymentApproval.status === "pending" ? (
+                          <p className="flex items-center gap-1.5">
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                              Pending
+                            </span>
+                            <span className="text-xs text-muted-foreground">Awaiting finance approval</span>
+                          </p>
+                        ) : orderDetail.paymentApproval.status === "approved" ? (
+                          <p className="flex items-center gap-1.5">
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                              Approved
+                            </span>
+                            {orderDetail.paymentApproval.reviewedBy && (
+                              <span className="text-xs text-muted-foreground">
+                                by {orderDetail.paymentApproval.reviewedBy.name ?? orderDetail.paymentApproval.reviewedBy.email}
+                              </span>
+                            )}
+                          </p>
+                        ) : (
+                          <p>
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
+                              Rejected
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
                     <div>
-                      <span className="text-muted-foreground text-xs">Merchant</span>
+                      <span className="text-muted-foreground text-xs">Customer</span>
                       <p>
-                        {orderDetail.assignedMerchant.name ??
-                          orderDetail.assignedMerchant.email ??
+                        {getCustomerName(orderDetail.shippingAddress) ??
+                          getCustomerName(orderDetail.billingAddress) ??
                           "-"}
                       </p>
                     </div>
-                  )}
-                  <div>
-                    <span className="text-muted-foreground text-xs">Email / Phone</span>
-                    <p>{orderDetail.customerEmail ?? "-"}</p>
-                    {(orderDetail.customerPhone ?? getAddressPhone(orderDetail.shippingAddress)) && (
-                      <p className="text-muted-foreground">
-                        {orderDetail.customerPhone ?? getAddressPhone(orderDetail.shippingAddress)}
-                      </p>
-                    )}
+                    <div>
+                      <span className="text-muted-foreground text-xs">Shipping address</span>
+                      <p>{formatAddress(orderDetail.shippingAddress)}</p>
+                    </div>
                   </div>
-                  <div className="sm:col-span-2">
-                    <span className="text-muted-foreground text-xs">Shipping address</span>
-                    <p>{formatAddress(orderDetail.shippingAddress)}</p>
+
+                  {/* Right column: Payment Type, Location, Email / Phone, Mer Coupon */}
+                  <div className="space-y-4">
+                    <div>
+                      <span className="text-muted-foreground text-xs">Payment Type</span>
+                      <p>
+                        {getPaymentMethodInfo({
+                          paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+                          paymentGatewayNames: orderDetail.paymentGatewayNames,
+                          financialStatus: orderDetail.financialStatus,
+                        }).label}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Location</span>
+                      <p>{orderDetail.companyLocation?.name ?? "-"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">Email / Phone</span>
+                      <p>{orderDetail.customerEmail ?? "-"}</p>
+                      {(orderDetail.customerPhone ?? getAddressPhone(orderDetail.shippingAddress)) && (
+                        <p className="text-muted-foreground">
+                          {orderDetail.customerPhone ?? getAddressPhone(orderDetail.shippingAddress)}
+                        </p>
+                      )}
+                    </div>
+                    {(() => {
+                      const coupon = getMerchantCouponCode(orderDetail.discountCodes);
+                      if (coupon) return (
+                        <div>
+                          <span className="text-muted-foreground text-xs">Mer Coupon</span>
+                          <p>{coupon}</p>
+                        </div>
+                      );
+                      if (orderDetail.assignedMerchant) return (
+                        <div>
+                          <span className="text-muted-foreground text-xs">Merchant</span>
+                          <p>{orderDetail.assignedMerchant.name ?? orderDetail.assignedMerchant.email ?? "-"}</p>
+                        </div>
+                      );
+                      return null;
+                    })()}
                   </div>
                 </div>
                 <div>
