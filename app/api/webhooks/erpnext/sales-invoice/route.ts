@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales-invoice";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -218,19 +217,8 @@ export async function POST(request: NextRequest) {
     if (erpUser) assignedMerchantId = erpUser.id;
   }
 
-  // If a merchant coupon code is present, try to resolve merchant from it (overrides owner match)
+  // Read merchant coupon code directly from ERP invoice — stored as-is for display
   const merCouponCode = data.custom_merchant_coupon_code?.trim() || null;
-  if (merCouponCode) {
-    const normalizedCoupon = merCouponCode.toLowerCase();
-    const merchants = await prisma.user.findMany({
-      where: eligibleMerchantUserWhere(location.companyId),
-      select: { id: true, couponCodes: true },
-    });
-    const matched = merchants.find((m) =>
-      m.couponCodes.some((c) => c.toLowerCase().trim() === normalizedCoupon)
-    );
-    if (matched) assignedMerchantId = matched.id;
-  }
 
   const posPaymentMethods = isPOS
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
