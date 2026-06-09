@@ -217,6 +217,9 @@ export async function POST(request: NextRequest) {
     if (erpUser) assignedMerchantId = erpUser.id;
   }
 
+  // Read merchant coupon code directly from ERP invoice — stored as-is for display
+  const merCouponCode = data.custom_merchant_coupon_code?.trim() || null;
+
   const posPaymentMethods = isPOS
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
     : [];
@@ -248,6 +251,7 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
+      ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
       ...(resolvedPaymentMethods.length > 0 ? {
         paymentGatewayNames: resolvedPaymentMethods,
         paymentGatewayPrimary: resolvedPaymentMethods[0],
@@ -264,6 +268,7 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
+      ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
       ...(resolvedPaymentMethods.length > 0 ? {
         paymentGatewayNames: resolvedPaymentMethods,
         paymentGatewayPrimary: resolvedPaymentMethods[0],
