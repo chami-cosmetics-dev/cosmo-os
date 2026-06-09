@@ -721,6 +721,11 @@ export function OrderInvoiceViewModal({
                       </tbody>
                     </table>
                   </div>
+                  {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
+                    <p className="mt-1 text-right text-sm text-muted-foreground">
+                      Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}
+                    </p>
+                  )}
                   <p className="mt-2 text-right font-medium">
                     Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
                   </p>
