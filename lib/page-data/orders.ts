@@ -305,6 +305,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     sampleFreeIssueSendLaterDate: true,
     companyLocation: { select: { id: true, name: true } },
     assignedMerchant: { select: { id: true, name: true, email: true } },
+    discountCodes: true,
     packageHoldReason: { select: { id: true, name: true } },
     _count: { select: { lineItems: true } },
     approvalRequests: {
@@ -344,6 +345,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     createdAt: o.createdAt.toISOString(),
     companyLocation: o.companyLocation,
     assignedMerchant: o.assignedMerchant,
+    discountCodes: o.discountCodes,
     lineItemCount: o._count.lineItems,
     printCount: o.printCount,
     lastPrintedAt: o.lastPrintedAt?.toISOString() ?? null,
