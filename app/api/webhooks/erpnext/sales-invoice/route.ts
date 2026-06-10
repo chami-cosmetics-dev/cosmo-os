@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales-invoice";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -220,6 +221,21 @@ export async function POST(request: NextRequest) {
   // Read merchant coupon code directly from ERP invoice — stored as-is for display
   const merCouponCode = data.custom_merchant_coupon_code?.trim() || null;
 
+  // For non-POS ERP orders: if a coupon code is present, try to assign the merchant via
+  // coupon code (same logic as Shopify web order assignment in resolveAssignedMerchant).
+  // This makes AE/Origin ERP orders behave the same as SupplementVault.lk web orders.
+  if (!isPOS && merCouponCode) {
+    const couponLower = merCouponCode.toLowerCase();
+    const merchants = await prisma.user.findMany({
+      where: eligibleMerchantUserWhere(location.companyId),
+      select: { id: true, couponCodes: true },
+    });
+    const match = merchants.find((m) =>
+      m.couponCodes.some((c) => c.toLowerCase().trim() === couponLower)
+    );
+    if (match) assignedMerchantId = match.id;
+  }
+
   const posPaymentMethods = isPOS
     ? data.payments.map((p) => p.mode_of_payment).filter(Boolean)
     : [];
@@ -273,6 +289,7 @@ export async function POST(request: NextRequest) {
         paymentGatewayNames: resolvedPaymentMethods,
         paymentGatewayPrimary: resolvedPaymentMethods[0],
       } : {}),
+      ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
     select: { id: true, name: true },
   });
