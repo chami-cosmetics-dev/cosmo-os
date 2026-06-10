@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ClipboardList, FileSpreadsheet, Package, PackageCheck, PackageSearch, Printer, Truck } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, ListChecks, Package, PackageCheck, PackageSearch, Printer, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FulfillmentNavPermissions } from "@/lib/fulfillment-permissions";
 
@@ -23,6 +23,12 @@ const NAV_ITEMS: Array<{
     href: "/dashboard/fulfillment/print",
     label: "Order Print",
     icon: Printer,
+    permissionKey: "canViewOrderPrint",
+  },
+  {
+    href: "/dashboard/fulfillment/pick-list",
+    label: "Pick List",
+    icon: ListChecks,
     permissionKey: "canViewOrderPrint",
   },
   {
