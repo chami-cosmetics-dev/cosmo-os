@@ -4,7 +4,11 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales-invoice";
-import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import {
+  isOrderPaymentRequiresApproval,
+  createOrGetOrderPaymentApproval,
+  ORDER_PAYMENT_APPROVAL,
+} from "@/lib/approval-workflow";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -54,7 +58,10 @@ async function resolveInstanceSecret(company: string): Promise<{
   const instance = location?.erpnextInstance;
   if (instance) {
     return {
-      secret: instance.incomingWebhookSecret ?? process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ?? "",
+      secret:
+        instance.incomingWebhookSecret ??
+        process.env.ERPNEXT_INCOMING_WEBHOOK_SECRET ??
+        "",
       baseUrl: instance.baseUrl.replace(/\/$/, ""),
       apiKey: instance.apiKey,
       apiSecret: instance.apiSecret,
@@ -87,7 +94,10 @@ export async function POST(request: NextRequest) {
   const topLevel = rawPayload as Record<string, unknown>;
   console.log("[ERPNext webhook] top-level keys:", Object.keys(topLevel));
   if (topLevel?.data && typeof topLevel.data === "object") {
-    console.log("[ERPNext webhook] data keys:", Object.keys(topLevel.data as object));
+    console.log(
+      "[ERPNext webhook] data keys:",
+      Object.keys(topLevel.data as object),
+    );
   }
   const unwrapped: Record<string, unknown> =
     topLevel?.data !== null &&
@@ -101,14 +111,24 @@ export async function POST(request: NextRequest) {
   console.log("[ERPNext webhook] resolved company:", JSON.stringify(company));
 
   const instanceCreds = await resolveInstanceSecret(company);
-  if (!instanceCreds || !instanceCreds.secret || incomingSecret !== instanceCreds.secret) {
-    console.error("[ERPNext webhook] Invalid or missing secret for company:", company);
+  if (
+    !instanceCreds ||
+    !instanceCreds.secret ||
+    incomingSecret !== instanceCreds.secret
+  ) {
+    console.error(
+      "[ERPNext webhook] Invalid or missing secret for company:",
+      company,
+    );
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const parsed = erpnextSalesInvoiceWebhookSchema.safeParse(unwrapped);
   if (!parsed.success) {
-    console.error("[ERPNext webhook] Validation failed", parsed.error.flatten());
+    console.error(
+      "[ERPNext webhook] Validation failed",
+      parsed.error.flatten(),
+    );
     return NextResponse.json(
       { error: "Invalid payload", details: parsed.error.flatten() },
       { status: 400 },
@@ -123,8 +143,38 @@ export async function POST(request: NextRequest) {
   }
 
   const erpInvoiceId = `erp-${data.name}`;
-  const isPOS = data.is_pos === 1 || (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
-  const isFullyPaid = typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
+
+  // Credit notes (return invoices) are financial reversals, not fulfillment orders — skip them.
+  // Detected by is_return=1 OR negative grand_total (some ERP setups omit is_return from the payload).
+  // If a credit note order somehow already exists in the DB, void it so it leaves the print queue.
+  if (
+    data.is_return === 1 ||
+    (data.grand_total != null && data.grand_total < 0)
+  ) {
+    const existing = await prisma.order.findUnique({
+      where: { shopifyOrderId: erpInvoiceId },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.order.update({
+        where: { id: existing.id },
+        data: { financialStatus: "voided" },
+      });
+      console.log(
+        `[ERPNext webhook] Credit note ${data.name} — voided existing order ${existing.id}`,
+      );
+    } else {
+      console.log(
+        `[ERPNext webhook] Credit note ${data.name} — skipped (no fulfillment order created)`,
+      );
+    }
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+  const isPOS =
+    data.is_pos === 1 ||
+    (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
+  const isFullyPaid =
+    typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
   let financialStatus: string;
   if (data.docstatus === 2) {
     financialStatus = "voided";
@@ -149,7 +199,9 @@ export async function POST(request: NextRequest) {
       select: { id: true },
     });
     if (shopifyOrder) {
-      console.log(`[ERPNext webhook] Invoice ${data.name} matches Shopify order (po_no=${data.po_no}) — skipping`);
+      console.log(
+        `[ERPNext webhook] Invoice ${data.name} matches Shopify order (po_no=${data.po_no}) — skipping`,
+      );
       return NextResponse.json({ ok: true, skipped: true });
     }
   }
@@ -158,20 +210,39 @@ export async function POST(request: NextRequest) {
   const location = await (async () => {
     if (data.set_warehouse) {
       const byWarehouse = await prisma.companyLocation.findFirst({
-        where: { erpnextWarehouse: data.set_warehouse, erpnextCompany: data.company },
-        select: { id: true, companyId: true, defaultMerchantUserId: true, shadowParentLocationId: true, shopifyLocationId: true },
+        where: {
+          erpnextWarehouse: data.set_warehouse,
+          erpnextCompany: data.company,
+        },
+        select: {
+          id: true,
+          companyId: true,
+          defaultMerchantUserId: true,
+          shadowParentLocationId: true,
+          shopifyLocationId: true,
+        },
       });
       if (byWarehouse) return byWarehouse;
     }
     return prisma.companyLocation.findFirst({
       where: { erpnextCompany: data.company },
-      select: { id: true, companyId: true, defaultMerchantUserId: true, shadowParentLocationId: true, shopifyLocationId: true },
+      select: {
+        id: true,
+        companyId: true,
+        defaultMerchantUserId: true,
+        shadowParentLocationId: true,
+        shopifyLocationId: true,
+      },
     });
   })();
   if (!location) {
-    console.error(`[ERPNext webhook] No location found for company="${data.company}" warehouse="${data.set_warehouse ?? ""}"`);
+    console.error(
+      `[ERPNext webhook] No location found for company="${data.company}" warehouse="${data.set_warehouse ?? ""}"`,
+    );
     return NextResponse.json(
-      { error: `No vault os location mapped to ERPNext company "${data.company}"` },
+      {
+        error: `No vault os location mapped to ERPNext company "${data.company}"`,
+      },
       { status: 422 },
     );
   }
@@ -184,7 +255,10 @@ export async function POST(request: NextRequest) {
   const customerEmail = nullIfNone(data.contact_email);
   const customerPhone = nullIfNone(data.contact_mobile);
 
-  function parseErpAddress(html: string | null | undefined, customerName: string): object {
+  function parseErpAddress(
+    html: string | null | undefined,
+    customerName: string,
+  ): object {
     if (!html?.trim()) return { name: customerName };
     // Strip HTML tags, split on <br> variants into lines
     const lines = html
@@ -194,7 +268,10 @@ export async function POST(request: NextRequest) {
       .map((l) => l.trim())
       .filter(Boolean);
     // Skip leading line if it's the customer name (ERP sometimes prepends it)
-    const addrLines = lines[0]?.toLowerCase() === customerName.toLowerCase() ? lines.slice(1) : lines;
+    const addrLines =
+      lines[0]?.toLowerCase() === customerName.toLowerCase()
+        ? lines.slice(1)
+        : lines;
     return {
       name: customerName,
       address1: addrLines[0] ?? null,
@@ -204,11 +281,15 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  const shippingAddressObj = parseErpAddress(nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display), data.customer);
+  const shippingAddressObj = parseErpAddress(
+    nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
+    data.customer,
+  );
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
   // Fall back to location default merchant
-  let assignedMerchantId: string | undefined = location.defaultMerchantUserId ?? undefined;
+  let assignedMerchantId: string | undefined =
+    location.defaultMerchantUserId ?? undefined;
   if (data.owner?.trim()) {
     const erpUser = await prisma.user.findUnique({
       where: { erpnextUsername: data.owner.trim() },
@@ -226,11 +307,12 @@ export async function POST(request: NextRequest) {
 
   // Resolve payment gateway: POS uses payments[] array; non-POS uses custom_payment_type (falls back to payment_type)
   // Filter out ERPNext's literal "None" default value
-  const cleanPaymentType = (data.custom_payment_type?.trim() || data.payment_type?.trim()) ?? "";
+  const cleanPaymentType =
+    (data.custom_payment_type?.trim() || data.payment_type?.trim()) ?? "";
   const resolvedPaymentMethods =
     posPaymentMethods.length > 0
       ? posPaymentMethods
-      : (cleanPaymentType && cleanPaymentType.toLowerCase() !== "none")
+      : cleanPaymentType && cleanPaymentType.toLowerCase() !== "none"
         ? [cleanPaymentType]
         : [];
 
@@ -252,10 +334,12 @@ export async function POST(request: NextRequest) {
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
       ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
-      ...(resolvedPaymentMethods.length > 0 ? {
-        paymentGatewayNames: resolvedPaymentMethods,
-        paymentGatewayPrimary: resolvedPaymentMethods[0],
-      } : {}),
+      ...(resolvedPaymentMethods.length > 0
+        ? {
+            paymentGatewayNames: resolvedPaymentMethods,
+            paymentGatewayPrimary: resolvedPaymentMethods[0],
+          }
+        : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
     update: {
@@ -269,10 +353,12 @@ export async function POST(request: NextRequest) {
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
       ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
-      ...(resolvedPaymentMethods.length > 0 ? {
-        paymentGatewayNames: resolvedPaymentMethods,
-        paymentGatewayPrimary: resolvedPaymentMethods[0],
-      } : {}),
+      ...(resolvedPaymentMethods.length > 0
+        ? {
+            paymentGatewayNames: resolvedPaymentMethods,
+            paymentGatewayPrimary: resolvedPaymentMethods[0],
+          }
+        : {}),
     },
     select: { id: true, name: true },
   });
@@ -287,7 +373,11 @@ export async function POST(request: NextRequest) {
     });
     if (needsApproval) {
       const existingApproval = await prisma.approvalRequest.findFirst({
-        where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+        where: {
+          orderId: order.id,
+          type: ORDER_PAYMENT_APPROVAL,
+          status: "pending",
+        },
         select: { id: true },
       });
       if (!existingApproval) {
@@ -298,7 +388,9 @@ export async function POST(request: NextRequest) {
           invoiceLabel: order.name ?? data.name,
           paymentType: resolvedPaymentMethods[0] ?? "bank transfer",
           amount: grandTotal.toString(),
-        }).catch((err) => console.error("[ERP webhook] approval creation failed:", err));
+        }).catch((err) =>
+          console.error("[ERP webhook] approval creation failed:", err),
+        );
       }
     }
   }
@@ -317,7 +409,12 @@ export async function POST(request: NextRequest) {
 
       if (!productItem) {
         const category = await prisma.category.upsert({
-          where: { companyId_name: { companyId: location.companyId, name: "Uncategorized" } },
+          where: {
+            companyId_name: {
+              companyId: location.companyId,
+              name: "Uncategorized",
+            },
+          },
           create: { companyId: location.companyId, name: "Uncategorized" },
           update: {},
         });
@@ -359,6 +456,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  console.log(`[ERPNext webhook] Upserted vault os order ${order.name} (${financialStatus}) from ERPNext invoice ${data.name}`);
-  return NextResponse.json({ ok: true, orderId: order.id, orderName: order.name, financialStatus });
+  console.log(
+    `[ERPNext webhook] Upserted vault os order ${order.name} (${financialStatus}) from ERPNext invoice ${data.name}`,
+  );
+  return NextResponse.json({
+    ok: true,
+    orderId: order.id,
+    orderName: order.name,
+    financialStatus,
+  });
 }

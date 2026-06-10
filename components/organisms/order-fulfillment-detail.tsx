@@ -66,6 +66,7 @@ type OrderDetail = {
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
+  merchantCouponCode: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -272,7 +273,7 @@ export function OrderFulfillmentDetail({
             Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}
           </DialogTitle>
           <DialogDescription>
-            {orderDetail && formatDate(orderDetail.createdAt)}
+            {orderDetail && formatDate(orderDetail.createdAt)}{orderDetail?.merchantCouponCode ? ` · Coupon: ${orderDetail.merchantCouponCode}` : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -798,17 +799,11 @@ export function OrderFulfillmentDetail({
                       </tbody>
                     </table>
                   </div>
-                  {(() => {
-                    const codes = Array.isArray(orderDetail.discountCodes)
-                      ? (orderDetail.discountCodes as Array<{ code?: string }>).map((d) => d.code).filter(Boolean)
-                      : [];
-                    if (codes.length === 0) return null;
-                    return (
-                      <p className="mt-1 text-right text-sm text-muted-foreground">
-                        Discount ({codes.join(", ")}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
-                      </p>
-                    );
-                  })()}
+                  {orderDetail.merchantCouponCode && (
+                    <p className="mt-1 text-right text-sm text-muted-foreground">
+                      Coupon ({orderDetail.merchantCouponCode}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
+                    </p>
+                  )}
                   {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
                     <p className="mt-1 text-right text-sm text-muted-foreground">
                       Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}

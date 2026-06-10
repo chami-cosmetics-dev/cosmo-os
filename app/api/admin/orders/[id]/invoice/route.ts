@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { findMatchingContacts } from "@/lib/contact-identifiers";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -253,8 +254,11 @@ export async function GET(
     .filter((r) => r.type === "internal" && r.showOnInvoice)
     .map((r) => r.content);
 
-  const discountCodes = order.discountCodes as string[] | null;
-  const discountCodeStr = Array.isArray(discountCodes) ? discountCodes.join(", ") : "";
+  const merchantCouponCode = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+  });
 
   function escapeHtml(s: string): string {
     return s
@@ -632,7 +636,7 @@ export async function GET(
           ? `
         <tr>
           <td colspan="2">—</td>
-          <td>Discount${discountCodeStr ? ` (${escapeHtml(discountCodeStr)})` : ""}</td>
+          <td>Discount${merchantCouponCode ? ` (${escapeHtml(merchantCouponCode)})` : ""}</td>
           <td class="text-right">—</td>
           <td class="text-right">—</td>
           <td class="text-right">—</td>
@@ -665,6 +669,7 @@ export async function GET(
 
     <div class="payment-section">
       <p><strong>Payment Method:</strong> ${escapeHtml(getPaymentMethod(order.financialStatus, paymentGatewayPrimary))}</p>
+      ${merchantCouponCode ? `<p><strong>Coupon Code:</strong> ${escapeHtml(merchantCouponCode)}</p>` : ""}
       <p><strong>Merchant:</strong> ${escapeHtml(order.assignedMerchant?.name ?? "—")}</p>
       <p><strong>Customer Notes:</strong> ${externalRemarks.length > 0 ? escapeHtml(externalRemarks.join("; ")) : "—"}</p>
       <p><strong>Call Center Notes:</strong> ${internalRemarks.length > 0 ? escapeHtml(internalRemarks.join("; ")) : "—"}</p>
