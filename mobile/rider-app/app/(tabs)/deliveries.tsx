@@ -4,47 +4,21 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { apiClient } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import { useSync } from "@/src/providers/sync";
+import type { MobileDeliveriesResponse, MobileDelivery } from "@/src/types";
+import { isRenderableDelivery } from "@/src/utils/delivery";
 import { colors, radii, shadows } from "@/src/theme";
-
-type Delivery = {
-  id: string;
-  orderLabel: string;
-  amount: string;
-  deliveryStatus: "assigned" | "accepted" | "arrived" | "completed" | "failed";
-  deliveryKind: "normal" | "rearranged" | "exchange";
-  oldOrderLabel?: string | null;
-  requiresOldItemCollection?: boolean;
-  exchangePaymentDifference?: string | null;
-  customerName: string | null;
-  companyLocation?: { name: string } | null;
-  payment: {
-    collectionStatus: string;
-    collectedAmount: string;
-  } | null;
-};
-
-function isRenderableDelivery(delivery: Delivery) {
-  return (
-    typeof delivery.id === "string" &&
-    delivery.id.trim().length > 0 &&
-    typeof delivery.orderLabel === "string" &&
-    delivery.orderLabel.trim().length > 0 &&
-    typeof delivery.amount === "string" &&
-    delivery.amount.trim().length > 0
-  );
-}
 
 export default function DeliveriesScreen() {
   const router = useRouter();
   const { completedDeliveries } = useCompletedDeliveries();
   const { flushQueue, pendingCount } = useSync();
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [deliveries, setDeliveries] = useState<MobileDelivery[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
     setRefreshing(true);
     try {
-      const data = await apiClient.get<{ deliveries: Delivery[] }>("/api/mobile/v1/deliveries");
+      const data = await apiClient.get<MobileDeliveriesResponse>("/api/mobile/v1/deliveries");
       setDeliveries(data.deliveries);
     } finally {
       setRefreshing(false);
@@ -62,7 +36,7 @@ export default function DeliveriesScreen() {
   );
 
   const completedIds = new Set(completedDeliveries.map((delivery) => delivery.id));
-  const activeStatuses = new Set<Delivery["deliveryStatus"]>(["assigned", "accepted", "arrived"]);
+  const activeStatuses = new Set(["assigned", "accepted", "arrived"]);
   const activeDeliveries = deliveries.filter(
     (delivery) =>
       isRenderableDelivery(delivery) &&

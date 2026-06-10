@@ -1,8 +1,20 @@
 import { Feather } from "@expo/vector-icons";
-import { useState } from "react";
-import { Pressable, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+  Linking,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
+import { API_BASE_URL } from "@/src/config";
 import { useAuth } from "@/src/providers/auth";
+import { loadLoginPreferences, saveLoginPreferences } from "@/src/storage/login-preferences";
 import { colors, radii, shadows } from "@/src/theme";
 
 export default function LoginScreen() {
@@ -11,20 +23,57 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [deviceName, setDeviceName] = useState("");
-  const [rememberTerminal, setRememberTerminal] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    loadLoginPreferences().then((prefs) => {
+      if (prefs.email) {
+        setEmail(prefs.email);
+        setRememberMe(true);
+      }
+      if (prefs.deviceName) {
+        setDeviceName(prefs.deviceName);
+      }
+    });
+  }, []);
+
+  async function handleForgotPassword() {
+    try {
+      await Linking.openURL(`${API_BASE_URL}/auth/login`);
+    } catch {
+      setError("Unable to open the password reset page.");
+    }
+  }
 
   async function handleLogin() {
     setSubmitting(true);
     setError(null);
     try {
-      await login({ email, password, deviceName: deviceName.trim() || "Rider phone" });
+      await saveLoginPreferences({
+        remember: rememberMe,
+        email,
+        deviceName,
+      });
+      await login({
+        email,
+        password,
+        deviceName: deviceName.trim() || "Rider phone",
+      });
       router.replace("/(tabs)/deliveries");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function toggleRememberMe() {
+    const next = !rememberMe;
+    setRememberMe(next);
+    if (!next) {
+      await saveLoginPreferences({ remember: false, email: "", deviceName: "" });
     }
   }
 
@@ -55,6 +104,7 @@ export default function LoginScreen() {
                 placeholderTextColor={colors.textSoft}
                 value={email}
                 onChangeText={setEmail}
+                editable={!submitting}
               />
             </View>
           </View>
@@ -70,6 +120,7 @@ export default function LoginScreen() {
                 placeholderTextColor={colors.textSoft}
                 value={password}
                 onChangeText={setPassword}
+                editable={!submitting}
               />
             </View>
           </View>
@@ -84,24 +135,25 @@ export default function LoginScreen() {
                 placeholderTextColor={colors.textSoft}
                 value={deviceName}
                 onChangeText={setDeviceName}
+                editable={!submitting}
               />
             </View>
           </View>
 
           <View style={styles.utilityRow}>
-            <Pressable style={styles.checkboxRow} onPress={() => setRememberTerminal((value) => !value)}>
-              <View style={[styles.checkbox, rememberTerminal ? styles.checkboxChecked : null]}>
-                {rememberTerminal ? <Feather name="check" size={12} color={colors.white} /> : null}
+            <Pressable style={styles.checkboxRow} onPress={() => void toggleRememberMe()} disabled={submitting}>
+              <View style={[styles.checkbox, rememberMe ? styles.checkboxChecked : null]}>
+                {rememberMe ? <Feather name="check" size={12} color={colors.white} /> : null}
               </View>
-              <Text style={styles.utilityText}>Remember terminal</Text>
+              <Text style={styles.utilityText}>Remember me</Text>
             </Pressable>
-            <Pressable>
-              <Text style={styles.resetText}>Reset Pin</Text>
+            <Pressable onPress={() => void handleForgotPassword()} disabled={submitting}>
+              <Text style={styles.resetText}>Forgot password</Text>
             </Pressable>
           </View>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable style={styles.button} onPress={handleLogin} disabled={submitting}>
+          <Pressable style={styles.button} onPress={() => void handleLogin()} disabled={submitting}>
             <Text style={styles.buttonText}>{submitting ? "Signing In..." : "Sign In"}</Text>
             <Feather name="arrow-right" size={17} color={colors.white} />
           </Pressable>
@@ -109,11 +161,11 @@ export default function LoginScreen() {
 
         <View style={styles.footer}>
           <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Operational Support</Text>
+            <Text style={styles.footerText}>Cosmo OS</Text>
             <Text style={styles.footerDivider}>|</Text>
-            <Text style={styles.footerText}>Security Protocol</Text>
+            <Text style={styles.footerText}>Rider App</Text>
           </View>
-          <Text style={styles.footerMeta}>V 2.4.0 - STABLE - AWS SECURE NODE 7</Text>
+          <Text style={styles.footerMeta}>Secure rider access for deliveries and cash handovers.</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -201,5 +253,5 @@ const styles = StyleSheet.create({
   footerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   footerText: { color: "#82889a", fontSize: 10.5 },
   footerDivider: { color: "#c2c7d1", fontSize: 10.5 },
-  footerMeta: { color: "#afb4c1", fontSize: 10, fontWeight: "700", letterSpacing: 0.4 },
+  footerMeta: { color: "#afb4c1", fontSize: 10, fontWeight: "600", textAlign: "center", maxWidth: 280 },
 });

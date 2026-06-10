@@ -29,3 +29,22 @@ Local setup:
 5. Start the app with `npm run dev`.
 
 If you are moving data from Supabase into Neon, use [`scripts/migrate-supabase-to-neon.sh`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/scripts/migrate-supabase-to-neon.sh). It already restores into `DIRECT_URL`.
+
+## Mobile app (Cosmo Rider)
+
+The rider delivery app lives in [`mobile/rider-app`](mobile/rider-app). It is a standalone Expo project that connects to the same Next.js backend.
+
+```bash
+# Start backend first
+npm run dev
+
+# In a second terminal
+cd mobile/rider-app
+npm install
+cp .env.example .env   # set EXPO_PUBLIC_API_BASE_URL
+npm start
+```
+
+See [`mobile/rider-app/README.md`](mobile/rider-app/README.md) for architecture, environment setup, and EAS build instructions.
+
+Mobile login requires Auth0 M2M credentials in the root `.env` (`AUTH0_M2M_CLIENT_ID`, `AUTH0_M2M_CLIENT_SECRET`, `AUTH0_DATABASE_CONNECTION`).
