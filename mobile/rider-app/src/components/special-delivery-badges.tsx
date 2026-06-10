@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import type { MobileDelivery } from "@/src/types";
+import type { ApiMobileDelivery } from "@/src/types";
 import { useTheme } from "@/src/providers/theme";
 
 type SpecialDeliveryBadgesProps = {
-  delivery: Pick<MobileDelivery, "deliveryKind" | "requiresOldItemCollection">;
+  delivery: Pick<ApiMobileDelivery, "deliveryKind" | "requiresOldItemCollection">;
 };
 
 export function SpecialDeliveryBadges({ delivery }: SpecialDeliveryBadgesProps) {

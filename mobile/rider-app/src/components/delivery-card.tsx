@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { MobileDelivery } from "@/src/types";
+import { CompanyBadge } from "@/src/components/company-badge";
 import { SpecialDeliveryBadges } from "@/src/components/special-delivery-badges";
 import { useTheme } from "@/src/providers/theme";
+import type { TenantMobileDelivery } from "@/src/types";
 
 type DeliveryCardProps = {
-  delivery: MobileDelivery;
+  delivery: TenantMobileDelivery;
   onPress: () => void;
 };
 
@@ -17,6 +18,7 @@ export function DeliveryCard({ delivery, onPress }: DeliveryCardProps) {
     <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.top}>
         <View style={styles.titleWrap}>
+          <CompanyBadge label={delivery.companyLabel} compact />
           <Text style={styles.title}>{delivery.orderLabel}</Text>
           <Text style={styles.meta}>{delivery.customerName ?? "Unknown customer"}</Text>
         </View>
@@ -55,7 +57,7 @@ function createStyles(
       ...shadows.card,
     },
     top: { flexDirection: "row", justifyContent: "space-between", gap: 12, alignItems: "flex-start" },
-    titleWrap: { flex: 1, gap: 4 },
+    titleWrap: { flex: 1, gap: 6 },
     title: { fontSize: 18, fontWeight: "800", color: colors.text },
     meta: { color: colors.textMuted, lineHeight: 20 },
     badge: {

@@ -1,12 +1,14 @@
+import Constants from "expo-constants";
 import { useMemo } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { HeroBanner } from "@/src/components/hero-banner";
+import { APP_ENV, getAppEnvironmentLabel } from "@/src/config";
 import { useAuth } from "@/src/providers/auth";
 import { useTheme } from "@/src/providers/theme";
 import type { ThemeSetting } from "@/src/storage/theme";
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = Constants.expoConfig?.version ?? "1.0.0";
 
 function getInitials(name: string | null | undefined) {
   const parts = (name ?? "Rider").trim().split(/\s+/).filter(Boolean);
@@ -23,7 +25,7 @@ const THEME_OPTIONS: Array<{ value: ThemeSetting; label: string }> = [
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { session, logout } = useAuth();
+  const { primaryRider, activeTenantIds, logout } = useAuth();
   const { colors, radii, shadows, themeSetting, setThemeSetting } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
@@ -46,13 +48,16 @@ export default function ProfileScreen() {
 
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(session?.rider.name)}</Text>
+            <Text style={styles.avatarText}>{getInitials(primaryRider?.name)}</Text>
           </View>
           <View style={styles.profileBody}>
-            <Text style={styles.profileName}>{session?.rider.name?.trim() || "Rider"}</Text>
-            <Text style={styles.profileMeta}>{session?.rider.email ?? "No email on file"}</Text>
-            <Text style={styles.profileMeta}>{session?.rider.mobile ?? "No mobile number"}</Text>
-            <Text style={styles.profileMeta}>{session?.rider.company?.name ?? "No company assigned"}</Text>
+            <Text style={styles.profileName}>{primaryRider?.name?.trim() || "Rider"}</Text>
+            <Text style={styles.profileMeta}>{primaryRider?.email ?? "No email on file"}</Text>
+            <Text style={styles.profileMeta}>{primaryRider?.mobile ?? "No mobile number"}</Text>
+            <Text style={styles.profileMeta}>{primaryRider?.company?.name ?? "No company assigned"}</Text>
+            {activeTenantIds.length > 1 ? (
+              <Text style={styles.profileMeta}>Signed in to {activeTenantIds.length} companies</Text>
+            ) : null}
           </View>
         </View>
 
@@ -86,7 +91,9 @@ export default function ProfileScreen() {
           <Text style={styles.sectionLabel}>App info</Text>
           <View style={styles.menuCard}>
             <Text style={styles.menuTitle}>Cosmo Rider</Text>
-            <Text style={styles.menuSub}>Version {APP_VERSION}</Text>
+            <Text style={styles.menuSub}>
+              Version {APP_VERSION} · {getAppEnvironmentLabel(APP_ENV)}
+            </Text>
           </View>
         </View>
 

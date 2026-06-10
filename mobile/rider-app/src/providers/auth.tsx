@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
-import { apiClient } from "@/src/api/client";
+import { loginToAllTenants, logoutFromAllTenants } from "@/src/lib/auth-login";
 import { clearSession, loadSession, saveSession, type RiderSession } from "@/src/storage/session";
+import { getActiveTenantIds, getPrimaryTenantSession, hasActiveSession } from "@/src/storage/session-types";
 
 type LoginPayload = {
   email: string;
@@ -12,6 +13,8 @@ type LoginPayload = {
 type AuthContextValue = {
   session: RiderSession | null;
   bootstrapped: boolean;
+  activeTenantIds: ReturnType<typeof getActiveTenantIds>;
+  primaryRider: NonNullable<ReturnType<typeof getPrimaryTenantSession>>["rider"] | null;
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   clearSessionLocally: () => Promise<void>;
@@ -39,17 +42,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
     () => ({
       session,
       bootstrapped,
+      activeTenantIds: getActiveTenantIds(session),
+      primaryRider: getPrimaryTenantSession(session)?.rider ?? null,
       login: async (payload) => {
-        const result = await apiClient.post<RiderSession>("/api/mobile/v1/auth/login", payload);
+        const result = await loginToAllTenants(payload);
         await saveSession(result);
         setSession(result);
       },
       logout: async () => {
-        try {
-          await apiClient.post("/api/mobile/v1/auth/logout");
-        } catch {
-          // Clear local session even if revoke fails (offline/expired token).
-        }
+        const current = await loadSession();
+        await logoutFromAllTenants(current);
         await clearSessionLocally();
       },
       clearSessionLocally,
@@ -67,3 +69,5 @@ export function useAuth() {
   }
   return context;
 }
+
+export { hasActiveSession };

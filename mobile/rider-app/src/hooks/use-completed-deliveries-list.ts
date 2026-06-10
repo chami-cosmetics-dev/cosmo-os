@@ -2,19 +2,25 @@ import { useCallback, useState } from "react";
 import { apiClient } from "@/src/api/client";
 import { useRefreshOnFocus } from "@/src/hooks/use-refresh-on-focus";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
-import type { MobileDeliveriesResponse } from "@/src/types";
+import { useAuth } from "@/src/providers/auth";
+import { getConfiguredTenants } from "@/src/tenants";
+import { getDeliveryKey, getTenantDefinition } from "@/src/tenants/config";
+import type { MobileDeliveriesResponse, TenantMobileDelivery } from "@/src/types";
 import { isRenderableDelivery } from "@/src/utils/delivery";
 
 export type CompletedListItem = {
+  tenant: TenantMobileDelivery["tenant"];
   id: string;
   orderLabel: string;
   amount: string;
   completedAt?: string | null;
   customerName: string | null;
   companyLocation?: { name: string } | null;
+  companyLabel: string;
 };
 
 export function useCompletedDeliveriesList() {
+  const { activeTenantIds } = useAuth();
   const { completedDeliveries } = useCompletedDeliveries();
   const [deliveries, setDeliveries] = useState<CompletedListItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -22,26 +28,56 @@ export function useCompletedDeliveriesList() {
   const reload = useCallback(async () => {
     setRefreshing(true);
     try {
-      const data = await apiClient.get<MobileDeliveriesResponse>("/api/mobile/v1/deliveries");
-      const remoteCompleted = data.deliveries.filter((delivery) => delivery.deliveryStatus === "completed");
-      const merged: CompletedListItem[] = [...completedDeliveries, ...remoteCompleted]
-        .filter(isRenderableDelivery)
-        .filter((delivery, index, all) => all.findIndex((item) => item.id === delivery.id) === index)
-        .map((delivery) => ({
+      const tenants = getConfiguredTenants().filter((tenant) => activeTenantIds.includes(tenant.id));
+      const remoteResponses = await Promise.all(
+        tenants.map(async (tenant) => {
+          try {
+            const data = await apiClient.get<MobileDeliveriesResponse>(tenant.id, "/api/mobile/v1/deliveries");
+            return data.deliveries
+              .filter((delivery) => delivery.deliveryStatus === "completed")
+              .map((delivery) => ({
+                tenant: tenant.id,
+                id: delivery.id,
+                orderLabel: delivery.orderLabel,
+                amount: delivery.amount,
+                completedAt: delivery.completedAt ?? null,
+                customerName: delivery.customerName,
+                companyLocation: delivery.companyLocation ?? null,
+                companyLabel: tenant.label,
+              }));
+          } catch {
+            return [];
+          }
+        })
+      );
+
+      const merged: CompletedListItem[] = [
+        ...completedDeliveries.map((delivery) => ({
+          tenant: delivery.tenant,
           id: delivery.id,
           orderLabel: delivery.orderLabel,
           amount: delivery.amount,
-          completedAt: "completedAt" in delivery && delivery.completedAt ? delivery.completedAt : null,
+          completedAt: delivery.completedAt,
           customerName: delivery.customerName,
           companyLocation: delivery.companyLocation ?? null,
-        }));
+          companyLabel: delivery.companyLabel ?? getTenantDefinition(delivery.tenant).label,
+        })),
+        ...remoteResponses.flat(),
+      ]
+        .filter(isRenderableDelivery)
+        .filter(
+          (delivery, index, all) =>
+            all.findIndex((item) => getDeliveryKey(item.tenant, item.id) === getDeliveryKey(delivery.tenant, delivery.id)) ===
+            index
+        );
+
       setDeliveries(merged);
     } finally {
       setRefreshing(false);
     }
-  }, [completedDeliveries]);
+  }, [activeTenantIds, completedDeliveries]);
 
-  useRefreshOnFocus(reload, [completedDeliveries]);
+  useRefreshOnFocus(reload, [activeTenantIds, completedDeliveries]);
 
   return {
     deliveries,

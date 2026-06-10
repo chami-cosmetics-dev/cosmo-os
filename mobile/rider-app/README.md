@@ -42,8 +42,12 @@ The backend must be reachable from the device. For physical devices, use your ma
 | `npm start` | Start Expo dev server |
 | `npm run android` | Run on Android emulator/device |
 | `npm run ios` | Run on iOS simulator (macOS only) |
-| `npm run build:android:preview` | EAS internal Android build |
+| `npm run build:android:apk` | EAS APK for sideloading on Android devices |
+| `npm run build:android:preview` | EAS staging/internal Android build (APK) |
+| `npm run build:android:staging` | Alias for preview (staging) profile |
 | `npm run build:android:production` | EAS production Android App Bundle |
+| `npm run env:staging` | List EAS env vars for preview/staging |
+| `npm run env:production` | List EAS env vars for production |
 
 ## Architecture
 
@@ -56,9 +60,10 @@ mobile/rider-app/
 │   ├── index.tsx             # Auth redirect gate
 │   ├── login.tsx
 │   ├── (tabs)/               # Tab navigator (route, completed, cash)
-│   └── delivery/[id].tsx     # Delivery detail + actions
+│   └── delivery/[tenant]/[id].tsx  # Delivery detail + actions (multi-tenant)
 ├── src/
-│   ├── api/client.ts         # HTTP client (Bearer auth)
+│   ├── api/client.ts         # Tenant-aware HTTP client (Bearer auth)
+│   ├── tenants/              # Cosmetics + Vault config and API URLs
 │   ├── components/           # Reusable UI (DeliveryCard, PaymentForm, HeroBanner, etc.)
 │   ├── hooks/                # Data + action hooks (useDeliveries, useDeliveryDetail, etc.)
 │   ├── config.ts             # API base URL from env
@@ -69,12 +74,24 @@ mobile/rider-app/
 │   └── theme.ts              # Design tokens
 ```
 
+### Multi-tenant (one APK)
+
+Riders who deliver for **Cosmetics.lk** and **Supplement Vault** use a single app and one login. On sign-in the app authenticates against both backends in parallel and stores a token per company. Deliveries, cash summaries, and handovers are merged in the UI with company labels.
+
+| Variable | Description |
+|----------|-------------|
+| `EXPO_PUBLIC_COSMETICS_API_URL` | Cosmo OS backend (e.g. `https://os.cosmetics.lk`) |
+| `EXPO_PUBLIC_VAULT_API_URL` | Vault OS backend (e.g. `https://vault-os-sandy.vercel.app`) |
+| `EXPO_PUBLIC_API_BASE_URL` | Dev fallback when tenant URLs are unset |
+
+The same rider email/password must exist on both deployments with `employeeProfile.isRider = true`.
+
 ### Backend integration
 
 ```
-┌─────────────────┐     Bearer token      ┌──────────────────────────┐
-│  Cosmo Rider    │ ────────────────────► │  /api/mobile/v1/*        │
-│  (Expo app)     │                       │  lib/mobile/* (server)   │
+┌─────────────────┐     Bearer tokens     ┌──────────────────────────┐
+│  Cosmo Rider    │ ────────────────────► │  Cosmetics OS + Vault OS │
+│  (Expo app)     │   (one per company)   │  /api/mobile/v1/*        │
 └─────────────────┘                       └──────────────────────────┘
         │                                              │
         │ Offline queue (AsyncStorage)                 ▼
@@ -92,15 +109,94 @@ mobile/rider-app/
 
 ### Auth
 
-Mobile uses bearer tokens (`RiderMobileSession`), separate from web Auth0 cookies. Login validates credentials via Auth0 Management API; the app stores the token in Expo SecureStore.
+Mobile uses bearer tokens (`RiderMobileSession`), separate from web Auth0 cookies. Login validates credentials via Auth0 Management API against each configured backend; the app stores tokens in Expo SecureStore (one per tenant).
 
-- **Login:** `POST /api/mobile/v1/auth/login`
-- **Logout:** `POST /api/mobile/v1/auth/logout` — revokes the server session; the app clears SecureStore locally even if offline
-- **401 handling:** `SessionGate` redirects to login when the token expires or API returns unauthorized
+- **Login:** parallel `POST /api/mobile/v1/auth/login` to Cosmetics + Vault
+- **Logout:** revokes all tenant sessions server-side; clears SecureStore locally even if offline
+- **401 handling:** removes the expired tenant token; redirects to login when no tenants remain
 
 ### Offline sync
 
 Payment, complete, fail, and handover actions can be queued when offline. `SyncProvider` flushes the queue when connectivity returns.
+
+## Release builds (EAS)
+
+Environment is controlled with `EXPO_PUBLIC_APP_ENV` and baked in at build time via `app.config.ts`.
+
+| EAS profile | App env | Android package | Use case |
+|-------------|---------|-----------------|----------|
+| `development` | development | `com.cosmo.rider.dev` | Dev client |
+| `preview` | staging | `com.cosmo.rider.staging` | Internal QA / staging API |
+| `production` | production | `com.cosmo.rider` | Play Store release |
+
+### Required EAS environment variables
+
+Set these in the [Expo dashboard](https://expo.dev) or with `eas env:create` for **preview** and **production** environments:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `EXPO_PUBLIC_COSMETICS_API_URL` | Yes (production) | Cosmetics.lk Cosmo OS URL |
+| `EXPO_PUBLIC_VAULT_API_URL` | Yes (production) | Supplement Vault OS URL |
+| `EXPO_PUBLIC_API_BASE_URL` | Dev / fallback | Local or single-backend staging |
+| `EXPO_PUBLIC_SENTRY_DSN` | Recommended | Sentry DSN for crash reports |
+| `SENTRY_AUTH_TOKEN` | For source maps | EAS secret — upload debug symbols on build |
+| `SENTRY_ORG` | For source maps | Sentry organization slug |
+| `SENTRY_PROJECT` | For source maps | Sentry project slug |
+
+Example:
+
+```bash
+cd mobile/rider-app
+
+# Staging
+eas env:create --environment preview --name EXPO_PUBLIC_API_BASE_URL --value https://staging.your-domain.com
+eas env:create --environment preview --name EXPO_PUBLIC_SENTRY_DSN --value https://...
+
+# Production
+eas env:create --environment production --name EXPO_PUBLIC_COSMETICS_API_URL --value https://os.cosmetics.lk
+eas env:create --environment production --name EXPO_PUBLIC_VAULT_API_URL --value https://vault-os-sandy.vercel.app
+eas env:create --environment production --name EXPO_PUBLIC_SENTRY_DSN --value https://...
+
+npm run build:android:staging
+npm run build:android:production
+```
+
+Staging builds show **Cosmo Rider (Staging)** on the home screen so riders can distinguish them from production.
+
+### Install an APK on rider phones
+
+1. Build: `npm run build:android:apk` (or `preview` — both produce an APK).
+2. When the build finishes, open the link from the terminal or [expo.dev](https://expo.dev) → your project → Builds.
+3. Download the `.apk` on the phone (or scan the QR code).
+4. Allow **Install unknown apps** for the browser/files app if Android prompts you.
+5. Open the APK and install **Cosmo Rider (Staging)**.
+
+The APK must be built with an API URL the phone can reach:
+
+| Backend location | Example `EXPO_PUBLIC_API_BASE_URL` |
+|------------------|-------------------------------------|
+| Deployed staging/prod | `https://your-app.vercel.app` |
+| Dev machine on same Wi‑Fi | `http://192.168.1.50:3000` (use your PC’s LAN IP, not `localhost`) |
+
+Set that URL before building — via EAS env or inline:
+
+```bash
+cd mobile/rider-app
+eas env:create --environment preview --name EXPO_PUBLIC_API_BASE_URL --value https://YOUR-BACKEND-URL
+npm run build:android:apk
+```
+
+For a quick local debug APK (USB/emulator, no EAS):
+
+```bash
+npm run android
+```
+
+That installs a dev build from your machine; riders usually want the EAS APK instead.
+
+### Monitoring
+
+Sentry is optional locally and enabled when `EXPO_PUBLIC_SENTRY_DSN` is set. The API client reports non-401 failures to Sentry automatically.
 
 ## Conventions
 
@@ -116,7 +212,8 @@ Payment, complete, fail, and handover actions can be queued when offline. `SyncP
 | 1 — Cleanup | Done | Remove legacy code, docs, shared types, login fixes |
 | 2 — Quality | Done | Tests, CI, 401 handling, logout endpoint |
 | 3 — Structure | Done | Components, hooks, profile tab, theme provider |
-| 4 — Release | Planned | EAS env profiles, Sentry, staging/production |
+| 4 — Release | Done | EAS env profiles, Sentry, staging/production config |
+| 5 — Multi-tenant | Done | One APK for Cosmetics + Vault, merged route list |
 
 ## Related backend paths
 
