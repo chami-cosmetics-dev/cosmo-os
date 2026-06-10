@@ -47,7 +47,6 @@ type Order = {
   paymentGatewayPrimary: string | null;
   pendingPaymentApproval?: boolean;
   discountCodes?: unknown;
-  erpMerchantCouponCode?: string | null;
   merchantCouponCode?: string | null;
 };
 
