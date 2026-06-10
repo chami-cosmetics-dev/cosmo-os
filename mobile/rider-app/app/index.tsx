@@ -1,5 +1,5 @@
 import { Redirect } from "expo-router";
-import { useAuth } from "@/src/providers/auth";
+import { hasActiveSession, useAuth } from "@/src/providers/auth";
 
 export default function IndexScreen() {
   const { session, bootstrapped } = useAuth();
@@ -8,5 +8,5 @@ export default function IndexScreen() {
     return null;
   }
 
-  return <Redirect href={session ? "/(tabs)/deliveries" : "/login"} />;
+  return <Redirect href={hasActiveSession(session) ? "/(tabs)/deliveries" : "/login"} />;
 }

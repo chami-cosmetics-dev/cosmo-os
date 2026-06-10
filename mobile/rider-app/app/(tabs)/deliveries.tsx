@@ -33,9 +33,9 @@ export default function DeliveriesScreen() {
       >
         {activeDeliveries.map((delivery) => (
           <DeliveryCard
-            key={delivery.id}
+            key={`${delivery.tenant}:${delivery.id}`}
             delivery={delivery}
-            onPress={() => router.push(`/delivery/${delivery.id}`)}
+            onPress={() => router.push(`/delivery/${delivery.tenant}/${delivery.id}`)}
           />
         ))}
         {activeDeliveries.length === 0 ? (

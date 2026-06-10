@@ -1,7 +1,7 @@
 import type { CompletedDelivery } from "@/src/storage/completed-deliveries";
-import type { MobileDelivery } from "@/src/types";
+import type { TenantMobileDelivery } from "@/src/types";
 
-type RenderableDelivery = Pick<MobileDelivery, "id" | "orderLabel" | "amount">;
+type RenderableDelivery = Pick<TenantMobileDelivery, "id" | "orderLabel" | "amount">;
 
 export function isRenderableDelivery(delivery: RenderableDelivery | CompletedDelivery) {
   return (

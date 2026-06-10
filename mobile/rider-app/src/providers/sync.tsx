@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
 import NetInfo from "@react-native-community/netinfo";
-import { API_BASE_URL } from "@/src/config";
+import { flushQueuedRequest } from "@/src/api/client";
 import { clearQueue, getQueue, replaceQueue, type QueuedAction } from "@/src/storage/offline-queue";
-import { loadSession } from "@/src/storage/session";
+import { hasActiveSession, useAuth } from "@/src/providers/auth";
 
 type SyncContextValue = {
   pendingCount: number;
@@ -16,6 +16,7 @@ type SyncContextValue = {
 const SyncContext = createContext<SyncContextValue | null>(null);
 
 export function SyncProvider({ children }: PropsWithChildren) {
+  const { session } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
   const [queuedActions, setQueuedActions] = useState<QueuedAction[]>([]);
 
@@ -26,27 +27,20 @@ export function SyncProvider({ children }: PropsWithChildren) {
   }
 
   async function flushQueue() {
-    const session = await loadSession();
-    if (!session?.accessToken) return;
+    if (!hasActiveSession(session)) return;
 
     const queue = await getQueue();
     const remaining = [];
 
     for (const item of queue) {
-      try {
-        const response = await fetch(`${API_BASE_URL}${item.endpoint}`, {
-          method: item.method,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.accessToken}`,
-          },
-          body: JSON.stringify(item.body),
-        });
+      const ok = await flushQueuedRequest({
+        tenant: item.tenant,
+        endpoint: item.endpoint,
+        method: item.method,
+        body: item.body,
+      });
 
-        if (!response.ok) {
-          remaining.push(item);
-        }
-      } catch {
+      if (!ok) {
         remaining.push(item);
       }
     }
@@ -70,7 +64,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
       }
     });
     return unsubscribe;
-  }, []);
+  }, [session]);
 
   const value = useMemo(
     () => ({
@@ -80,7 +74,7 @@ export function SyncProvider({ children }: PropsWithChildren) {
       clearPendingQueue,
       refreshPendingQueue,
     }),
-    [pendingCount, queuedActions]
+    [pendingCount, queuedActions, session]
   );
 
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;

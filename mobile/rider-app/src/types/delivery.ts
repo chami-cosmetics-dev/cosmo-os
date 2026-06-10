@@ -1,3 +1,5 @@
+import type { TenantId } from "@/src/tenants/config";
+
 export type DeliveryStatus = "assigned" | "accepted" | "arrived" | "completed" | "failed";
 export type DeliveryKind = "normal" | "rearranged" | "exchange";
 export type PaymentMethod = "cod" | "bank_transfer" | "card" | "already_paid";
@@ -14,7 +16,7 @@ export type DeliveryPayment = {
   collectedAt?: string | null;
 };
 
-export type MobileDelivery = {
+export type ApiMobileDelivery = {
   id: string;
   orderLabel: string;
   amount: string;
@@ -29,6 +31,11 @@ export type MobileDelivery = {
   completedAt?: string | null;
 };
 
+export type TenantMobileDelivery = ApiMobileDelivery & {
+  tenant: TenantId;
+  companyLabel: string;
+};
+
 export type DeliveryLineItem = {
   id: string;
   productTitle: string;
@@ -36,7 +43,7 @@ export type DeliveryLineItem = {
   price: string;
 };
 
-export type MobileDeliveryDetail = MobileDelivery & {
+export type ApiMobileDeliveryDetail = ApiMobileDelivery & {
   customerPhone: string | null;
   replacementOrderLabel?: string | null;
   requiresOldItemCollection: boolean;
@@ -46,10 +53,12 @@ export type MobileDeliveryDetail = MobileDelivery & {
   lineItems: DeliveryLineItem[];
 };
 
+export type MobileDeliveryDetail = ApiMobileDeliveryDetail;
+
 export type MobileDeliveriesResponse = {
-  deliveries: MobileDelivery[];
+  deliveries: ApiMobileDelivery[];
 };
 
 export type MobileDeliveryDetailResponse = {
-  delivery: MobileDeliveryDetail;
+  delivery: ApiMobileDeliveryDetail;
 };

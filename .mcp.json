@@ -7,7 +7,12 @@
     },
     "vercel": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.vercel.com"]
+      "args": [
+        "mcp-remote",
+        "https://mcp.vercel.com"
+      ],
+      "type": "http",
+      "url": "https://mcp.vercel.com"
     }
   }
 }

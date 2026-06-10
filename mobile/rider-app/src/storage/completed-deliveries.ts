@@ -1,20 +1,26 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { TenantId } from "@/src/tenants/config";
+import { getDeliveryKey } from "@/src/tenants/config";
+import { isTenantId } from "@/src/tenants/config";
 
 const COMPLETED_DELIVERIES_KEY = "cosmo-rider-completed-deliveries";
 
 export type CompletedDelivery = {
+  tenant: TenantId;
   id: string;
   orderLabel: string;
   amount: string;
   completedAt: string;
   customerName: string | null;
   companyLocation?: { name: string } | null;
+  companyLabel?: string;
 };
 
 function isValidCompletedDelivery(value: unknown): value is CompletedDelivery {
   if (!value || typeof value !== "object") return false;
 
   const candidate = value as {
+    tenant?: unknown;
     id?: unknown;
     orderLabel?: unknown;
     amount?: unknown;
@@ -22,6 +28,7 @@ function isValidCompletedDelivery(value: unknown): value is CompletedDelivery {
   };
 
   return (
+    isTenantId(typeof candidate.tenant === "string" ? candidate.tenant : undefined) &&
     typeof candidate.id === "string" &&
     candidate.id.trim().length > 0 &&
     typeof candidate.orderLabel === "string" &&
@@ -45,7 +52,13 @@ export async function listCompletedDeliveries() {
 
 export async function upsertCompletedDelivery(delivery: CompletedDelivery) {
   const current = await listCompletedDeliveries();
-  const next = [delivery, ...current.filter((item) => item.id !== delivery.id)];
+  const key = getDeliveryKey(delivery.tenant, delivery.id);
+  const next = [
+    delivery,
+    ...current.filter((item) => getDeliveryKey(item.tenant, item.id) !== key),
+  ];
   await AsyncStorage.setItem(COMPLETED_DELIVERIES_KEY, JSON.stringify(next));
   return next;
 }
+
+export { getDeliveryKey };

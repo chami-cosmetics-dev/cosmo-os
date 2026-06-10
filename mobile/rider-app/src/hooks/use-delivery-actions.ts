@@ -5,6 +5,8 @@ import { useState } from "react";
 import { apiClient } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import { queueAction } from "@/src/storage/offline-queue";
+import { getTenantDefinition } from "@/src/tenants/config";
+import type { TenantId } from "@/src/tenants/config";
 import type { MobileDeliveryDetail, OldItemCollectionStatus, PaymentMethod } from "@/src/types";
 
 function requiresReference(method: PaymentMethod) {
@@ -16,6 +18,7 @@ function amountsMatch(expected: string, actual: number) {
 }
 
 async function submitOrQueue(params: {
+  tenant: TenantId;
   endpoint: string;
   body: Record<string, unknown>;
   queuedMessage: string;
@@ -25,7 +28,7 @@ async function submitOrQueue(params: {
 
   if (isOnline) {
     try {
-      await apiClient.post(params.endpoint, params.body);
+      await apiClient.post(params.tenant, params.endpoint, params.body);
       return { mode: "live" as const };
     } catch {
       // Fall back to offline queue when the live request fails.
@@ -33,6 +36,7 @@ async function submitOrQueue(params: {
   }
 
   await queueAction({
+    tenant: params.tenant,
     endpoint: params.endpoint,
     method: "POST",
     body: params.body,
@@ -41,6 +45,7 @@ async function submitOrQueue(params: {
 }
 
 type DeliveryActionInput = {
+  tenant: TenantId;
   deliveryId: string;
   delivery: MobileDeliveryDetail;
   collectedAmount: string;
@@ -58,6 +63,7 @@ export function useDeliveryActions() {
 
   async function markDelivered(input: DeliveryActionInput) {
     const {
+      tenant,
       deliveryId,
       delivery,
       collectedAmount,
@@ -107,6 +113,7 @@ export function useDeliveryActions() {
 
     try {
       const paymentResult = await submitOrQueue({
+        tenant,
         endpoint: `/api/mobile/v1/deliveries/${deliveryId}/payment`,
         body: {
           paymentMethod,
@@ -115,15 +122,16 @@ export function useDeliveryActions() {
           bankReference: paymentMethod === "bank_transfer" ? paymentReference.trim() : undefined,
           cardReference: paymentMethod === "card" ? paymentReference.trim() : undefined,
           referenceNote: paymentNote.trim() || undefined,
-          idempotencyKey: `payment-${deliveryId}-${Date.now()}`,
+          idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
         },
         queuedMessage: "Payment was added to the sync queue.",
       });
 
       const completeResult = await submitOrQueue({
+        tenant,
         endpoint: `/api/mobile/v1/deliveries/${deliveryId}/complete`,
         body: {
-          idempotencyKey: `complete-${deliveryId}-${Date.now()}`,
+          idempotencyKey: `complete-${tenant}-${deliveryId}-${Date.now()}`,
           oldItemCollectionStatus: needsOldItemCollection ? oldItemCollectionStatus : undefined,
           oldItemCollectionRemark: needsOldItemCollection ? oldItemCollectionRemark.trim() || undefined : undefined,
         },
@@ -137,12 +145,14 @@ export function useDeliveryActions() {
       }
 
       await markCompleted({
+        tenant,
         id: delivery.id,
         orderLabel: delivery.orderLabel,
         amount: delivery.amount,
         completedAt: new Date().toISOString(),
         customerName: delivery.customerName,
         companyLocation: delivery.companyLocation ?? null,
+        companyLabel: getTenantDefinition(tenant).label,
       });
 
       router.replace("/(tabs)/completed");
@@ -151,13 +161,14 @@ export function useDeliveryActions() {
     }
   }
 
-  async function markFailed(deliveryId: string, failureReason: string) {
+  async function markFailed(tenant: TenantId, deliveryId: string, failureReason: string) {
     await queueAction({
+      tenant,
       endpoint: `/api/mobile/v1/deliveries/${deliveryId}/fail`,
       method: "POST",
       body: {
         reason: failureReason || "Customer unavailable",
-        idempotencyKey: `fail-${deliveryId}-${Date.now()}`,
+        idempotencyKey: `fail-${tenant}-${deliveryId}-${Date.now()}`,
       },
     });
     Alert.alert("Queued", "Failure update was added to the sync queue.");

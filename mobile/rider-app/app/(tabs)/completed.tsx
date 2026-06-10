@@ -25,7 +25,7 @@ export default function CompletedScreen() {
           />
         </View>
         {deliveries.map((delivery) => (
-          <CompletedDeliveryCard key={delivery.id} delivery={delivery} />
+          <CompletedDeliveryCard key={`${delivery.tenant}:${delivery.id}`} delivery={delivery} />
         ))}
         {deliveries.length === 0 ? (
           <EmptyState
