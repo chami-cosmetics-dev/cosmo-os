@@ -92,6 +92,10 @@ mobile/rider-app/
 
 Mobile uses bearer tokens (`RiderMobileSession`), separate from web Auth0 cookies. Login validates credentials via Auth0 Management API; the app stores the token in Expo SecureStore.
 
+- **Login:** `POST /api/mobile/v1/auth/login`
+- **Logout:** `POST /api/mobile/v1/auth/logout` — revokes the server session; the app clears SecureStore locally even if offline
+- **401 handling:** `SessionGate` redirects to login when the token expires or API returns unauthorized
+
 ### Offline sync
 
 Payment, complete, fail, and handover actions can be queued when offline. `SyncProvider` flushes the queue when connectivity returns.
@@ -108,7 +112,7 @@ Payment, complete, fail, and handover actions can be queued when offline. `SyncP
 | Phase | Status | Focus |
 |-------|--------|-------|
 | 1 — Cleanup | Done | Remove legacy code, docs, shared types, login fixes |
-| 2 — Quality | Planned | Tests, CI, 401 handling, logout endpoint |
+| 2 — Quality | Done | Tests, CI, 401 handling, logout endpoint |
 | 3 — Structure | Planned | Components, hooks, profile tab, theme provider |
 | 4 — Release | Planned | EAS env profiles, Sentry, staging/production |
 

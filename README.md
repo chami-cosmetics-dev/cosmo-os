@@ -48,3 +48,14 @@ npm start
 See [`mobile/rider-app/README.md`](mobile/rider-app/README.md) for architecture, environment setup, and EAS build instructions.
 
 Mobile login requires Auth0 M2M credentials in the root `.env` (`AUTH0_M2M_CLIENT_ID`, `AUTH0_M2M_CLIENT_SECRET`, `AUTH0_DATABASE_CONNECTION`).
+
+### Mobile quality checks
+
+From the repo root:
+
+```bash
+npm test                 # lib/mobile unit tests (Vitest)
+npm run mobile:typecheck # TypeScript check for rider app
+```
+
+CI runs both on pull requests (see `.github/workflows/ci.yml`).

@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { AuthProvider } from "@/src/providers/auth";
 import { CompletedDeliveriesProvider } from "@/src/providers/completed-deliveries";
+import { SessionGate } from "@/src/providers/session-gate";
 import { SyncProvider } from "@/src/providers/sync";
 
 export default function RootLayout() {
@@ -8,7 +9,9 @@ export default function RootLayout() {
     <AuthProvider>
       <CompletedDeliveriesProvider>
         <SyncProvider>
-          <Stack screenOptions={{ headerShown: false }} />
+          <SessionGate>
+            <Stack screenOptions={{ headerShown: false }} />
+          </SessionGate>
         </SyncProvider>
       </CompletedDeliveriesProvider>
     </AuthProvider>
