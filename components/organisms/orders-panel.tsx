@@ -183,7 +183,7 @@ type OrderDetail = {
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
-  merchantCouponCode?: string | null;
+  merchantCouponCode: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
