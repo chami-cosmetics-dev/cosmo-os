@@ -5,50 +5,18 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { apiClient } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import { queueAction } from "@/src/storage/offline-queue";
+import type {
+  MobileDeliveryDetailResponse,
+  OldItemCollectionStatus,
+  PaymentMethod,
+} from "@/src/types";
 import { colors, radii, shadows } from "@/src/theme";
-
-type PaymentMethod = "cod" | "bank_transfer" | "card" | "already_paid";
-type OldItemCollectionStatus = "pending" | "collected" | "not_collected";
-
-type DeliveryDetail = {
-  delivery: {
-    id: string;
-    orderLabel: string;
-    customerName: string | null;
-    customerPhone: string | null;
-    amount: string;
-    deliveryStatus: string;
-    deliveryKind: "normal" | "rearranged" | "exchange";
-    oldOrderLabel?: string | null;
-    replacementOrderLabel?: string | null;
-    requiresOldItemCollection: boolean;
-    oldItemCollectionStatus: OldItemCollectionStatus;
-    oldItemCollectionRemark?: string | null;
-    exchangePaymentDifference?: string | null;
-    expectedPaymentMethod?: PaymentMethod | null;
-    companyLocation?: { name: string } | null;
-    payment: {
-      collectedAmount: string;
-      collectionStatus: string;
-      paymentMethod: PaymentMethod;
-      referenceNote?: string | null;
-      bankReference?: string | null;
-      cardReference?: string | null;
-    } | null;
-    lineItems: Array<{
-      id: string;
-      productTitle: string;
-      quantity: number;
-      price: string;
-    }>;
-  };
-};
 
 export default function DeliveryDetailScreen() {
   const router = useRouter();
   const { markCompleted } = useCompletedDeliveries();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [detail, setDetail] = useState<DeliveryDetail | null>(null);
+  const [detail, setDetail] = useState<MobileDeliveryDetailResponse | null>(null);
   const [collectedAmount, setCollectedAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [paymentReference, setPaymentReference] = useState("");
@@ -60,7 +28,7 @@ export default function DeliveryDetailScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   async function load() {
-    const data = await apiClient.get<DeliveryDetail>(`/api/mobile/v1/deliveries/${id}`);
+    const data = await apiClient.get<MobileDeliveryDetailResponse>(`/api/mobile/v1/deliveries/${id}`);
     setDetail(data);
     setCollectedAmount(data.delivery.payment?.collectedAmount ?? data.delivery.amount);
     setPaymentMethod(data.delivery.payment?.paymentMethod ?? data.delivery.expectedPaymentMethod ?? "cod");

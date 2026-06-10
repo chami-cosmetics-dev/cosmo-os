@@ -5,12 +5,22 @@ import { addDays } from "@/lib/mobile/dates";
 import { MOBILE_SESSION_TTL_DAYS } from "@/lib/mobile/constants";
 import { prisma } from "@/lib/prisma";
 
-function hashToken(token: string) {
+function hashMobileAccessToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
 export function createMobileAccessToken() {
   return randomBytes(32).toString("hex");
+}
+
+export async function revokeRiderMobileSession(sessionId: string) {
+  await prisma.riderMobileSession.update({
+    where: { id: sessionId },
+    data: {
+      status: "revoked",
+      revokedAt: new Date(),
+    },
+  });
 }
 
 export async function createRiderMobileSession(params: {
@@ -21,7 +31,7 @@ export async function createRiderMobileSession(params: {
   const session = await prisma.riderMobileSession.create({
     data: {
       userId: params.userId,
-      tokenHash: hashToken(token),
+      tokenHash: hashMobileAccessToken(token),
       deviceName: params.deviceName?.trim() || null,
       expiresAt: addDays(new Date(), MOBILE_SESSION_TTL_DAYS),
     },
@@ -42,7 +52,7 @@ export async function getRiderMobileSessionFromRequest(request: Request) {
   }
 
   const session = await prisma.riderMobileSession.findUnique({
-    where: { tokenHash: hashToken(token) },
+    where: { tokenHash: hashMobileAccessToken(token) },
     include: {
       user: {
         include: {
