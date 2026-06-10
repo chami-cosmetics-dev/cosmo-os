@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
 import { prisma } from "@/lib/prisma";
+import { buildCsv } from "@/lib/reports/csv";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -214,9 +215,11 @@ export async function POST(request: NextRequest) {
     dateFrom?: string;
     dateTo?: string;
     status?: string;
+    format?: string;
   };
 
   const status = body.status === "completed" ? "completed" : "pending";
+  const format = body.format === "csv" ? "csv" : "pdf";
   const range = parseDateRange(body.dateFrom ?? null, body.dateTo ?? null);
 
   if (status === "completed" && !range) {
@@ -231,6 +234,64 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
   const today = new Date().toISOString().slice(0, 10);
+  const fileSuffix =
+    status === "pending"
+      ? `pending-${today}`
+      : range!.dateFrom === range!.dateTo
+        ? range!.dateFrom
+        : `${range!.dateFrom}_to_${range!.dateTo}`;
+
+  if (format === "csv") {
+    const headers = [
+      "dispatcher_type",
+      "dispatcher_name",
+      "reference",
+      "location",
+      "order_date",
+      "dispatched_at",
+      "delivery_complete_at",
+      "delivery_outcome",
+      "customer_name",
+      "customer_phone",
+      "city",
+      "address",
+      "merchant",
+      "payment_type",
+      "total",
+      "currency",
+    ] as const;
+
+    const rows = groups.flatMap((group) =>
+      group.orders.map((order) => ({
+        dispatcher_type: group.dispatchType,
+        dispatcher_name: group.dispatcherName,
+        reference: order.reference,
+        location: order.locationName,
+        order_date: order.orderDate,
+        dispatched_at: order.dispatchedAt,
+        delivery_complete_at: order.deliveryCompleteAt ?? "",
+        delivery_outcome: order.deliveryOutcome ?? "",
+        customer_name: order.customerName,
+        customer_phone: order.customerPhone ?? "",
+        city: order.city ?? "",
+        address: order.address ?? "",
+        merchant: order.merchantName ?? "",
+        payment_type: order.paymentType ?? "",
+        total: order.totalPrice,
+        currency: order.currency,
+      })),
+    );
+
+    const csv = buildCsv(headers, rows);
+    return new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="dispatch-summary-${fileSuffix}.csv"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   const pdfDateFrom = range?.dateFrom ?? today;
   const pdfDateTo = range?.dateTo ?? today;
 
@@ -242,27 +303,15 @@ export async function POST(request: NextRequest) {
       .trim()
       .replace(/\s+/g, "_");
     const typePrefix = group.dispatchType === "rider" ? "rider" : "courier";
-    const dateSuffix =
-      status === "pending"
-        ? `pending-${today}`
-        : range!.dateFrom === range!.dateTo
-          ? range!.dateFrom
-          : `${range!.dateFrom}_to_${range!.dateTo}`;
-    files.push({ name: `${typePrefix}-${safeName}-${dateSuffix}.pdf`, content: pdf });
+    files.push({ name: `${typePrefix}-${safeName}-${fileSuffix}.pdf`, content: pdf });
   }
 
-  const zipSuffix =
-    status === "pending"
-      ? `pending-${today}`
-      : range!.dateFrom === range!.dateTo
-        ? range!.dateFrom
-        : `${range!.dateFrom}_to_${range!.dateTo}`;
   const zip = createZip(files);
 
   return new NextResponse(zip, {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="dispatch-summary-${zipSuffix}.zip"`,
+      "Content-Disposition": `attachment; filename="dispatch-summary-${fileSuffix}.zip"`,
       "Cache-Control": "no-store",
     },
   });

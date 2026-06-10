@@ -34,6 +34,7 @@ type OrderDetail = {
   totalPrice: string;
   subtotalPrice: string | null;
   totalDiscounts: string | null;
+  merchantCouponCode: string | null;
   totalTax: string | null;
   totalShipping: string | null;
   currency: string | null;
@@ -227,7 +228,10 @@ export function FulfillmentOrderInvoiceDetails({
                 Subtotal: {formatPrice(detail.subtotalPrice, detail.currency)}
               </p>
             )}
-            {detail.totalDiscounts != null && parseFloat(detail.totalDiscounts) > 0 && (
+            {detail.merchantCouponCode && (
+              <p>Coupon ({detail.merchantCouponCode}){detail.totalDiscounts != null && parseFloat(detail.totalDiscounts) > 0 ? `: -${formatPrice(detail.totalDiscounts, detail.currency)}` : ""}</p>
+            )}
+            {!detail.merchantCouponCode && detail.totalDiscounts != null && parseFloat(detail.totalDiscounts) > 0 && (
               <p>Discounts: -{formatPrice(detail.totalDiscounts, detail.currency)}</p>
             )}
             {detail.totalShipping != null && parseFloat(detail.totalShipping) > 0 && (

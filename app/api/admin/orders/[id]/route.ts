@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -27,6 +28,7 @@ const orderSelect = {
   shippingAddress: true,
   billingAddress: true,
   discountCodes: true,
+  rawPayload: true,
   createdAt: true,
   fulfillmentStage: true,
   printCount: true,
@@ -211,6 +213,11 @@ export async function GET(
     shippingAddress: details.shippingAddress,
     billingAddress: details.billingAddress,
     discountCodes: details.discountCodes,
+    merchantCouponCode: getMerchantCouponCode({
+      sourceName: details.sourceName,
+      discountCodes: details.discountCodes,
+      rawPayload: details.rawPayload,
+    }),
     createdAt: details.createdAt.toISOString(),
     companyLocation: details.companyLocation,
     assignedMerchant: details.assignedMerchant,
