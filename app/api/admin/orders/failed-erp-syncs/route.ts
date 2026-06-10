@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { limitSchema, pageSchema } from "@/lib/validation";
+import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("failed_webhooks.read");
@@ -31,7 +32,12 @@ export async function GET(request: NextRequest) {
     companyId,
     OR: [
       { erpnextSyncError: { not: null as string | null }, erpnextInvoiceId: null },
-      { erpnextInvoiceId: "pending_approval" },
+      // Show pending_approval orders where the approval is no longer pending (approved/rejected)
+      // — covers both: sync failed with error, and sync silently skipped (no error stored)
+      {
+        erpnextInvoiceId: "pending_approval",
+        approvalRequests: { none: { type: ORDER_PAYMENT_APPROVAL, status: "pending" } },
+      },
     ],
   };
 
