@@ -595,6 +595,10 @@ export async function syncOrderToERPNext(
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
     await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, erpnextSyncError: null, erpnextSyncFailedAt: null } });
+    const earlyGateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
+    if (earlyGateways.some((g) => g.includes("bank"))) {
+      await syncBankTransferPaymentToERPNext(orderPoNo, location, toDateStr(order.createdAt));
+    }
     return;
   }
 
@@ -754,6 +758,8 @@ export async function syncOrderToERPNext(
     await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
   } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
     await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
+  } else if (gateways.some((g) => g.includes("bank"))) {
+    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
   }
 }
 
@@ -804,6 +810,12 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
     await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, erpnextSyncError: null, erpnextSyncFailedAt: null } });
+    const earlyGateways = ([order.paymentGatewayPrimary, ...order.paymentGatewayNames] as (string | null)[])
+      .filter((g): g is string => typeof g === "string" && g.length > 0)
+      .map((g) => g.toLowerCase().trim());
+    if (earlyGateways.some((g) => g.includes("bank"))) {
+      await syncBankTransferPaymentToERPNext(orderPoNo, location, toDateStr(order.createdAt));
+    }
     return;
   }
 
@@ -903,5 +915,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
   } else if (cfg.webxpayMop && gatewayNamesLower.some((g) => g.includes("webxpay"))) {
     await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
+  } else if (gatewayNamesLower.some((g) => g.includes("bank"))) {
+    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
   }
 }
