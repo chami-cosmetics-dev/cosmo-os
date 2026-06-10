@@ -2,18 +2,8 @@ import { useEffect, useState } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { apiClient } from "@/src/api/client";
 import { queueAction } from "@/src/storage/offline-queue";
+import type { CashSummary } from "@/src/types";
 import { colors, radii, shadows } from "@/src/theme";
-
-type CashSummary = {
-  totalExpectedCash: string;
-  totalCollectedCash: string;
-  groups: Array<{
-    companyLocationId: string;
-    companyLocationName: string;
-    cashAmount: string;
-    orderCount: number;
-  }>;
-};
 
 export default function CashScreen() {
   const [summary, setSummary] = useState<CashSummary | null>(null);

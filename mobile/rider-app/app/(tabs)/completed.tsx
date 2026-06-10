@@ -4,17 +4,9 @@ import { useFocusEffect } from "expo-router";
 import { apiClient } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import type { CompletedDelivery } from "@/src/storage/completed-deliveries";
+import type { MobileDeliveriesResponse, MobileDelivery } from "@/src/types";
+import { isRenderableDelivery } from "@/src/utils/delivery";
 import { colors, radii, shadows } from "@/src/theme";
-
-type Delivery = {
-  id: string;
-  orderLabel: string;
-  amount: string;
-  deliveryStatus: string;
-  completedAt?: string | null;
-  customerName: string | null;
-  companyLocation?: { name: string } | null;
-};
 
 type CompletedListItem = {
   id: string;
@@ -25,17 +17,6 @@ type CompletedListItem = {
   companyLocation?: { name: string } | null;
 };
 
-function isRenderableDelivery(delivery: Delivery | CompletedDelivery) {
-  return (
-    typeof delivery.id === "string" &&
-    delivery.id.trim().length > 0 &&
-    typeof delivery.orderLabel === "string" &&
-    delivery.orderLabel.trim().length > 0 &&
-    typeof delivery.amount === "string" &&
-    delivery.amount.trim().length > 0
-  );
-}
-
 export default function CompletedScreen() {
   const { completedDeliveries } = useCompletedDeliveries();
   const [deliveries, setDeliveries] = useState<CompletedListItem[]>([]);
@@ -44,7 +25,7 @@ export default function CompletedScreen() {
   async function load() {
     setRefreshing(true);
     try {
-      const data = await apiClient.get<{ deliveries: Delivery[] }>("/api/mobile/v1/deliveries");
+      const data = await apiClient.get<MobileDeliveriesResponse>("/api/mobile/v1/deliveries");
       const remoteCompleted = data.deliveries.filter((delivery) => delivery.deliveryStatus === "completed");
       const merged = [...completedDeliveries, ...remoteCompleted]
         .filter(isRenderableDelivery)

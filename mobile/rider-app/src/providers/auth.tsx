@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
 import { apiClient } from "@/src/api/client";
 import { clearSession, loadSession, saveSession, type RiderSession } from "@/src/storage/session";
@@ -14,6 +14,7 @@ type AuthContextValue = {
   bootstrapped: boolean;
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
+  clearSessionLocally: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -21,6 +22,11 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<RiderSession | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
+
+  const clearSessionLocally = useCallback(async () => {
+    await clearSession();
+    setSession(null);
+  }, []);
 
   useEffect(() => {
     loadSession().then((stored) => {
@@ -39,11 +45,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setSession(result);
       },
       logout: async () => {
-        await clearSession();
-        setSession(null);
+        try {
+          await apiClient.post("/api/mobile/v1/auth/logout");
+        } catch {
+          // Clear local session even if revoke fails (offline/expired token).
+        }
+        await clearSessionLocally();
       },
+      clearSessionLocally,
     }),
-    [bootstrapped, session]
+    [bootstrapped, clearSessionLocally, session]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
