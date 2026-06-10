@@ -9,19 +9,64 @@ type LoginPayload = {
   deviceName?: string;
 };
 
+export class LoginError extends Error {
+  failures: Array<{ label: string; message: string }>;
+  successes: string[];
+
+  constructor(params: {
+    message: string;
+    failures: Array<{ label: string; message: string }>;
+    successes?: string[];
+  }) {
+    super(params.message);
+    this.name = "LoginError";
+    this.failures = params.failures;
+    this.successes = params.successes ?? [];
+  }
+}
+
+function formatLoginFailureMessage(failures: Array<{ label: string; message: string }>) {
+  const lines = failures.map((failure) => `• ${failure.label}: ${failure.message}`);
+  return `Could not sign in to any company:\n\n${lines.join("\n")}`;
+}
+
 export async function loginToAllTenants(payload: LoginPayload): Promise<RiderSession> {
   const tenants = getConfiguredTenants();
+
+  if (tenants.length === 0) {
+    throw new LoginError({
+      message: "No company APIs are configured. Check EXPO_PUBLIC_COSMETICS_API_URL and EXPO_PUBLIC_VAULT_API_URL in .env.",
+      failures: [],
+    });
+  }
+
   const results = await Promise.all(
     tenants.map(async (tenant) => {
-      const session = await apiClient.login(tenant.id, payload);
-      return [tenant.id, session] as const;
+      const result = await apiClient.login(tenant.id, payload);
+      return { tenant, result };
     })
   );
 
-  const activeTenants = results.filter((entry): entry is [TenantId, TenantRiderSession] => !!entry[1]);
+  const activeTenants: Array<[TenantId, TenantRiderSession]> = [];
+  const failures: Array<{ label: string; message: string }> = [];
+
+  for (const { tenant, result } of results) {
+    if (result.ok) {
+      activeTenants.push([tenant.id, result.session]);
+      continue;
+    }
+
+    failures.push({
+      label: tenant.label,
+      message: result.message,
+    });
+  }
 
   if (activeTenants.length === 0) {
-    throw new Error("Invalid rider credentials or no access on configured companies.");
+    throw new LoginError({
+      message: formatLoginFailureMessage(failures),
+      failures,
+    });
   }
 
   return {

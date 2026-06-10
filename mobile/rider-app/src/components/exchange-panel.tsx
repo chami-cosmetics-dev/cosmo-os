@@ -102,7 +102,7 @@ function createStyles(
       padding: 12,
       gap: 4,
     },
-    moneyTitle: { color: colors.slate, fontWeight: "800", fontSize: 16 },
+    moneyTitle: { color: colors.emphasis, fontWeight: "800", fontSize: 16 },
     optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     optionChip: {
       borderWidth: 1,

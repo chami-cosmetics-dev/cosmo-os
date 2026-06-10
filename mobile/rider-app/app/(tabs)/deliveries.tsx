@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { RefreshControl, SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { RefreshControl, SafeAreaView, ScrollView, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { DeliveryCard } from "@/src/components/delivery-card";
 import { EmptyState } from "@/src/components/empty-state";
@@ -18,30 +18,32 @@ export default function DeliveriesScreen() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <View style={styles.bannerWrap}>
-        <HeroBanner eyebrow="Live Route" title="Today's route">
+      <ScrollView
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void reload()} />}
+        contentContainerStyle={styles.list}
+      >
+        <HeroBanner compact eyebrow="Live Route" title="Today's route">
           <SyncStatusBanner
+            compact
             pendingCount={pendingCount}
             activeCount={activeDeliveries.length}
             onSync={() => void flushQueue()}
           />
         </HeroBanner>
-      </View>
-      <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void reload()} />}
-        contentContainerStyle={styles.list}
-      >
+
         {activeDeliveries.map((delivery) => (
           <DeliveryCard
             key={`${delivery.tenant}:${delivery.id}`}
+            compact
             delivery={delivery}
             onPress={() => router.push(`/delivery/${delivery.tenant}/${delivery.id}`)}
           />
         ))}
+
         {activeDeliveries.length === 0 ? (
           <EmptyState
-            title="No active deliveries"
-            message="Completed orders move to the Completed tab automatically."
+            title="No orders for today"
+            message="Today's assigned deliveries will appear here first."
           />
         ) : null}
       </ScrollView>
@@ -52,7 +54,6 @@ export default function DeliveriesScreen() {
 function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
   return StyleSheet.create({
     page: { flex: 1, backgroundColor: colors.bg },
-    bannerWrap: { margin: 16, marginBottom: 0 },
-    list: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 28, gap: 12 },
+    list: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 24, gap: 8 },
   });
 }

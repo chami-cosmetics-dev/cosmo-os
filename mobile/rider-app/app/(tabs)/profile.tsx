@@ -26,7 +26,7 @@ const THEME_OPTIONS: Array<{ value: ThemeSetting; label: string }> = [
 export default function ProfileScreen() {
   const router = useRouter();
   const { primaryRider, activeTenantIds, logout } = useAuth();
-  const { colors, radii, shadows, themeSetting, setThemeSetting } = useTheme();
+  const { colors, radii, shadows, themeSetting, setThemeSetting, resolvedMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
   async function handleLogout() {
@@ -65,7 +65,16 @@ export default function ProfileScreen() {
           <Text style={styles.sectionLabel}>Preferences</Text>
           <View style={styles.menuCard}>
             <Text style={styles.menuTitle}>Appearance</Text>
-            <Text style={styles.menuSub}>Choose light, dark, or follow the device setting.</Text>
+            <Text style={styles.menuSub}>Quick toggle or choose a fixed theme.</Text>
+            <View style={styles.switchRow}>
+              <Text style={styles.switchLabel}>{resolvedMode === "dark" ? "Dark mode" : "Light mode"}</Text>
+              <Pressable
+                style={[styles.profileSwitch, resolvedMode === "dark" ? styles.profileSwitchActive : null]}
+                onPress={() => void setThemeSetting(resolvedMode === "dark" ? "light" : "dark")}
+              >
+                <View style={[styles.profileSwitchThumb, resolvedMode === "dark" ? styles.profileSwitchThumbActive : null]} />
+              </Pressable>
+            </View>
             <View style={styles.optionRow}>
               {THEME_OPTIONS.map((option) => (
                 <Pressable
@@ -155,6 +164,26 @@ function createStyles(
     },
     menuTitle: { fontSize: 16, fontWeight: "800", color: colors.text },
     menuSub: { color: colors.textMuted, lineHeight: 20 },
+    switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
+    switchLabel: { color: colors.text, fontWeight: "700" },
+    profileSwitch: {
+      width: 48,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 3,
+      justifyContent: "center",
+    },
+    profileSwitchActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+    profileSwitchThumb: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.white,
+    },
+    profileSwitchThumbActive: { alignSelf: "flex-end" },
     optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
     optionChip: {
       borderWidth: 1,

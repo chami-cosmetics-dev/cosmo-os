@@ -1,35 +1,59 @@
+import { Feather } from "@expo/vector-icons";
 import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
+
 import { CompanyBadge } from "@/src/components/company-badge";
 import type { CompletedListItem } from "@/src/hooks/use-completed-deliveries-list";
+import { useSync } from "@/src/providers/sync";
 import { useTheme } from "@/src/providers/theme";
+import { getAddressText } from "@/src/utils/contact";
+import { formatCompletedTime } from "@/src/utils/completed-dates";
+import { formatMoney } from "@/src/utils/money";
 
 type CompletedDeliveryCardProps = {
   delivery: CompletedListItem;
 };
 
 export function CompletedDeliveryCard({ delivery }: CompletedDeliveryCardProps) {
-  const { colors, radii, shadows } = useTheme();
+  const { queuedActions } = useSync();
+  const { colors, radii, shadows, resolvedMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
+  const isDarkMode = resolvedMode === "dark";
+  const isNotSynced = queuedActions.some((action) => action.endpoint.includes(delivery.id));
 
   return (
     <View style={styles.card}>
-      <View style={styles.header}>
-        <View style={styles.titleWrap}>
-          <CompanyBadge label={delivery.companyLabel} compact />
-          <Text style={styles.title}>{delivery.orderLabel}</Text>
-          <Text style={styles.meta}>{delivery.customerName ?? "Unknown customer"}</Text>
-        </View>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>Done</Text>
-        </View>
+      <View style={styles.icon}>
+        <Feather
+          name={
+            delivery.expectedPaymentMethod === "cod"
+              ? "truck"
+              : delivery.expectedPaymentMethod === "already_paid"
+                ? "package"
+                : "shopping-bag"
+          }
+          size={13}
+          color={isDarkMode ? "#dbe6f7" : colors.slate}
+        />
       </View>
-      <Text style={styles.meta}>{delivery.companyLocation?.name ?? "Unknown location"}</Text>
-      <View style={styles.footer}>
-        <Text style={styles.amount}>{delivery.amount}</Text>
-        <Text style={styles.status}>
-          {delivery.completedAt ? new Date(delivery.completedAt).toLocaleString("en-LK") : "Just now"}
+      <View style={styles.body}>
+        <CompanyBadge label={delivery.companyLabel} compact />
+        <View style={styles.top}>
+          <Text style={styles.customer}>{delivery.customerName ?? "Unknown customer"}</Text>
+          <Text style={styles.amount}>{formatMoney(delivery.amount, delivery.currency)}</Text>
+        </View>
+        <Text style={styles.location} numberOfLines={1}>
+          {getAddressText(delivery)}
         </Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.time}>{formatCompletedTime(delivery.completedAt)}</Text>
+          <View style={styles.methodBadge}>
+            <Text style={styles.methodBadgeText}>
+              {delivery.expectedPaymentMethod === "cod" ? "COD" : "Done"}
+            </Text>
+          </View>
+          {isNotSynced ? <Text style={styles.unsynced}>Sync</Text> : null}
+        </View>
       </View>
     </View>
   );
@@ -44,27 +68,36 @@ function createStyles(
     card: {
       backgroundColor: colors.surface,
       borderRadius: radii.md,
-      padding: 18,
+      padding: 16,
       borderWidth: 1,
       borderColor: colors.border,
-      gap: 10,
+      flexDirection: "row",
+      gap: 12,
       ...shadows.card,
     },
-    header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-    titleWrap: { flex: 1, gap: 6 },
-    title: { fontSize: 18, fontWeight: "800", color: colors.text },
-    meta: { color: colors.textMuted, lineHeight: 20 },
-    badge: {
+    icon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: radii.sm,
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderWidth: 1,
-      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 4,
     },
-    badgeText: { color: colors.slate, fontSize: 12, fontWeight: "800" },
-    footer: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
-    amount: { fontSize: 22, fontWeight: "800", color: colors.slate },
-    status: { color: colors.textSoft, textAlign: "right", flexShrink: 1 },
+    body: { flex: 1, gap: 6 },
+    top: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+    customer: { flex: 1, fontSize: 16, fontWeight: "800", color: colors.text },
+    amount: { fontSize: 16, fontWeight: "800", color: colors.emphasis },
+    location: { color: colors.textMuted, fontSize: 13 },
+    metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+    time: { color: colors.textSoft, fontSize: 12, fontWeight: "600" },
+    methodBadge: {
+      borderRadius: radii.pill,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      backgroundColor: colors.brandSoft,
+    },
+    methodBadgeText: { color: colors.brand, fontWeight: "800", fontSize: 11 },
+    unsynced: { color: colors.danger, fontWeight: "700", fontSize: 11 },
   });
 }

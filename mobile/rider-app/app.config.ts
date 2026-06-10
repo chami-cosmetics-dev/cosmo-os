@@ -34,18 +34,9 @@ function resolveAndroidPackage(appEnv: AppEnvironment) {
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = resolveAppEnvironment();
-  const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim();
-  const plugins: ExpoConfig["plugins"] = [
-    "expo-secure-store",
-    [
-      "@sentry/react-native/expo",
-      {
-        url: "https://sentry.io/",
-        organization: process.env.SENTRY_ORG,
-        project: process.env.SENTRY_PROJECT,
-      },
-    ],
-  ];
+  const plugins: ExpoConfig["plugins"] = ["expo-secure-store", "expo-font"];
+
+  const projectId = appJson.expo.extra?.eas?.projectId;
 
   return {
     ...config,
@@ -55,6 +46,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     userInterfaceStyle: "automatic",
     runtimeVersion: {
       policy: "appVersion",
+    },
+    updates: {
+      ...appJson.expo.updates,
+      ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
     },
     android: {
       ...appJson.expo.android,
@@ -66,7 +61,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ...appJson.expo.extra,
       appEnv,
       apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
-      sentryDsn: sentryDsn ?? null,
+      sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN?.trim() ?? null,
     },
   };
 };
