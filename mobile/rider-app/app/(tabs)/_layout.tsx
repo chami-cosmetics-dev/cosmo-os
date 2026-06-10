@@ -1,11 +1,8 @@
-import { Tabs, useRouter } from "expo-router";
-import { Pressable, Text } from "react-native";
-import { useAuth } from "@/src/providers/auth";
-import { colors, radii } from "@/src/theme";
+import { Tabs } from "expo-router";
+import { useTheme } from "@/src/providers/theme";
 
 export default function TabsLayout() {
-  const router = useRouter();
-  const { logout } = useAuth();
+  const { colors } = useTheme();
 
   return (
     <Tabs
@@ -35,28 +32,12 @@ export default function TabsLayout() {
           fontSize: 11,
           fontWeight: "700",
         },
-        headerRight: () => (
-          <Pressable
-            onPress={async () => {
-              await logout();
-              router.replace("/login");
-            }}
-            style={{
-              marginRight: 16,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: radii.pill,
-              backgroundColor: colors.dangerSoft,
-            }}
-          >
-            <Text style={{ color: colors.danger, fontWeight: "700" }}>Logout</Text>
-          </Pressable>
-        ),
       }}
     >
       <Tabs.Screen name="deliveries" options={{ title: "Route", tabBarLabel: "Route" }} />
       <Tabs.Screen name="completed" options={{ title: "Completed", tabBarLabel: "Done" }} />
       <Tabs.Screen name="cash" options={{ title: "Cash Handover", tabBarLabel: "Cash" }} />
+      <Tabs.Screen name="profile" options={{ title: "Profile", tabBarLabel: "Profile" }} />
     </Tabs>
   );
 }

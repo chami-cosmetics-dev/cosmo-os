@@ -59,10 +59,12 @@ mobile/rider-app/
 │   └── delivery/[id].tsx     # Delivery detail + actions
 ├── src/
 │   ├── api/client.ts         # HTTP client (Bearer auth)
+│   ├── components/           # Reusable UI (DeliveryCard, PaymentForm, HeroBanner, etc.)
+│   ├── hooks/                # Data + action hooks (useDeliveries, useDeliveryDetail, etc.)
 │   ├── config.ts             # API base URL from env
 │   ├── types/                # API response types (mirror lib/mobile/dto.ts)
 │   ├── utils/                # Pure helpers
-│   ├── providers/            # React context (auth, sync, completed)
+│   ├── providers/            # React context (auth, sync, theme, session gate)
 │   ├── storage/              # SecureStore + AsyncStorage persistence
 │   └── theme.ts              # Design tokens
 ```
@@ -113,7 +115,7 @@ Payment, complete, fail, and handover actions can be queued when offline. `SyncP
 |-------|--------|-------|
 | 1 — Cleanup | Done | Remove legacy code, docs, shared types, login fixes |
 | 2 — Quality | Done | Tests, CI, 401 handling, logout endpoint |
-| 3 — Structure | Planned | Components, hooks, profile tab, theme provider |
+| 3 — Structure | Done | Components, hooks, profile tab, theme provider |
 | 4 — Release | Planned | EAS env profiles, Sentry, staging/production |
 
 ## Related backend paths
