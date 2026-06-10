@@ -1,17 +1,21 @@
 import { useMemo } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { CompanyBadge } from "@/src/components/company-badge";
 import { ExchangePanel } from "@/src/components/exchange-panel";
 import { PaymentForm } from "@/src/components/payment-form";
 import { SpecialDeliveryBadges } from "@/src/components/special-delivery-badges";
 import { useDeliveryActions } from "@/src/hooks/use-delivery-actions";
 import { useDeliveryDetail } from "@/src/hooks/use-delivery-detail";
+import { getTenantDefinition } from "@/src/tenants/config";
+import { isTenantId } from "@/src/tenants/config";
 import { useTheme } from "@/src/providers/theme";
 
 export default function DeliveryDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { tenant: tenantParam, id } = useLocalSearchParams<{ tenant: string; id: string }>();
   const {
+    tenant,
     detail,
     loading,
     collectedAmount,
@@ -28,14 +32,19 @@ export default function DeliveryDetailScreen() {
     setOldItemCollectionStatus,
     oldItemCollectionRemark,
     setOldItemCollectionRemark,
-  } = useDeliveryDetail(id);
+  } = useDeliveryDetail(tenantParam, id);
   const { submitting, markDelivered, markFailed, requiresReference, amountsMatch } = useDeliveryActions();
   const { colors, radii, shadows } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
-  if (loading || !detail) return null;
+  if (!isTenantId(tenantParam) || !id) {
+    return null;
+  }
+
+  if (loading || !detail || !tenant) return null;
 
   const delivery = detail.delivery;
+  const companyLabel = getTenantDefinition(tenant).label;
   const expectedAmount = Number(delivery.amount);
   const enteredAmount = Number(collectedAmount || 0);
   const effectiveCollectedAmount =
@@ -59,6 +68,7 @@ export default function DeliveryDetailScreen() {
         </Pressable>
 
         <View style={styles.headerCard}>
+          <CompanyBadge label={companyLabel} />
           <View style={styles.headerPill}>
             <Text style={styles.headerPillText}>{delivery.deliveryStatus}</Text>
           </View>
@@ -108,7 +118,8 @@ export default function DeliveryDetailScreen() {
           onPaymentNoteChange={setPaymentNote}
           onSubmit={() =>
             void markDelivered({
-              deliveryId: id!,
+              tenant,
+              deliveryId: id,
               delivery,
               collectedAmount,
               paymentMethod,
@@ -129,7 +140,7 @@ export default function DeliveryDetailScreen() {
             placeholder="Reason"
             placeholderTextColor={colors.textSoft}
           />
-          <Pressable style={[styles.button, styles.failButton]} onPress={() => void markFailed(id!, failureReason)}>
+          <Pressable style={[styles.button, styles.failButton]} onPress={() => void markFailed(tenant, id, failureReason)}>
             <Text style={styles.buttonText}>Queue failed delivery</Text>
           </Pressable>
         </View>
@@ -154,6 +165,7 @@ function createStyles(
       padding: 20,
       borderWidth: 1,
       borderColor: colors.border,
+      gap: 10,
       ...shadows.card,
     },
     headerPill: {
@@ -162,7 +174,6 @@ function createStyles(
       backgroundColor: colors.brandSoft,
       paddingHorizontal: 10,
       paddingVertical: 6,
-      marginBottom: 12,
     },
     headerPillText: { color: colors.brand, fontWeight: "800", textTransform: "capitalize", fontSize: 12 },
     title: { fontSize: 26, fontWeight: "800", color: colors.text, letterSpacing: -0.5 },

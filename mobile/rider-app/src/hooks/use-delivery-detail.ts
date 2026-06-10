@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/src/api/client";
+import { useAuth } from "@/src/providers/auth";
 import type { MobileDeliveryDetailResponse, OldItemCollectionStatus, PaymentMethod } from "@/src/types";
+import type { TenantId } from "@/src/tenants/config";
+import { isTenantId } from "@/src/tenants/config";
 
-export function useDeliveryDetail(id: string | undefined) {
+export function useDeliveryDetail(tenantParam: string | undefined, id: string | undefined) {
+  const { activeTenantIds } = useAuth();
+  const tenant = isTenantId(tenantParam) ? tenantParam : undefined;
   const [detail, setDetail] = useState<MobileDeliveryDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [collectedAmount, setCollectedAmount] = useState("");
@@ -15,10 +20,13 @@ export function useDeliveryDetail(id: string | undefined) {
   const [oldItemCollectionRemark, setOldItemCollectionRemark] = useState("");
 
   const reload = useCallback(async () => {
-    if (!id) return;
+    if (!id || !tenant || !activeTenantIds.includes(tenant)) return;
     setLoading(true);
     try {
-      const data = await apiClient.get<MobileDeliveryDetailResponse>(`/api/mobile/v1/deliveries/${id}`);
+      const data = await apiClient.get<MobileDeliveryDetailResponse>(
+        tenant,
+        `/api/mobile/v1/deliveries/${id}`
+      );
       setDetail(data);
       setCollectedAmount(data.delivery.payment?.collectedAmount ?? data.delivery.amount);
       setPaymentMethod(data.delivery.payment?.paymentMethod ?? data.delivery.expectedPaymentMethod ?? "cod");
@@ -29,13 +37,14 @@ export function useDeliveryDetail(id: string | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [activeTenantIds, id, tenant]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
   return {
+    tenant: tenant as TenantId | undefined,
     detail,
     loading,
     reload,

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { CompanyBadge } from "@/src/components/company-badge";
 import type { CompletedListItem } from "@/src/hooks/use-completed-deliveries-list";
 import { useTheme } from "@/src/providers/theme";
 
@@ -15,6 +16,7 @@ export function CompletedDeliveryCard({ delivery }: CompletedDeliveryCardProps) 
     <View style={styles.card}>
       <View style={styles.header}>
         <View style={styles.titleWrap}>
+          <CompanyBadge label={delivery.companyLabel} compact />
           <Text style={styles.title}>{delivery.orderLabel}</Text>
           <Text style={styles.meta}>{delivery.customerName ?? "Unknown customer"}</Text>
         </View>
@@ -49,7 +51,7 @@ function createStyles(
       ...shadows.card,
     },
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-    titleWrap: { flex: 1, gap: 4 },
+    titleWrap: { flex: 1, gap: 6 },
     title: { fontSize: 18, fontWeight: "800", color: colors.text },
     meta: { color: colors.textMuted, lineHeight: 20 },
     badge: {

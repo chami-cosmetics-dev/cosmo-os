@@ -87,7 +87,7 @@ export default function LoginScreen() {
           </View>
           <Text style={styles.title}>Cosmo Rider</Text>
           <Text style={styles.subtitle}>
-            Delivery updates, payment collection, and cash handovers.
+            One sign-in for Cosmetics.lk and Supplement Vault deliveries.
           </Text>
         </View>
 

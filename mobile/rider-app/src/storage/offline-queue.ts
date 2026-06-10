@@ -1,9 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { TenantId } from "@/src/tenants/config";
 
 const QUEUE_KEY = "cosmo-rider-offline-queue";
 
 export type QueuedAction = {
   id: string;
+  tenant: TenantId;
   endpoint: string;
   method: "POST" | "PATCH";
   body: Record<string, unknown>;
@@ -12,7 +14,8 @@ export type QueuedAction = {
 
 export async function getQueue() {
   const raw = await AsyncStorage.getItem(QUEUE_KEY);
-  return raw ? (JSON.parse(raw) as QueuedAction[]) : [];
+  const parsed = raw ? (JSON.parse(raw) as QueuedAction[]) : [];
+  return parsed.filter((item) => typeof item.tenant === "string" && item.tenant.length > 0);
 }
 
 export async function queueAction(action: Omit<QueuedAction, "id" | "createdAt">) {

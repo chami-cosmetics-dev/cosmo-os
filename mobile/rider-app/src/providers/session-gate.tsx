@@ -1,7 +1,7 @@
 import { useEffect, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "expo-router";
 import { setUnauthorizedHandler } from "@/src/api/client";
-import { useAuth } from "@/src/providers/auth";
+import { hasActiveSession, useAuth } from "@/src/providers/auth";
 
 export function SessionGate({ children }: PropsWithChildren) {
   const router = useRouter();
@@ -20,7 +20,7 @@ export function SessionGate({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!bootstrapped) return;
-    if (!session && pathname !== "/login") {
+    if (!hasActiveSession(session) && pathname !== "/login") {
       router.replace("/login");
     }
   }, [bootstrapped, pathname, router, session]);
