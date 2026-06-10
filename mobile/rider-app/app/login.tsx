@@ -1,6 +1,7 @@
 import { Feather } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Linking,
   Pressable,
   SafeAreaView,
@@ -15,17 +16,26 @@ import { useRouter } from "expo-router";
 import { API_BASE_URL } from "@/src/config";
 import { useAuth } from "@/src/providers/auth";
 import { loadLoginPreferences, saveLoginPreferences } from "@/src/storage/login-preferences";
-import { colors, radii, shadows } from "@/src/theme";
+import { getConfiguredTenants } from "@/src/tenants";
+import { useTheme } from "@/src/providers/theme";
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
+  const { colors, radii, shadows, resolvedMode } = useTheme();
+  const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [deviceName, setDeviceName] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const companyHint = useMemo(
+    () => getConfiguredTenants().map((tenant) => tenant.label).join(" · ") || "No company API configured",
+    []
+  );
 
   useEffect(() => {
     loadLoginPreferences().then((prefs) => {
@@ -57,7 +67,7 @@ export default function LoginScreen() {
         deviceName,
       });
       await login({
-        email,
+        email: email.trim().toLowerCase(),
         password,
         deviceName: deviceName.trim() || "Rider phone",
       });
@@ -79,7 +89,7 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.page}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
+      <StatusBar barStyle={resolvedMode === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.bg} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.hero}>
           <View style={styles.eyebrow}>
@@ -87,8 +97,9 @@ export default function LoginScreen() {
           </View>
           <Text style={styles.title}>Cosmo Rider</Text>
           <Text style={styles.subtitle}>
-            One sign-in for Cosmetics.lk and Supplement Vault deliveries.
+            Delivery updates, payment collection, and cash handovers.
           </Text>
+          <Text style={styles.apiHint}>Also signs in to: {companyHint}</Text>
         </View>
 
         <View style={styles.card}>
@@ -115,13 +126,24 @@ export default function LoginScreen() {
               <Feather name="lock" size={16} color={colors.textSoft} />
               <TextInput
                 style={styles.input}
-                secureTextEntry={true}
+                secureTextEntry={!showPassword}
                 placeholder="........"
                 placeholderTextColor={colors.textSoft}
                 value={password}
                 onChangeText={setPassword}
                 editable={!submitting}
+                autoCapitalize="none"
+                autoCorrect={false}
               />
+              <Pressable
+                style={styles.visibilityToggle}
+                onPress={() => setShowPassword((current) => !current)}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+              >
+                <Feather name={showPassword ? "eye-off" : "eye"} size={18} color={colors.textSoft} />
+              </Pressable>
             </View>
           </View>
 
@@ -153,9 +175,12 @@ export default function LoginScreen() {
           </View>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable style={styles.button} onPress={() => void handleLogin()} disabled={submitting}>
-            <Text style={styles.buttonText}>{submitting ? "Signing In..." : "Sign In"}</Text>
-            <Feather name="arrow-right" size={17} color={colors.white} />
+          <Pressable style={[styles.button, submitting ? styles.buttonDisabled : null]} onPress={() => void handleLogin()} disabled={submitting}>
+            {submitting ? <ActivityIndicator color={colors.white} /> : null}
+            <Text style={styles.buttonText}>
+              {submitting ? `Signing in to ${companyHint}…` : "Sign In"}
+            </Text>
+            {!submitting ? <Feather name="arrow-right" size={17} color={colors.white} /> : null}
           </Pressable>
         </View>
 
@@ -172,20 +197,26 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#f4f5fa" },
+const createStyles = (
+  colors: ReturnType<typeof useTheme>["colors"],
+  radii: typeof import("@/src/theme").radii,
+  shadows: typeof import("@/src/theme").shadows
+) =>
+  StyleSheet.create({
+  page: { flex: 1, backgroundColor: colors.bg },
   scrollContent: { flexGrow: 1, paddingHorizontal: 16, paddingVertical: 28, justifyContent: "center" },
   hero: { marginBottom: 22, alignItems: "center" },
   eyebrow: {
     borderRadius: radii.pill,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: "#dde7fb",
+    backgroundColor: colors.brandSoft,
     marginBottom: 14,
   },
-  eyebrowText: { color: "#5f77a5", fontSize: 10, fontWeight: "700", letterSpacing: 0.7, textTransform: "uppercase" },
-  title: { fontSize: 28, fontWeight: "800", color: "#22314d", letterSpacing: -0.8 },
-  subtitle: { marginTop: 8, fontSize: 14, lineHeight: 21, color: "#7b8193", maxWidth: 290, textAlign: "center" },
+  eyebrowText: { color: colors.brand, fontSize: 10, fontWeight: "700", letterSpacing: 0.7, textTransform: "uppercase" },
+  title: { fontSize: 28, fontWeight: "800", color: colors.text, letterSpacing: -0.8 },
+  subtitle: { marginTop: 8, fontSize: 14, lineHeight: 21, color: colors.textMuted, maxWidth: 290, textAlign: "center" },
+  apiHint: { marginTop: 10, fontSize: 12, lineHeight: 18, color: colors.textSoft, maxWidth: 300, textAlign: "center" },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 12,
@@ -193,7 +224,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     gap: 14,
     borderWidth: 1,
-    borderColor: "#eef0f5",
+    borderColor: colors.border,
     ...shadows.card,
   },
   fieldGroup: { gap: 8 },
@@ -202,13 +233,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.5,
     textTransform: "uppercase",
-    color: "#7f8495",
+    color: colors.textSoft,
   },
   inputShell: {
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 8,
-    backgroundColor: "#eef2ff",
+    backgroundColor: colors.surfaceMuted,
     paddingHorizontal: 12,
     height: 44,
     gap: 8,
@@ -219,6 +250,10 @@ const styles = StyleSheet.create({
     color: colors.text,
     paddingVertical: 0,
   },
+  visibilityToggle: {
+    padding: 4,
+    marginRight: -4,
+  },
   utilityRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 2 },
   checkboxRow: { flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 1 },
   checkbox: {
@@ -226,19 +261,19 @@ const styles = StyleSheet.create({
     height: 14,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: "#ccd3df",
-    backgroundColor: colors.white,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   checkboxChecked: {
-    backgroundColor: colors.slate,
-    borderColor: colors.slate,
+    backgroundColor: colors.heroBg,
+    borderColor: colors.heroBg,
   },
-  utilityText: { fontSize: 13, color: "#7b8193" },
-  resetText: { fontSize: 13, fontWeight: "700", color: "#7a75dd" },
+  utilityText: { fontSize: 13, color: colors.textMuted },
+  resetText: { fontSize: 13, fontWeight: "700", color: colors.brand },
   button: {
-    backgroundColor: colors.slate,
+    backgroundColor: colors.heroBg,
     borderRadius: 10,
     paddingVertical: 15,
     alignItems: "center",
@@ -246,12 +281,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     flexDirection: "row",
     gap: 8,
+    minHeight: 52,
   },
+  buttonDisabled: { opacity: 0.85 },
   buttonText: { color: colors.white, fontWeight: "800", fontSize: 16 },
-  error: { color: colors.danger, marginTop: -4, fontSize: 13 },
+  error: { color: colors.danger, marginTop: -4, fontSize: 13, lineHeight: 19 },
   footer: { marginTop: 20, alignItems: "center", gap: 8 },
   footerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  footerText: { color: "#82889a", fontSize: 10.5 },
-  footerDivider: { color: "#c2c7d1", fontSize: 10.5 },
-  footerMeta: { color: "#afb4c1", fontSize: 10, fontWeight: "600", textAlign: "center", maxWidth: 280 },
+  footerText: { color: colors.textSoft, fontSize: 10.5 },
+  footerDivider: { color: colors.borderStrong, fontSize: 10.5 },
+  footerMeta: { color: colors.textSoft, fontSize: 10, fontWeight: "600", textAlign: "center", maxWidth: 280 },
 });

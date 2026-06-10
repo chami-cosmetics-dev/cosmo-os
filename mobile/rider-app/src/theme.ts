@@ -16,6 +16,19 @@ export type ThemeColors = {
   slate: string;
   slateSoft: string;
   white: string;
+  /** Hero banner background (slate panel) */
+  heroBg: string;
+  /** Prices and strong emphasis on surface cards */
+  emphasis: string;
+  /** Text on accentSoft buttons inside hero panels */
+  onAccentSoft: string;
+  /** Special badge tints */
+  badgeRearrangedBg: string;
+  badgeRearrangedBorder: string;
+  badgeExchangeBg: string;
+  badgeExchangeBorder: string;
+  badgeCollectionBg: string;
+  badgeCollectionBorder: string;
 };
 
 export const lightColors: ThemeColors = {
@@ -36,6 +49,15 @@ export const lightColors: ThemeColors = {
   slate: "#314768",
   slateSoft: "#e9eef5",
   white: "#ffffff",
+  heroBg: "#314768",
+  emphasis: "#314768",
+  onAccentSoft: "#314768",
+  badgeRearrangedBg: "#e0f2fe",
+  badgeRearrangedBorder: "#bae6fd",
+  badgeExchangeBg: "#ede9fe",
+  badgeExchangeBorder: "#ddd6fe",
+  badgeCollectionBg: "#fef3c7",
+  badgeCollectionBorder: "#fde68a",
 };
 
 export const darkColors: ThemeColors = {
@@ -56,6 +78,15 @@ export const darkColors: ThemeColors = {
   slate: "#243652",
   slateSoft: "#1a2740",
   white: "#ffffff",
+  heroBg: "#1e3354",
+  emphasis: "#e8eef7",
+  onAccentSoft: "#e8eef7",
+  badgeRearrangedBg: "rgba(116, 200, 214, 0.18)",
+  badgeRearrangedBorder: "rgba(116, 200, 214, 0.45)",
+  badgeExchangeBg: "rgba(154, 140, 241, 0.18)",
+  badgeExchangeBorder: "rgba(154, 140, 241, 0.45)",
+  badgeCollectionBg: "rgba(240, 140, 160, 0.14)",
+  badgeCollectionBorder: "rgba(240, 140, 160, 0.35)",
 };
 
 export const colors = lightColors;

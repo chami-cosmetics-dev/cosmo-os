@@ -112,6 +112,39 @@ export async function createAuth0User(
   return { userId: user.user_id };
 }
 
+type Auth0TokenError = {
+  error?: string;
+  error_description?: string;
+};
+
+export type VerifyAuth0PasswordResult =
+  | { valid: true }
+  | {
+      valid: false;
+      reason: "wrong_credentials" | "grant_not_enabled" | "misconfigured";
+    };
+
+async function requestAuth0PasswordToken(
+  params: Record<string, string>
+): Promise<{ ok: true } | { ok: false; error: Auth0TokenError }> {
+  if (!AUTH0_DOMAIN) {
+    return { ok: false, error: { error: "misconfigured" } };
+  }
+
+  const response = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(params).toString(),
+  });
+
+  if (response.ok) {
+    return { ok: true };
+  }
+
+  const error = (await response.json().catch(() => ({}))) as Auth0TokenError;
+  return { ok: false, error };
+}
+
 /**
  * Verifies the user's current password using Resource Owner Password Grant.
  * Requires "Password" grant to be enabled for the Auth0 application.
@@ -120,59 +153,59 @@ export async function createAuth0User(
 export async function verifyAuth0Password(
   email: string,
   password: string
-): Promise<boolean> {
+): Promise<VerifyAuth0PasswordResult> {
   if (!AUTH0_DOMAIN || !AUTH0_CLIENT_ID || !AUTH0_CLIENT_SECRET) {
-    throw new Error(
-      "AUTH0_DOMAIN, AUTH0_CLIENT_ID, and AUTH0_CLIENT_SECRET must be set"
-    );
+    return { valid: false, reason: "misconfigured" };
   }
 
   const username = email.trim().toLowerCase();
+  const clientCredentials = {
+    client_id: AUTH0_CLIENT_ID,
+    client_secret: AUTH0_CLIENT_SECRET,
+    scope: "openid",
+  };
 
-  // OAuth 2.0 token endpoint requires application/x-www-form-urlencoded
-  const formBody = (params: Record<string, string>) =>
-    new URLSearchParams(params).toString();
-
-  // Try password-realm first if we have a database connection (targets specific connection)
+  // Try password-realm first if we have a database connection (targets specific connection).
+  // Always fall through to the standard password grant on failure — wrong realm name
+  // also returns invalid_grant, and web login may still work via Universal Login.
   if (AUTH0_DATABASE_CONNECTION) {
-    const realmResponse = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: formBody({
-        grant_type: "http://auth0.com/oauth/grant-type/password-realm",
-        username,
-        password,
-        client_id: AUTH0_CLIENT_ID,
-        client_secret: AUTH0_CLIENT_SECRET,
-        realm: AUTH0_DATABASE_CONNECTION,
-      }),
+    const realmResult = await requestAuth0PasswordToken({
+      grant_type: "http://auth0.com/oauth/grant-type/password-realm",
+      username,
+      password,
+      ...clientCredentials,
+      realm: AUTH0_DATABASE_CONNECTION,
     });
-    if (realmResponse.ok) return true;
-    const err = (await realmResponse.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    // Only retry with standard grant if realm grant isn't allowed
-    if (err.error === "unsupported_grant_type") {
-      // Fall through to try standard password grant
-    } else {
-      return false;
+
+    if (realmResult.ok) {
+      return { valid: true };
     }
   }
 
   // Fallback: standard password grant (uses default connection)
-  const response = await fetch(`https://${AUTH0_DOMAIN}/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: formBody({
-      grant_type: "password",
-      username,
-      password,
-      client_id: AUTH0_CLIENT_ID,
-      client_secret: AUTH0_CLIENT_SECRET,
-    }),
+  const passwordResult = await requestAuth0PasswordToken({
+    grant_type: "password",
+    username,
+    password,
+    ...clientCredentials,
   });
 
-  return response.ok;
+  if (passwordResult.ok) {
+    return { valid: true };
+  }
+
+  const passwordError = passwordResult.error.error ?? "";
+  if (passwordError === "unauthorized_client" || passwordError === "unsupported_grant_type") {
+    console.error("[auth0] Password grant is not enabled for AUTH0_CLIENT_ID");
+    return { valid: false, reason: "grant_not_enabled" };
+  }
+
+  if (passwordError === "invalid_grant") {
+    return { valid: false, reason: "wrong_credentials" };
+  }
+
+  console.error("[auth0] password verify failed:", passwordResult.error);
+  return { valid: false, reason: "wrong_credentials" };
 }
 
 /**

@@ -1,48 +1,13 @@
 import { Alert } from "react-native";
-import NetInfo from "@react-native-community/netinfo";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { apiClient } from "@/src/api/client";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
-import { queueAction } from "@/src/storage/offline-queue";
 import { getTenantDefinition } from "@/src/tenants/config";
 import type { TenantId } from "@/src/tenants/config";
 import type { MobileDeliveryDetail, OldItemCollectionStatus, PaymentMethod } from "@/src/types";
-
-function requiresReference(method: PaymentMethod) {
-  return method === "bank_transfer" || method === "card";
-}
-
-function amountsMatch(expected: string, actual: number) {
-  return Math.abs(Number(expected) - actual) < 0.01;
-}
-
-async function submitOrQueue(params: {
-  tenant: TenantId;
-  endpoint: string;
-  body: Record<string, unknown>;
-  queuedMessage: string;
-}) {
-  const net = await NetInfo.fetch();
-  const isOnline = !!net.isConnected && !!net.isInternetReachable;
-
-  if (isOnline) {
-    try {
-      await apiClient.post(params.tenant, params.endpoint, params.body);
-      return { mode: "live" as const };
-    } catch {
-      // Fall back to offline queue when the live request fails.
-    }
-  }
-
-  await queueAction({
-    tenant: params.tenant,
-    endpoint: params.endpoint,
-    method: "POST",
-    body: params.body,
-  });
-  return { mode: "queued" as const, message: params.queuedMessage };
-}
+import { amountsMatch, requiresPaymentReference } from "@/src/utils/delivery";
+import { submitOrQueue } from "@/src/utils/submit-or-queue";
 
 type DeliveryActionInput = {
   tenant: TenantId;
@@ -104,7 +69,7 @@ export function useDeliveryActions() {
       return;
     }
 
-    if (requiresReference(paymentMethod) && !paymentReference.trim()) {
+    if (requiresPaymentReference(paymentMethod) && !paymentReference.trim()) {
       Alert.alert("Missing reference", "Enter the payment reference before submitting.");
       return;
     }
@@ -162,14 +127,14 @@ export function useDeliveryActions() {
   }
 
   async function markFailed(tenant: TenantId, deliveryId: string, failureReason: string) {
-    await queueAction({
+    await submitOrQueue({
       tenant,
       endpoint: `/api/mobile/v1/deliveries/${deliveryId}/fail`,
-      method: "POST",
       body: {
         reason: failureReason || "Customer unavailable",
         idempotencyKey: `fail-${tenant}-${deliveryId}-${Date.now()}`,
       },
+      queuedMessage: "Failure update was added to the sync queue.",
     });
     Alert.alert("Queued", "Failure update was added to the sync queue.");
   }
@@ -178,7 +143,7 @@ export function useDeliveryActions() {
     submitting,
     markDelivered,
     markFailed,
-    requiresReference,
+    requiresReference: requiresPaymentReference,
     amountsMatch,
   };
 }
