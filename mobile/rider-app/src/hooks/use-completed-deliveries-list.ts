@@ -5,7 +5,7 @@ import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import { useAuth } from "@/src/providers/auth";
 import { getConfiguredTenants } from "@/src/tenants";
 import { getDeliveryKey, getTenantDefinition } from "@/src/tenants/config";
-import type { MobileDeliveriesResponse, TenantMobileDelivery } from "@/src/types";
+import type { MobileDeliveriesResponse, PaymentMethod, TenantMobileDelivery } from "@/src/types";
 import { isRenderableDelivery } from "@/src/utils/delivery";
 
 export type CompletedListItem = {
@@ -13,8 +13,12 @@ export type CompletedListItem = {
   id: string;
   orderLabel: string;
   amount: string;
+  currency?: string | null;
   completedAt?: string | null;
   customerName: string | null;
+  expectedPaymentMethod?: PaymentMethod | null;
+  shippingAddress?: unknown;
+  billingAddress?: unknown;
   companyLocation?: { name: string } | null;
   companyLabel: string;
 };
@@ -40,8 +44,12 @@ export function useCompletedDeliveriesList() {
                 id: delivery.id,
                 orderLabel: delivery.orderLabel,
                 amount: delivery.amount,
+                currency: delivery.currency,
                 completedAt: delivery.completedAt ?? null,
                 customerName: delivery.customerName,
+                expectedPaymentMethod: delivery.expectedPaymentMethod,
+                shippingAddress: delivery.shippingAddress,
+                billingAddress: delivery.billingAddress,
                 companyLocation: delivery.companyLocation ?? null,
                 companyLabel: tenant.label,
               }));
@@ -57,8 +65,12 @@ export function useCompletedDeliveriesList() {
           id: delivery.id,
           orderLabel: delivery.orderLabel,
           amount: delivery.amount,
+          currency: null,
           completedAt: delivery.completedAt,
           customerName: delivery.customerName,
+          expectedPaymentMethod: null,
+          shippingAddress: undefined,
+          billingAddress: undefined,
           companyLocation: delivery.companyLocation ?? null,
           companyLabel: delivery.companyLabel ?? getTenantDefinition(delivery.tenant).label,
         })),

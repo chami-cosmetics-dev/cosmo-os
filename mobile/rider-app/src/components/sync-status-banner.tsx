@@ -6,36 +6,65 @@ type SyncStatusBannerProps = {
   pendingCount: number;
   activeCount: number;
   onSync: () => void;
+  compact?: boolean;
 };
 
-export function SyncStatusBanner({ pendingCount, activeCount, onSync }: SyncStatusBannerProps) {
+export function SyncStatusBanner({ pendingCount, activeCount, onSync, compact }: SyncStatusBannerProps) {
   const { colors, radii } = useTheme();
-  const styles = useMemo(() => createStyles(colors, radii), [colors, radii]);
-  const syncLabel =
-    pendingCount === 0 ? "All offline actions are synced." : `${pendingCount} offline action(s) waiting to sync.`;
+  const styles = useMemo(() => createStyles(colors, radii, compact), [colors, radii, compact]);
+  const needsSync = pendingCount > 0;
+  const syncLabel = needsSync
+    ? `${pendingCount} waiting to sync`
+    : compact
+      ? "All synced"
+      : "All offline actions are synced.";
 
   return (
-    <>
-      <Text style={styles.subtitle}>{syncLabel}</Text>
-      <View style={styles.stats}>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{activeCount}</Text>
-          <Text style={styles.statLabel}>Active stops</Text>
+    <View style={styles.wrap}>
+      {compact ? (
+        <View style={styles.compactRow}>
+          <View style={styles.compactStats}>
+            <Text style={styles.compactStat}>
+              <Text style={styles.compactStatValue}>{activeCount}</Text> stops
+            </Text>
+            <Text style={styles.compactDivider}>·</Text>
+            <Text style={[styles.compactStat, needsSync ? styles.compactStatWarn : null]}>{syncLabel}</Text>
+          </View>
+          {needsSync ? (
+            <Pressable style={styles.compactSyncButton} onPress={onSync}>
+              <Text style={styles.compactSyncText}>Sync</Text>
+            </Pressable>
+          ) : null}
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statValue}>{pendingCount}</Text>
-          <Text style={styles.statLabel}>Waiting sync</Text>
-        </View>
-      </View>
-      <Pressable style={styles.syncButton} onPress={onSync}>
-        <Text style={styles.syncButtonText}>Sync now</Text>
-      </Pressable>
-    </>
+      ) : (
+        <>
+          <Text style={styles.subtitle}>{syncLabel}</Text>
+          <View style={styles.stats}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{activeCount}</Text>
+              <Text style={styles.statLabel}>Active stops</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{pendingCount}</Text>
+              <Text style={styles.statLabel}>Waiting sync</Text>
+            </View>
+          </View>
+          <Pressable style={styles.syncButton} onPress={onSync}>
+            <Text style={styles.syncButtonText}>Sync now</Text>
+          </Pressable>
+        </>
+      )}
+    </View>
   );
 }
 
-function createStyles(colors: ReturnType<typeof useTheme>["colors"], radii: typeof import("@/src/theme").radii) {
+function createStyles(
+  colors: ReturnType<typeof useTheme>["colors"],
+  radii: typeof import("@/src/theme").radii,
+  compact?: boolean
+) {
   return StyleSheet.create({
+    wrap: { marginTop: compact ? 8 : 0 },
     subtitle: { color: "rgba(255,255,255,0.76)", marginTop: 8, lineHeight: 20, fontSize: 14 },
     stats: { flexDirection: "row", gap: 10, marginTop: 16 },
     statCard: {
@@ -58,6 +87,26 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"], radii: type
       borderWidth: 1,
       borderColor: "rgba(255,255,255,0.08)",
     },
-    syncButtonText: { color: colors.slate, fontWeight: "800", fontSize: 13 },
+    syncButtonText: { color: colors.onAccentSoft, fontWeight: "800", fontSize: 13 },
+    compactRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    compactStats: { flex: 1, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
+    compactStat: { color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: "600" },
+    compactStatValue: { color: colors.white, fontWeight: "800", fontSize: 14 },
+    compactStatWarn: { color: "#ffd4a8" },
+    compactDivider: { color: "rgba(255,255,255,0.45)", fontSize: 12 },
+    compactSyncButton: {
+      borderRadius: radii.sm,
+      backgroundColor: colors.accentSoft,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.08)",
+    },
+    compactSyncText: { color: colors.onAccentSoft, fontWeight: "800", fontSize: 12 },
   });
 }

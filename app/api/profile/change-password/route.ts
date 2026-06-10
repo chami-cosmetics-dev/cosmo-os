@@ -48,8 +48,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const isValid = await verifyAuth0Password(email, currentPassword);
-    if (!isValid) {
+    const passwordCheck = await verifyAuth0Password(email, currentPassword);
+    if (!passwordCheck.valid) {
+      if (
+        passwordCheck.reason === "grant_not_enabled" ||
+        passwordCheck.reason === "misconfigured"
+      ) {
+        return NextResponse.json(
+          { error: "Password verification is unavailable right now" },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         { error: "Current password is incorrect" },
         { status: 400 }

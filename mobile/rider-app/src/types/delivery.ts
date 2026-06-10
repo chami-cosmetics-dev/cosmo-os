@@ -5,6 +5,16 @@ export type DeliveryKind = "normal" | "rearranged" | "exchange";
 export type PaymentMethod = "cod" | "bank_transfer" | "card" | "already_paid";
 export type OldItemCollectionStatus = "pending" | "collected" | "not_collected";
 
+export type AddressLike = {
+  address1?: string | null;
+  address2?: string | null;
+  city?: string | null;
+  province?: string | null;
+  zip?: string | null;
+  country?: string | null;
+  phone?: string | null;
+};
+
 export type DeliveryPayment = {
   expectedAmount?: string;
   collectedAmount: string;
@@ -20,12 +30,17 @@ export type ApiMobileDelivery = {
   id: string;
   orderLabel: string;
   amount: string;
+  currency?: string | null;
   deliveryStatus: DeliveryStatus | string;
   deliveryKind: DeliveryKind;
   oldOrderLabel?: string | null;
   requiresOldItemCollection?: boolean;
   exchangePaymentDifference?: string | null;
   customerName: string | null;
+  customerPhone?: string | null;
+  shippingAddress?: unknown;
+  billingAddress?: unknown;
+  expectedPaymentMethod?: PaymentMethod | null;
   companyLocation?: { name: string } | null;
   payment: DeliveryPayment | null;
   completedAt?: string | null;

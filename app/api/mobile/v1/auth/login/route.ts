@@ -16,7 +16,10 @@ export async function POST(request: NextRequest) {
 
   const rider = await prisma.user.findFirst({
     where: {
-      email: parsed.data.email,
+      email: {
+        equals: parsed.data.email,
+        mode: "insensitive",
+      },
       employeeProfile: {
         isRider: true,
         status: "active",
@@ -34,8 +37,18 @@ export async function POST(request: NextRequest) {
     return mobileError("Invalid rider credentials", 401);
   }
 
-  const valid = await verifyAuth0Password(rider.email, parsed.data.password).catch(() => false);
-  if (!valid) {
+  const passwordCheck = await verifyAuth0Password(rider.email, parsed.data.password);
+  if (!passwordCheck.valid) {
+    if (passwordCheck.reason === "grant_not_enabled") {
+      return mobileError(
+        "Mobile sign-in is not enabled on the server. Ask an admin to enable Auth0 Password grant.",
+        503
+      );
+    }
+    if (passwordCheck.reason === "misconfigured") {
+      console.error("[mobile login] Auth0 env vars missing on server");
+      return mobileError("Authentication service unavailable", 503);
+    }
     return mobileError("Invalid rider credentials", 401);
   }
 

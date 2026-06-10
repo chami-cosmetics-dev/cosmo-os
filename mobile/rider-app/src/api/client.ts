@@ -4,6 +4,19 @@ import { captureException } from "@/src/lib/monitoring";
 import { loadSession, saveSession, type TenantRiderSession } from "@/src/storage/session";
 import { removeTenantFromSession } from "@/src/storage/session-types";
 
+const LOGIN_TIMEOUT_MS = 25_000;
+
+async function fetchWithTimeout(url: string, init?: RequestInit) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LOGIN_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -90,16 +103,21 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function publicRequest<T>(
+async function attemptTenantLogin(
   tenant: TenantId,
   path: string,
   init?: RequestInit
-): Promise<T | null> {
+): Promise<
+  | { ok: true; session: TenantRiderSession }
+  | { ok: false; message: string }
+> {
   const apiBaseUrl = getTenantApiUrl(tenant);
-  if (!apiBaseUrl) return null;
+  if (!apiBaseUrl) {
+    return { ok: false, message: "API URL not configured in the app" };
+  }
 
   try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
+    const response = await fetchWithTimeout(`${apiBaseUrl}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
@@ -107,13 +125,36 @@ async function publicRequest<T>(
       },
     });
 
-    if (!response.ok) {
-      return null;
+    if (response.ok) {
+      return { ok: true, session: (await response.json()) as TenantRiderSession };
     }
 
-    return response.json() as Promise<T>;
-  } catch {
-    return null;
+    const errorData = (await response.json().catch(() => null)) as { error?: string } | null;
+    const serverMessage = errorData?.error?.trim();
+
+    if (response.status === 401) {
+      return {
+        ok: false,
+        message: serverMessage ?? "Invalid email, password, or rider access",
+      };
+    }
+
+    if (response.status >= 500) {
+      return {
+        ok: false,
+        message: serverMessage ?? "Server error — try again later",
+      };
+    }
+
+    return {
+      ok: false,
+      message: serverMessage ?? `Request failed (${response.status})`,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { ok: false, message: "Request timed out — check internet or try again" };
+    }
+    return { ok: false, message: "Could not reach server — check internet connection" };
   }
 }
 
@@ -128,7 +169,7 @@ export const apiClient = {
       },
     }),
   login: (tenant: TenantId, body: Record<string, unknown>) =>
-    publicRequest<TenantRiderSession>(tenant, "/api/mobile/v1/auth/login", {
+    attemptTenantLogin(tenant, "/api/mobile/v1/auth/login", {
       method: "POST",
       body: JSON.stringify(body),
     }),
