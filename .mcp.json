@@ -1,5 +1,10 @@
 {
   "mcpServers": {
+    "erpnext": {
+      "command": "node",
+      "args": ["scripts/mcp-erpnext.mjs"],
+      "envFile": ".env"
+    },
     "vercel": {
       "command": "npx",
       "args": ["mcp-remote", "https://mcp.vercel.com"]
