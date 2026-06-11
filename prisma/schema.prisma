@@ -1380,3 +1380,46 @@ model ContactAllocationUpdate {
   @@index([companyId, merchantId, createdAt(sort: Desc)])
   @@index([companyId, category, createdAt(sort: Desc)])
 }
+
+// ── Outlet Reviews Feature ──────────────────────────────────────────────────
+
+model Outlet {
+  id        String       @id @default(cuid())
+  companyId String
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  users     OutletUser[]
+  reviews   OutletReview[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model OutletUser {
+  id          String   @id @default(cuid())
+  outletId    String
+  userId      String
+  couponCodes String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  outlet      Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@unique([outletId, userId])
+  @@index([outletId])
+  @@index([userId])
+}
+
+model OutletReview {
+  id              String   @id @default(cuid())
+  outletId        String
+  orderId         String   @unique
+  reviewRequested String?
+  reviewCollected String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  outlet          Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+
+  @@index([outletId])
+  @@index([orderId])
+}
