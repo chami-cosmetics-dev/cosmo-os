@@ -34,6 +34,19 @@ npm run db:deploy:all
 
 See [`.env.example`](/.env.example) for the full command reference. **Do not use `db:push` on shared or production databases.**
 
+### Creating new migrations
+
+Do **not** use `npm run db:migrate` (`prisma migrate dev`) — the repo has no base init migration, so the shadow database fails with P3006.
+
+Instead, after editing `prisma/schema.prisma`:
+
+```bash
+npm run db:migrate:create -- your_change_name
+npm run db:deploy:all
+```
+
+This diffs cosmo-dev against the schema and writes `prisma/migrations/<timestamp>_your_change_name/migration.sql`.
+
 Neon mapping:
 
 ```env

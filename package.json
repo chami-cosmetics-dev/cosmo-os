@@ -20,6 +20,7 @@
     "db:status:cosmo-dev": "node scripts/with-env.mjs cosmo-dev npx prisma migrate status",
     "db:status:cosmo-prod": "node scripts/with-env.mjs cosmo-prod npx prisma migrate status",
     "db:migrate": "node scripts/with-env.mjs cosmo-dev npx prisma migrate dev",
+    "db:migrate:create": "node scripts/db-migrate-create.mjs",
     "db:push": "prisma db push",
     "env:use": "node scripts/env-use.mjs",
     "dev:vault": "node scripts/with-env.mjs vault npm run dev",
