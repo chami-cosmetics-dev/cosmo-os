@@ -188,12 +188,16 @@ function userName(u: UserRef): string {
 
 function getMerchantCouponCode(discountCodes: unknown): string | null {
   if (!Array.isArray(discountCodes) || discountCodes.length === 0) return null;
-  const first = discountCodes[0] as Record<string, unknown> | null;
-  if (!first || typeof first !== "object") return null;
-  const code = first.code;
-  if (typeof code !== "string" || !code.trim()) return null;
-  const trimmed = code.trim();
-  return trimmed.toLowerCase() === "shopify" ? null : trimmed;
+  const codes = discountCodes
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const code = (entry as Record<string, unknown>).code;
+      if (typeof code !== "string" || !code.trim()) return null;
+      const trimmed = code.trim();
+      return trimmed.toLowerCase() === "shopify" ? null : trimmed;
+    })
+    .filter(Boolean) as string[];
+  return codes.length > 0 ? codes.join(", ") : null;
 }
 
 function formatDateOnly(value?: string | null): string {

@@ -665,7 +665,10 @@ export function OrdersPanel({
                           {(() => {
                             const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
                             const coupon = Array.isArray(order.discountCodes)
-                              ? ((order.discountCodes as Array<{ code?: string }>)[0]?.code?.trim() || null)
+                              ? ((order.discountCodes as Array<{ code?: string }>)
+                                  .map((d) => d?.code?.trim())
+                                  .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
+                                  .join(", ") || null)
                               : null;
                             const display = merchant ?? coupon;
                             if (!display) return null;
@@ -703,11 +706,21 @@ export function OrdersPanel({
                             ) : (
                               <span className="text-muted-foreground text-xs">—</span>
                             )}
-                            {order.merchantCouponCode && (
-                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
-                                {order.merchantCouponCode}
-                              </span>
-                            )}
+                            {(() => {
+                              const allCodes = Array.isArray(order.discountCodes)
+                                ? (order.discountCodes as Array<{ code?: string }>)
+                                    .map((d) => d?.code?.trim())
+                                    .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
+                                    .join(", ")
+                                : null;
+                              const badge = allCodes || order.merchantCouponCode;
+                              if (!badge) return null;
+                              return (
+                                <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                                  {badge}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="px-4 py-2">
