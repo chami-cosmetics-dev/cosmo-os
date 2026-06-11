@@ -21,6 +21,7 @@ export type OutletReviewItem = {
   couponCode: string | null;
   reviewRequested: string;
   reviewCollected: string;
+  remarks: string;
 };
 
 export type OutletOption = {
@@ -159,7 +160,7 @@ export async function fetchOutletReviewSheetData(input: {
   }
 
   // Fetch review records
-  const reviewMap = new Map<string, { id: string; reviewRequested: string | null; reviewCollected: string | null }>();
+  const reviewMap = new Map<string, { id: string; reviewRequested: string | null; reviewCollected: string | null; remarks: string | null }>();
   await Promise.all(
     matched.map(async ({ order }) => {
       const review = await getOutletReview(order.id);
@@ -187,6 +188,7 @@ export async function fetchOutletReviewSheetData(input: {
       couponCode: matchedCode,
       reviewRequested: review?.reviewRequested ?? "",
       reviewCollected: review?.reviewCollected ?? "",
+      remarks: review?.remarks ?? "",
     };
   });
 

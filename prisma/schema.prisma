@@ -1416,6 +1416,7 @@ model OutletReview {
   orderId         String   @unique
   reviewRequested String?
   reviewCollected String?
+  remarks         String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   outlet          Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)

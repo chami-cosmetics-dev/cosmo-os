@@ -3,6 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getUserOutlets, upsertOutletReview } from "@/lib/outlet-utils";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
+const REVIEW_STATUS_OPTIONS = new Set(["Yes", "No", "Pending", "Already Done"]);
+
+function parseStatus(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return REVIEW_STATUS_OPTIONS.has(value) ? value : undefined;
+}
+
 export async function PUT(request: NextRequest) {
   const auth = await requireAnyPermission(["outlets.read.all", "outlets.read.assigned"]);
   if (!auth.ok) {
@@ -20,12 +27,19 @@ export async function PUT(request: NextRequest) {
     outletId?: unknown;
     reviewRequested?: unknown;
     reviewCollected?: unknown;
+    remarks?: unknown;
   };
 
   const orderId = typeof body.orderId === "string" ? body.orderId : "";
   const outletId = typeof body.outletId === "string" ? body.outletId : "";
+  const reviewRequested = parseStatus(body.reviewRequested);
+  const reviewCollected = parseStatus(body.reviewCollected);
+  const remarks = typeof body.remarks === "string" ? body.remarks : undefined;
   if (!orderId || !outletId) {
     return NextResponse.json({ error: "orderId and outletId are required" }, { status: 400 });
+  }
+  if (!reviewRequested || !reviewCollected) {
+    return NextResponse.json({ error: "Select valid review statuses" }, { status: 400 });
   }
 
   const canReadAll = hasPermission(auth.context, "outlets.read.all");
@@ -43,8 +57,9 @@ export async function PUT(request: NextRequest) {
     await upsertOutletReview({
       outletId,
       orderId,
-      reviewRequested: typeof body.reviewRequested === "string" ? body.reviewRequested : undefined,
-      reviewCollected: typeof body.reviewCollected === "string" ? body.reviewCollected : undefined,
+      reviewRequested,
+      reviewCollected,
+      remarks,
     });
     return NextResponse.json({ success: true });
   } catch (error) {

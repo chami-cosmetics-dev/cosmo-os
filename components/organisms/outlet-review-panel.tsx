@@ -40,6 +40,7 @@ type ReviewItem = {
   couponCode: string | null;
   reviewRequested: string;
   reviewCollected: string;
+  remarks: string;
 };
 
 type InitialData = {
@@ -48,7 +49,13 @@ type InitialData = {
   userOutletIds: string[];
 };
 
-type EditState = { reviewRequested: string; reviewCollected: string };
+const REVIEW_STATUS_OPTIONS = ["Yes", "No", "Pending", "Already Done"] as const;
+type ReviewStatus = (typeof REVIEW_STATUS_OPTIONS)[number];
+type EditState = { reviewRequested: ReviewStatus; reviewCollected: ReviewStatus; remarks: string };
+
+function toReviewStatus(value: string): ReviewStatus {
+  return REVIEW_STATUS_OPTIONS.find((option) => option === value) ?? "Pending";
+}
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -87,6 +94,7 @@ export function OutletReviewPanel({
         r.orderLabel,
         r.productNames.join(" "),
         r.couponCode,
+        r.remarks,
       ]
         .filter(Boolean)
         .some((v) => v!.toLowerCase().includes(q));
@@ -118,7 +126,11 @@ export function OutletReviewPanel({
   function startEdit(orderId: string, current: ReviewItem) {
     setEditMap((prev) => {
       const next = new Map(prev);
-      next.set(orderId, { reviewRequested: current.reviewRequested, reviewCollected: current.reviewCollected });
+      next.set(orderId, {
+        reviewRequested: toReviewStatus(current.reviewRequested),
+        reviewCollected: toReviewStatus(current.reviewCollected),
+        remarks: current.remarks,
+      });
       return next;
     });
   }
@@ -131,7 +143,7 @@ export function OutletReviewPanel({
     });
   }
 
-  function updateEditField(orderId: string, field: keyof EditState, value: string) {
+  function updateEditField<K extends keyof EditState>(orderId: string, field: K, value: EditState[K]) {
     setEditMap((prev) => {
       const next = new Map(prev);
       const existing = next.get(orderId);
@@ -153,6 +165,7 @@ export function OutletReviewPanel({
           outletId: review.outletId,
           reviewRequested: edit.reviewRequested,
           reviewCollected: edit.reviewCollected,
+          remarks: edit.remarks,
         }),
       });
       const data = (await res.json()) as { error?: string };
@@ -163,7 +176,12 @@ export function OutletReviewPanel({
       setReviews((prev) =>
         prev.map((r) =>
           r.orderId === review.orderId
-            ? { ...r, reviewRequested: edit.reviewRequested, reviewCollected: edit.reviewCollected }
+            ? {
+                ...r,
+                reviewRequested: edit.reviewRequested,
+                reviewCollected: edit.reviewCollected,
+                remarks: edit.remarks,
+              }
             : r
         )
       );
@@ -196,7 +214,7 @@ export function OutletReviewPanel({
       const blob = await res.blob();
       const disposition = res.headers.get("content-disposition") ?? "";
       const match = disposition.match(/filename="?([^"]+)"?/);
-      const filename = match?.[1] ?? "outlet-reviews.csv";
+      const filename = match?.[1] ?? "outlet-reviews.xlsx";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -334,13 +352,14 @@ export function OutletReviewPanel({
                   <TableHead>Mobile</TableHead>
                   <TableHead className="min-w-[160px]">Review Requested</TableHead>
                   <TableHead className="min-w-[160px]">Review Collected</TableHead>
+                  <TableHead className="min-w-[220px]">Remarks</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredReviews.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-8 text-center text-muted-foreground text-sm">
+                    <TableCell colSpan={11} className="py-8 text-center text-muted-foreground text-sm">
                       No orders found.
                     </TableCell>
                   </TableRow>
@@ -368,26 +387,62 @@ export function OutletReviewPanel({
                       <TableCell className="text-sm">{review.customerPhone ?? "—"}</TableCell>
                       <TableCell>
                         {editing ? (
-                          <Input
+                          <Select
                             value={editing.reviewRequested}
-                            onChange={(e) => updateEditField(review.orderId, "reviewRequested", e.target.value)}
-                            className="h-8 text-xs"
-                            placeholder="Review requested..."
-                          />
+                            onValueChange={(value) =>
+                              updateEditField(review.orderId, "reviewRequested", toReviewStatus(value))
+                            }
+                          >
+                            <SelectTrigger className="h-8 min-w-[150px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REVIEW_STATUS_OPTIONS.map((status) => (
+                                <SelectItem key={status} value={status}>
+                                  {status}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
                           <span className="text-sm">{review.reviewRequested || "—"}</span>
                         )}
                       </TableCell>
                       <TableCell>
                         {editing ? (
-                          <Input
+                          <Select
                             value={editing.reviewCollected}
-                            onChange={(e) => updateEditField(review.orderId, "reviewCollected", e.target.value)}
-                            className="h-8 text-xs"
-                            placeholder="Review collected..."
-                          />
+                            onValueChange={(value) =>
+                              updateEditField(review.orderId, "reviewCollected", toReviewStatus(value))
+                            }
+                          >
+                            <SelectTrigger className="h-8 min-w-[150px] text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REVIEW_STATUS_OPTIONS.map((status) => (
+                                <SelectItem key={status} value={status}>
+                                  {status}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
                           <span className="text-sm">{review.reviewCollected || "—"}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-[260px]">
+                        {editing ? (
+                          <Input
+                            value={editing.remarks}
+                            onChange={(e) => updateEditField(review.orderId, "remarks", e.target.value)}
+                            className="h-8 min-w-[220px] text-xs"
+                            placeholder="Remarks..."
+                          />
+                        ) : (
+                          <div className="max-w-[260px] truncate text-sm" title={review.remarks}>
+                            {review.remarks || "—"}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell>

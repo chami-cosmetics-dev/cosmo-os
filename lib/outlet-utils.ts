@@ -234,14 +234,26 @@ export async function getOutletReview(orderId: string): Promise<{
   id: string;
   reviewRequested: string | null;
   reviewCollected: string | null;
+  remarks: string | null;
 } | null> {
   const model = getOutletReviewModel();
   if (!model) return null;
   try {
-    const row = await model.findUnique({ where: { orderId } });
-    return row as { id: string; reviewRequested: string | null; reviewCollected: string | null } | null;
+    const rows = await prisma.$queryRaw<Array<{
+      id: string;
+      reviewRequested: string | null;
+      reviewCollected: string | null;
+      remarks: string | null;
+    }>>`SELECT id, "reviewRequested", "reviewCollected", remarks FROM "OutletReview" WHERE "orderId" = ${orderId} LIMIT 1`;
+    return rows[0] ?? null;
   } catch {
-    return null;
+    try {
+      const row = await model.findUnique({ where: { orderId } });
+      if (!row) return null;
+      return { ...(row as { id: string; reviewRequested: string | null; reviewCollected: string | null }), remarks: null };
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -250,7 +262,8 @@ export async function upsertOutletReview(data: {
   orderId: string;
   reviewRequested?: string;
   reviewCollected?: string;
-}): Promise<{ id: string; reviewRequested: string | null; reviewCollected: string | null }> {
+  remarks?: string;
+}): Promise<{ id: string; reviewRequested: string | null; reviewCollected: string | null; remarks: string | null }> {
   const model = getOutletReviewModel();
   if (!model) throw new Error("OutletReview table is not available. Run the latest Prisma migration first.");
   const row = await model.upsert({
@@ -266,5 +279,16 @@ export async function upsertOutletReview(data: {
       ...(data.reviewCollected !== undefined ? { reviewCollected: data.reviewCollected || null } : {}),
     },
   });
-  return row as { id: string; reviewRequested: string | null; reviewCollected: string | null };
+  if (data.remarks !== undefined) {
+    await prisma.$executeRaw`ALTER TABLE "OutletReview" ADD COLUMN IF NOT EXISTS "remarks" TEXT`;
+    await prisma.$executeRaw`
+      UPDATE "OutletReview"
+      SET remarks = ${data.remarks || null}
+      WHERE "orderId" = ${data.orderId}
+    `;
+  }
+  return {
+    ...(row as { id: string; reviewRequested: string | null; reviewCollected: string | null }),
+    remarks: data.remarks ?? null,
+  };
 }
