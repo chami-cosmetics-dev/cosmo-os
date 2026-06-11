@@ -336,6 +336,19 @@ const DEFAULT_PERMISSIONS = [
     key: "fulfillment.revert_to.delivery_complete",
     description: "Revert order to Delivery Complete",
   },
+  // Outlets
+  {
+    key: "outlets.manage",
+    description: "Create, edit, and delete outlets; assign users to outlets",
+  },
+  {
+    key: "outlets.read.all",
+    description: "View and export outlet reviews for all outlets",
+  },
+  {
+    key: "outlets.read.assigned",
+    description: "View and edit outlet reviews for assigned outlets only",
+  },
 ] as const;
 
 const DEFAULT_ROLES = [
@@ -428,6 +441,8 @@ const DEFAULT_ROLES = [
       "fulfillment.revert_to.ready_dispatch",
       "fulfillment.revert_to.dispatched",
       "fulfillment.revert_to.delivery_complete",
+      "outlets.manage",
+      "outlets.read.all",
     ],
   },
   {

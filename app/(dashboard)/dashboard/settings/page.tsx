@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getLocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { BookUser, Building2, Calculator, ChevronRight, Mail, MessageSquare, Package, Plug } from "lucide-react";
+import { BookUser, Building2, Calculator, ChevronRight, Mail, MessageSquare, Package, Plug, Store } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +35,9 @@ export default async function SettingsPage() {
     : false;
   const canManageFulfillment = context
     ? hasPermission(context, "settings.fulfillment")
+    : false;
+  const canManageOutlets = context
+    ? hasPermission(context, "outlets.manage")
     : false;
   const companyId = context?.user?.companyId ?? null;
 
@@ -150,6 +153,19 @@ export default async function SettingsPage() {
               "Manage the predefined list of Koko companies and invoice prefixes used in the Koko Tally tool.",
             href: "/dashboard/settings/koko",
             icon: Calculator,
+          },
+        ]
+      : []),
+    ...(canManageOutlets
+      ? [
+          {
+            key: "outlets",
+            group: "Operations" as const,
+            title: "Outlets",
+            description:
+              "Create and manage outlets, assign users to outlets with their coupon codes for outlet reviews tracking.",
+            href: "/dashboard/settings/outlets",
+            icon: Store,
           },
         ]
       : []),

@@ -1,0 +1,2 @@
+ALTER TABLE "OutletReview"
+  ADD COLUMN IF NOT EXISTS "remarks" TEXT;
