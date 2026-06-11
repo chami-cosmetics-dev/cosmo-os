@@ -48,7 +48,7 @@ type AvailableUser = {
   couponCodes: string[];
 };
 
-function userDisplayName(u: { name?: string | null; email?: string | null; knownName?: string | null }) {
+function userDisplayName(u: { id?: string; name?: string | null; email?: string | null; knownName?: string | null }) {
   return u.knownName ?? u.name ?? u.email ?? u.id ?? "Unknown";
 }
 
