@@ -22,7 +22,7 @@ const TRIGGER_DESCRIPTIONS: Record<string, string> = {
   order_received: "When a new order is received from Shopify",
   package_ready: "When package is marked ready to dispatch",
   dispatched: "When order is dispatched (to customer)",
-  rider_dispatched: "When rider is assigned (includes delivery confirmation URL)",
+  rider_dispatched: "When rider is assigned (uses ERP invoice number + delivery URL)",
   delivery_complete: "When delivery is confirmed",
 };
 
@@ -48,6 +48,10 @@ const PLACEHOLDERS = [
   "{deliveryUrl}",
   "{riderName}",
 ];
+
+const PLACEHOLDER_HINTS: Record<string, string> = {
+  "{invoiceNumber}": "ERPNext Sales Invoice ID only (not Shopify order number)",
+};
 
 function configsEqual(a: SmsConfig, b: SmsConfig): boolean {
   const recipientsA = [...a.additionalRecipients].sort().join(",");
@@ -209,6 +213,7 @@ export function SmsNotificationsSettingsForm({
             {PLACEHOLDERS.map((placeholder) => (
               <span
                 key={placeholder}
+                title={PLACEHOLDER_HINTS[placeholder]}
                 className="rounded-full border border-border/70 bg-background/85 px-2.5 py-1 text-xs font-mono text-foreground shadow-xs"
               >
                 {placeholder}

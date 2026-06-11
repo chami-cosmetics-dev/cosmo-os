@@ -86,6 +86,18 @@ export async function GET() {
     });
   }
 
+  const legacyRiderTemplate =
+    "Order {orderNumber} assigned for delivery. Confirm when delivered: {deliveryUrl}";
+  const riderConfig = configs.find((c) => c.trigger === "rider_dispatched");
+  if (riderConfig?.template === legacyRiderTemplate) {
+    const updatedTemplate = getDefaultTemplate("rider_dispatched");
+    await prisma.smsNotificationConfig.update({
+      where: { id: riderConfig.id },
+      data: { template: updatedTemplate },
+    });
+    riderConfig.template = updatedTemplate;
+  }
+
   const byTrigger = Object.fromEntries(
     configs.map((c) => [
       c.trigger,
@@ -210,7 +222,7 @@ function getDefaultTemplate(trigger: string): string {
     dispatched:
       "Your order {orderNumber} has been dispatched. Track your delivery for updates.",
     rider_dispatched:
-      "Order {orderNumber} assigned for delivery. Confirm when delivered: {deliveryUrl}",
+      "Invoice {invoiceNumber} assigned for delivery. Confirm when delivered: {deliveryUrl}",
     delivery_complete:
       "Your order {orderNumber} has been delivered. Thank you for shopping with us!",
   };

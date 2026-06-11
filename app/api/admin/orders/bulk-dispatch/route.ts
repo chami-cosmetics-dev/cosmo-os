@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { sendOrderSms, getDeliveryUrl } from "@/lib/order-sms";
+import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
+import { DISPATCHABLE_STAGES } from "@/lib/fulfillment-permissions";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
           shopifyOrderId: true,
           fulfillmentStage: true,
           packageReadyAt: true,
+          packageOnHoldAt: true,
           customerPhone: true,
           shippingAddress: true,
           erpnextInvoiceId: true,
@@ -83,15 +85,20 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const DISPATCHABLE_STAGES = ["order_received", "sample_free_issue", "print", "ready_to_dispatch"];
-      if (!DISPATCHABLE_STAGES.includes(order.fulfillmentStage)) {
+      const DISPATCHABLE = DISPATCHABLE_STAGES as readonly string[];
+      if (!DISPATCHABLE.includes(order.fulfillmentStage)) {
         results.push({ orderId, ref, success: false, error: "Order is not in a dispatchable stage" });
+        continue;
+      }
+
+      if (order.packageOnHoldAt) {
+        results.push({ orderId, ref, success: false, error: "Package is on hold" });
         continue;
       }
 
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
 
-      // Auto-mark ready if not already — mirrors single dispatch behaviour
+      // Auto-mark ready if not already — same as single dispatch
       const needsMarkReady = order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
 
       await prisma.order.update({
@@ -157,14 +164,10 @@ export async function POST(request: NextRequest) {
         await prisma.riderDeliveryTask.deleteMany({ where: { orderId } });
       }
 
-      const orderNum = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+      const orderNum = resolveOrderNumber(order);
+      const invoiceNumber = resolveOrderInvoiceNumber(order);
       const locationName = order.companyLocation?.name ?? "";
-      const addrPhone = (order.shippingAddress as Record<string, string> | null)?.phone ?? null;
-      const customerPhone = order.customerPhone ?? addrPhone ?? undefined;
-
-      const invoiceNumber = (order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending_approval" && order.erpnextInvoiceId !== "pending")
-        ? order.erpnextInvoiceId
-        : undefined;
+      const customerPhone = resolveCustomerPhone(order);
 
       if (needsMarkReady) {
         sendOrderSms(companyId, orderId, "package_ready", {
@@ -187,6 +190,7 @@ export async function POST(request: NextRequest) {
       if (riderId && riderDeliveryToken) {
         sendOrderSms(companyId, orderId, "rider_dispatched", {
           orderNumber: orderNum,
+          invoiceNumber,
           deliveryUrl,
           riderPhone: riderMobile ?? undefined,
         }).catch((err) => console.error("[bulk-dispatch] rider SMS failed:", err));

@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
-import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
+import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
+import { DISPATCHABLE_STAGES } from "@/lib/fulfillment-permissions";
 import type { FulfillmentStage } from "@prisma/client";
 import {
   calculateExchangePaymentDifference,
@@ -221,11 +222,6 @@ async function logOrderFulfillmentAudit(input: {
     afterData: { fulfillmentStage: input.afterStage },
     metadata: input.metadata,
   });
-}
-function resolveInvoiceNumber(order: { erpnextInvoiceId: string | null }): string | undefined {
-  const id = order.erpnextInvoiceId;
-  if (!id || id === "pending" || id === "pending_approval") return undefined;
-  return id;
 }
 
 export async function PATCH(
@@ -593,9 +589,9 @@ export async function PATCH(
         include: { companyLocation: true },
       });
       sendOrderSms(companyId, order.id, "package_ready", {
-        orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
-        invoiceNumber: resolveInvoiceNumber(updated),
-        customerPhone: updated.customerPhone ?? undefined,
+        orderNumber: resolveOrderNumber(updated),
+        invoiceNumber: resolveOrderInvoiceNumber(updated),
+        customerPhone: resolveCustomerPhone(updated),
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] package_ready failed:", err));
       await logOrderFulfillmentAudit({
@@ -643,21 +639,22 @@ export async function PATCH(
     }
 
     if (data.action === "dispatch") {
-      if (order.fulfillmentStage !== "ready_to_dispatch") {
+      const dispatchable = DISPATCHABLE_STAGES as readonly string[];
+      if (!dispatchable.includes(order.fulfillmentStage)) {
         return NextResponse.json(
-          { error: "Order must be at ready to dispatch stage" },
+          { error: "Order is not in a dispatchable stage" },
+          { status: 400 }
+        );
+      }
+      if (order.packageOnHoldAt) {
+        return NextResponse.json(
+          { error: "Package is on hold — revert hold before dispatching" },
           { status: 400 }
         );
       }
       if (await hasPendingBankTransferRearrange(order)) {
         return NextResponse.json(
           { error: "Bank transfer must be confirmed before dispatching this rearranged COD return." },
-          { status: 400 }
-        );
-      }
-      if (!order.packageReadyAt) {
-        return NextResponse.json(
-          { error: "Package must be marked ready before dispatch" },
           { status: 400 }
         );
       }
@@ -786,9 +783,19 @@ export async function PATCH(
               exchangePaymentDifference: null,
             };
 
+      const needsMarkReady =
+        order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
+      const userId = auth.context!.user!.id;
+
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
+          ...(needsMarkReady && {
+            packageReadyAt: now,
+            packageReadyById: userId,
+            packageOnHoldAt: null,
+            packageHoldReasonId: null,
+          }),
           fulfillmentStage: "dispatched",
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
@@ -833,14 +840,24 @@ export async function PATCH(
           where: { orderId: order.id },
         });
       }
-      const orderNum = updated.name ?? updated.orderNumber ?? updated.shopifyOrderId;
-      const invoiceNum = resolveInvoiceNumber(updated);
-      const addrPhone = (order.shippingAddress as Record<string, string> | null)?.phone ?? null;
+      const orderNum = resolveOrderNumber(updated);
+      const invoiceNum = resolveOrderInvoiceNumber(updated);
+      const customerPhone = resolveCustomerPhone(updated);
       const dispatchDeliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
+
+      if (needsMarkReady) {
+        sendOrderSms(companyId, order.id, "package_ready", {
+          orderNumber: orderNum,
+          invoiceNumber: invoiceNum,
+          customerPhone,
+          locationName: updated.companyLocation.name,
+        }).catch((err) => console.error("[Order SMS] package_ready failed:", err));
+      }
+
       sendOrderSms(companyId, order.id, "dispatched", {
         orderNumber: orderNum,
         invoiceNumber: invoiceNum,
-        customerPhone: updated.customerPhone ?? addrPhone ?? undefined,
+        customerPhone,
         locationName: updated.companyLocation.name,
         deliveryUrl: dispatchDeliveryUrl,
       }).catch((err) => console.error("[Order SMS] dispatched failed:", err));
@@ -859,7 +876,9 @@ export async function PATCH(
         companyId,
         actorUserId: auth.context!.user!.id,
         orderId: order.id,
-        summary: `Dispatched order ${orderNum}`,
+        summary: needsMarkReady
+          ? `Dispatched order ${orderNum} (auto marked package ready)`
+          : `Dispatched order ${orderNum}`,
         beforeStage: order.fulfillmentStage,
         afterStage: "dispatched",
         metadata: { action: data.action, riderId: data.riderId ?? null, courierServiceId: data.courierServiceId ?? null },
@@ -943,9 +962,9 @@ export async function PATCH(
         },
       });
       sendOrderSms(companyId, order.id, "delivery_complete", {
-        orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
-        invoiceNumber: resolveInvoiceNumber(updated),
-        customerPhone: updated.customerPhone ?? undefined,
+        orderNumber: resolveOrderNumber(updated),
+        invoiceNumber: resolveOrderInvoiceNumber(updated),
+        customerPhone: resolveCustomerPhone(updated),
         locationName: updated.companyLocation.name,
       }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
       await logOrderFulfillmentAudit({

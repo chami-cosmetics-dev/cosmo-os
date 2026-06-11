@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { generatePickListPdf } from "@/lib/pick-list-pdf";
+import { resolvePickListBarcode } from "@/lib/product-item-barcode";
+import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +63,11 @@ async function fetchPickListData(companyId: string, date: { from: Date; to: Date
     orderBy: [{ companyLocation: { name: "asc" } }, { lastPrintedAt: "asc" }],
   });
 
+  const skus = orders.flatMap((o) =>
+    o.lineItems.map((li) => li.productItem.sku).filter((s): s is string => Boolean(s?.trim())),
+  );
+  const barcodeBySku = await loadBarcodeLookupBySku(companyId, skus);
+
   const locationMap = new Map<
     string,
     { name: string; items: Map<string, PickListItem> }
@@ -85,7 +92,7 @@ async function fetchPickListData(companyId: string, date: { from: Date; to: Date
           productTitle: p.productTitle,
           variantTitle: p.variantTitle,
           sku: p.sku,
-          barcode: p.barcode,
+          barcode: resolvePickListBarcode(p.barcode, p.sku, barcodeBySku),
           quantity: li.quantity,
         });
       }
