@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
-import { getDeliveryUrl, sendOrderSms } from "@/lib/order-sms";
+import { getDeliveryUrl, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
 
 export async function POST(
   _request: NextRequest,
@@ -35,8 +35,15 @@ export async function POST(
 
   const order = await prisma.order.findFirst({
     where: { id: idResult.data, companyId },
-    include: {
-      companyLocation: { select: { name: true } },
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      erpnextInvoiceId: true,
+      fulfillmentStage: true,
+      dispatchedByRiderId: true,
+      riderDeliveryToken: true,
       dispatchedByRider: { select: { name: true, mobile: true } },
     },
   });
@@ -68,12 +75,24 @@ export async function POST(
     );
   }
 
-  const orderNum = order.orderNumber ?? order.name ?? order.shopifyOrderId;
+  const orderNum = resolveOrderNumber(order);
+  const invoiceNumber = resolveOrderInvoiceNumber(order);
+  if (!invoiceNumber) {
+    return NextResponse.json(
+      {
+        error:
+          "Cannot send rider SMS without an ERP invoice number. Sync the order to ERPNext first.",
+      },
+      { status: 400 },
+    );
+  }
+
   const deliveryUrl = getDeliveryUrl(order);
 
   try {
     await sendOrderSms(companyId, order.id, "rider_dispatched", {
       orderNumber: orderNum,
+      invoiceNumber,
       riderName: rider.name ?? undefined,
       riderPhone,
       deliveryUrl,

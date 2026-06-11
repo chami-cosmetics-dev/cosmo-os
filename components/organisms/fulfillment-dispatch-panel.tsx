@@ -139,10 +139,6 @@ export function FulfillmentDispatchPanel({
 
   async function handleDispatch() {
     if (!orderId || !lookups || !selectedDispatchService?.id) return;
-    if (!isPackageReady) {
-      const ok = await doAction("mark_ready", undefined, { silent: true });
-      if (!ok) return;
-    }
     await doAction("dispatch", {
       action: "dispatch",
       riderId: selectedDispatchService.type === "rider" ? selectedDispatchService.id : undefined,
@@ -334,7 +330,7 @@ export function FulfillmentDispatchPanel({
                   disabled={!orderId || isBusy || !selectedDispatchService?.id}
                   className="gap-2"
                 >
-                  {busyKey === "dispatch" || busyKey === "mark_ready"
+                  {busyKey === "dispatch"
                     ? <Loader2 className="size-4 animate-spin" />
                     : <Truck className="size-4" />}
                   Dispatch

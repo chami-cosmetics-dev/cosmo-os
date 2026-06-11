@@ -182,6 +182,12 @@ const FULFILLMENT_STAGE_ORDER = [
   "invoice_complete",
 ];
 
+const DISPATCHED_OR_LATER = new Set([
+  "dispatched",
+  "delivery_complete",
+  "invoice_complete",
+]);
+
 function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
@@ -393,21 +399,28 @@ export function OrderInvoiceViewModal({
 
   const timelineItems = orderDetail ? buildTimeline(orderDetail, formatDate) : [];
 
-  async function handleResendRiderSms() {
+  async function handleResendSms(trigger: "package_ready" | "dispatched" | "rider_dispatched") {
     if (!orderId) return;
     setResendSmsBusy(true);
     try {
-      const res = await fetch(`/api/admin/orders/${orderId}/resend-rider-sms`, {
+      const res = await fetch(`/api/admin/orders/${orderId}/resend-sms`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
-        notify.error(data.error ?? "Failed to resend rider SMS");
+        notify.error(data.error ?? "Failed to resend SMS");
         return;
       }
-      notify.success("Rider SMS sent.");
+      const labels: Record<string, string> = {
+        package_ready: "Package ready SMS sent.",
+        dispatched: "Dispatched SMS sent to customer.",
+        rider_dispatched: "Rider SMS sent.",
+      };
+      notify.success(labels[trigger] ?? "SMS sent.");
     } catch {
-      notify.error("Failed to resend rider SMS");
+      notify.error("Failed to resend SMS");
     } finally {
       setResendSmsBusy(false);
     }
@@ -489,10 +502,38 @@ export function OrderInvoiceViewModal({
                   Print Invoice
                 </Button>
               )}
+              {canResendRiderSms && orderDetail?.packageReadyAt && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleResendSms("package_ready")}
+                  disabled={resendSmsBusy}
+                >
+                  {resendSmsBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  Re-send Package Ready SMS
+                </Button>
+              )}
+              {canResendRiderSms && DISPATCHED_OR_LATER.has(stage) && (
+                <Button
+                  variant="outline"
+                  onClick={() => void handleResendSms("dispatched")}
+                  disabled={resendSmsBusy}
+                >
+                  {resendSmsBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  Re-send Dispatched SMS
+                </Button>
+              )}
               {canResendRiderSms && isDispatchedWithRider && (
                 <Button
                   variant="outline"
-                  onClick={handleResendRiderSms}
+                  onClick={() => void handleResendSms("rider_dispatched")}
                   disabled={resendSmsBusy}
                 >
                   {resendSmsBusy ? (

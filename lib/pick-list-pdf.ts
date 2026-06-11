@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+import { formatPickListBarcode } from "@/lib/product-item-barcode";
+
 const pdfMake = require("pdfmake") as {
   virtualfs: { writeFileSync(filename: string, content: Buffer): void };
   addFonts(fonts: Record<string, Record<string, string>>): void;
@@ -78,7 +80,7 @@ export async function generatePickListPdf(
           ? { stack: [{ text: item.productTitle, style: "td" }, { text: item.variantTitle, style: "cellSub" }] }
           : { text: item.productTitle, style: "td" },
         { text: item.sku ?? "—", style: "td" },
-        { text: item.barcode ?? "—", style: "barcode" },
+        { text: formatPickListBarcode(item.barcode), style: "barcode" },
         { text: String(item.quantity), style: "qty", alignment: "right" },
       ]),
       [

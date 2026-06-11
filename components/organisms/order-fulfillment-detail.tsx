@@ -467,84 +467,88 @@ export function OrderFulfillmentDetail({
               </div>
             )}
 
-            {/* Ready to Dispatch - hide when package already marked ready */}
-            {!isPos && (stage === "print" || stage === "ready_to_dispatch") && !orderDetail.packageReadyAt && (
+            {/* Ready to Dispatch — optional early package-ready SMS */}
+            {!isPos && (stage === "print" || stage === "ready_to_dispatch") && !orderDetail.packageReadyAt && !orderDetail.packageOnHoldAt && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Ready to Dispatch</h4>
-                {orderDetail.packageOnHoldAt && orderDetail.packageHoldReason ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-muted-foreground text-sm">
-                      On hold: {orderDetail.packageHoldReason.name}
-                    </p>
-                    <Button
-                      variant="outline"
-                      onClick={() => doFulfillmentAction("revert_hold", { action: "revert_hold" })}
-                      disabled={isBusy}
-                    >
-                      {busyKey === "revert_hold" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        "Revert Hold"
-                      )}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    {lookups && (
-                      <>
-                        <select
-                          value={holdReasonId}
-                          onChange={(e) => setHoldReasonId(e.target.value)}
-                          className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="">Put on hold...</option>
-                          {lookups.packageHoldReasons.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                        <Button
-                          variant="outline"
-                          onClick={() =>
-                            doFulfillmentAction("put_on_hold", {
-                              action: "put_on_hold",
-                              holdReasonId,
-                            })
-                          }
-                          disabled={isBusy || !holdReasonId}
-                        >
-                          Put on Hold
-                        </Button>
-                      </>
+                <p className="text-muted-foreground mb-3 text-sm">
+                  Optional: notify the customer early. Dispatch below also marks package ready automatically.
+                </p>
+                <div className="flex gap-2">
+                  {lookups && (
+                    <>
+                      <select
+                        value={holdReasonId}
+                        onChange={(e) => setHoldReasonId(e.target.value)}
+                        className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">Put on hold...</option>
+                        {lookups.packageHoldReasons.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          doFulfillmentAction("put_on_hold", {
+                            action: "put_on_hold",
+                            holdReasonId,
+                          })
+                        }
+                        disabled={isBusy || !holdReasonId}
+                      >
+                        Put on Hold
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    onClick={() => doFulfillmentAction("mark_ready")}
+                    disabled={isBusy}
+                  >
+                    {busyKey === "mark_ready" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      "Package is Ready"
                     )}
-                    <Button
-                      onClick={() => doFulfillmentAction("mark_ready")}
-                      disabled={isBusy}
-                    >
-                      {busyKey === "mark_ready" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        "Package is Ready"
-                      )}
-                    </Button>
-                  </div>
-                )}
+                  </Button>
+                </div>
               </div>
             )}
 
-            {/* Dispatch */}
-            {!isPos && stage === "ready_to_dispatch" && !orderDetail.packageReadyAt && (
+            {orderDetail.packageOnHoldAt && orderDetail.packageHoldReason && (stage === "print" || stage === "ready_to_dispatch") && (
               <div className="rounded-lg border p-4">
-                <h4 className="mb-2 text-sm font-medium">Dispatch</h4>
-                <p className="text-muted-foreground text-sm">
-                  To dispatch you need to mark the package readiness.
-                </p>
+                <h4 className="mb-2 text-sm font-medium">On Hold</h4>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-muted-foreground text-sm">
+                    On hold: {orderDetail.packageHoldReason.name}
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => doFulfillmentAction("revert_hold", { action: "revert_hold" })}
+                    disabled={isBusy}
+                  >
+                    {busyKey === "revert_hold" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      "Revert Hold"
+                    )}
+                  </Button>
+                </div>
               </div>
             )}
-            {!isPos && stage === "ready_to_dispatch" && orderDetail.packageReadyAt && lookups && (
+
+            {/* Dispatch — marks package ready automatically if needed */}
+            {!isPos &&
+              (stage === "print" || stage === "ready_to_dispatch") &&
+              !orderDetail.packageOnHoldAt &&
+              lookups && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Dispatch</h4>
+                <p className="text-muted-foreground mb-3 text-sm">
+                  Marks package ready and dispatches in one step. Customer receives both SMS notifications when enabled.
+                </p>
                 <div className="flex flex-wrap gap-2">
                   <select
                     value={dispatchService}

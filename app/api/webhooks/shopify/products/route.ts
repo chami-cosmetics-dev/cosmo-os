@@ -160,7 +160,9 @@ export async function POST(request: NextRequest) {
         handle: data.handle?.slice(0, 255) ?? null,
         imageUrl,
         tags: data.tags?.slice(0, 1000) ?? null,
-        barcode: variant.barcode?.slice(0, 100) ?? null,
+        ...(variant.barcode?.trim()
+          ? { barcode: variant.barcode.slice(0, 100) }
+          : {}),
         inventoryQuantity: variant.inventory_quantity ?? 0,
       },
     });

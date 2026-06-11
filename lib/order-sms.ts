@@ -1,30 +1,21 @@
 import { prisma } from "@/lib/prisma";
 import { sendSms } from "@/lib/hutch-sms";
 
-export type SmsTrigger =
-  | "order_received"
-  | "package_ready"
-  | "dispatched"
-  | "rider_dispatched"
-  | "delivery_complete";
+export type { SmsContext, SmsTrigger } from "@/lib/order-sms-resolvers";
+export {
+  getDeliveryUrl,
+  resolveCustomerPhone,
+  resolveOrderInvoiceNumber,
+  resolveOrderNumber,
+} from "@/lib/order-sms-resolvers";
 
-export type SmsContext = {
-  orderNumber?: string;
-  orderName?: string;
-  invoiceNumber?: string;
-  customerName?: string;
-  customerPhone?: string;
-  locationName?: string;
-  deliveryUrl?: string;
-  riderName?: string;
-  riderPhone?: string;
-};
+import type { SmsContext, SmsTrigger } from "@/lib/order-sms-resolvers";
 
 export async function sendOrderSms(
   companyId: string,
   orderId: string,
   trigger: SmsTrigger,
-  context: SmsContext
+  context: SmsContext,
 ): Promise<void> {
   const config = await prisma.smsNotificationConfig.findUnique({
     where: { companyId_trigger: { companyId, trigger } },
@@ -35,6 +26,9 @@ export async function sendOrderSms(
     return;
   }
   if (!config.enabled) {
+    console.warn(
+      `[Order SMS] ${trigger} order ${orderId}: skipped — trigger disabled in Settings > SMS Notifications.`,
+    );
     return;
   }
 
@@ -44,7 +38,7 @@ export async function sendOrderSms(
   let message = config.template;
   message = message.replace(/\{orderNumber\}/g, context.orderNumber ?? "");
   message = message.replace(/\{orderName\}/g, context.orderName ?? "");
-  message = message.replace(/\{invoiceNumber\}/g, context.invoiceNumber ?? context.orderNumber ?? "");
+  message = message.replace(/\{invoiceNumber\}/g, context.invoiceNumber ?? "");
   message = message.replace(/\{customerName\}/g, context.customerName ?? "");
   message = message.replace(/\{locationName\}/g, context.locationName ?? "");
   message = message.replace(/\{deliveryUrl\}/g, context.deliveryUrl ?? "");
@@ -54,17 +48,22 @@ export async function sendOrderSms(
   const recipients: string[] = [];
 
   if (trigger === "rider_dispatched") {
+    if (!context.invoiceNumber?.trim()) {
+      console.warn(
+        `[Order SMS] rider_dispatched order ${orderId}: skipped — no ERP invoice number. ` +
+          "Ensure the order is synced to ERPNext (erpnextInvoiceId) before assigning a rider.",
+      );
+      return;
+    }
     if (sendToRider && context.riderPhone?.trim()) {
       recipients.push(context.riderPhone.trim());
     }
-    // Additional recipients receive rider_dispatched too (for testing/monitoring)
     const additional = (config.additionalRecipients as string[]) ?? [];
     recipients.push(...additional.filter((p) => p?.trim()));
   } else {
     if (sendToCustomer && context.customerPhone?.trim()) {
       recipients.push(context.customerPhone.trim());
     }
-    // Additional recipients always receive (for testing/backup, even when sendToCustomer is off)
     const additional = (config.additionalRecipients as string[]) ?? [];
     recipients.push(...additional.filter((p) => p?.trim()));
   }
@@ -76,22 +75,21 @@ export async function sendOrderSms(
       `[Order SMS] ${trigger} order ${orderId}: No recipients. ` +
         (trigger === "rider_dispatched"
           ? "Rider needs a phone number in their profile."
-          : "Order needs customer phone or add additional recipients in SMS settings.")
+          : `Customer phone missing (sendToCustomer=${sendToCustomer}). Add a phone on the order or additional recipients in SMS settings.`),
     );
     return;
   }
+
+  console.info(
+    `[Order SMS] ${trigger} order ${orderId}: sending to ${uniqueRecipients.length} recipient(s)`,
+  );
 
   for (const phone of uniqueRecipients) {
     const result = await sendSms(companyId, phone, message);
     if (!result.success) {
       console.error(`[Order SMS] ${trigger} order ${orderId} to ${phone}: ${result.message}`);
+    } else {
+      console.info(`[Order SMS] ${trigger} order ${orderId} to ${phone}: sent`);
     }
   }
-}
-
-export function getDeliveryUrl(order: { riderDeliveryToken: string | null }): string {
-  if (!order.riderDeliveryToken) return "";
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL ?? "http://localhost:3000";
-  const protocol = base.startsWith("http") ? "" : "https://";
-  return `${protocol}${base}/r/d/${order.riderDeliveryToken}`;
 }
