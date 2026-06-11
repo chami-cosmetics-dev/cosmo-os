@@ -1,0 +1,117 @@
+COSMO-OS / VAULT OS — NPM COMMANDS CHEAT SHEET
+================================================
+
+FIRST-TIME SETUP
+----------------
+npm install
+
+cp .env.vault.example .env.vault
+cp .env.cosmo-dev.example .env.cosmo-dev
+cp .env.cosmo-prod.example .env.cosmo-prod
+(Fill in credentials in each file — never commit these files)
+
+
+SWITCH ENVIRONMENT (copies target → .env)
+-----------------------------------------
+npm run env:use              Interactive menu
+npm run env:use vault        Vault OS
+npm run env:use cosmo-dev    Cosmo OS dev
+npm run env:use cosmo-prod   Cosmo OS prod (migrations only — not daily dev)
+
+
+RUN WEB APP
+-----------
+npm run dev                  Uses current .env
+npm run dev:vault            Vault OS (without switching .env)
+npm run dev:cosmo-dev        Cosmo dev (without switching .env)
+npm run build                Production build
+npm run start                Run built app
+
+
+DATABASE — MIGRATIONS
+---------------------
+npm run db:generate          Regenerate Prisma client
+
+npm run db:migrate           CREATE new migration (cosmo-dev only)
+
+npm run db:deploy            Apply migrations → cosmo-dev (default)
+npm run db:deploy:cosmo-dev  Apply migrations → cosmo-dev
+npm run db:deploy:vault      Apply migrations → vault
+npm run db:deploy:cosmo-prod Apply migrations → prod
+npm run db:deploy:all        Apply to all 3 DBs (prod asks for "yes")
+
+
+DATABASE — CHECK STATUS
+-----------------------
+npm run db:status:cosmo-dev
+npm run db:status:vault
+npm run db:status:cosmo-prod
+
+
+DATABASE — AVOID ON SHARED/PROD
+-------------------------------
+npm run db:push              Local throwaway DB only — NOT shared/prod
+
+
+TESTS & LINT
+------------
+npm test
+npm run test:watch
+npm run lint
+npm run mobile:typecheck
+
+
+DATA SCRIPTS
+------------
+npm run contacts:import
+npm run contacts:backfill:orders
+npm run products:import-statuses
+
+
+MOBILE RIDER APP (second terminal)
+----------------------------------
+cd mobile/rider-app
+npm install
+cp .env.example .env
+npm start
+npm run android
+npm run ios
+
+
+TYPICAL DAILY FLOWS
+-------------------
+
+Vault OS:
+  npm run env:use vault
+  npm run dev
+
+Cosmo dev:
+  npm run env:use cosmo-dev
+  npm run dev
+
+After pulling dev branch:
+  git pull origin dev
+  npm install
+  npm run db:generate
+  npm run db:deploy:cosmo-dev    (or db:deploy:vault for your DB)
+
+After new migration merged:
+  npm run db:deploy:all
+
+Fix failed migration (example):
+  node scripts/with-env.mjs cosmo-dev npx prisma migrate resolve --applied "MIGRATION_NAME"
+  npm run db:deploy:cosmo-dev
+
+
+ENV FILES REFERENCE
+-------------------
+.env.vault       Vault OS DB + Auth0
+.env.cosmo-dev   Cosmo dev DB + Auth0
+.env.cosmo-prod  Cosmo prod DB + Auth0 (lead/CI only)
+.env             Active copy (set by npm run env:use)
+
+Rules:
+  - One prisma/migrations folder for all 3 databases
+  - After schema change: deploy to ALL databases
+  - Never db:push on shared or production databases
+  - Prod credentials stay in .env.cosmo-prod only

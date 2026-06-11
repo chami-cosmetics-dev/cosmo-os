@@ -2,10 +2,37 @@
 
 ## Database setup
 
-This app uses Prisma with PostgreSQL and expects two database URLs:
+This app uses Prisma with PostgreSQL and expects two database URLs per environment:
 
 - `DATABASE_URL`: use the Neon pooled connection for the running app
-- `DIRECT_URL`: use the Neon direct connection for Prisma schema operations like `db:push`, `db:migrate`, and restores
+- `DIRECT_URL`: use the Neon direct connection for Prisma schema operations like `db:deploy` and `db:migrate`
+
+The same codebase runs **Vault OS** and **Cosmo OS** against **three separate Neon databases**. Use one env file per target:
+
+| Target | Env file | Use for |
+|--------|----------|---------|
+| Vault OS | `.env.vault` | Supplement Vault DB + Auth0 |
+| Cosmo OS dev | `.env.cosmo-dev` | Team dev DB + Auth0 |
+| Cosmo OS prod | `.env.cosmo-prod` | Production DB + Auth0 (migrations only) |
+
+Copy the matching `.example` file for each target and fill in credentials from the team.
+
+```bash
+cp .env.vault.example .env.vault
+cp .env.cosmo-dev.example .env.cosmo-dev
+npm run env:use vault          # or cosmo-dev — copies target → .env
+npm run db:generate
+npm run db:deploy:cosmo-dev    # or db:deploy:vault
+npm run dev
+```
+
+After a new migration is merged, apply it to **all** databases:
+
+```bash
+npm run db:deploy:all
+```
+
+See [`.env.example`](/.env.example) for the full command reference. **Do not use `db:push` on shared or production databases.**
 
 Neon mapping:
 
@@ -19,14 +46,6 @@ Why this split matters:
 - the pooled Neon host works best for the app at runtime
 - the direct Neon host is more reliable for Prisma migrations and restore scripts
 - [`lib/prisma.ts`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/lib/prisma.ts) automatically adds Neon-friendly pooled settings at runtime, including `pgbouncer=true`, `connect_timeout=15`, and removing `channel_binding=require` from pooled URLs
-
-Local setup:
-
-1. Copy [`.env.example`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/.env.example) to `.env`.
-2. Fill in your real Neon password and host values.
-3. Run `npm run db:generate`.
-4. If this is a fresh database, run `npm run db:push`.
-5. Start the app with `npm run dev`.
 
 If you are moving data from Supabase into Neon, use [`scripts/migrate-supabase-to-neon.sh`](/Users/chamigunawardane/Documents/Shopify/cosmo-os/scripts/migrate-supabase-to-neon.sh). It already restores into `DIRECT_URL`.
 
