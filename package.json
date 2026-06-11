@@ -26,7 +26,8 @@
     "dev:cosmo-dev": "node scripts/with-env.mjs cosmo-dev npm run dev",
     "contacts:import": "node scripts/import-contacts.cjs",
     "contacts:backfill:orders": "node scripts/backfill-contacts-from-orders.cjs",
-    "products:import-statuses": "node scripts/import-product-item-statuses.cjs"
+    "products:import-statuses": "node scripts/import-product-item-statuses.cjs",
+    "mcp:erpnext": "node scripts/mcp-erpnext.mjs"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.15.0",
@@ -54,6 +55,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

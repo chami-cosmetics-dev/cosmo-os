@@ -269,8 +269,18 @@ export function OrderFulfillmentDetail({
     <Dialog open={!!orderId} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
-            Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}
+          <DialogTitle className="flex items-baseline gap-2 flex-wrap">
+            <span>Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}</span>
+            {(() => {
+              const coupon = Array.isArray(orderDetail?.discountCodes)
+                ? ((orderDetail.discountCodes as Array<{ code?: string }>)
+                    .map((d) => d?.code?.trim())
+                    .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
+                    .join(", ") || null)
+                : null;
+              if (!coupon) return null;
+              return <span className="text-sm font-normal text-muted-foreground">{coupon}</span>;
+            })()}
           </DialogTitle>
           <DialogDescription>
             {orderDetail && formatDate(orderDetail.createdAt)}{orderDetail?.merchantCouponCode ? ` · Coupon: ${orderDetail.merchantCouponCode}` : ""}
@@ -762,7 +772,10 @@ export function OrderFulfillmentDetail({
                   </div>
                   {(() => {
                     const merCoupon = Array.isArray(orderDetail.discountCodes)
-                      ? ((orderDetail.discountCodes as Array<{ code?: string }>)[0]?.code?.trim() || null)
+                      ? ((orderDetail.discountCodes as Array<{ code?: string }>)
+                          .map((d) => d?.code?.trim())
+                          .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
+                          .join(", ") || null)
                       : null;
                     const merchant = orderDetail.assignedMerchant?.name ?? orderDetail.assignedMerchant?.email ?? null;
                     const display = merCoupon ?? merchant;

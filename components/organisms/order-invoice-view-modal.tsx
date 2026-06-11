@@ -188,10 +188,16 @@ function userName(u: UserRef): string {
 
 function getMerchantCouponCode(discountCodes: unknown): string | null {
   if (!Array.isArray(discountCodes) || discountCodes.length === 0) return null;
-  const first = discountCodes[0] as Record<string, unknown> | null;
-  if (!first || typeof first !== "object") return null;
-  const code = first.code;
-  return typeof code === "string" && code.trim() ? code.trim() : null;
+  const codes = discountCodes
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const code = (entry as Record<string, unknown>).code;
+      if (typeof code !== "string" || !code.trim()) return null;
+      const trimmed = code.trim();
+      return trimmed.toLowerCase() === "shopify" ? null : trimmed;
+    })
+    .filter(Boolean) as string[];
+  return codes.length > 0 ? codes.join(", ") : null;
 }
 
 function formatDateOnly(value?: string | null): string {
@@ -453,11 +459,16 @@ export function OrderInvoiceViewModal({
     <Dialog open={!!orderId} onOpenChange={(open) => { if (!open) { setShowJsonModal(false); onClose(); } }}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
-            Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}
+          <DialogTitle className="flex items-baseline gap-2 flex-wrap">
+            <span>Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}</span>
+            {(() => {
+              const coupon = getMerchantCouponCode(orderDetail?.discountCodes);
+              if (!coupon) return null;
+              return <span className="text-sm font-normal text-muted-foreground">{coupon}</span>;
+            })()}
           </DialogTitle>
           <DialogDescription>
-            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}{orderDetail?.merchantCouponCode ? ` · Coupon: ${orderDetail.merchantCouponCode}` : ""}
+            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (

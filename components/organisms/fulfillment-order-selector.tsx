@@ -167,7 +167,8 @@ export function FulfillmentOrderSelector({
     const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
     if (merchant) return merchant;
     const codes = Array.isArray(order.discountCodes) ? order.discountCodes as Array<{ code?: string }> : [];
-    return codes[0]?.code?.trim() || "No merchant";
+    const joined = codes.map((d) => d?.code?.trim()).filter((c): c is string => !!c && c.toLowerCase() !== "shopify").join(", ");
+    return joined || "No merchant";
   }
 
   if (worksheetMode) {
