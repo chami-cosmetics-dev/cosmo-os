@@ -14,6 +14,7 @@ import {
   Settings,
   ShoppingCart,
   Sticker,
+  Store,
   Tags,
   Users,
   UserCircle,
@@ -90,6 +91,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewAcademy =
     hasSidebarPermission("academy.learn") ||
     hasSidebarPermission("academy.manage");
+  const canViewOutletReviews =
+    hasSidebarPermission("outlets.read.all") ||
+    hasSidebarPermission("outlets.read.assigned");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -246,6 +250,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                 label="Merchant Reviews"
                 isActive={pathname === "/dashboard/contacts/reviews"}
               />
+              {canViewOutletReviews && (
+                <NavItem
+                  href="/dashboard/contacts/outlet-reviews"
+                  icon={Store}
+                  label="Outlet Reviews"
+                  isActive={pathname === "/dashboard/contacts/outlet-reviews"}
+                />
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}
