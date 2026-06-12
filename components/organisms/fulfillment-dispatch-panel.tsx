@@ -6,6 +6,11 @@ import { Loader2, Truck } from "lucide-react";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
+import {
+  DISPATCH_CUSTOMER_PICKUP,
+  dispatchSelectionToApiBody,
+  parseDispatchService,
+} from "@/lib/order-dispatch";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
 type OrderPackageStatus = {
@@ -138,11 +143,10 @@ export function FulfillmentDispatchPanel({
   }
 
   async function handleDispatch() {
-    if (!orderId || !lookups || !selectedDispatchService?.id) return;
+    if (!orderId || !lookups || !selectedDispatchService) return;
     await doAction("dispatch", {
       action: "dispatch",
-      riderId: selectedDispatchService.type === "rider" ? selectedDispatchService.id : undefined,
-      courierServiceId: selectedDispatchService.type === "courier" ? selectedDispatchService.id : undefined,
+      ...dispatchSelectionToApiBody(selectedDispatchService),
     });
   }
 
@@ -168,16 +172,7 @@ export function FulfillmentDispatchPanel({
 
   const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
-  const selectedDispatchService = dispatchService
-    ? {
-        type: dispatchService.startsWith("rider:")
-          ? "rider"
-          : dispatchService.startsWith("courier:")
-            ? "courier"
-            : null,
-        id: dispatchService.split(":").slice(1).join(":"),
-      }
-    : null;
+  const selectedDispatchService = parseDispatchService(dispatchService);
 
   return (
     <div className="space-y-4">
@@ -293,7 +288,8 @@ export function FulfillmentDispatchPanel({
                     disabled={!orderId || isBusy}
                     className="h-9 w-60 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
                   >
-                    <option value="">Select rider or courier</option>
+                    <option value="">Select rider, courier, or pickup</option>
+                    <option value={DISPATCH_CUSTOMER_PICKUP}>Customer pickup (in-store)</option>
                     {lookups.riders.length > 0 && (
                       <optgroup label="Riders">
                         {lookups.riders.map((rider) => (
@@ -327,7 +323,7 @@ export function FulfillmentDispatchPanel({
               ) : perms.canDispatch ? (
                 <Button
                   onClick={() => void handleDispatch()}
-                  disabled={!orderId || isBusy || !selectedDispatchService?.id}
+                  disabled={!orderId || isBusy || !selectedDispatchService}
                   className="gap-2"
                 >
                   {busyKey === "dispatch"

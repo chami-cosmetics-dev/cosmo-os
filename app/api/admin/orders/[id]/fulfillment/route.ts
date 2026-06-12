@@ -58,6 +58,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     action: z.literal("dispatch"),
     riderId: cuidSchema.optional(),
     courierServiceId: cuidSchema.optional(),
+    dispatchToCustomer: z.boolean().optional(),
   }),
   z.object({
     action: z.literal("mark_invoice_complete"),
@@ -660,13 +661,15 @@ export async function PATCH(
       }
       if (data.riderId && data.courierServiceId) {
         return NextResponse.json(
-          { error: "Select either rider or courier service, not both" },
+          { error: "Select either rider, courier, or customer pickup — not multiple" },
           { status: 400 }
         );
       }
-      if (!data.riderId && !data.courierServiceId) {
+      const dispatchToCustomer = data.dispatchToCustomer === true;
+      const dispatchModes = [Boolean(data.riderId), Boolean(data.courierServiceId), dispatchToCustomer].filter(Boolean).length;
+      if (dispatchModes !== 1) {
         return NextResponse.json(
-          { error: "Select either rider or courier service" },
+          { error: "Select rider, courier service, or customer pickup" },
           { status: 400 }
         );
       }
@@ -799,12 +802,13 @@ export async function PATCH(
           fulfillmentStage: "dispatched",
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
-          dispatchedByRiderId: data.riderId ?? null,
-          dispatchedByCourierServiceId: data.courierServiceId ?? null,
+          dispatchedByRiderId: dispatchToCustomer ? null : (data.riderId ?? null),
+          dispatchedByCourierServiceId: dispatchToCustomer ? null : (data.courierServiceId ?? null),
+          dispatchedToCustomer: dispatchToCustomer,
           deliveryOutcome: "pending",
           deliveryFailedReason: null,
           lastRiderUpdateAt: data.riderId ? now : null,
-          riderDeliveryToken,
+          riderDeliveryToken: dispatchToCustomer ? null : riderDeliveryToken,
         },
         include: {
           companyLocation: true,
@@ -877,11 +881,20 @@ export async function PATCH(
         actorUserId: auth.context!.user!.id,
         orderId: order.id,
         summary: needsMarkReady
-          ? `Dispatched order ${orderNum} (auto marked package ready)`
-          : `Dispatched order ${orderNum}`,
+          ? dispatchToCustomer
+            ? `Dispatched order ${orderNum} to customer for pickup (auto marked package ready)`
+            : `Dispatched order ${orderNum} (auto marked package ready)`
+          : dispatchToCustomer
+            ? `Dispatched order ${orderNum} to customer for pickup`
+            : `Dispatched order ${orderNum}`,
         beforeStage: order.fulfillmentStage,
         afterStage: "dispatched",
-        metadata: { action: data.action, riderId: data.riderId ?? null, courierServiceId: data.courierServiceId ?? null },
+        metadata: {
+          action: data.action,
+          riderId: data.riderId ?? null,
+          courierServiceId: data.courierServiceId ?? null,
+          dispatchToCustomer,
+        },
       });
       return NextResponse.json({ success: true });
     }
@@ -1042,6 +1055,7 @@ export async function PATCH(
         updateData.dispatchedById = null;
         updateData.dispatchedByRiderId = null;
         updateData.dispatchedByCourierServiceId = null;
+        updateData.dispatchedToCustomer = false;
         updateData.riderDeliveryToken = null;
       }
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("delivery_complete")) {

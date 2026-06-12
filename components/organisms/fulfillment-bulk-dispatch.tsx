@@ -15,6 +15,11 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import {
+  DISPATCH_CUSTOMER_PICKUP,
+  dispatchSelectionToApiBody,
+  parseDispatchService,
+} from "@/lib/order-dispatch";
 import { notify } from "@/lib/notify";
 
 type Lookups = {
@@ -129,12 +134,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
     return () => { cancelled = true; clearTimeout(t); };
   }, [comboSearch]);
 
-  const selectedDispatch = dispatchService
-    ? {
-        type: dispatchService.startsWith("rider:") ? ("rider" as const) : ("courier" as const),
-        id: dispatchService.split(":").slice(1).join(":"),
-      }
-    : null;
+  const selectedDispatch = parseDispatchService(dispatchService);
 
   function orderLabel(order: ReadyOrder) {
     return order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id;
@@ -188,8 +188,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderIds: selectedOrders.map((o) => o.id),
-          riderId: selectedDispatch.type === "rider" ? selectedDispatch.id : undefined,
-          courierServiceId: selectedDispatch.type === "courier" ? selectedDispatch.id : undefined,
+          ...dispatchSelectionToApiBody(selectedDispatch),
         }),
       });
       const data = (await res.json()) as { results?: DispatchResult[]; error?: string };
@@ -227,7 +226,8 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
             disabled={dispatching}
             className="h-9 w-full rounded-md border border-border/70 bg-background/90 px-3 text-sm"
           >
-            <option value="">Select rider or courier…</option>
+            <option value="">Select rider, courier, or pickup…</option>
+            <option value={DISPATCH_CUSTOMER_PICKUP}>Customer pickup (in-store)</option>
             {lookups && lookups.riders.length > 0 && (
               <optgroup label="Riders">
                 {lookups.riders.map((r) => (

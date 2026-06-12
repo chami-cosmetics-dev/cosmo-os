@@ -34,8 +34,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { notify } from "@/lib/notify";
+import { getOrderDispatchLabel } from "@/lib/order-dispatch";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { notify } from "@/lib/notify";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -97,6 +98,7 @@ type OrderDetail = {
   dispatchedBy?: UserRef;
   dispatchedByRider?: { id: string; name: string | null; mobile: string | null } | null;
   dispatchedByCourierService?: { id: string; name: string } | null;
+  dispatchedToCustomer?: boolean | null;
   invoiceCompleteAt?: string | null;
   invoiceCompleteBy?: UserRef;
   deliveryCompleteAt?: string | null;
@@ -324,25 +326,20 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
 
   // 5. Dispatched
   const dispatched = !!orderDetail.dispatchedAt;
-  const riderOrCourier = orderDetail.dispatchedByRider
-    ? orderDetail.dispatchedByRider.name ?? orderDetail.dispatchedByRider.mobile ?? "Rider"
-    : orderDetail.dispatchedByCourierService?.name ?? "-";
+  const dispatchTarget = getOrderDispatchLabel(orderDetail);
   items.push({
     id: "dispatched",
     label: "Dispatched",
     date: orderDetail.dispatchedAt ?? null,
     who: dispatched
-      ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${riderOrCourier}`
+      ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${dispatchTarget}`
       : "-",
     done: dispatched,
     icon: <Truck className="size-4" />,
   });
 
   // 6. Delivered
-  const courierOrRider =
-    orderDetail.dispatchedByCourierService?.name ??
-    orderDetail.dispatchedByRider?.name ??
-    null;
+  const courierOrRider = getOrderDispatchLabel(orderDetail);
   const deliveredByUser = orderDetail.deliveryCompleteBy
     ? userName(orderDetail.deliveryCompleteBy)
     : null;

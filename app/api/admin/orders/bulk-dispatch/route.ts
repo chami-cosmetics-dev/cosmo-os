@@ -13,6 +13,7 @@ const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
   riderId: cuidSchema.optional(),
   courierServiceId: cuidSchema.optional(),
+  dispatchToCustomer: z.boolean().optional(),
 });
 
 export const dynamic = "force-dynamic";
@@ -34,10 +35,14 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
 
-  const { orderIds, riderId, courierServiceId } = parsed.data;
+  const { orderIds, riderId, courierServiceId, dispatchToCustomer: dispatchToCustomerRaw } = parsed.data;
+  const dispatchToCustomer = dispatchToCustomerRaw === true;
 
-  if (riderId && courierServiceId) return NextResponse.json({ error: "Select either rider or courier, not both" }, { status: 400 });
-  if (!riderId && !courierServiceId) return NextResponse.json({ error: "Select either rider or courier" }, { status: 400 });
+  if (riderId && courierServiceId) return NextResponse.json({ error: "Select either rider, courier, or customer pickup" }, { status: 400 });
+  const dispatchModes = [Boolean(riderId), Boolean(courierServiceId), dispatchToCustomer].filter(Boolean).length;
+  if (dispatchModes !== 1) {
+    return NextResponse.json({ error: "Select rider, courier service, or customer pickup" }, { status: 400 });
+  }
 
   // Validate rider / courier once up front
   let riderMobile: string | null = null;
@@ -113,12 +118,13 @@ export async function POST(request: NextRequest) {
           fulfillmentStage: "dispatched",
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
-          dispatchedByRiderId: riderId ?? null,
-          dispatchedByCourierServiceId: courierServiceId ?? null,
+          dispatchedByRiderId: dispatchToCustomer ? null : (riderId ?? null),
+          dispatchedByCourierServiceId: dispatchToCustomer ? null : (courierServiceId ?? null),
+          dispatchedToCustomer: dispatchToCustomer,
           deliveryOutcome: "pending",
           deliveryFailedReason: null,
           lastRiderUpdateAt: riderId ? now : null,
-          riderDeliveryToken,
+          riderDeliveryToken: dispatchToCustomer ? null : riderDeliveryToken,
         },
       });
 
@@ -206,7 +212,13 @@ export async function POST(request: NextRequest) {
         summary: `Bulk dispatched order ${orderNum}`,
         beforeData: { fulfillmentStage: order.fulfillmentStage },
         afterData: { fulfillmentStage: "dispatched" },
-        metadata: { action: "dispatch", riderId: riderId ?? null, courierServiceId: courierServiceId ?? null, bulk: true },
+        metadata: {
+          action: "dispatch",
+          riderId: riderId ?? null,
+          courierServiceId: courierServiceId ?? null,
+          dispatchToCustomer,
+          bulk: true,
+        },
       });
 
       results.push({ orderId, ref, success: true });
