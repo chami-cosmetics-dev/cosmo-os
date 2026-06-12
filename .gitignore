@@ -32,6 +32,8 @@ yarn-error.log*
 .env.cosmo-dev
 .env.cosmo-prod
 
+
+.mcp.json
 # vercel
 .vercel
 
