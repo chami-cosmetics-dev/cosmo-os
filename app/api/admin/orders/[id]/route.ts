@@ -35,6 +35,7 @@ const orderSelect = {
   packageReadyAt: true,
   packageOnHoldAt: true,
   dispatchedAt: true,
+  dispatchedToCustomer: true,
   invoiceCompleteAt: true,
   deliveryCompleteAt: true,
   lastPrintedAt: true,
@@ -267,6 +268,7 @@ export async function GET(
       : null,
     dispatchedByRider: details.dispatchedByRider,
     dispatchedByCourierService: details.dispatchedByCourierService,
+    dispatchedToCustomer: details.dispatchedToCustomer,
     invoiceCompleteAt: details.invoiceCompleteAt?.toISOString() ?? null,
     invoiceCompleteBy: details.invoiceCompleteBy
       ? {

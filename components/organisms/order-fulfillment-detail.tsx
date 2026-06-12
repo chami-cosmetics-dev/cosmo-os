@@ -20,6 +20,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import {
+  DISPATCH_CUSTOMER_PICKUP,
+  dispatchSelectionToApiBody,
+  parseDispatchService,
+} from "@/lib/order-dispatch";
 
 const STAGES = [
   "order_received",
@@ -185,16 +190,7 @@ export function OrderFulfillmentDetail({
   const isPos = orderDetail?.sourceName === "pos";
   const isErpOrder = orderDetail?.sourceName === "erpnext" || orderDetail?.sourceName === "erpnext-pos";
   const isComplete = stage === "delivery_complete";
-  const selectedDispatchService = dispatchService
-    ? {
-        type: dispatchService.startsWith("rider:")
-          ? "rider"
-          : dispatchService.startsWith("courier:")
-            ? "courier"
-            : null,
-        id: dispatchService.split(":").slice(1).join(":"),
-      }
-    : null;
+  const selectedDispatchService = parseDispatchService(dispatchService);
 
   useEffect(() => {
     if (!orderId) return;
@@ -547,7 +543,7 @@ export function OrderFulfillmentDetail({
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Dispatch</h4>
                 <p className="text-muted-foreground mb-3 text-sm">
-                  Marks package ready and dispatches in one step. Customer receives both SMS notifications when enabled.
+                  Marks package ready and dispatches in one step. Use customer pickup when the buyer collects in store.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <select
@@ -555,7 +551,8 @@ export function OrderFulfillmentDetail({
                     onChange={(e) => setDispatchService(e.target.value)}
                     className="h-9 w-[240px] rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    <option value="">Select rider or courier</option>
+                    <option value="">Select rider, courier, or pickup</option>
+                    <option value={DISPATCH_CUSTOMER_PICKUP}>Customer pickup (in-store)</option>
                     {lookups.riders.length > 0 && (
                       <optgroup label="Riders">
                         {lookups.riders.map((r) => (
@@ -579,11 +576,10 @@ export function OrderFulfillmentDetail({
                     onClick={() =>
                       doFulfillmentAction("dispatch", {
                         action: "dispatch",
-                        riderId: selectedDispatchService?.type === "rider" ? selectedDispatchService.id : undefined,
-                        courierServiceId: selectedDispatchService?.type === "courier" ? selectedDispatchService.id : undefined,
+                        ...dispatchSelectionToApiBody(selectedDispatchService!),
                       })
                     }
-                    disabled={isBusy || !selectedDispatchService?.id}
+                    disabled={isBusy || !selectedDispatchService}
                   >
                     {busyKey === "dispatch" ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
                     Dispatch

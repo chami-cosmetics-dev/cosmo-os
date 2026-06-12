@@ -28,7 +28,7 @@ type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
 type DispatchGroup = {
   dispatcherId: string;
   dispatcherName: string;
-  dispatchType: "rider" | "courier";
+  dispatchType: "rider" | "courier" | "customer";
   orders: Array<{
     orderId: string;
     reference: string;
@@ -68,6 +68,7 @@ async function fetchDispatchGroups(
       OR: [
         { dispatchedByRiderId: { not: null } },
         { dispatchedByCourierServiceId: { not: null } },
+        { dispatchedToCustomer: true },
       ],
     },
     orderBy: { dispatchedAt: "asc" },
@@ -85,6 +86,7 @@ async function fetchDispatchGroups(
       paymentGatewayNames: true,
       createdAt: true,
       dispatchedAt: true,
+      dispatchedToCustomer: true,
       deliveryCompleteAt: true,
       deliveryOutcome: true,
       dispatchedByRider: { select: { id: true, name: true } },
@@ -97,14 +99,23 @@ async function fetchDispatchGroups(
   const groupMap = new Map<string, DispatchGroup>();
 
   for (const order of orders) {
-    const isRider = !!order.dispatchedByRider;
-    const dispatcherId = isRider
-      ? order.dispatchedByRider!.id
-      : order.dispatchedByCourierService!.id;
-    const dispatcherName = isRider
-      ? (order.dispatchedByRider!.name ?? "Unknown Rider")
-      : (order.dispatchedByCourierService!.name ?? "Unknown Courier");
-    const dispatchType: "rider" | "courier" = isRider ? "rider" : "courier";
+    const isCustomerPickup = order.dispatchedToCustomer;
+    const isRider = !isCustomerPickup && !!order.dispatchedByRider;
+    const dispatcherId = isCustomerPickup
+      ? "customer-pickup"
+      : isRider
+        ? order.dispatchedByRider!.id
+        : order.dispatchedByCourierService!.id;
+    const dispatcherName = isCustomerPickup
+      ? "Customer pickup"
+      : isRider
+        ? (order.dispatchedByRider!.name ?? "Unknown Rider")
+        : (order.dispatchedByCourierService!.name ?? "Unknown Courier");
+    const dispatchType: "rider" | "courier" | "customer" = isCustomerPickup
+      ? "customer"
+      : isRider
+        ? "rider"
+        : "courier";
 
     if (!groupMap.has(dispatcherId)) {
       groupMap.set(dispatcherId, { dispatcherId, dispatcherName, dispatchType, orders: [] });
