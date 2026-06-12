@@ -1,8 +1,7 @@
 import type { Order, CompanyLocation, ErpnextInstance } from "@prisma/client";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import { prisma } from "@/lib/prisma";
-import { buildPhoneLookupVariants, canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
-import { LIMITS } from "@/lib/validation";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 
 export type LocationWithErpInstance = CompanyLocation & {
   erpnextInstance: ErpnextInstance | null;
@@ -172,83 +171,6 @@ async function erpnextGet<T>(cfg: ErpConfig, path: string): Promise<T | null> {
   return json.data;
 }
 
-async function erpnextSetCustomerField(
-  cfg: ErpConfig,
-  customerId: string,
-  fieldname: string,
-  value: string,
-): Promise<boolean> {
-  try {
-    const form = new URLSearchParams({
-      doctype: "Customer",
-      name: customerId,
-      fieldname,
-      value,
-    });
-    const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.set_value`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
-      },
-      body: form.toString(),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function syncExistingErpCustomer(
-  cfg: ErpConfig,
-  existing: { name: string; customer_name?: string | null },
-  displayName: string,
-  canonicalMobile: string | null,
-): Promise<string> {
-  if (existing.customer_name && existing.customer_name !== displayName) {
-    const ok = await erpnextSetCustomerField(cfg, existing.name, "customer_name", displayName);
-    if (ok) {
-      console.log(`[ERPNext] Updated customer_name "${existing.customer_name}" → "${displayName}"`);
-    } else {
-      console.warn(`[ERPNext] Could not update customer_name for "${existing.name}"`);
-    }
-  }
-
-  if (canonicalMobile) {
-    const ok = await erpnextSetCustomerField(cfg, existing.name, "mobile_no", canonicalMobile);
-    if (!ok) {
-      console.warn(`[ERPNext] Could not update mobile_no for "${existing.name}"`);
-    }
-  }
-
-  return existing.name;
-}
-
-async function findErpCustomerByPhone(
-  cfg: ErpConfig,
-  phone: string,
-): Promise<{ name: string; customer_name: string } | null> {
-  const phoneVariants = buildPhoneLookupVariants(phone.trim()).slice(0, 20).map((v) => v.slice(0, LIMITS.mobile.max));
-  if (phoneVariants.length === 0) return null;
-
-  const phoneFilter = encodeURIComponent(JSON.stringify([["mobile_no", "in", phoneVariants]]));
-  const byMobile = await erpnextGet<Array<{ name: string; customer_name: string }>>(
-    cfg,
-    `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name", "customer_name"]))}&limit=1`,
-  );
-  if (byMobile && byMobile.length > 0) return byMobile[0];
-
-  const phoneId = canonicalPhoneForErpCustomerId(phone);
-  if (!phoneId) return null;
-
-  const byName = await erpnextGet<{ name: string; customer_name?: string }>(
-    cfg,
-    `/api/resource/Customer/${encodeURIComponent(phoneId)}`,
-  );
-  if (!byName) return null;
-  return { name: byName.name, customer_name: byName.customer_name ?? byName.name };
-}
-
 async function ensureCustomer(
   cfg: ErpConfig,
   customerName: string,
@@ -256,53 +178,77 @@ async function ensureCustomer(
   phone: string | null,
   erpnextCompany: string,
 ): Promise<string> {
-  const displayName = customerName.trim() || "Guest";
-  const canonicalMobile = phone ? canonicalPhoneForErpCustomerId(phone) : null;
+  // 1. Exact name match
+  const encoded = encodeURIComponent(customerName);
+  const byName = await erpnextGet<{ name: string }>(cfg, `/api/resource/Customer/${encoded}`);
+  if (byName) return byName.name;
 
-  // 1. Phone is primary — same name can map to different customers per number
-  if (phone?.trim()) {
-    const existing = await findErpCustomerByPhone(cfg, phone);
-    if (existing) {
-      console.log(`[ERPNext] Found existing customer by phone → "${existing.name}" (display: "${displayName}")`);
-      return syncExistingErpCustomer(cfg, existing, displayName, canonicalMobile);
+  // 2. Phone match — prevents duplicates when name or format is slightly different
+  if (phone) {
+    const phoneVariants = buildPhoneLookupVariants(phone.trim()).slice(0, 20).map((v) => v.slice(0, 20));
+    if (phoneVariants.length > 0) {
+      const phoneFilter = encodeURIComponent(JSON.stringify([["mobile_no", "in", phoneVariants]]));
+      const byPhone = await erpnextGet<Array<{ name: string; customer_name: string }>>(
+        cfg,
+        `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name", "customer_name"]))}&limit=1`,
+      );
+      if (byPhone && byPhone.length > 0) {
+        const existing = byPhone[0];
+        console.log(`[ERPNext] Found existing customer by phone → "${existing.name}" (incoming: "${customerName}")`);
+
+        // Update display name if it differs from what Shopify sent
+        if (existing.customer_name && existing.customer_name !== customerName) {
+          try {
+            const form = new URLSearchParams({
+              doctype: "Customer",
+              name: existing.name,
+              fieldname: "customer_name",
+              value: customerName,
+            });
+            const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.set_value`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
+              },
+              body: form.toString(),
+            });
+            if (res.ok) {
+              console.log(`[ERPNext] Updated customer_name "${existing.customer_name}" → "${customerName}"`);
+            } else {
+              console.warn(`[ERPNext] Could not update customer_name for "${existing.name}": ${res.status}`);
+            }
+          } catch (err) {
+            console.warn(`[ERPNext] Error updating customer_name for "${existing.name}":`, err instanceof Error ? err.message.slice(0, 100) : String(err));
+          }
+        }
+
+        return existing.name;
+      }
     }
   }
 
-  // 2. No phone on order — fall back to legacy name match (guest / missing contact)
-  if (!phone?.trim()) {
-    const encoded = encodeURIComponent(displayName);
-    const byName = await erpnextGet<{ name: string }>(cfg, `/api/resource/Customer/${encoded}`);
-    if (byName) return byName.name;
-  }
-
-  // 3. Create — use canonical phone as ERP document name when available
-  const erpCustomerId = canonicalMobile ?? displayName;
+  // 3. Create new customer
   const res = await fetch(`${cfg.baseUrl}/api/resource/Customer`, {
     method: "POST",
     headers: authHeaders(cfg),
     body: JSON.stringify({
       doctype: "Customer",
-      ...(canonicalMobile ? { name: canonicalMobile } : {}),
-      customer_name: displayName,
+      customer_name: customerName,
       customer_type: "Individual",
       customer_group: "Individual",
       territory: "All Territories",
       default_company: erpnextCompany,
       custom_total_purchasing_value: 0,
       ...(email ? { email_id: email } : {}),
-      ...(canonicalMobile ? { mobile_no: canonicalMobile } : {}),
+      ...(phone ? { mobile_no: phone.slice(0, 20) } : {}),
     }),
   });
 
+  // 409 = customer already exists (race condition or case mismatch) — safe to continue
   if (res.status === 409) {
-    if (phone?.trim()) {
-      const raced = await findErpCustomerByPhone(cfg, phone);
-      if (raced) {
-        return syncExistingErpCustomer(cfg, raced, displayName, canonicalMobile);
-      }
-    }
-    console.log(`[ERPNext] Customer "${erpCustomerId}" already exists — skipping create`);
-    return erpCustomerId;
+    console.log(`[ERPNext] Customer "${customerName}" already exists — skipping create`);
+    return customerName;
   }
 
   if (!res.ok) {
@@ -310,7 +256,7 @@ async function ensureCustomer(
     throw new Error(`ERPNext POST /api/resource/Customer [${res.status}]: ${text.slice(0, 500)}`);
   }
 
-  return erpCustomerId;
+  return customerName;
 }
 
 async function createPrepaidPaymentEntry(
@@ -672,11 +618,7 @@ export async function syncOrderToERPNext(
   const customerEmail =
     shopifyData.contact_email || shopifyData.email || shopifyData.customer?.email || null;
   const customerPhone =
-    shopifyData.phone ??
-    shopifyData.billing_address?.phone ??
-    shopifyData.shipping_address?.phone ??
-    shopifyData.customer?.phone ??
-    null;
+    shopifyData.billing_address?.phone || shopifyData.customer?.phone || null;
 
   const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
 
@@ -745,8 +687,6 @@ export async function syncOrderToERPNext(
     docstatus: 1,
     items: siItems,
     custom_merchant_coupon_code: shopifyCouponCode,
-    ...(customerEmail ? { contact_email: customerEmail } : {}),
-    ...(customerPhone ? { contact_mobile: customerPhone.trim().slice(0, LIMITS.mobile.max) } : {}),
     // Payment type mapped from Shopify gateway names
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
     // Address: prefer linked Address documents (ERPNext-native); fall back to raw HTML text
@@ -938,8 +878,6 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     docstatus: 1,
     items: siItems,
     custom_merchant_coupon_code: shopifyCouponCode,
-    ...(customerEmail ? { contact_email: customerEmail } : {}),
-    ...(customerPhone ? { contact_mobile: customerPhone.trim().slice(0, LIMITS.mobile.max) } : {}),
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
     ...(billingAddressName ? { customer_address: billingAddressName } : addrHtml ? { address_display: addrHtml } : {}),
     ...(shippingAddressName ? { shipping_address_name: shippingAddressName } : addrHtml ? { shipping_address: addrHtml } : {}),

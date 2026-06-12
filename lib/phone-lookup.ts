@@ -24,18 +24,6 @@ export function buildPhoneLookupVariants(raw: string): string[] {
   return [...out].filter((s) => s.length > 0 && s.length <= LIMITS.mobile.max);
 }
 
-/** Stable ERP Customer document `name` from a phone number (Sri Lanka–aware). */
-export function canonicalPhoneForErpCustomerId(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length === 9) return `0${digits}`.slice(0, LIMITS.mobile.max);
-  if (digits.length === 10 && digits.startsWith("0")) return digits.slice(0, LIMITS.mobile.max);
-  if (digits.length === 11 && digits.startsWith("94")) return `0${digits.slice(2)}`.slice(0, LIMITS.mobile.max);
-  if (digits.length >= 9) return digits.slice(0, LIMITS.mobile.max);
-  return null;
-}
-
 export function extractAddressFromShippingJson(addr: unknown): {
   address1: string;
   city: string;
