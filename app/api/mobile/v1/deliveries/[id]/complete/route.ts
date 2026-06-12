@@ -5,6 +5,7 @@ import { findRiderTaskById } from "@/lib/mobile/orders";
 import { riderDeliveryCompleteSchema, mobileRouteIdSchema } from "@/lib/mobile/validation";
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
+import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 
 export async function POST(
   request: NextRequest,
@@ -86,7 +87,7 @@ export async function POST(
 
   void sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
     orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
-    customerPhone: updated.customerPhone ?? undefined,
+    customerPhone: resolveCustomerPhone(updated),
     locationName: updated.companyLocation?.name ?? undefined,
   }).catch((err) => console.error("[Mobile delivery] delivery_complete SMS failed:", err));
 
