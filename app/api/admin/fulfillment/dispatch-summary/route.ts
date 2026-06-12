@@ -313,7 +313,12 @@ export async function POST(request: NextRequest) {
       .replace(/[^a-zA-Z0-9_ -]/g, "")
       .trim()
       .replace(/\s+/g, "_");
-    const typePrefix = group.dispatchType === "rider" ? "rider" : "courier";
+    const typePrefix =
+      group.dispatchType === "rider"
+        ? "rider"
+        : group.dispatchType === "customer"
+          ? "customer-pickup"
+          : "courier";
     files.push({ name: `${typePrefix}-${safeName}-${fileSuffix}.pdf`, content: pdf });
   }
 

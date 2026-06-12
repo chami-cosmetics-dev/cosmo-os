@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { getOrderDispatchLabel } from "@/lib/order-dispatch";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { notify } from "@/lib/notify";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
