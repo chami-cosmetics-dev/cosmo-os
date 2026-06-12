@@ -3,6 +3,7 @@ import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order"
 import type { CompanyLocation, Order } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
+import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 import { LIMITS } from "@/lib/validation";
 
 const UNCATEGORIZED_NAME = "Uncategorized";
@@ -67,6 +68,8 @@ export async function ensureProductItemAndCreateLineItem(
 
     const productTitle = (lineItem.title ?? "Unknown").slice(0, LIMITS.productTitle.max);
     const price = new Decimal(lineItem.price);
+    const sku = lineItem.sku?.slice(0, LIMITS.sku.max) ?? null;
+    const catalogBarcode = await findBarcodeForSku(companyId, sku);
 
     productItem = await prisma.productItem.create({
       data: {
@@ -77,7 +80,7 @@ export async function ensureProductItemAndCreateLineItem(
         shopifyVariantId,
         productTitle,
         variantTitle: null,
-        sku: lineItem.sku?.slice(0, LIMITS.sku.max) ?? null,
+        sku,
         price,
         compareAtPrice: null,
         vendorId,
@@ -87,12 +90,20 @@ export async function ensureProductItemAndCreateLineItem(
         handle: null,
         imageUrl: null,
         tags: null,
-        barcode: null,
+        barcode: catalogBarcode?.slice(0, 100) ?? null,
         itemStatusCategory: "NEWLY_ADDED",
         itemStatusLabel: "Newly Added",
         inventoryQuantity: 0,
       },
     });
+  } else if (!productItem.barcode) {
+    const catalogBarcode = await findBarcodeForSku(companyId, productItem.sku);
+    if (catalogBarcode) {
+      productItem = await prisma.productItem.update({
+        where: { id: productItem.id },
+        data: { barcode: catalogBarcode.slice(0, 100) },
+      });
+    }
   }
 
   const shopifyLineItemId = String(lineItem.id);

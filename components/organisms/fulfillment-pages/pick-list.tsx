@@ -6,6 +6,7 @@ import { Boxes, CalendarDays, Download, Loader2, MapPin, Printer, RefreshCw } fr
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -205,7 +206,7 @@ export function PickListPage() {
                               {item.sku ?? "—"}
                             </td>
                             <td className="px-4 py-2 font-mono font-semibold whitespace-nowrap">
-                              {item.barcode ?? "—"}
+                              {formatPickListBarcode(item.barcode)}
                             </td>
                             <td className="px-4 py-2 text-right text-lg font-bold">{item.quantity}</td>
                           </tr>

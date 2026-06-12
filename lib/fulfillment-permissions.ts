@@ -39,6 +39,14 @@ export const FULFILLMENT_STAGE_ORDER = [
   "invoice_complete",
 ] as const;
 
+/** Stages from which an order can be dispatched in one action (auto marks package ready). */
+export const DISPATCHABLE_STAGES = [
+  "order_received",
+  "sample_free_issue",
+  "print",
+  "ready_to_dispatch",
+] as const;
+
 function stageToPermissionKey(stage: string): string {
   return stage === "ready_to_dispatch" ? "ready_dispatch" : stage;
 }

@@ -9,6 +9,7 @@ import { ensureCustomerAndLink } from "@/lib/order-customers";
 import { resolveAssignedMerchant } from "@/lib/order-assignment";
 import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
 import { sendOrderSms } from "@/lib/order-sms";
+import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
 
@@ -105,9 +106,9 @@ export async function processOrderWebhook(
     data.contact_email ?? data.email ?? data.customer?.email ?? null;
   const customerPhone =
     data.phone ??
-    data.customer?.phone ??
     data.billing_address?.phone ??
     data.shipping_address?.phone ??
+    data.customer?.phone ??
     null;
   const paymentGateways = normalizePaymentGateways(data.payment_gateway_names);
 
@@ -231,7 +232,7 @@ export async function processOrderWebhook(
       orderNumber: order.orderNumber ?? order.name ?? order.shopifyOrderId,
       orderName: order.name ?? undefined,
       customerName: customerName || undefined,
-      customerPhone: customerPhone ?? undefined,
+      customerPhone: resolveCustomerPhone(order) ?? customerPhone ?? undefined,
       locationName: effectiveLocation.name,
     }).catch((err) => console.error("[Order SMS] order_received failed:", err));
   }

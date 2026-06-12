@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
+import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 
 export async function GET(
   _request: NextRequest,
@@ -100,7 +101,7 @@ export async function POST(
     });
     sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
       orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
-      customerPhone: updated.customerPhone ?? undefined,
+      customerPhone: resolveCustomerPhone(updated),
       locationName: updated.companyLocation?.name ?? undefined,
     }).catch((err) => console.error("[Rider delivery] SMS failed:", err));
   } else {
