@@ -25,7 +25,7 @@ pdfMake.setLocalAccessPolicy(() => false);
 
 export type DispatchGroupForPdf = {
   dispatcherName: string;
-  dispatchType: "rider" | "courier";
+  dispatchType: "rider" | "courier" | "customer";
   orders: Array<{
     reference: string;
     orderDate: string;
@@ -64,7 +64,12 @@ export async function generateDispatchGroupPdf(
   dateFrom: string,
   dateTo: string,
 ): Promise<Buffer> {
-  const typeLabel = group.dispatchType === "rider" ? "Rider" : "Courier";
+  const typeLabel =
+    group.dispatchType === "rider"
+      ? "Rider"
+      : group.dispatchType === "customer"
+        ? "Customer Pickup"
+        : "Courier";
   const currency = group.orders[0]?.currency ?? "LKR";
   const totalAmount = group.orders.reduce((sum, o) => sum + parseFloat(o.totalPrice || "0"), 0);
   const dateLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} → ${dateTo}`;
