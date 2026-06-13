@@ -32,10 +32,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    loadSession().then((stored) => {
-      setSession(stored);
-      setBootstrapped(true);
-    });
+    loadSession()
+      .then((stored) => {
+        setSession(stored);
+      })
+      .catch(async () => {
+        await clearSession();
+        setSession(null);
+      })
+      .finally(() => {
+        setBootstrapped(true);
+      });
   }, []);
 
   const value = useMemo<AuthContextValue>(

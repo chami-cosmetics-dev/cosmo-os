@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import { API_BASE_URL } from "@/src/config";
 import { useAuth } from "@/src/providers/auth";
 import { loadLoginPreferences, saveLoginPreferences } from "@/src/storage/login-preferences";
+import { getConfiguredApiSummary } from "@/src/env";
 import { getConfiguredTenants } from "@/src/tenants";
 import { useTheme } from "@/src/providers/theme";
 
@@ -32,10 +33,16 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const companyHint = useMemo(
-    () => getConfiguredTenants().map((tenant) => tenant.label).join(" · ") || "No company API configured",
-    []
-  );
+  const companyHint = useMemo(() => {
+    const tenants = getConfiguredTenants();
+    if (tenants.length > 0) {
+      return tenants.map((tenant) => tenant.label).join(" · ");
+    }
+    const summary = getConfiguredApiSummary();
+    return [summary.cosmetics ? "Cosmetics.lk" : null, summary.vault ? "Supplement Vault" : null]
+      .filter(Boolean)
+      .join(" · ");
+  }, []);
 
   useEffect(() => {
     loadLoginPreferences().then((prefs) => {
@@ -99,7 +106,11 @@ export default function LoginScreen() {
           <Text style={styles.subtitle}>
             Delivery updates, payment collection, and cash handovers.
           </Text>
-          <Text style={styles.apiHint}>Also signs in to: {companyHint}</Text>
+          {companyHint ? (
+            <Text style={styles.apiHint}>Connected to: {companyHint}</Text>
+          ) : (
+            <Text style={styles.apiHint}>Backend URLs missing — contact admin</Text>
+          )}
         </View>
 
         <View style={styles.card}>

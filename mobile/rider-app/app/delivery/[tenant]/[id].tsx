@@ -8,6 +8,7 @@ import { DeliveryContactSection, DeliveryMapCard } from "@/src/components/delive
 import { ExchangePanel } from "@/src/components/exchange-panel";
 import { PaymentForm } from "@/src/components/payment-form";
 import { SpecialDeliveryBadges } from "@/src/components/special-delivery-badges";
+import { BootstrapLoading } from "@/src/components/bootstrap-loading";
 import { useDeliveryActions } from "@/src/hooks/use-delivery-actions";
 import { useDeliveryDetail } from "@/src/hooks/use-delivery-detail";
 import { getTenantDefinition, isTenantId } from "@/src/tenants/config";
@@ -42,10 +43,12 @@ export default function DeliveryDetailScreen() {
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
   if (!isTenantId(tenantParam) || !id) {
-    return null;
+    return <BootstrapLoading message="Opening delivery…" />;
   }
 
-  if (loading || !detail || !tenant) return null;
+  if (loading || !detail || !tenant) {
+    return <BootstrapLoading message="Loading delivery…" />;
+  }
 
   const delivery = detail.delivery;
   const companyLabel = getTenantDefinition(tenant).label;
