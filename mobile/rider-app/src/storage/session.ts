@@ -36,8 +36,14 @@ export async function saveSession(session: RiderSession) {
 }
 
 export async function loadSession() {
-  const raw = await SecureStore.getItemAsync(SESSION_KEY);
-  return raw ? normalizeSession(JSON.parse(raw)) : null;
+  try {
+    const raw = await SecureStore.getItemAsync(SESSION_KEY);
+    if (!raw) return null;
+    return normalizeSession(JSON.parse(raw));
+  } catch {
+    await clearSession();
+    return null;
+  }
 }
 
 export async function clearSession() {

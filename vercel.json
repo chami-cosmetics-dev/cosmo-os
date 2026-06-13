@@ -6,9 +6,11 @@
       "schedule": "* * * * *"
     }
   ],
+  "ignoreCommand": "node scripts/vercel-should-build.mjs",
   "git": {
     "deploymentEnabled": {
-      "dev": false
+      "dev": false,
+      "feature/mobile-rider-phase-1": false
     }
   }
 }
