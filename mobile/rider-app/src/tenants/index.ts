@@ -1,7 +1,7 @@
 import { APP_ENV } from "@/src/config";
+import { API_BASE_URL, COSMETICS_API_URL, VAULT_API_URL } from "@/src/env";
 import type { TenantId } from "@/src/tenants/config";
 import { TENANT_DEFINITIONS } from "@/src/tenants/config";
-
 export type TenantConfig = {
   id: TenantId;
   label: string;
@@ -9,23 +9,18 @@ export type TenantConfig = {
   apiUrl: string;
 };
 
-function readEnvUrl(key: string) {
-  const value = process.env[key]?.trim();
-  return value && value.length > 0 ? value : null;
-}
-
 function resolveTenantApiUrl(tenantId: TenantId) {
   if (tenantId === "cosmetics") {
     return (
-      readEnvUrl("EXPO_PUBLIC_COSMETICS_API_URL") ??
-      readEnvUrl("EXPO_PUBLIC_API_BASE_URL") ??
+      COSMETICS_API_URL ??
+      API_BASE_URL ??
       (APP_ENV === "development" ? "http://10.0.2.2:3000" : null)
     );
   }
 
   return (
-    readEnvUrl("EXPO_PUBLIC_VAULT_API_URL") ??
-    (APP_ENV === "development" ? readEnvUrl("EXPO_PUBLIC_API_BASE_URL") : null)
+    VAULT_API_URL ??
+    (APP_ENV === "development" ? API_BASE_URL : null)
   );
 }
 

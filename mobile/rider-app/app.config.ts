@@ -37,6 +37,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const plugins: ExpoConfig["plugins"] = ["expo-secure-store", "expo-font"];
 
   const projectId = appJson.expo.extra?.eas?.projectId;
+  const isReleaseApk = appEnv === "production" || appEnv === "staging";
 
   return {
     ...config,
@@ -44,13 +45,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     name: resolveAppName(appEnv),
     orientation: "portrait",
     userInterfaceStyle: "automatic",
+    splash: {
+      backgroundColor: "#f5f7fb",
+    },
     runtimeVersion: {
       policy: "appVersion",
     },
-    updates: {
-      ...appJson.expo.updates,
-      ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
-    },
+    updates: isReleaseApk
+      ? { enabled: false }
+      : {
+          ...appJson.expo.updates,
+          ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
+        },
     android: {
       ...appJson.expo.android,
       package: resolveAndroidPackage(appEnv),
@@ -60,8 +66,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       ...appJson.expo.extra,
       appEnv,
-      apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
-      sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN?.trim() ?? null,
+      apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || null,
+      cosmeticsApiUrl: process.env.EXPO_PUBLIC_COSMETICS_API_URL?.trim() || null,
+      vaultApiUrl: process.env.EXPO_PUBLIC_VAULT_API_URL?.trim() || null,
+      sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN?.trim() || null,
     },
   };
 };
