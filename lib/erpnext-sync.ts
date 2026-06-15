@@ -3,6 +3,7 @@ import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order"
 import { prisma } from "@/lib/prisma";
 import { ERP_SYNC_SUCCESS_CLEAR } from "@/lib/failed-erp-sync-auto-retry";
 import { buildPhoneLookupVariants, canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
+import { isOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 import { LIMITS } from "@/lib/validation";
 
 export type LocationWithErpInstance = CompanyLocation & {
@@ -623,6 +624,14 @@ export async function syncOrderToERPNext(
   location: LocationWithErpInstance,
   shopifyData: ShopifyOrderWebhookPayload,
 ): Promise<void> {
+  if (isOrderBeforeImportCutoff(order.createdAt)) {
+    console.warn("[ERPNext] Skipping sync — order is before ORDER_IMPORT_CUTOFF", {
+      orderId: order.id,
+      createdAt: order.createdAt.toISOString(),
+    });
+    return;
+  }
+
   const cfg = getErpConfig(location.erpnextInstance);
   console.log(`[ERPNext] syncOrderToERPNext called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
@@ -843,6 +852,14 @@ type OrderWithVaultData = Order & {
 };
 
 export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Promise<void> {
+  if (isOrderBeforeImportCutoff(order.createdAt)) {
+    console.warn("[ERPNext] Skipping syncOrderToERPNextFromOrder — order is before ORDER_IMPORT_CUTOFF", {
+      orderId: order.id,
+      createdAt: order.createdAt.toISOString(),
+    });
+    return;
+  }
+
   const location = order.companyLocation;
   const cfg = getErpConfig(location.erpnextInstance);
   console.log(`[ERPNext] syncOrderToERPNextFromOrder called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);

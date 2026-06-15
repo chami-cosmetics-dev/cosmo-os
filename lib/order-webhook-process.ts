@@ -13,6 +13,7 @@ import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
 import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
+import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -49,6 +50,14 @@ export async function processOrderWebhook(
   location: LocationWithErpInstance,
   rawPayload: unknown
 ): Promise<void> {
+  if (isShopifyOrderBeforeImportCutoff(data.created_at)) {
+    console.warn("[Order webhook] Skipping processOrderWebhook for pre-cutoff order", {
+      shopifyOrderId: String(data.id),
+      shopifyCreatedAt: data.created_at,
+    });
+    return;
+  }
+
   const existingOrder = await prisma.order.findUnique({
     where: { shopifyOrderId: String(data.id) },
     select: {

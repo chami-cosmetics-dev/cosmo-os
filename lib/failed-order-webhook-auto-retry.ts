@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
+import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { classifyFailedWebhookError } from "@/lib/failed-order-webhook-classification";
 
@@ -209,6 +210,12 @@ export async function runDueFailedOrderWebhookRetries(options?: {
         JSON.stringify(parsed.error.flatten(), null, 2),
         false
       );
+      continue;
+    }
+
+    if (isShopifyOrderBeforeImportCutoff(parsed.data.created_at)) {
+      await resolveFailedOrderWebhookRecord(item.id, attemptedAt);
+      resolved += 1;
       continue;
     }
 

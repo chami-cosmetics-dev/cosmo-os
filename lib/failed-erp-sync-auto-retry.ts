@@ -5,6 +5,10 @@ import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { syncOrderToERPNext, syncOrderToERPNextFromOrder } from "@/lib/erpnext-sync";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { classifyFailedErpSyncError } from "@/lib/failed-erp-sync-classification";
+import {
+  getOrderImportCutoff,
+  isOrderBeforeImportCutoff,
+} from "@/lib/order-import-cutoff";
 
 const AUTO_RETRY_DELAYS_MS = [
   60_000,
@@ -24,7 +28,7 @@ export const ERP_SYNC_SUCCESS_CLEAR = {
   erpnextSyncRetryLeaseExpiresAt: null,
 } as const;
 
-type OrderForErpRetry = Prisma.OrderGetPayload<{
+export type OrderForErpRetry = Prisma.OrderGetPayload<{
   include: {
     companyLocation: { include: { erpnextInstance: true } };
     lineItems: { include: { productItem: true } };
@@ -48,8 +52,10 @@ export function getNextFailedErpSyncAutoRetryAt(
 }
 
 export function buildFailedErpSyncWhere(companyId?: string): Prisma.OrderWhereInput {
+  const cutoff = getOrderImportCutoff();
   return {
     ...(companyId ? { companyId } : {}),
+    ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
     OR: [
       { erpnextSyncError: { not: null }, erpnextInvoiceId: null },
       {
@@ -66,11 +72,23 @@ export async function markOrderErpSyncFailed(
   options?: {
     scheduleAutoRetry?: boolean;
     autoRetryCount?: number;
+    /** When true, loads current count from DB and increments (manual / batch retry failures). */
+    incrementAutoRetryCount?: boolean;
     attemptedAt?: Date;
   }
 ) {
   const attemptedAt = options?.attemptedAt ?? new Date();
-  const autoRetryCount = options?.autoRetryCount ?? 0;
+  let autoRetryCount = options?.autoRetryCount;
+  if (autoRetryCount === undefined) {
+    const current = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { erpnextSyncAutoRetryCount: true },
+    });
+    autoRetryCount = current?.erpnextSyncAutoRetryCount ?? 0;
+    if (options?.incrementAutoRetryCount) {
+      autoRetryCount += 1;
+    }
+  }
   const classification = classifyFailedErpSyncError(errorMessage);
   const shouldSchedule =
     (options?.scheduleAutoRetry ?? true) &&
@@ -93,6 +111,18 @@ export async function markOrderErpSyncFailed(
 }
 
 export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> {
+  if (isOrderBeforeImportCutoff(order.createdAt)) {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: ERP_SYNC_SUCCESS_CLEAR,
+    });
+    console.warn("[ERPNext] Skipping retry for pre-cutoff order", {
+      orderId: order.id,
+      createdAt: order.createdAt.toISOString(),
+    });
+    return;
+  }
+
   if (order.erpnextInvoiceId === "pending_approval") {
     const pendingApproval = await prisma.approvalRequest.findFirst({
       where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
