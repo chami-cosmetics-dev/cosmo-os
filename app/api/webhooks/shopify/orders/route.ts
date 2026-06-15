@@ -10,6 +10,7 @@ import {
   createFailedOrderWebhook,
   runDueFailedOrderWebhookRetries,
 } from "@/lib/failed-order-webhook-auto-retry";
+import { runDueFailedErpSyncRetries } from "@/lib/failed-erp-sync-auto-retry";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -300,6 +301,10 @@ export async function POST(request: NextRequest) {
       companyId: resolvedLocation.companyId,
       limit: 1,
     });
+    void runDueFailedErpSyncRetries({
+      companyId: resolvedLocation.companyId,
+      limit: 1,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -317,6 +322,10 @@ export async function POST(request: NextRequest) {
     });
 
     void runDueFailedOrderWebhookRetries({
+      companyId: resolvedLocation.companyId,
+      limit: 1,
+    });
+    void runDueFailedErpSyncRetries({
       companyId: resolvedLocation.companyId,
       limit: 1,
     });

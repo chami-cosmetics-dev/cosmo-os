@@ -1,11 +1,10 @@
-import { Feather } from "@expo/vector-icons";
-import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
-import { useEffect, useState } from "react";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { BootstrapLoading } from "@/src/components/bootstrap-loading";
+import { ErrorBoundary } from "@/src/components/error-boundary";
 import { initMonitoring, wrapRootComponent } from "@/src/lib/monitoring";
-import { AuthProvider } from "@/src/providers/auth";
+import { AuthProvider, useAuth } from "@/src/providers/auth";
 import { CompletedDeliveriesProvider } from "@/src/providers/completed-deliveries";
 import { SessionGate } from "@/src/providers/session-gate";
 import { SyncProvider } from "@/src/providers/sync";
@@ -13,35 +12,35 @@ import { ThemeProvider } from "@/src/providers/theme";
 
 initMonitoring();
 
-function RootLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    ...Feather.font,
-  });
-  const [fontTimedOut, setFontTimedOut] = useState(false);
+function RootNavigator() {
+  const { bootstrapped } = useAuth();
 
-  useEffect(() => {
-    const timer = setTimeout(() => setFontTimedOut(true), 4000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const fontsReady = fontsLoaded || fontError != null || fontTimedOut;
-
-  if (!fontsReady) {
+  if (!bootstrapped) {
     return <BootstrapLoading message="Starting Cosmo Rider…" />;
   }
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <CompletedDeliveriesProvider>
-          <SyncProvider>
-            <SessionGate>
-              <Stack screenOptions={{ headerShown: false }} />
-            </SessionGate>
-          </SyncProvider>
-        </CompletedDeliveriesProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <SessionGate>
+      <Stack screenOptions={{ headerShown: false }} />
+    </SessionGate>
+  );
+}
+
+function RootLayout() {
+  return (
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <CompletedDeliveriesProvider>
+              <SyncProvider>
+                <RootNavigator />
+              </SyncProvider>
+            </CompletedDeliveriesProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

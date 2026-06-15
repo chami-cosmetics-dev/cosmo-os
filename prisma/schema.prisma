@@ -541,6 +541,10 @@ model Order {
   erpnextInvoiceId             String?
   erpnextSyncError             String?
   erpnextSyncFailedAt          DateTime?
+  erpnextSyncAutoRetryCount    Int                    @default(0)
+  erpnextSyncLastAutoRetryAt   DateTime?
+  erpnextSyncNextAutoRetryAt   DateTime?
+  erpnextSyncRetryLeaseExpiresAt DateTime?
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
@@ -550,6 +554,7 @@ model Order {
   @@index([companyId, customerEmail, createdAt(sort: Desc)])
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
   @@index([erpnextInvoiceId])
+  @@index([companyId, erpnextSyncNextAutoRetryAt])
 }
 
 model OrderWaybill {
