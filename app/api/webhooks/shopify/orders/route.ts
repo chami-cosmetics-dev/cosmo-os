@@ -11,6 +11,10 @@ import {
   runDueFailedOrderWebhookRetries,
 } from "@/lib/failed-order-webhook-auto-retry";
 import { runDueFailedErpSyncRetries } from "@/lib/failed-erp-sync-auto-retry";
+import {
+  getOrderImportCutoff,
+  isShopifyOrderBeforeImportCutoff,
+} from "@/lib/order-import-cutoff";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -288,6 +292,21 @@ export async function POST(request: NextRequest) {
   }
 
   const shopifyOrderId = String(data.id);
+
+  if (isShopifyOrderBeforeImportCutoff(data.created_at)) {
+    const cutoff = getOrderImportCutoff();
+    console.warn("[Order webhook] Skipping pre-cutoff Shopify order", {
+      ...webhookMeta,
+      shopifyOrderId,
+      shopifyCreatedAt: data.created_at,
+      cutoff: cutoff?.toISOString(),
+    });
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "before_import_cutoff",
+    });
+  }
 
   try {
     await processOrderWebhookWithImmediateRetry({
