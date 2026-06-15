@@ -11,6 +11,7 @@ import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
+import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
@@ -251,8 +252,9 @@ export async function processOrderWebhook(
         const errMsg = err instanceof Error ? err.message : String(err);
         await prisma.order.update({
           where: { id: order.id },
-          data: { erpnextInvoiceId: null, erpnextSyncError: errMsg, erpnextSyncFailedAt: new Date() },
+          data: { erpnextInvoiceId: null },
         });
+        await markOrderErpSyncFailed(order.id, errMsg);
       }
     }
   }

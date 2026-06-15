@@ -18,6 +18,14 @@ const missing = [];
 if (!extra.cosmeticsApiUrl) missing.push("extra.cosmeticsApiUrl");
 if (!extra.vaultApiUrl) missing.push("extra.vaultApiUrl");
 
+if (config.runtimeVersion) {
+  missing.push("runtimeVersion should be omitted for release APK");
+}
+
+if (config.updates && config.updates.enabled !== false && config.updates.url) {
+  missing.push("expo-updates should be disabled for internal APK");
+}
+
 if (missing.length > 0) {
   console.error("[verify:release] APK config check failed. Missing:", missing.join(", "));
   process.exit(1);

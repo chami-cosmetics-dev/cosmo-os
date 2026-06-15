@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
-import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
-import { syncOrderToERPNext, syncOrderToERPNextFromOrder } from "@/lib/erpnext-sync";
+import {
+  markOrderErpSyncFailed,
+  retryOrderErpSync,
+} from "@/lib/failed-erp-sync-auto-retry";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 
 export async function POST(
@@ -45,7 +47,6 @@ export async function POST(
     return NextResponse.json({ error: "No failed ERP sync on this order" }, { status: 400 });
   }
 
-  // Block retry if finance approval is still pending — creating an ERP invoice before approval is wrong
   if (isPendingApproval) {
     const pendingApproval = await prisma.approvalRequest.findFirst({
       where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
@@ -60,22 +61,13 @@ export async function POST(
   }
 
   try {
-    if (order.rawPayload) {
-      const parsed = shopifyOrderWebhookSchema.safeParse(order.rawPayload);
-      if (parsed.success) {
-        await syncOrderToERPNext(order, order.companyLocation, parsed.data);
-        return NextResponse.json({ ok: true, message: "ERP sync succeeded" });
-      }
-      console.warn("[ERPNext] retry: rawPayload schema validation failed — falling back to Vault OS data");
-    }
-
-    await syncOrderToERPNextFromOrder({ ...order, companyLocation: order.companyLocation });
-    return NextResponse.json({ ok: true, message: "ERP sync succeeded (Vault OS fallback)" });
+    await retryOrderErpSync(order);
+    return NextResponse.json({ ok: true, message: "ERP sync succeeded" });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { erpnextSyncError: errMsg, erpnextSyncFailedAt: new Date() },
+    await markOrderErpSyncFailed(order.id, errMsg, {
+      autoRetryCount: order.erpnextSyncAutoRetryCount,
+      scheduleAutoRetry: true,
     });
     return NextResponse.json({ error: "Retry failed", details: errMsg }, { status: 500 });
   }

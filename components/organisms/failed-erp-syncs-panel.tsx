@@ -25,6 +25,9 @@ type FailedErpSync = {
   customerPhone: string | null;
   erpnextSyncError: string | null;
   erpnextSyncFailedAt: string | null;
+  erpnextSyncAutoRetryCount: number;
+  erpnextSyncNextAutoRetryAt: string | null;
+  erpnextSyncLastAutoRetryAt: string | null;
   erpnextInvoiceId: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string };
@@ -38,6 +41,7 @@ export function FailedErpSyncsPanel() {
   const [total, setTotal] = useState(0);
   const [selectedItem, setSelectedItem] = useState<FailedErpSync | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryingAll, setRetryingAll] = useState(false);
   const [approvalBlockedOrder, setApprovalBlockedOrder] = useState<FailedErpSync | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -94,6 +98,46 @@ export function FailedErpSyncsPanel() {
     }
   }
 
+  async function handleRetryAll() {
+    setRetryingAll(true);
+    try {
+      const res = await fetch("/api/admin/orders/failed-erp-syncs/retry-all", {
+        method: "POST",
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        total?: number;
+        succeeded?: number;
+        failed?: number;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Retry all failed");
+        return;
+      }
+
+      notify.success(
+        data.message ??
+          `Retried ${data.total ?? 0} orders (${data.succeeded ?? 0} succeeded, ${data.failed ?? 0} failed)`
+      );
+      await fetchData();
+    } catch {
+      notify.error("Retry all failed");
+    } finally {
+      setRetryingAll(false);
+    }
+  }
+
+  function formatAutoRetryStatus(item: FailedErpSync): string {
+    if (item.erpnextSyncNextAutoRetryAt) {
+      return `Auto-retry #${item.erpnextSyncAutoRetryCount + 1} at ${formatDate(item.erpnextSyncNextAutoRetryAt)}`;
+    }
+    if (item.erpnextSyncAutoRetryCount > 0) {
+      return `Auto-retry exhausted (${item.erpnextSyncAutoRetryCount} attempts)`;
+    }
+    return "Manual retry required";
+  }
+
   function formatDate(val: string | null): string {
     if (!val) return "—";
     const d = new Date(val);
@@ -110,23 +154,46 @@ export function FailedErpSyncsPanel() {
           Failed ERP Syncs
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Orders that arrived from Shopify but failed to sync to ERPNext. Fix the underlying issue in ERPNext, then retry.
+          Orders that arrived from Shopify but failed to sync to ERPNext. Transient failures are retried automatically (1 min, 3 min, 10 min, 30 min). Orders that still fail appear here for manual action.
         </p>
       </section>
 
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
-          <CardTitle className="flex items-center gap-2">
-            <AlertCircle className="size-5 text-destructive" />
-            ERP Sync Failures
-          </CardTitle>
-          <p className="text-muted-foreground text-sm">
-            These orders exist in Vault OS but are missing from ERPNext. Inspect the error, fix the root cause, then retry.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <AlertCircle className="size-5 text-destructive" />
+                ERP Sync Failures
+              </CardTitle>
+              <p className="text-muted-foreground mt-1 text-sm">
+                These orders exist in Vault OS but are missing from ERPNext. Fix the root cause if needed, or use Retry All.
+              </p>
+            </div>
+            {items.length > 0 && (
+              <Button
+                onClick={handleRetryAll}
+                disabled={retryingAll || retryingId !== null}
+                className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
+              >
+                {retryingAll ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Retrying All...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="size-4" aria-hidden />
+                    Retry All
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
-            <TableSkeleton columns={6} rows={5} />
+            <TableSkeleton columns={7} rows={5} />
           ) : items.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground text-sm">
               No failed ERP syncs. All orders have been synced to ERPNext successfully.
@@ -142,6 +209,7 @@ export function FailedErpSyncsPanel() {
                       <th className="px-4 py-2 text-left font-medium">Location</th>
                       <th className="px-4 py-2 text-left font-medium">Error</th>
                       <th className="px-4 py-2 text-left font-medium">Failed at</th>
+                      <th className="px-4 py-2 text-left font-medium">Auto-retry</th>
                       <th className="px-4 py-2 text-left font-medium">Actions</th>
                     </tr>
                   </thead>
@@ -165,6 +233,7 @@ export function FailedErpSyncsPanel() {
                           ) : "—"}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground text-xs">{formatDate(item.erpnextSyncFailedAt)}</td>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">{formatAutoRetryStatus(item)}</td>
                         <td className="px-4 py-2">
                           <div className="flex gap-2">
                             <Button
@@ -172,6 +241,7 @@ export function FailedErpSyncsPanel() {
                               variant="outline"
                               className="border-border/70 bg-background/80 hover:bg-secondary/10"
                               onClick={() => setSelectedItem(item)}
+                              disabled={retryingAll}
                             >
                               View
                             </Button>
@@ -179,7 +249,7 @@ export function FailedErpSyncsPanel() {
                               size="sm"
                               className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
                               onClick={() => handleRetry(item.id)}
-                              disabled={retryingId !== null}
+                              disabled={retryingAll || retryingId !== null}
                             >
                               {retryingId === item.id ? (
                                 <><Loader2 className="size-4 animate-spin" aria-hidden />Retrying...</>
@@ -244,6 +314,10 @@ export function FailedErpSyncsPanel() {
                   <p className="text-muted-foreground text-xs">Sync failed at</p>
                   <p>{formatDate(selectedItem.erpnextSyncFailedAt)}</p>
                 </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Auto-retry status</p>
+                  <p>{formatAutoRetryStatus(selectedItem)}</p>
+                </div>
               </div>
               <div>
                 <h4 className="mb-1 text-sm font-medium">
@@ -260,7 +334,7 @@ export function FailedErpSyncsPanel() {
                 <Button
                   className="flex items-center gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
                   onClick={() => handleRetry(selectedItem.id)}
-                  disabled={retryingId !== null}
+                  disabled={retryingAll || retryingId !== null}
                 >
                   {retryingId === selectedItem.id ? (
                     <><Loader2 className="size-4 animate-spin" aria-hidden />Retrying...</>
