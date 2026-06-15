@@ -57,7 +57,7 @@ export async function POST() {
 
       failed += 1;
       await markOrderErpSyncFailed(order.id, errorMessage, {
-        autoRetryCount: order.erpnextSyncAutoRetryCount,
+        incrementAutoRetryCount: true,
         scheduleAutoRetry: true,
       });
 

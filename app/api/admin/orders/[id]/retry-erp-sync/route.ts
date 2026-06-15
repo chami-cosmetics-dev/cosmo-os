@@ -6,8 +6,10 @@ import { cuidSchema } from "@/lib/validation";
 import {
   markOrderErpSyncFailed,
   retryOrderErpSync,
+  type OrderForErpRetry,
 } from "@/lib/failed-erp-sync-auto-retry";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { isOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 
 export async function POST(
   _request: NextRequest,
@@ -30,7 +32,7 @@ export async function POST(
     select: { companyId: true },
   });
 
-  const order = await prisma.order.findUnique({
+  const order: OrderForErpRetry | null = await prisma.order.findUnique({
     where: { id: idResult.data },
     include: {
       companyLocation: { include: { erpnextInstance: true } },
@@ -40,6 +42,16 @@ export async function POST(
 
   if (!order || order.companyId !== user?.companyId) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  if (isOrderBeforeImportCutoff(order.createdAt)) {
+    return NextResponse.json(
+      {
+        error: "This order is before the import cutoff and cannot be synced to ERP.",
+        code: "BEFORE_IMPORT_CUTOFF",
+      },
+      { status: 400 },
+    );
   }
 
   const isPendingApproval = order.erpnextInvoiceId === "pending_approval";
@@ -66,8 +78,8 @@ export async function POST(
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     await markOrderErpSyncFailed(order.id, errMsg, {
-      autoRetryCount: order.erpnextSyncAutoRetryCount,
       scheduleAutoRetry: true,
+      incrementAutoRetryCount: true,
     });
     return NextResponse.json({ error: "Retry failed", details: errMsg }, { status: 500 });
   }
