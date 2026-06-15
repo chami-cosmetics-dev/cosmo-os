@@ -6,6 +6,24 @@ import { getCurrentUserContext } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
+async function dismissStaleApprovalNotifications(companyId: string, userId: string) {
+  const now = new Date();
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE "Notification" n
+      SET "readAt" = COALESCE(n."readAt", ${now})
+      FROM "ApprovalRequest" ar
+      WHERE n."companyId" = ${companyId}
+        AND n."userId" = ${userId}
+        AND n."readAt" IS NULL
+        AND n."entityType" = 'ApprovalRequest'
+        AND n."type" = 'approval_requested'
+        AND n."entityId" = ar."id"
+        AND ar."status" <> 'pending'
+    `
+  );
+}
+
 export async function GET() {
   const context = await getCurrentUserContext();
   const userId = context?.user?.id;
@@ -13,6 +31,8 @@ export async function GET() {
   if (!userId || !companyId) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  await dismissStaleApprovalNotifications(companyId, userId);
 
   const [notifications, unreadRows] = await Promise.all([
     prisma.$queryRaw<Array<{
@@ -30,8 +50,9 @@ export async function GET() {
         FROM "Notification"
         WHERE "companyId" = ${companyId}
           AND "userId" = ${userId}
+          AND "readAt" IS NULL
         ORDER BY "createdAt" DESC
-        LIMIT 10
+        LIMIT 20
       `
     ),
     prisma.$queryRaw<Array<{ count: bigint }>>(
