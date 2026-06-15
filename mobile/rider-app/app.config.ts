@@ -34,10 +34,10 @@ function resolveAndroidPackage(appEnv: AppEnvironment) {
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = resolveAppEnvironment();
-  const plugins: ExpoConfig["plugins"] = ["expo-secure-store", "expo-font"];
-
-  const projectId = appJson.expo.extra?.eas?.projectId;
   const isReleaseApk = appEnv === "production" || appEnv === "staging";
+  const projectId = appJson.expo.extra?.eas?.projectId;
+
+  const plugins: ExpoConfig["plugins"] = ["expo-router", "expo-secure-store", "expo-font"];
 
   return {
     ...config,
@@ -48,15 +48,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     splash: {
       backgroundColor: "#f5f7fb",
     },
-    runtimeVersion: {
-      policy: "appVersion",
-    },
-    updates: isReleaseApk
-      ? { enabled: false }
+    ...(isReleaseApk
+      ? {}
       : {
-          ...appJson.expo.updates,
-          ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
-        },
+          runtimeVersion: { policy: "appVersion" },
+          updates: {
+            fallbackToCacheTimeout: 0,
+            ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
+          },
+        }),
     android: {
       ...appJson.expo.android,
       package: resolveAndroidPackage(appEnv),

@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/failed-webhooks-auto-retry",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/failed-erp-syncs-auto-retry",
+      "schedule": "* * * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

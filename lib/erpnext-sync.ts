@@ -1,6 +1,7 @@
 import type { Order, CompanyLocation, ErpnextInstance } from "@prisma/client";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import { prisma } from "@/lib/prisma";
+import { ERP_SYNC_SUCCESS_CLEAR } from "@/lib/failed-erp-sync-auto-retry";
 import { buildPhoneLookupVariants, canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
 import { LIMITS } from "@/lib/validation";
 
@@ -648,7 +649,7 @@ export async function syncOrderToERPNext(
   );
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, erpnextSyncError: null, erpnextSyncFailedAt: null } });
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
     const earlyGateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
     if (earlyGateways.some((g) => g.includes("bank"))) {
       await syncBankTransferPaymentToERPNext(orderPoNo, location, toDateStr(order.createdAt));
@@ -806,7 +807,7 @@ export async function syncOrderToERPNext(
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { erpnextInvoiceId: si.name, erpnextSyncError: null, erpnextSyncFailedAt: null },
+    data: { erpnextInvoiceId: si.name, ...ERP_SYNC_SUCCESS_CLEAR },
   });
 
   console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);
@@ -868,7 +869,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   );
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, erpnextSyncError: null, erpnextSyncFailedAt: null } });
+    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
     const earlyGateways = ([order.paymentGatewayPrimary, ...order.paymentGatewayNames] as (string | null)[])
       .filter((g): g is string => typeof g === "string" && g.length > 0)
       .map((g) => g.toLowerCase().trim());
@@ -974,7 +975,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
 
   await prisma.order.update({
     where: { id: order.id },
-    data: { erpnextInvoiceId: si.name, erpnextSyncError: null, erpnextSyncFailedAt: null },
+    data: { erpnextInvoiceId: si.name, ...ERP_SYNC_SUCCESS_CLEAR },
   });
 
   console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
