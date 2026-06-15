@@ -34,16 +34,22 @@ export function resolveOrderNumber(order: {
   return order.name?.trim() || order.orderNumber?.trim() || order.shopifyOrderId?.trim() || "";
 }
 
-/** Customer phone from order field or shipping address. */
+/** Customer phone from order field, shipping address, or billing address. */
 export function resolveCustomerPhone(order: {
   customerPhone?: string | null;
   shippingAddress?: unknown;
+  billingAddress?: unknown;
 }): string | undefined {
   const direct = order.customerPhone?.trim();
   if (direct) return direct;
-  const addr = order.shippingAddress as Record<string, string> | null | undefined;
-  const addrPhone = addr?.phone?.trim();
-  return addrPhone || undefined;
+
+  for (const addr of [order.shippingAddress, order.billingAddress]) {
+    const record = addr as Record<string, string> | null | undefined;
+    const phone = record?.phone?.trim();
+    if (phone) return phone;
+  }
+
+  return undefined;
 }
 
 export function getDeliveryUrl(order: { riderDeliveryToken: string | null }): string {

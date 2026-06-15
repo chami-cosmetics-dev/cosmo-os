@@ -17,6 +17,7 @@ import {
   createOrderInvoiceRow,
 } from "@/lib/reports/order-dump";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
@@ -152,7 +153,7 @@ export async function GET(request: NextRequest) {
           locationName: order.companyLocation.name,
           customerName,
           customerEmail: order.customerEmail,
-          customerPhone: order.customerPhone,
+          customerPhone: resolveCustomerPhone(order) ?? null,
           sku: item.productItem.sku,
           barcode: item.productItem.barcode,
           productTitle: item.productItem.productTitle,
@@ -216,7 +217,7 @@ export async function GET(request: NextRequest) {
       locationName: order.companyLocation.name,
       customerName,
       customerEmail: order.customerEmail,
-      customerPhone: order.customerPhone,
+      customerPhone: resolveCustomerPhone(order) ?? null,
       billingAddress: formatAddress(order.billingAddress),
       shippingAddress: formatAddress(order.shippingAddress),
       financialStatus: order.financialStatus,
