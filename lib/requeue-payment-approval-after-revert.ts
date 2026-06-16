@@ -18,7 +18,6 @@ export async function requeuePaymentApprovalAfterRevert(input: {
   companyId: string;
   orderId: string;
   requestedById: string;
-  revertInvoice: boolean;
 }) {
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, companyId: input.companyId },
@@ -37,9 +36,9 @@ export async function requeuePaymentApprovalAfterRevert(input: {
   if (!order) return null;
 
   const useDeliveryApproval =
-    input.revertInvoice ||
     order.fulfillmentStage === "delivery_complete" ||
-    order.fulfillmentStage === "dispatched";
+    order.fulfillmentStage === "dispatched" ||
+    order.fulfillmentStage === "invoice_complete";
 
   if (useDeliveryApproval) {
     return triggerDeliveryPaymentApprovalIfNeeded({

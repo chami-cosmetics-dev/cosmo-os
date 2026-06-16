@@ -55,7 +55,6 @@ export async function POST(
       shopifyOrderId: true,
       financialStatus: true,
       fulfillmentStage: true,
-      fulfillmentStatus: true,
     },
   });
 
@@ -69,22 +68,10 @@ export async function POST(
   }
 
   const now = new Date();
-  const revertInvoice =
-    order.fulfillmentStage === "invoice_complete" || order.fulfillmentStatus === "fulfilled";
 
   await prisma.order.update({
     where: { id: order.id },
-    data: {
-      financialStatus: "pending",
-      ...(revertInvoice
-        ? {
-            fulfillmentStage: "delivery_complete",
-            fulfillmentStatus: "unfulfilled",
-            invoiceCompleteAt: null,
-            invoiceCompleteById: null,
-          }
-        : {}),
-    },
+    data: { financialStatus: "pending" },
   });
 
   await writeAuditLog({
@@ -97,11 +84,9 @@ export async function POST(
     summary: `HOD reverted order ${order.name ?? order.orderNumber ?? order.id} from paid to unpaid`,
     beforeData: {
       financialStatus: order.financialStatus,
-      fulfillmentStage: order.fulfillmentStage,
     },
     afterData: {
       financialStatus: "pending",
-      fulfillmentStage: revertInvoice ? "delivery_complete" : order.fulfillmentStage,
     },
     metadata: {
       reason: parsed.data.reason ?? null,
@@ -114,7 +99,6 @@ export async function POST(
       companyId,
       orderId: order.id,
       requestedById: actorUserId,
-      revertInvoice,
     });
     approvalRequeued = approval != null;
   } catch (err) {
@@ -124,7 +108,7 @@ export async function POST(
   return NextResponse.json({
     ok: true,
     financialStatus: "pending",
-    fulfillmentStage: revertInvoice ? "delivery_complete" : order.fulfillmentStage,
+    fulfillmentStage: order.fulfillmentStage,
     revertedAt: now.toISOString(),
     approvalRequeued,
   });
