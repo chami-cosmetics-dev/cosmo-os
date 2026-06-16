@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import { ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -35,8 +36,7 @@ export async function GET() {
     totalPrice: Prisma.Decimal | null;
     customerPhone: string | null;
     customerEmail: string | null;
-    requestedByName: string | null;
-    requestedByEmail: string | null;
+    orderLinked: boolean;
     reviewedByName: string | null;
     reviewedByEmail: string | null;
   }>>(
@@ -55,13 +55,11 @@ export async function GET() {
         o."totalPrice",
         o."customerPhone",
         o."customerEmail",
-        req."name" AS "requestedByName",
-        req."email" AS "requestedByEmail",
+        (o."id" IS NOT NULL) AS "orderLinked",
         rev."name" AS "reviewedByName",
         rev."email" AS "reviewedByEmail"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
-      LEFT JOIN "User" req ON req."id" = ar."requestedById"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       WHERE ar."companyId" = ${companyId}
         AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL})
@@ -73,11 +71,13 @@ export async function GET() {
   );
 
   return NextResponse.json({
-    approvals: rows.map((row) => ({
-      ...row,
-      totalPrice: row.totalPrice?.toString() ?? null,
-      createdAt: row.createdAt.toISOString(),
-      reviewedAt: row.reviewedAt?.toISOString() ?? null,
-    })),
+    approvals: rows.map((row) =>
+      enrichApprovalDisplay({
+        ...row,
+        totalPrice: row.totalPrice?.toString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+        reviewedAt: row.reviewedAt?.toISOString() ?? null,
+      })
+    ),
   });
 }

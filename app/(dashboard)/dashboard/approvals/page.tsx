@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { FinanceApprovalsPanel, type FinanceApprovalItem } from "@/components/organisms/finance-approvals-panel";
 import { ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -14,6 +15,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
     id: string;
     type: string;
     status: string;
+    orderId: string | null;
     requestNote: string | null;
     reviewNote: string | null;
     createdAt: Date;
@@ -22,8 +24,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
     totalPrice: Prisma.Decimal | null;
     customerPhone: string | null;
     customerEmail: string | null;
-    requestedByName: string | null;
-    requestedByEmail: string | null;
+    orderLinked: boolean;
     reviewedByName: string | null;
     reviewedByEmail: string | null;
   }>>(
@@ -32,6 +33,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
         ar."id",
         ar."type",
         ar."status",
+        ar."orderId",
         ar."requestNote",
         ar."reviewNote",
         ar."createdAt",
@@ -40,13 +42,11 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
         o."totalPrice",
         o."customerPhone",
         o."customerEmail",
-        req."name" AS "requestedByName",
-        req."email" AS "requestedByEmail",
+        (o."id" IS NOT NULL) AS "orderLinked",
         rev."name" AS "reviewedByName",
         rev."email" AS "reviewedByEmail"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
-      LEFT JOIN "User" req ON req."id" = ar."requestedById"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       WHERE ar."companyId" = ${companyId}
         AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL})
@@ -57,12 +57,14 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
     `
   );
 
-  return rows.map((row) => ({
-    ...row,
-    totalPrice: row.totalPrice?.toString() ?? null,
-    createdAt: row.createdAt.toISOString(),
-    reviewedAt: row.reviewedAt?.toISOString() ?? null,
-  }));
+  return rows.map((row) =>
+    enrichApprovalDisplay({
+      ...row,
+      totalPrice: row.totalPrice?.toString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+      reviewedAt: row.reviewedAt?.toISOString() ?? null,
+    })
+  );
 }
 
 export default async function FinanceApprovalsPage() {

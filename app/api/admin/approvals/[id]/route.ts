@@ -5,9 +5,13 @@ import { z } from "zod";
 import { ORDER_PAYMENT_APPROVAL, notifyApprovalRequester } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { markOrderErpSyncFailed, retryOrderErpSync } from "@/lib/failed-erp-sync-auto-retry";
+import {
+  markOrderErpSyncFailed,
+  runPostApprovalErpSync,
+} from "@/lib/failed-erp-sync-auto-retry";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const reviewSchema = z.object({
   action: z.enum(["approve", "reject"]),
@@ -47,6 +51,7 @@ export async function PATCH(
     orderId: string | null;
     orderReturnId: string | null;
     requestedById: string;
+    orderLinked: boolean;
     orderName: string | null;
     orderNumber: string | null;
     shopifyOrderId: string | null;
@@ -59,6 +64,7 @@ export async function PATCH(
         ar."orderId",
         ar."orderReturnId",
         ar."requestedById",
+        (o."id" IS NOT NULL) AS "orderLinked",
         o."name" AS "orderName",
         o."orderNumber",
         o."shopifyOrderId"
@@ -76,8 +82,29 @@ export async function PATCH(
   if (approval.status !== "pending") {
     return NextResponse.json({ error: "Approval request is already reviewed" }, { status: 400 });
   }
-  if (!approval.orderId) {
-    return NextResponse.json({ error: "Approval request is missing linked order" }, { status: 400 });
+  const orderMissing = !approval.orderId || !approval.orderLinked;
+  if (orderMissing && parsed.data.action === "approve") {
+    return NextResponse.json(
+      { error: "This approval has no linked order (order was removed). Reject it to clear from the list." },
+      { status: 400 }
+    );
+  }
+  if (orderMissing && approval.type === ORDER_PAYMENT_APPROVAL) {
+    const now = new Date();
+    await prisma.$executeRaw(
+      Prisma.sql`
+        UPDATE "ApprovalRequest"
+        SET
+          "status" = 'rejected',
+          "reviewedById" = ${reviewerId},
+          "reviewNote" = ${parsed.data.reviewNote ?? "Rejected — linked order no longer exists"},
+          "reviewedAt" = ${now},
+          "updatedAt" = ${now}
+        WHERE "id" = ${id}
+          AND "companyId" = ${companyId}
+      `
+    );
+    return NextResponse.json({ ok: true, status: "rejected" });
   }
   // Return rearrange approvals also require an orderReturn link
   if (approval.type !== ORDER_PAYMENT_APPROVAL && !approval.orderReturnId) {
@@ -173,29 +200,25 @@ export async function PATCH(
     }),
   });
 
-  // Trigger ERP sync for Koko/bank-transfer orders after finance approves.
-  // These orders had ERP sync skipped at creation (erpnextInvoiceId = "pending_approval").
-  // Primary path: rawPayload (Shopify webhook). Fallback: build from stored order data.
-  if (nextStatus === "approved" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
-    void (async () => {
-      try {
-        const orderForSync = await prisma.order.findUnique({
-          where: { id: approval.orderId! },
-          include: {
-            companyLocation: { include: { erpnextInstance: true } },
-            lineItems: { include: { productItem: true } },
-          },
-        });
-        if (!orderForSync?.companyLocation) return;
+  let erpSyncFailed = false;
+  let erpSyncError: string | undefined;
 
-        await retryOrderErpSync(orderForSync);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.error("[ERPNext] post-approval sync failed:", errMsg);
-        await markOrderErpSyncFailed(approval.orderId!, errMsg);
-      }
-    })();
+  // Await ERP sync so serverless does not terminate before the Sales Invoice is created.
+  if (nextStatus === "approved" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
+    try {
+      await runPostApprovalErpSync(approval.orderId);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ERPNext] post-approval sync failed:", errMsg);
+      await markOrderErpSyncFailed(approval.orderId, errMsg);
+      erpSyncFailed = true;
+      erpSyncError = errMsg;
+    }
   }
 
-  return NextResponse.json({ ok: true, status: nextStatus });
+  return NextResponse.json({
+    ok: true,
+    status: nextStatus,
+    ...(erpSyncFailed ? { erpSyncFailed: true, erpSyncError } : { erpSyncFailed: false }),
+  });
 }
