@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -146,6 +147,15 @@ type OrderDetail = {
     reviewNote: string | null;
     reviewedBy: UserRef | null;
   } | null;
+  deliveryPaymentApproval?: {
+    id: string;
+    status: string;
+    requestNote: string | null;
+    createdAt: string;
+    reviewedAt: string | null;
+    reviewNote: string | null;
+    reviewedBy: UserRef | null;
+  } | null;
 };
 
 interface OrderInvoiceViewModalProps {
@@ -162,6 +172,8 @@ interface OrderInvoiceViewModalProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
   canRevertToStage?: (targetStage: string, currentStage: string) => boolean;
+  canManageFinanceApprovals?: boolean;
+  canRevertPaid?: boolean;
 }
 
 const TIMELINE_ID_TO_DB_STAGE: Record<string, string> = {
@@ -382,6 +394,8 @@ export function OrderInvoiceViewModal({
   canPrint = false,
   canResendRiderSms = false,
   canRevertToStage,
+  canManageFinanceApprovals = false,
+  canRevertPaid = false,
 }: OrderInvoiceViewModalProps) {
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
   const [showJsonModal, setShowJsonModal] = useState(false);
@@ -389,12 +403,87 @@ export function OrderInvoiceViewModal({
   const [confirmRevertStage, setConfirmRevertStage] = useState<{ targetStage: string; label: string } | null>(null);
   const [revertReason, setRevertReason] = useState("");
   const [visibleRevertReasonId, setVisibleRevertReasonId] = useState<string | null>(null);
+  const [financeReviewNote, setFinanceReviewNote] = useState("");
+  const [financeBusy, setFinanceBusy] = useState<"approve" | "reject" | null>(null);
+  const [hodPassword, setHodPassword] = useState("");
+  const [hodRevertReason, setHodRevertReason] = useState("");
+  const [hodRevertBusy, setHodRevertBusy] = useState(false);
 
   const stage = orderDetail?.fulfillmentStage ?? "order_received";
   const isDispatchedWithRider =
     stage === "dispatched" && orderDetail?.dispatchedByRider != null;
 
   const timelineItems = orderDetail ? buildTimeline(orderDetail, formatDate) : [];
+  const pendingDeliveryApproval =
+    orderDetail?.deliveryPaymentApproval?.status === "pending" ? orderDetail.deliveryPaymentApproval : null;
+  const pendingOrderPaymentApproval =
+    orderDetail?.paymentApproval?.status === "pending" ? orderDetail.paymentApproval : null;
+  const canMarkDeliveryPaid =
+    canManageFinanceApprovals && pendingDeliveryApproval != null;
+  const canMarkOrderPaid =
+    canManageFinanceApprovals && pendingOrderPaymentApproval != null;
+  const canHodRevertPaid =
+    canRevertPaid &&
+    orderDetail?.financialStatus?.toLowerCase() === "paid";
+
+  async function reviewFinanceApproval(action: "approve" | "reject", approvalId: string) {
+    setFinanceBusy(action);
+    try {
+      const res = await fetch(`/api/admin/approvals/${approvalId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reviewNote: financeReviewNote.trim() || null }),
+      });
+      const data = (await res.json()) as { error?: string; erpSyncFailed?: boolean; erpSyncError?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to review approval");
+        return;
+      }
+      if (action === "approve" && data.erpSyncFailed) {
+        notify.error(data.erpSyncError ?? "Approved, but ERP payment entry failed.");
+      } else {
+        notify.success(action === "approve" ? "Payment confirmed — order marked paid." : "Approval rejected.");
+      }
+      setFinanceReviewNote("");
+      onRefresh?.();
+    } catch {
+      notify.error("Failed to review approval");
+    } finally {
+      setFinanceBusy(null);
+    }
+  }
+
+  async function handleHodRevertPaid() {
+    if (!orderId) return;
+    if (!hodPassword.trim()) {
+      notify.error("Enter the HOD password.");
+      return;
+    }
+    setHodRevertBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/revert-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: hodPassword,
+          reason: hodRevertReason.trim() || null,
+        }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to revert payment status");
+        return;
+      }
+      notify.success("Order reverted to unpaid.");
+      setHodPassword("");
+      setHodRevertReason("");
+      onRefresh?.();
+    } catch {
+      notify.error("Failed to revert payment status");
+    } finally {
+      setHodRevertBusy(false);
+    }
+  }
 
   async function handleResendSms(trigger: "package_ready" | "dispatched" | "rider_dispatched") {
     if (!orderId) return;
@@ -487,6 +576,140 @@ export function OrderInvoiceViewModal({
           </div>
         ) : orderDetail ? (
           <div className="space-y-6">
+            {pendingOrderPaymentApproval && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+                <p className="font-medium">Order payment awaiting finance confirmation</p>
+                <p className="mt-1 text-amber-800/90 dark:text-amber-300/90">
+                  KOKO or bank transfer payment must be approved before this order can proceed.
+                </p>
+                {canMarkOrderPaid && (
+                  <div className="mt-3 space-y-2">
+                    <Textarea
+                      value={financeReviewNote}
+                      onChange={(event) => setFinanceReviewNote(event.target.value)}
+                      placeholder="Finance note (optional)"
+                      className="min-h-16 bg-background/80"
+                      disabled={financeBusy !== null}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => void reviewFinanceApproval("approve", pendingOrderPaymentApproval.id)}
+                        disabled={financeBusy !== null}
+                        className="gap-2"
+                      >
+                        {financeBusy === "approve" ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Check className="size-4" aria-hidden />
+                        )}
+                        Approve payment
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void reviewFinanceApproval("reject", pendingOrderPaymentApproval.id)}
+                        disabled={financeBusy !== null}
+                        className="gap-2"
+                      >
+                        {financeBusy === "reject" ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <AlertTriangle className="size-4" aria-hidden />
+                        )}
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pendingDeliveryApproval && (
+              <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-900 dark:text-orange-200">
+                <p className="font-medium">Delivery payment awaiting finance confirmation</p>
+                <p className="mt-1 text-orange-800/90 dark:text-orange-300/90">
+                  Cash or card was collected on delivery. Finance must confirm payment received before this order is marked paid.
+                </p>
+                {pendingDeliveryApproval.requestNote && (
+                  <p className="mt-2 whitespace-pre-wrap text-xs text-orange-800/80 dark:text-orange-300/80">
+                    {pendingDeliveryApproval.requestNote}
+                  </p>
+                )}
+                {canMarkDeliveryPaid && (
+                  <div className="mt-3 space-y-2">
+                    <Textarea
+                      value={financeReviewNote}
+                      onChange={(event) => setFinanceReviewNote(event.target.value)}
+                      placeholder="Finance note (optional)"
+                      className="min-h-16 bg-background/80"
+                      disabled={financeBusy !== null}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => void reviewFinanceApproval("approve", pendingDeliveryApproval.id)}
+                        disabled={financeBusy !== null}
+                        className="gap-2"
+                      >
+                        {financeBusy === "approve" ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Check className="size-4" aria-hidden />
+                        )}
+                        Confirm payment received
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void reviewFinanceApproval("reject", pendingDeliveryApproval.id)}
+                        disabled={financeBusy !== null}
+                        className="gap-2"
+                      >
+                        {financeBusy === "reject" ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <AlertTriangle className="size-4" aria-hidden />
+                        )}
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {canHodRevertPaid && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
+                <p className="text-sm font-medium">Revert paid → unpaid (HOD only)</p>
+                <Input
+                  type="password"
+                  value={hodPassword}
+                  onChange={(event) => setHodPassword(event.target.value)}
+                  placeholder="HOD password"
+                  disabled={hodRevertBusy}
+                  autoComplete="off"
+                />
+                <Textarea
+                  value={hodRevertReason}
+                  onChange={(event) => setHodRevertReason(event.target.value)}
+                  placeholder="Reason (optional)"
+                  className="min-h-16"
+                  disabled={hodRevertBusy}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleHodRevertPaid()}
+                  disabled={hodRevertBusy}
+                  className="gap-2"
+                >
+                  {hodRevertBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RotateCcw className="size-4" aria-hidden />}
+                  Revert to unpaid
+                </Button>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => setShowJsonModal(true)}>
@@ -658,13 +881,13 @@ export function OrderInvoiceViewModal({
                     </div>
                     {orderDetail.paymentApproval && (
                       <div>
-                        <span className="text-muted-foreground text-xs">Payment Approval</span>
+                        <span className="text-muted-foreground text-xs">Order Payment Approval</span>
                         {orderDetail.paymentApproval.status === "pending" ? (
                           <p className="flex items-center gap-1.5">
                             <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
                               Pending
                             </span>
-                            <span className="text-xs text-muted-foreground">Awaiting finance approval</span>
+                            <span className="text-xs text-muted-foreground">Awaiting finance (KOKO / bank)</span>
                           </p>
                         ) : orderDetail.paymentApproval.status === "approved" ? (
                           <p className="flex items-center gap-1.5">
@@ -682,6 +905,41 @@ export function OrderInvoiceViewModal({
                             <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
                               Rejected
                             </span>
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {orderDetail.deliveryPaymentApproval && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Delivery Payment Approval</span>
+                        {orderDetail.deliveryPaymentApproval.status === "pending" ? (
+                          <p className="flex items-center gap-1.5">
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
+                              Pending
+                            </span>
+                            <span className="text-xs text-muted-foreground">Awaiting finance (COD / card on delivery)</span>
+                          </p>
+                        ) : orderDetail.deliveryPaymentApproval.status === "approved" ? (
+                          <p className="flex items-center gap-1.5">
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                              Approved
+                            </span>
+                            {orderDetail.deliveryPaymentApproval.reviewedBy && (
+                              <span className="text-xs text-muted-foreground">
+                                by {orderDetail.deliveryPaymentApproval.reviewedBy.name ?? orderDetail.deliveryPaymentApproval.reviewedBy.email}
+                              </span>
+                            )}
+                          </p>
+                        ) : (
+                          <p>
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
+                              Rejected
+                            </span>
+                          </p>
+                        )}
+                        {orderDetail.deliveryPaymentApproval.requestNote && (
+                          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                            {orderDetail.deliveryPaymentApproval.requestNote}
                           </p>
                         )}
                       </div>

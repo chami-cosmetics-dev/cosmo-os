@@ -6,6 +6,7 @@ import { riderDeliveryCompleteSchema, mobileRouteIdSchema } from "@/lib/mobile/v
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
 
 export async function POST(
   request: NextRequest,
@@ -79,11 +80,16 @@ export async function POST(
         deliveryFailedReason: null,
         lastRiderUpdateAt: now,
         riderDeliveryToken: null,
-        ...(task.order.financialStatus !== "paid" && { financialStatus: "paid" }),
       },
       include: { companyLocation: true },
     });
   });
+
+  void triggerDeliveryPaymentApprovalIfNeeded({
+    companyId: updated.companyId,
+    orderId: updated.id,
+    requestedById: auth.session.userId,
+  }).catch((err) => console.error("[Mobile delivery] payment approval failed:", err));
 
   void sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
     orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,

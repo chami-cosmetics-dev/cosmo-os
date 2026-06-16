@@ -7,7 +7,25 @@ import { prisma } from "@/lib/prisma";
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const RETURN_REARRANGE_PAYMENT_APPROVAL = "return_rearrange_payment";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
+export const DELIVERY_PAYMENT_APPROVAL = "delivery_payment_approval";
+export const FINANCE_APPROVAL_TYPES = [
+  RETURN_REARRANGE_PAYMENT_APPROVAL,
+  ORDER_PAYMENT_APPROVAL,
+  DELIVERY_PAYMENT_APPROVAL,
+] as const;
 const FINANCE_APPROVAL_PERMISSION = "finance.approvals.manage";
+
+function normalizeFinancialStatus(value: string | null | undefined) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+/** Unpaid orders must not be auto-marked paid on delivery — finance confirms collection first. */
+export function orderRequiresDeliveryPaymentApproval(order: {
+  financialStatus: string | null;
+}): boolean {
+  const status = normalizeFinancialStatus(order.financialStatus);
+  return status !== "paid" && status !== "voided";
+}
 
 type NotificationInput = {
   companyId: string;
@@ -176,6 +194,102 @@ export async function createOrGetOrderPaymentApproval(input: {
   return { id, status: "pending" as ApprovalStatus };
 }
 
+export async function getPendingDeliveryPaymentApproval(orderId: string) {
+  return prisma.approvalRequest.findFirst({
+    where: { orderId, type: DELIVERY_PAYMENT_APPROVAL, status: "pending" },
+    select: { id: true, status: true },
+  });
+}
+
+export async function createOrGetDeliveryPaymentApproval(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+  invoiceLabel: string;
+  paymentType: string;
+  amount: string;
+  collectionNote?: string | null;
+}) {
+  const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+    Prisma.sql`
+      SELECT "id", "status"
+      FROM "ApprovalRequest"
+      WHERE "companyId" = ${input.companyId}
+        AND "type" = ${DELIVERY_PAYMENT_APPROVAL}
+        AND "orderId" = ${input.orderId}
+        AND "status" = 'pending'
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `
+  );
+  if (existing[0]) return existing[0];
+
+  const requestNote = [
+    `${input.paymentType} — amount: ${input.amount}`,
+    input.collectionNote?.trim(),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const id = randomUUID();
+  const rowsAffected = await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "ApprovalRequest" (
+        "id", "companyId", "type", "status", "orderId",
+        "requestedById", "requestNote", "createdAt", "updatedAt"
+      )
+      VALUES (
+        ${id}, ${input.companyId}, ${DELIVERY_PAYMENT_APPROVAL}, ${"pending"}, ${input.orderId},
+        ${input.requestedById}, ${requestNote},
+        ${new Date()}, ${new Date()}
+      )
+      ON CONFLICT DO NOTHING
+    `
+  );
+
+  if (rowsAffected === 0) {
+    const concurrent = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "type" = ${DELIVERY_PAYMENT_APPROVAL}
+          AND "orderId" = ${input.orderId}
+          AND "status" = 'pending'
+        LIMIT 1
+      `
+    );
+    return concurrent[0]!;
+  }
+
+  const financeUsers = await getFinanceApprovalUsers(input.companyId);
+  await Promise.all(
+    financeUsers.map((u) =>
+      createNotification({
+        companyId: input.companyId,
+        userId: u.id,
+        type: "approval_requested",
+        title: "Delivery payment confirmation required",
+        body: `Confirm payment received for ${input.invoiceLabel} (${input.paymentType}).`,
+        entityType: "ApprovalRequest",
+        entityId: id,
+      })
+    )
+  );
+
+  const financeEmails = financeUsers.map((u) => u.email).filter((e): e is string => !!e);
+  if (financeEmails.length > 0) {
+    void sendFinanceApprovalEmail(
+      financeEmails,
+      input.invoiceLabel,
+      `Delivery: ${input.paymentType}`,
+      input.amount
+    ).catch((err) => console.error("[Finance approval] delivery email send failed:", err));
+  }
+
+  return { id, status: "pending" as ApprovalStatus };
+}
+
 export async function createOrGetReturnRearrangeApproval(input: {
   companyId: string;
   orderId: string;
@@ -271,8 +385,9 @@ export async function notifyApprovalRequester(input: {
   approvalId: string;
   status: "approved" | "rejected";
   invoiceLabel: string;
-  requestedById: string;
+  requestedById: string | null;
 }) {
+  if (!input.requestedById) return;
   await createNotification({
     companyId: input.companyId,
     userId: input.requestedById,

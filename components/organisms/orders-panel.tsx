@@ -46,6 +46,7 @@ type Order = {
   paymentGatewayNames: string[];
   paymentGatewayPrimary: string | null;
   pendingPaymentApproval?: boolean;
+  pendingDeliveryPaymentApproval?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
 };
@@ -178,6 +179,7 @@ type OrderDetail = {
   paymentGatewayNames?: string[];
   paymentGatewayPrimary?: string | null;
   pendingPaymentApproval?: boolean;
+  pendingDeliveryPaymentApproval?: boolean;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -248,6 +250,8 @@ interface OrdersPanelProps {
   canPrint?: boolean;
   canResendRiderSms?: boolean;
   revertPermissionKeys?: string[];
+  canManageFinanceApprovals?: boolean;
+  canRevertPaid?: boolean;
   initialData?: OrdersPanelInitialData | null;
 }
 
@@ -255,6 +259,8 @@ export function OrdersPanel({
   canPrint = false,
   canResendRiderSms = false,
   revertPermissionKeys = [],
+  canManageFinanceApprovals = false,
+  canRevertPaid = false,
   initialData,
 }: OrdersPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
@@ -685,8 +691,19 @@ export function OrdersPanel({
                         <td className="hidden md:table-cell px-4 py-2">
                           <div className="flex flex-wrap gap-1">
                             {order.pendingPaymentApproval && (
-                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                              <span
+                                title="Awaiting order payment approval (KOKO / bank transfer)"
+                                className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                              >
                                 RA
+                              </span>
+                            )}
+                            {order.pendingDeliveryPaymentApproval && (
+                              <span
+                                title="Awaiting delivery payment confirmation (COD / card on delivery)"
+                                className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
+                              >
+                                DP
                               </span>
                             )}
                             <FinancialStatusBadge status={order.financialStatus} />
@@ -794,6 +811,8 @@ export function OrdersPanel({
         canPrint={canPrint}
         canResendRiderSms={canResendRiderSms}
         canRevertToStage={canRevertToStage}
+        canManageFinanceApprovals={canManageFinanceApprovals}
+        canRevertPaid={canRevertPaid}
       />
     </div>
   );

@@ -5,6 +5,7 @@ import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 
@@ -30,6 +31,7 @@ export type FinanceApprovalItem = {
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
   if (type === "return_rearrange_payment") return "Return Rearrange";
+  if (type === "delivery_payment_approval") return "Delivery Payment";
   return type;
 }
 
@@ -69,14 +71,22 @@ function selectFirstInView(
   return visible[0]?.id ?? "";
 }
 
-export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: FinanceApprovalItem[] }) {
+export function FinanceApprovalsPanel({
+  initialApprovals,
+  canRevertPaid = false,
+}: {
+  initialApprovals: FinanceApprovalItem[];
+  canRevertPaid?: boolean;
+}) {
   const [approvals, setApprovals] = useState(initialApprovals);
   const [view, setView] = useState<"pending" | "history">("pending");
   const [selectedId, setSelectedId] = useState(() =>
     selectFirstInView(initialApprovals, "pending", "")
   );
   const [reviewNote, setReviewNote] = useState("");
-  const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | null>(null);
+  const [hodPassword, setHodPassword] = useState("");
+  const [revertReason, setRevertReason] = useState("");
+  const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | null>(null);
 
   const pendingApprovals = approvals.filter(isPendingApproval);
   const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
@@ -142,13 +152,45 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
     }
   }
 
+  async function revertPaidToUnpaid() {
+    if (!selected?.orderId || selected.orderMissing) return;
+    if (!hodPassword.trim()) {
+      notify.error("Enter the HOD password.");
+      return;
+    }
+    setBusy("revert");
+    try {
+      const response = await fetch(`/api/admin/orders/${selected.orderId}/revert-payment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: hodPassword,
+          reason: revertReason.trim() || null,
+        }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        notify.error(data.error ?? "Failed to revert payment status");
+        return;
+      }
+      notify.success("Order reverted to unpaid.");
+      setHodPassword("");
+      setRevertReason("");
+      await refresh();
+    } catch {
+      notify.error("Failed to revert payment status");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Finance Approvals</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Review payment approval requests for KOKO, bank transfer, and return rearrangement orders.
+            Review KOKO, bank transfer, delivery collection, and return rearrangement payment requests.
           </p>
         </div>
         <Button variant="outline" onClick={() => void refresh()} disabled={busy !== null} className="gap-2">
@@ -281,9 +323,40 @@ export function FinanceApprovalsPanel({ initialApprovals }: { initialApprovals: 
                     </div>
                   </>
                 ) : (
-                  <div className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
-                    Reviewed by {selected.reviewedByName ?? selected.reviewedByEmail ?? "-"} on {formatDate(selected.reviewedAt)}.
-                    {selected.reviewNote && <p className="mt-2 whitespace-pre-wrap">{selected.reviewNote}</p>}
+                  <div className="space-y-3">
+                    <div className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
+                      Reviewed by {selected.reviewedByName ?? selected.reviewedByEmail ?? "-"} on {formatDate(selected.reviewedAt)}.
+                      {selected.reviewNote && <p className="mt-2 whitespace-pre-wrap">{selected.reviewNote}</p>}
+                    </div>
+                    {canRevertPaid && selected.orderId && !selected.orderMissing && selected.status === "approved" && selected.type === "delivery_payment_approval" && (
+                      <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                        <p className="text-sm font-medium">Revert paid → unpaid (HOD only)</p>
+                        <Input
+                          type="password"
+                          value={hodPassword}
+                          onChange={(event) => setHodPassword(event.target.value)}
+                          placeholder="HOD password"
+                          disabled={busy !== null}
+                          autoComplete="off"
+                        />
+                        <Textarea
+                          value={revertReason}
+                          onChange={(event) => setRevertReason(event.target.value)}
+                          placeholder="Reason (optional)"
+                          className="min-h-20"
+                          disabled={busy !== null}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => void revertPaidToUnpaid()}
+                          disabled={busy !== null}
+                          className="gap-2"
+                        >
+                          {busy === "revert" ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+                          Revert to unpaid
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </>

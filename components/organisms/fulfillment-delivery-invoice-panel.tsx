@@ -52,6 +52,7 @@ export function FulfillmentDeliveryInvoicePanel({
   const isBusy = busyKey !== null;
   const stage = order?.fulfillmentStage ?? "dispatched";
   const canMarkDelivered = stage === "dispatched";
+  const awaitingFinancePayment = stage === "delivery_complete";
 
   useEffect(() => {
     if (!orderId) {
@@ -90,12 +91,16 @@ export function FulfillmentDeliveryInvoicePanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; needsPaymentApproval?: boolean };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return;
       }
-      notify.success("Updated.");
+      notify.success(
+        data.needsPaymentApproval
+          ? "Delivery recorded. Finance will confirm payment before the order is marked paid."
+          : "Updated."
+      );
       onRefresh(true);
     } catch {
       notify.error("Action failed");
@@ -206,6 +211,12 @@ export function FulfillmentDeliveryInvoicePanel({
           </tbody>
         </table>
       </div>
+
+      {awaitingFinancePayment && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+          Delivery is complete. Finance must confirm payment received before this order can be marked paid and invoice complete.
+        </p>
+      )}
 
       {perms.canMarkDelivered ? (
         <div className="space-y-3 rounded-md border border-border/70 p-3">
