@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
@@ -18,6 +18,33 @@ const AUTO_RETRY_DELAYS_MS = [
 ] as const;
 const AUTO_RETRY_BATCH_LIMIT = 10;
 const AUTO_RETRY_LEASE_MS = 2 * 60_000;
+
+/** Order ERP auto-retry columns — explicit so typings stay valid before `prisma generate`. */
+type OrderErpSyncRetryPatch = {
+  erpnextSyncError?: string | null;
+  erpnextSyncFailedAt?: Date | null;
+  erpnextSyncAutoRetryCount?: number;
+  erpnextSyncLastAutoRetryAt?: Date | null | undefined;
+  erpnextSyncNextAutoRetryAt?: Date | null;
+  erpnextSyncRetryLeaseExpiresAt?: Date | null;
+  erpnextInvoiceId?: string | null;
+};
+
+function orderUpdate(patch: OrderErpSyncRetryPatch): Prisma.OrderUpdateInput {
+  return patch as Prisma.OrderUpdateInput;
+}
+
+function orderUpdateMany(patch: OrderErpSyncRetryPatch): Prisma.OrderUpdateManyMutationInput {
+  return patch as Prisma.OrderUpdateManyMutationInput;
+}
+
+function orderWhere(patch: Record<string, unknown>): Prisma.OrderWhereInput {
+  return patch as Prisma.OrderWhereInput;
+}
+
+function orderOrderBy(patch: Record<string, unknown>): Prisma.OrderOrderByWithRelationInput {
+  return patch as Prisma.OrderOrderByWithRelationInput;
+}
 
 export const ERP_SYNC_SUCCESS_CLEAR = {
   erpnextSyncError: null,
@@ -39,6 +66,18 @@ function clampErrorMessage(message: string) {
   return message.slice(0, 10_000);
 }
 
+async function getOrderErpSyncAutoRetryCount(orderId: string): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ erpnextSyncAutoRetryCount: number }>>(
+    Prisma.sql`
+      SELECT COALESCE("erpnextSyncAutoRetryCount", 0) AS "erpnextSyncAutoRetryCount"
+      FROM "Order"
+      WHERE "id" = ${orderId}
+      LIMIT 1
+    `
+  );
+  return Number(rows[0]?.erpnextSyncAutoRetryCount ?? 0);
+}
+
 export function getNextFailedErpSyncAutoRetryAt(
   autoRetryCount: number,
   from: Date = new Date()
@@ -51,17 +90,20 @@ export function getNextFailedErpSyncAutoRetryAt(
   return new Date(from.getTime() + delayMs);
 }
 
+export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
+  return !id || id === "pending" || id === "pending_approval";
+}
+
 export function buildFailedErpSyncWhere(companyId?: string): Prisma.OrderWhereInput {
   const cutoff = getOrderImportCutoff();
   return {
     ...(companyId ? { companyId } : {}),
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
+    erpnextSyncError: { not: null },
     OR: [
-      { erpnextSyncError: { not: null }, erpnextInvoiceId: null },
-      {
-        erpnextInvoiceId: "pending_approval",
-        approvalRequests: { none: { type: ORDER_PAYMENT_APPROVAL, status: "pending" } },
-      },
+      { erpnextInvoiceId: null },
+      { erpnextInvoiceId: "pending" },
+      { erpnextInvoiceId: "pending_approval" },
     ],
   };
 }
@@ -80,11 +122,7 @@ export async function markOrderErpSyncFailed(
   const attemptedAt = options?.attemptedAt ?? new Date();
   let autoRetryCount = options?.autoRetryCount;
   if (autoRetryCount === undefined) {
-    const current = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: { erpnextSyncAutoRetryCount: true },
-    });
-    autoRetryCount = current?.erpnextSyncAutoRetryCount ?? 0;
+    autoRetryCount = await getOrderErpSyncAutoRetryCount(orderId);
     if (options?.incrementAutoRetryCount) {
       autoRetryCount += 1;
     }
@@ -97,7 +135,7 @@ export async function markOrderErpSyncFailed(
 
   await prisma.order.update({
     where: { id: orderId },
-    data: {
+    data: orderUpdate({
       erpnextSyncError: clampErrorMessage(errorMessage),
       erpnextSyncFailedAt: attemptedAt,
       erpnextSyncLastAutoRetryAt: autoRetryCount > 0 ? attemptedAt : undefined,
@@ -106,7 +144,7 @@ export async function markOrderErpSyncFailed(
         : null,
       erpnextSyncRetryLeaseExpiresAt: null,
       erpnextSyncAutoRetryCount: autoRetryCount,
-    },
+    }),
   });
 }
 
@@ -114,7 +152,7 @@ export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> 
   if (isOrderBeforeImportCutoff(order.createdAt)) {
     await prisma.order.update({
       where: { id: order.id },
-      data: ERP_SYNC_SUCCESS_CLEAR,
+      data: orderUpdate(ERP_SYNC_SUCCESS_CLEAR),
     });
     console.warn("[ERPNext] Skipping retry for pre-cutoff order", {
       orderId: order.id,
@@ -139,12 +177,65 @@ export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> 
     const parsed = shopifyOrderWebhookSchema.safeParse(order.rawPayload);
     if (parsed.success) {
       await syncOrderToERPNext(order, order.companyLocation, parsed.data);
-      return;
+    } else {
+      console.warn("[ERPNext] retry: rawPayload schema validation failed — falling back to Vault OS data");
+      await syncOrderToERPNextFromOrder({ ...order, companyLocation: order.companyLocation });
     }
-    console.warn("[ERPNext] retry: rawPayload schema validation failed — falling back to Vault OS data");
+  } else {
+    await syncOrderToERPNextFromOrder({ ...order, companyLocation: order.companyLocation });
   }
 
-  await syncOrderToERPNextFromOrder({ ...order, companyLocation: order.companyLocation });
+  await assertOrderHasErpSalesInvoice(order.id);
+}
+
+async function assertOrderHasErpSalesInvoice(orderId: string) {
+  const after = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { erpnextInvoiceId: true },
+  });
+  if (isPlaceholderErpInvoiceId(after?.erpnextInvoiceId)) {
+    throw new Error(
+      "ERP Sales Invoice was not created. Check ERP credentials, warehouse, and line items on the location."
+    );
+  }
+}
+
+/** Run ERP sync after finance approves a Koko/bank-transfer order. */
+export async function runPostApprovalErpSync(orderId: string): Promise<void> {
+  const existing = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { erpnextInvoiceId: true },
+  });
+  if (existing && !isPlaceholderErpInvoiceId(existing.erpnextInvoiceId)) {
+    return;
+  }
+
+  await prisma.order.updateMany({
+    where: {
+      id: orderId,
+      OR: [{ erpnextInvoiceId: null }, { erpnextInvoiceId: "pending_approval" }],
+    },
+    data: orderUpdateMany({
+      erpnextInvoiceId: "pending",
+      erpnextSyncError: null,
+      erpnextSyncFailedAt: null,
+      erpnextSyncNextAutoRetryAt: null,
+      erpnextSyncRetryLeaseExpiresAt: null,
+    }),
+  });
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      companyLocation: { include: { erpnextInstance: true } },
+      lineItems: { include: { productItem: true } },
+    },
+  });
+  if (!order?.companyLocation) {
+    throw new Error("Order or company location not found");
+  }
+
+  await retryOrderErpSync(order);
 }
 
 async function claimDueFailedErpSyncs(companyId: string | null, limit: number) {
@@ -153,21 +244,21 @@ async function claimDueFailedErpSyncs(companyId: string | null, limit: number) {
   const where: Prisma.OrderWhereInput = {
     AND: [
       buildFailedErpSyncWhere(companyId ?? undefined),
-      { erpnextSyncNextAutoRetryAt: { lte: now } },
-      {
+      orderWhere({ erpnextSyncNextAutoRetryAt: { lte: now } }),
+      orderWhere({
         OR: [
           { erpnextSyncRetryLeaseExpiresAt: null },
           { erpnextSyncRetryLeaseExpiresAt: { lte: now } },
         ],
-      },
+      }),
     ],
   };
 
   const candidates = await prisma.order.findMany({
     where,
     orderBy: [
-      { erpnextSyncNextAutoRetryAt: "asc" },
-      { erpnextSyncFailedAt: "asc" },
+      orderOrderBy({ erpnextSyncNextAutoRetryAt: "asc" }),
+      orderOrderBy({ erpnextSyncFailedAt: "asc" }),
     ],
     take: limit * 2,
     select: { id: true },
@@ -177,17 +268,15 @@ async function claimDueFailedErpSyncs(companyId: string | null, limit: number) {
 
   for (const candidate of candidates) {
     const claimResult = await prisma.order.updateMany({
-      where: {
+      where: orderWhere({
         id: candidate.id,
         erpnextSyncNextAutoRetryAt: { lte: now },
         OR: [
           { erpnextSyncRetryLeaseExpiresAt: null },
           { erpnextSyncRetryLeaseExpiresAt: { lte: now } },
         ],
-      },
-      data: {
-        erpnextSyncRetryLeaseExpiresAt: leaseUntil,
-      },
+      }),
+      data: orderUpdateMany({ erpnextSyncRetryLeaseExpiresAt: leaseUntil }),
     });
 
     if (claimResult.count === 1) {
@@ -216,7 +305,7 @@ async function claimDueFailedErpSyncs(companyId: string | null, limit: number) {
 async function clearOrderErpSyncRetryLease(orderId: string) {
   await prisma.order.update({
     where: { id: orderId },
-    data: { erpnextSyncRetryLeaseExpiresAt: null },
+    data: orderUpdate({ erpnextSyncRetryLeaseExpiresAt: null }),
   });
 }
 
@@ -225,37 +314,32 @@ export async function scheduleUnscheduledFailedErpSyncs(
   limit = 50
 ) {
   const orders = await prisma.order.findMany({
-    where: {
+    where: orderWhere({
       AND: [
         buildFailedErpSyncWhere(companyId),
         { erpnextSyncNextAutoRetryAt: null },
       ],
-    },
+    }),
     take: limit,
     select: {
       id: true,
       erpnextSyncError: true,
-      erpnextSyncAutoRetryCount: true,
       erpnextInvoiceId: true,
     },
   });
 
   for (const order of orders) {
-    const errorText =
-      order.erpnextSyncError ??
-      (order.erpnextInvoiceId === "pending_approval"
-        ? "Payment was approved but ERP sync was not triggered."
-        : "");
+    const errorText = order.erpnextSyncError ?? "";
+    if (!errorText) continue;
     const classification = classifyFailedErpSyncError(errorText);
     if (!classification.retryable) continue;
 
+    const autoRetryCount = await getOrderErpSyncAutoRetryCount(order.id);
     await prisma.order.update({
       where: { id: order.id },
-      data: {
-        erpnextSyncNextAutoRetryAt: getNextFailedErpSyncAutoRetryAt(
-          order.erpnextSyncAutoRetryCount
-        ),
-      },
+      data: orderUpdate({
+        erpnextSyncNextAutoRetryAt: getNextFailedErpSyncAutoRetryAt(autoRetryCount),
+      }),
     });
   }
 }
@@ -285,11 +369,11 @@ export async function runDueFailedErpSyncRetries(options?: {
       failed += 1;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const classification = classifyFailedErpSyncError(errorMessage);
-      const nextCount = order.erpnextSyncAutoRetryCount + 1;
+      const nextCount = (await getOrderErpSyncAutoRetryCount(order.id)) + 1;
 
       await prisma.order.update({
         where: { id: order.id },
-        data: {
+        data: orderUpdate({
           erpnextSyncError: clampErrorMessage(errorMessage),
           erpnextSyncFailedAt: attemptedAt,
           erpnextSyncLastAutoRetryAt: attemptedAt,
@@ -299,7 +383,7 @@ export async function runDueFailedErpSyncRetries(options?: {
               : null,
           erpnextSyncRetryLeaseExpiresAt: null,
           erpnextSyncAutoRetryCount: nextCount,
-        },
+        }),
       });
     }
   }
