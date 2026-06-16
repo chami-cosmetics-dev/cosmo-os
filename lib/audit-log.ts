@@ -27,6 +27,7 @@ export const AUDIT_LOG_ACTIONS = [
   "exchange_updated",
   "exchange_solved",
   "fulfillment_updated",
+  "payment_reverted_to_unpaid",
   "remark_created",
   "remark_updated",
   "remark_deleted",

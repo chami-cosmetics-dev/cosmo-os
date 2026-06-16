@@ -7,7 +7,7 @@ import {
   buildFulfillmentPermissions,
 } from "@/lib/fulfillment-permissions";
 import { fetchOrdersPageData } from "@/lib/page-data/orders";
-import { requirePermission } from "@/lib/rbac";
+import { hasPermission, requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +25,8 @@ export default async function OrdersPage() {
 
   const permissions = buildFulfillmentPermissions(auth.context);
   const revertPermissionKeys = getRevertPermissionKeys(auth.context);
+  const canManageFinanceApprovals = hasPermission(auth.context!, "finance.approvals.manage");
+  const canRevertPaid = hasPermission(auth.context!, "finance.hod.revert_paid_to_unpaid");
   const initialData = await fetchOrdersPageData(companyId, {
     page: 1,
     limit: 10,
@@ -36,6 +38,8 @@ export default async function OrdersPage() {
       canPrint={permissions.canPrint}
       canResendRiderSms={permissions.canResendRiderSms}
       revertPermissionKeys={revertPermissionKeys}
+      canManageFinanceApprovals={canManageFinanceApprovals}
+      canRevertPaid={canRevertPaid}
       initialData={initialData}
     />
   );

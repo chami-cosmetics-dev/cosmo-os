@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
 
 export async function GET(
   _request: NextRequest,
@@ -94,11 +95,15 @@ export async function POST(
           deliveryFailedReason: null,
           lastRiderUpdateAt: now,
           riderDeliveryToken: null,
-          ...(order.financialStatus !== "paid" && { financialStatus: "paid" }),
         },
         include: { companyLocation: true },
       });
     });
+    void triggerDeliveryPaymentApprovalIfNeeded({
+      companyId: updated.companyId,
+      orderId: updated.id,
+      requestedById: null,
+    }).catch((err) => console.error("[Rider delivery] payment approval failed:", err));
     sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
       orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
       customerPhone: resolveCustomerPhone(updated),

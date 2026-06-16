@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { ORDER_PAYMENT_APPROVAL, notifyApprovalRequester } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL, notifyApprovalRequester } from "@/lib/approval-workflow";
+import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -50,7 +51,7 @@ export async function PATCH(
     status: string;
     orderId: string | null;
     orderReturnId: string | null;
-    requestedById: string;
+    requestedById: string | null;
     orderLinked: boolean;
     orderName: string | null;
     orderNumber: string | null;
@@ -89,7 +90,7 @@ export async function PATCH(
       { status: 400 }
     );
   }
-  if (orderMissing && approval.type === ORDER_PAYMENT_APPROVAL) {
+  if (orderMissing && (approval.type === ORDER_PAYMENT_APPROVAL || approval.type === DELIVERY_PAYMENT_APPROVAL)) {
     const now = new Date();
     await prisma.$executeRaw(
       Prisma.sql`
@@ -106,8 +107,8 @@ export async function PATCH(
     );
     return NextResponse.json({ ok: true, status: "rejected" });
   }
-  // Return rearrange approvals also require an orderReturn link
-  if (approval.type !== ORDER_PAYMENT_APPROVAL && !approval.orderReturnId) {
+  // Return rearrange approvals require an orderReturn link
+  if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL && !approval.orderReturnId) {
     return NextResponse.json({ error: "Approval request is missing linked order return" }, { status: 400 });
   }
 
@@ -135,6 +136,17 @@ export async function PATCH(
         await tx.order.update({
           where: { id: approval.orderId! },
           data: { financialStatus: "paid" },
+        });
+      } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
+        await tx.order.update({
+          where: { id: approval.orderId! },
+          data: {
+            financialStatus: "paid",
+            fulfillmentStage: "invoice_complete",
+            fulfillmentStatus: "fulfilled",
+            invoiceCompleteAt: now,
+            invoiceCompleteById: reviewerId,
+          },
         });
       } else {
         // Return rearrange approval: force to ready_to_dispatch + resolve the return
@@ -213,6 +225,23 @@ export async function PATCH(
       await markOrderErpSyncFailed(approval.orderId, errMsg);
       erpSyncFailed = true;
       erpSyncError = errMsg;
+    }
+  }
+
+  if (nextStatus === "approved" && approval.type === DELIVERY_PAYMENT_APPROVAL && approval.orderId) {
+    const order = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      include: { companyLocation: { include: { erpnextInstance: true } } },
+    });
+    if (order?.companyLocation) {
+      try {
+        await createDeliveryPaymentEntry(order, order.companyLocation, now);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("[ERPNext] delivery payment approval PE failed:", errMsg);
+        erpSyncFailed = true;
+        erpSyncError = errMsg;
+      }
     }
   }
 

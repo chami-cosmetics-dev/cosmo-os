@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
-import { ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -62,7 +62,7 @@ export async function GET() {
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       WHERE ar."companyId" = ${companyId}
-        AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL})
+        AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL}, ${DELIVERY_PAYMENT_APPROVAL})
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC
