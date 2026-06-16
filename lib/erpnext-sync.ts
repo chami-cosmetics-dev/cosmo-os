@@ -823,12 +823,16 @@ export async function syncOrderToERPNext(
 
   const gateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
 
-  if (gateways.some((g) => g.includes("koko"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
-  } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
-  } else if (gateways.some((g) => g.includes("bank"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
+  try {
+    if (gateways.some((g) => g.includes("koko"))) {
+      await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
+    } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
+      await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
+    } else if (gateways.some((g) => g.includes("bank"))) {
+      await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
+    }
+  } catch (err) {
+    console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
   }
 }
 
@@ -998,11 +1002,15 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
 
   const gatewayNamesLower = allGateways.map((g) => g.toLowerCase().trim());
-  if (gatewayNamesLower.some((g) => g.includes("koko"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
-  } else if (cfg.webxpayMop && gatewayNamesLower.some((g) => g.includes("webxpay"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
-  } else if (gatewayNamesLower.some((g) => g.includes("bank"))) {
-    await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
+  try {
+    if (gatewayNamesLower.some((g) => g.includes("koko"))) {
+      await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
+    } else if (cfg.webxpayMop && gatewayNamesLower.some((g) => g.includes("webxpay"))) {
+      await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
+    } else if (gatewayNamesLower.some((g) => g.includes("bank"))) {
+      await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
+    }
+  } catch (err) {
+    console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
   }
 }
