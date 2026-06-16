@@ -17,6 +17,7 @@ type DeliveryOrderDetail = {
   merchantCouponCode: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  resolvedCustomerPhone?: string | null;
   shippingAddress: unknown;
   dispatchedAt: string | null;
   dispatchedBy: { id: string; name: string | null; email: string | null } | null;
@@ -131,6 +132,7 @@ export function FulfillmentDeliveryInvoicePanel({
 
   const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
+  const displayPhone = detail?.resolvedCustomerPhone ?? order?.customerPhone ?? "-";
 
   return (
     <div className="space-y-4">
@@ -156,7 +158,7 @@ export function FulfillmentDeliveryInvoicePanel({
         <div className="space-y-1">
           <p><span className="font-medium">Invoice:</span> {orderLabel}</p>
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
-          <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? "-"}</p>
+          <p><span className="font-medium">Phone:</span> {displayPhone}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
           <p>
             <span className="font-medium">Dispatched via:</span>{" "}

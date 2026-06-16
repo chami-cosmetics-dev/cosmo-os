@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -212,6 +213,13 @@ export async function GET(
       : null,
     customerEmail: details.customerEmail,
     customerPhone: details.customerPhone,
+    resolvedCustomerPhone:
+      resolveCustomerPhone({
+        customerPhone: details.customerPhone,
+        shippingAddress: details.shippingAddress,
+        billingAddress: details.billingAddress,
+        rawPayload: details.rawPayload,
+      }) ?? null,
     shippingAddress: details.shippingAddress,
     billingAddress: details.billingAddress,
     discountCodes: details.discountCodes,
