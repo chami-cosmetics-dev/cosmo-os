@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
+import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { prisma } from "@/lib/prisma";
 import { buildCsv } from "@/lib/reports/csv";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -80,6 +81,8 @@ async function fetchDispatchGroups(
       customerPhone: true,
       customerEmail: true,
       shippingAddress: true,
+      billingAddress: true,
+      rawPayload: true,
       totalPrice: true,
       currency: true,
       paymentGatewayPrimary: true,
@@ -149,7 +152,13 @@ async function fetchDispatchGroups(
       deliveryCompleteAt: order.deliveryCompleteAt?.toISOString() ?? null,
       deliveryOutcome: order.deliveryOutcome ?? null,
       customerName,
-      customerPhone: order.customerPhone,
+      customerPhone:
+        resolveCustomerPhone({
+          customerPhone: order.customerPhone,
+          shippingAddress: order.shippingAddress,
+          billingAddress: order.billingAddress,
+          rawPayload: order.rawPayload,
+        }) ?? null,
       customerAddress,
       city,
       address,

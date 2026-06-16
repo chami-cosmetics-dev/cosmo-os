@@ -34,11 +34,12 @@ export function resolveOrderNumber(order: {
   return order.name?.trim() || order.orderNumber?.trim() || order.shopifyOrderId?.trim() || "";
 }
 
-/** Customer phone from order field, shipping address, or billing address. */
+/** Customer phone from order field, shipping address, billing address, or Shopify raw payload. */
 export function resolveCustomerPhone(order: {
   customerPhone?: string | null;
   shippingAddress?: unknown;
   billingAddress?: unknown;
+  rawPayload?: unknown;
 }): string | undefined {
   const direct = order.customerPhone?.trim();
   if (direct) return direct;
@@ -47,6 +48,24 @@ export function resolveCustomerPhone(order: {
     const record = addr as Record<string, string> | null | undefined;
     const phone = record?.phone?.trim();
     if (phone) return phone;
+  }
+
+  if (order.rawPayload && typeof order.rawPayload === "object") {
+    const raw = order.rawPayload as Record<string, unknown>;
+    const fromRoot = typeof raw.phone === "string" ? raw.phone.trim() : "";
+    if (fromRoot) return fromRoot;
+
+    const billing = raw.billing_address as Record<string, unknown> | null | undefined;
+    const billingPhone = typeof billing?.phone === "string" ? billing.phone.trim() : "";
+    if (billingPhone) return billingPhone;
+
+    const shipping = raw.shipping_address as Record<string, unknown> | null | undefined;
+    const shippingPhone = typeof shipping?.phone === "string" ? shipping.phone.trim() : "";
+    if (shippingPhone) return shippingPhone;
+
+    const customer = raw.customer as Record<string, unknown> | null | undefined;
+    const customerPhone = typeof customer?.phone === "string" ? customer.phone.trim() : "";
+    if (customerPhone) return customerPhone;
   }
 
   return undefined;
