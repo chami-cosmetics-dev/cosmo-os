@@ -15,8 +15,23 @@ export function getMerchantCouponCode(params: {
   }
 
   if (Array.isArray(discountCodes) && discountCodes.length > 0) {
-    const first = discountCodes[0] as Record<string, unknown>;
-    if (typeof first?.code === "string" && first.code.trim()) return first.code.trim();
+    const codes = discountCodes
+      .map((discount, index) => {
+        if (discount == null || typeof discount !== "object") return null;
+        const code = (discount as Record<string, unknown>).code;
+        if (typeof code !== "string" || !code.trim()) return null;
+        return { code: code.trim(), index };
+      })
+      .filter((code): code is { code: string; index: number } => code != null)
+      .sort((a, b) => {
+        const aIsMerchant = a.code.toUpperCase().startsWith("MER");
+        const bIsMerchant = b.code.toUpperCase().startsWith("MER");
+        if (aIsMerchant !== bIsMerchant) return aIsMerchant ? -1 : 1;
+        return a.index - b.index;
+      })
+      .map(({ code }) => code);
+
+    if (codes.length > 0) return codes.join(",");
   }
 
   return null;
