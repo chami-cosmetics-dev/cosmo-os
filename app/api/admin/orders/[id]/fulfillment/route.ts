@@ -18,8 +18,11 @@ import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
 import {
   createOrGetOrderPaymentApproval,
   getOrderPaymentApproval,
+  getPendingDeliveryPaymentApproval,
   isOrderPaymentRequiresApproval,
+  orderRequiresDeliveryPaymentApproval,
 } from "@/lib/approval-workflow";
+import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -906,6 +909,19 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      if (orderRequiresDeliveryPaymentApproval(order)) {
+        const pendingDeliveryApproval = await getPendingDeliveryPaymentApproval(order.id);
+        if (pendingDeliveryApproval) {
+          return NextResponse.json(
+            { error: "Finance must confirm delivery payment before marking invoice complete." },
+            { status: 409 }
+          );
+        }
+        return NextResponse.json(
+          { error: "Order payment is not confirmed. Finance must mark this order as paid first." },
+          { status: 409 }
+        );
+      }
       await prisma.order.update({
         where: { id: order.id },
         data: {
@@ -947,21 +963,34 @@ export async function PATCH(
           { status: 400 }
         );
       }
+
+      const needsPaymentApproval = orderRequiresDeliveryPaymentApproval(order);
+      const userId = auth.context!.user!.id;
+
       const updated = await prisma.order.update({
         where: { id: order.id },
-        data: {
-          fulfillmentStage: "invoice_complete",
-          fulfillmentStatus: "fulfilled",
-          ...(order.financialStatus !== "paid" && { financialStatus: "paid" }),
-          deliveryCompleteAt: now,
-          deliveryCompleteById: auth.context!.user!.id,
-          invoiceCompleteAt: now,
-          invoiceCompleteById: auth.context!.user!.id,
-          deliveryOutcome: "delivered",
-          deliveryFailedReason: null,
-          lastRiderUpdateAt: now,
-          riderDeliveryToken: null,
-        },
+        data: needsPaymentApproval
+          ? {
+              fulfillmentStage: "delivery_complete",
+              deliveryCompleteAt: now,
+              deliveryCompleteById: userId,
+              deliveryOutcome: "delivered",
+              deliveryFailedReason: null,
+              lastRiderUpdateAt: now,
+              riderDeliveryToken: null,
+            }
+          : {
+              fulfillmentStage: "invoice_complete",
+              fulfillmentStatus: "fulfilled",
+              deliveryCompleteAt: now,
+              deliveryCompleteById: userId,
+              invoiceCompleteAt: now,
+              invoiceCompleteById: userId,
+              deliveryOutcome: "delivered",
+              deliveryFailedReason: null,
+              lastRiderUpdateAt: now,
+              riderDeliveryToken: null,
+            },
         include: { companyLocation: true },
       });
       await prisma.riderDeliveryTask.updateMany({
@@ -974,6 +1003,15 @@ export async function PATCH(
           latestSyncAt: now,
         },
       });
+
+      if (needsPaymentApproval) {
+        await triggerDeliveryPaymentApprovalIfNeeded({
+          companyId,
+          orderId: order.id,
+          requestedById: userId,
+        });
+      }
+
       sendOrderSms(companyId, order.id, "delivery_complete", {
         orderNumber: resolveOrderNumber(updated),
         invoiceNumber: resolveOrderInvoiceNumber(updated),
@@ -982,14 +1020,17 @@ export async function PATCH(
       }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
       await logOrderFulfillmentAudit({
         companyId,
-        actorUserId: auth.context!.user!.id,
+        actorUserId: userId,
         orderId: order.id,
-        summary: `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered and invoice complete`,
+        summary: needsPaymentApproval
+          ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — awaiting finance payment confirmation`
+          : `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered and invoice complete`,
         beforeStage: order.fulfillmentStage,
-        afterStage: "invoice_complete",
-        metadata: { action: data.action },
+        afterStage: needsPaymentApproval ? "delivery_complete" : "invoice_complete",
+        metadata: { action: data.action, needsPaymentApproval },
       });
-      if (order.companyLocationId) {
+
+      if (!needsPaymentApproval && order.companyLocationId) {
         const location = await prisma.companyLocation.findUnique({
           where: { id: order.companyLocationId },
           include: { erpnextInstance: true },
@@ -1000,7 +1041,7 @@ export async function PATCH(
           );
         }
       }
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, needsPaymentApproval });
     }
 
     if (data.action === "revert_to_stage") {

@@ -3,10 +3,10 @@ import { Prisma } from "@prisma/client";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { FinanceApprovalsPanel, type FinanceApprovalItem } from "@/components/organisms/finance-approvals-panel";
-import { ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { prisma } from "@/lib/prisma";
-import { requireAnyPermission } from "@/lib/rbac";
+import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +49,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       WHERE ar."companyId" = ${companyId}
-        AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL})
+        AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL}, ${DELIVERY_PAYMENT_APPROVAL})
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC
@@ -81,5 +81,6 @@ export default async function FinanceApprovalsPage() {
   if (!companyId) return <PermissionDeniedCard message="No company associated with your account." />;
 
   const approvals = await fetchInitialApprovals(companyId);
-  return <FinanceApprovalsPanel initialApprovals={approvals} />;
+  const canRevertPaid = hasPermission(auth.context!, "finance.hod.revert_paid_to_unpaid");
+  return <FinanceApprovalsPanel initialApprovals={approvals} canRevertPaid={canRevertPaid} />;
 }

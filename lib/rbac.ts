@@ -149,6 +149,10 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.approvals.manage",
     description: "Approve or reject finance approval requests",
   },
+  {
+    key: "finance.hod.revert_paid_to_unpaid",
+    description: "Revert a paid order to unpaid (requires HOD password)",
+  },
   // Reports - Dump downloads
   {
     key: REPORT_DUMP_PERMISSIONS.contactListPart1,
@@ -399,6 +403,7 @@ const DEFAULT_ROLES = [
       "complaints.manage",
       "finance.approvals.read",
       "finance.approvals.manage",
+      "finance.hod.revert_paid_to_unpaid",
       REPORT_DUMP_PERMISSIONS.contactListPart1,
       REPORT_DUMP_PERMISSIONS.contactListPart1_1,
       REPORT_DUMP_PERMISSIONS.contactListPart2,
@@ -454,6 +459,15 @@ const DEFAULT_ROLES = [
       "orders.read",
       "orders.update_payment_method",
       "returns.read",
+    ],
+  },
+  {
+    name: "hod",
+    description: "Head of Department — can revert paid orders to unpaid with password",
+    permissionKeys: [
+      "finance.approvals.read",
+      "finance.hod.revert_paid_to_unpaid",
+      "orders.read",
     ],
   },
   {

@@ -6,6 +6,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
+import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
 export type OrdersPageParams = {
@@ -312,9 +313,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     packageHoldReason: { select: { id: true, name: true } },
     _count: { select: { lineItems: true } },
     approvalRequests: {
-      where: { type: "order_payment_approval", status: "pending" },
-      select: { id: true },
-      take: 1,
+      where: {
+        status: "pending",
+        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] },
+      },
+      select: { id: true, type: true },
     },
     ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
     ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
@@ -358,7 +361,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStage: o.fulfillmentStage,
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
-    pendingPaymentApproval: o.approvalRequests.length > 0,
+    pendingPaymentApproval: o.approvalRequests.some((a) => a.type === ORDER_PAYMENT_APPROVAL),
+    pendingDeliveryPaymentApproval: o.approvalRequests.some(
+      (a) => a.type === DELIVERY_PAYMENT_APPROVAL
+    ),
     merchantCouponCode: getMerchantCouponCode({
       sourceName: o.sourceName,
       discountCodes: o.discountCodes,

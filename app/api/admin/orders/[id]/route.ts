@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Prisma } from "@prisma/client";
 
+import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
@@ -89,11 +90,11 @@ const orderSelect = {
     include: { addedBy: { select: { id: true, name: true, email: true } } },
   },
   approvalRequests: {
-    where: { type: "order_payment_approval" },
+    where: { type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] } },
     orderBy: { createdAt: "desc" },
-    take: 1,
     select: {
       id: true,
+      type: true,
       status: true,
       requestNote: true,
       createdAt: true,
@@ -337,7 +338,20 @@ export async function GET(
       addedBy: r.addedBy ? { id: r.addedBy.id, name: r.addedBy.name, email: r.addedBy.email } : null,
     })),
     paymentApproval: (() => {
-      const ap = details.approvalRequests[0];
+      const ap = details.approvalRequests.find((row) => row.type === ORDER_PAYMENT_APPROVAL);
+      if (!ap) return null;
+      return {
+        id: ap.id,
+        status: ap.status,
+        requestNote: ap.requestNote ?? null,
+        createdAt: ap.createdAt.toISOString(),
+        reviewedAt: ap.reviewedAt?.toISOString() ?? null,
+        reviewNote: ap.reviewNote ?? null,
+        reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
+      };
+    })(),
+    deliveryPaymentApproval: (() => {
+      const ap = details.approvalRequests.find((row) => row.type === DELIVERY_PAYMENT_APPROVAL);
       if (!ap) return null;
       return {
         id: ap.id,
