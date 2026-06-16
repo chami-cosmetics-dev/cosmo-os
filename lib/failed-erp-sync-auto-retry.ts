@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
-import { syncOrderToERPNext, syncOrderToERPNextFromOrder } from "@/lib/erpnext-sync";
+import { syncOrderToERPNext, syncOrderToERPNextFromOrder, syncFinanceApprovedPrepaidPaymentToERPNext } from "@/lib/erpnext-sync";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { classifyFailedErpSyncError } from "@/lib/failed-erp-sync-classification";
 import {
@@ -201,41 +201,51 @@ async function assertOrderHasErpSalesInvoice(orderId: string) {
 }
 
 /** Run ERP sync after finance approves a Koko/bank-transfer order. */
-export async function runPostApprovalErpSync(orderId: string): Promise<void> {
-  const existing = await prisma.order.findUnique({
+export async function runPostApprovalErpSync(orderId: string, paidAt: Date = new Date()): Promise<void> {
+  const orderBefore = await prisma.order.findUnique({
     where: { id: orderId },
     select: { erpnextInvoiceId: true },
   });
-  if (existing && !isPlaceholderErpInvoiceId(existing.erpnextInvoiceId)) {
-    return;
+  const hadExistingSi = orderBefore && !isPlaceholderErpInvoiceId(orderBefore.erpnextInvoiceId);
+
+  if (!hadExistingSi) {
+    await prisma.order.updateMany({
+      where: {
+        id: orderId,
+        OR: [{ erpnextInvoiceId: null }, { erpnextInvoiceId: "pending_approval" }],
+      },
+      data: orderUpdateMany({
+        erpnextInvoiceId: "pending",
+        erpnextSyncError: null,
+        erpnextSyncFailedAt: null,
+        erpnextSyncNextAutoRetryAt: null,
+        erpnextSyncRetryLeaseExpiresAt: null,
+      }),
+    });
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        companyLocation: { include: { erpnextInstance: true } },
+        lineItems: { include: { productItem: true } },
+      },
+    });
+    if (!order?.companyLocation) {
+      throw new Error("Order or company location not found");
+    }
+
+    await retryOrderErpSync(order);
   }
 
-  await prisma.order.updateMany({
-    where: {
-      id: orderId,
-      OR: [{ erpnextInvoiceId: null }, { erpnextInvoiceId: "pending_approval" }],
-    },
-    data: orderUpdateMany({
-      erpnextInvoiceId: "pending",
-      erpnextSyncError: null,
-      erpnextSyncFailedAt: null,
-      erpnextSyncNextAutoRetryAt: null,
-      erpnextSyncRetryLeaseExpiresAt: null,
-    }),
-  });
-
-  const order = await prisma.order.findUnique({
+  const orderAfter = await prisma.order.findUnique({
     where: { id: orderId },
-    include: {
-      companyLocation: { include: { erpnextInstance: true } },
-      lineItems: { include: { productItem: true } },
-    },
+    include: { companyLocation: { include: { erpnextInstance: true } } },
   });
-  if (!order?.companyLocation) {
+  if (!orderAfter?.companyLocation) {
     throw new Error("Order or company location not found");
   }
 
-  await retryOrderErpSync(order);
+  await syncFinanceApprovedPrepaidPaymentToERPNext(orderAfter, orderAfter.companyLocation, paidAt);
 }
 
 async function claimDueFailedErpSyncs(companyId: string | null, limit: number) {

@@ -218,7 +218,7 @@ export async function PATCH(
   // Await ERP sync so serverless does not terminate before the Sales Invoice is created.
   if (nextStatus === "approved" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
     try {
-      await runPostApprovalErpSync(approval.orderId);
+      await runPostApprovalErpSync(approval.orderId, now);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] post-approval sync failed:", errMsg);

@@ -97,6 +97,15 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   return null;
 }
 
+/** Mode of payment for prepaid gateways (Koko, WebXPay, bank transfer). */
+function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
+  const lower = gateways.map((g) => g.toLowerCase().trim());
+  if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
+  if (cfg.webxpayMop && lower.some((g) => g.includes("webxpay"))) return cfg.webxpayMop;
+  if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
+  return null;
+}
+
 async function ensureErpAddress(
   cfg: ErpConfig,
   customerName: string,
@@ -619,6 +628,67 @@ export async function syncBankTransferPaymentToERPNext(
   console.log(`[ERPNext] Bank Transfer Payment Entry ${pe.name} created for Sales Invoice ${invoice.name}`);
 }
 
+/** Create a Payment Entry against an existing Sales Invoice when finance marks the order paid. */
+export async function syncFinanceApprovedPrepaidPaymentToERPNext(
+  order: {
+    name: string | null;
+    shopifyOrderId: string;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+    financialStatus: string | null;
+  },
+  location: LocationWithErpInstance,
+  paidAt: Date,
+): Promise<void> {
+  if (order.financialStatus !== "paid") return;
+
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
+  if (!location.erpnextCompany) return;
+
+  const gateways = ([order.paymentGatewayPrimary, ...order.paymentGatewayNames] as (string | null)[])
+    .filter((g): g is string => typeof g === "string" && g.length > 0);
+  const mopName = resolvePrepaidMop(cfg, gateways);
+  if (!mopName) return;
+
+  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderPoNo],
+      ["company", "=", location.erpnextCompany],
+      ["docstatus", "=", "1"],
+    ]),
+  );
+  const fields = encodeURIComponent(
+    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+  );
+  const list = await erpnextGet<
+    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+
+  if (!list || list.length === 0) {
+    console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping finance-approved PE`);
+    return;
+  }
+
+  const invoice = list[0];
+  if (invoice.outstanding_amount <= 0) {
+    console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping finance-approved PE`);
+    return;
+  }
+
+  await createPrepaidPaymentEntry(
+    cfg,
+    invoice.name,
+    location.erpnextCompany,
+    invoice.customer,
+    invoice.debit_to,
+    invoice.outstanding_amount,
+    toDateStr(paidAt),
+    mopName,
+  );
+}
+
 export async function syncOrderToERPNext(
   order: Order,
   location: LocationWithErpInstance,
@@ -659,9 +729,18 @@ export async function syncOrderToERPNext(
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
     await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
-    const earlyGateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
-    if (earlyGateways.some((g) => g.includes("bank"))) {
-      await syncBankTransferPaymentToERPNext(orderPoNo, location, toDateStr(order.createdAt));
+    if (order.financialStatus === "paid") {
+      await syncFinanceApprovedPrepaidPaymentToERPNext(
+        {
+          name: order.name,
+          shopifyOrderId: order.shopifyOrderId,
+          paymentGatewayPrimary: order.paymentGatewayPrimary,
+          paymentGatewayNames: order.paymentGatewayNames,
+          financialStatus: order.financialStatus,
+        },
+        location,
+        order.createdAt,
+      );
     }
     return;
   }
@@ -821,18 +900,24 @@ export async function syncOrderToERPNext(
 
   console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);
 
-  const gateways = (shopifyData.payment_gateway_names ?? []).map((g) => g.toLowerCase().trim());
-
-  try {
-    if (gateways.some((g) => g.includes("koko"))) {
-      await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
-    } else if (cfg.webxpayMop && gateways.some((g) => g.includes("webxpay"))) {
-      await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
-    } else if (gateways.some((g) => g.includes("bank"))) {
-      await createPrepaidPaymentEntry(cfg, si.name, location.erpnextCompany, customerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
+  if (order.financialStatus === "paid") {
+    try {
+      const prepaidMop = resolvePrepaidMop(cfg, shopifyData.payment_gateway_names ?? []);
+      if (prepaidMop) {
+        await createPrepaidPaymentEntry(
+          cfg,
+          si.name,
+          location.erpnextCompany,
+          customerName,
+          si.debit_to,
+          si.grand_total,
+          dateStr,
+          prepaidMop,
+        );
+      }
+    } catch (err) {
+      console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
     }
-  } catch (err) {
-    console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
   }
 }
 
@@ -891,11 +976,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   if (existingSI && existingSI.length > 0) {
     console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
     await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
-    const earlyGateways = ([order.paymentGatewayPrimary, ...order.paymentGatewayNames] as (string | null)[])
-      .filter((g): g is string => typeof g === "string" && g.length > 0)
-      .map((g) => g.toLowerCase().trim());
-    if (earlyGateways.some((g) => g.includes("bank"))) {
-      await syncBankTransferPaymentToERPNext(orderPoNo, location, toDateStr(order.createdAt));
+    if (order.financialStatus === "paid") {
+      await syncFinanceApprovedPrepaidPaymentToERPNext(order, location, order.createdAt);
     }
     return;
   }
@@ -1001,16 +1083,23 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
 
   console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
 
-  const gatewayNamesLower = allGateways.map((g) => g.toLowerCase().trim());
-  try {
-    if (gatewayNamesLower.some((g) => g.includes("koko"))) {
-      await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.kokoMop);
-    } else if (cfg.webxpayMop && gatewayNamesLower.some((g) => g.includes("webxpay"))) {
-      await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.webxpayMop);
-    } else if (gatewayNamesLower.some((g) => g.includes("bank"))) {
-      await createPrepaidPaymentEntry(cfg, si.name, erpnextCompany, erpCustomerName, si.debit_to, si.grand_total, dateStr, cfg.bankTransferMop);
+  if (order.financialStatus === "paid") {
+    try {
+      const prepaidMop = resolvePrepaidMop(cfg, allGateways);
+      if (prepaidMop) {
+        await createPrepaidPaymentEntry(
+          cfg,
+          si.name,
+          erpnextCompany,
+          erpCustomerName,
+          si.debit_to,
+          si.grand_total,
+          dateStr,
+          prepaidMop,
+        );
+      }
+    } catch (err) {
+      console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
     }
-  } catch (err) {
-    console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
   }
 }
