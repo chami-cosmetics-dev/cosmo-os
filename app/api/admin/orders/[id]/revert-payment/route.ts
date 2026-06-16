@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit-log";
 import { verifyFinanceHodRevertPassword } from "@/lib/hod-payment-revert";
 import { prisma } from "@/lib/prisma";
+import { requeuePaymentApprovalAfterRevert } from "@/lib/requeue-payment-approval-after-revert";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -107,10 +108,24 @@ export async function POST(
     },
   });
 
+  let approvalRequeued = false;
+  try {
+    const approval = await requeuePaymentApprovalAfterRevert({
+      companyId,
+      orderId: order.id,
+      requestedById: actorUserId,
+      revertInvoice,
+    });
+    approvalRequeued = approval != null;
+  } catch (err) {
+    console.error("[HOD revert] failed to re-queue finance approval:", err);
+  }
+
   return NextResponse.json({
     ok: true,
     financialStatus: "pending",
     fulfillmentStage: revertInvoice ? "delivery_complete" : order.fulfillmentStage,
     revertedAt: now.toISOString(),
+    approvalRequeued,
   });
 }
