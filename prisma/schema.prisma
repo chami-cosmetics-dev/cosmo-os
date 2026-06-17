@@ -1125,6 +1125,7 @@ enum FulfillmentStage {
   sample_free_issue
   print
   returned_to_store
+  returned
   ready_to_dispatch
   dispatched
   invoice_complete

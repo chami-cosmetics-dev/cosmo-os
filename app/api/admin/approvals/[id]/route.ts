@@ -147,11 +147,10 @@ export async function PATCH(
 
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
-        // Order payment approval: just mark financial status paid.
-        // Fulfillment stage stays at sample_free_issue — merchant advances to print manually.
+        // Koko/bank orders skip sample — go straight to print (dispatch + print queue).
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: { financialStatus: "paid" },
+          data: { financialStatus: "paid", fulfillmentStage: "print" },
         });
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
         await tx.order.update({
