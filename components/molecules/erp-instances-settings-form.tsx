@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Pencil, Plug, Plus, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Plug, Plus, Trash2, Zap } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,7 @@ type ErpInstance = {
   shippingRule: string | null;
   shippingItem: string | null;
   shippingChargeAccount: string | null;
+  shopifySyncEnabledAt: string | null;
   createdAt: string;
   _count: { locations: number };
 };
@@ -224,6 +225,42 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
     }
   }
 
+  async function handleEnableShopifySync(instance: ErpInstance) {
+    const confirmed = await confirm({
+      title: "Enable Shopify → ERP sync",
+      description: `Enable Sales Invoice creation for new Shopify orders on "${instance.label}"? Orders already in Cosmo OS from before this moment will not be sent to ERP.`,
+      confirmLabel: "Enable sync",
+    });
+    if (!confirmed) return;
+
+    setBusyKey(`enable-${instance.id}`);
+    try {
+      const res = await fetch(
+        `/api/admin/company/erp-instances/${instance.id}/enable-shopify-sync`,
+        { method: "POST" }
+      );
+      const data = (await res.json()) as {
+        error?: string;
+        shopifySyncEnabledAt?: string;
+        alreadyEnabled?: boolean;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to enable Shopify sync");
+        return;
+      }
+      notify.success(
+        data.alreadyEnabled
+          ? "Shopify → ERP sync was already enabled."
+          : "Shopify → ERP sync enabled. Only new orders from now will create Sales Invoices in ERP."
+      );
+      await fetchInstances();
+    } catch {
+      notify.error("Failed to enable Shopify sync");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function handleDelete(instance: ErpInstance) {
     const confirmed = await confirm({
       title: "Delete ERP Instance",
@@ -314,9 +351,41 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
                         ? "No locations assigned"
                         : `${instance._count.locations} location${instance._count.locations === 1 ? "" : "s"} assigned`}
                     </p>
+                    <p className="text-xs mt-1">
+                      {instance.shopifySyncEnabledAt ? (
+                        <span className="text-emerald-700 dark:text-emerald-400">
+                          Shopify → ERP sync active since{" "}
+                          {new Date(instance.shopifySyncEnabledAt).toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="text-amber-700 dark:text-amber-400">
+                          Shopify → ERP sync not enabled yet
+                        </span>
+                      )}
+                    </p>
                   </div>
                   {canEdit && (
                     <div className="flex shrink-0 items-center gap-1">
+                      {!instance.shopifySyncEnabledAt && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleEnableShopifySync(instance)}
+                          disabled={isBusy}
+                        >
+                          {busyKey === `enable-${instance.id}` ? (
+                            <>
+                              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                              Enabling...
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="size-3.5" aria-hidden />
+                              Enable sync
+                            </>
+                          )}
+                        </Button>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"

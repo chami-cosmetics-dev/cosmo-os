@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "vercel": {
+      "url": "https://mcp.vercel.com"
+    },
+    "erpnext-vault": {
+      "command": "npx",
+      "args": ["-y", "@casys/mcp-erpnext"],
+      "env": {
+        "ERPNEXT_URL": "https://supplement-vault-lk-01.m.frappe.cloud",
+        "ERPNEXT_API_KEY": "",
+        "ERPNEXT_API_SECRET": ""
+      }
+    },
+    "erpnext-cosmo": {
+      "command": "npx",
+      "args": ["-y", "@casys/mcp-erpnext"],
+      "env": {
+        "ERPNEXT_URL": "https://cosmetics-lk-02.m.frappe.cloud",
+        "ERPNEXT_API_KEY": "",
+        "ERPNEXT_API_SECRET": ""
+      }
+    }
+  }
+}
