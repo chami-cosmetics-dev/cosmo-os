@@ -3,6 +3,7 @@ import { z } from "zod";
 export const erpnextSalesInvoiceWebhookSchema = z.object({
   name: z.string(),
   customer: z.string(),
+  customer_name: z.string().optional().nullable(),
   company: z.string(),
   posting_date: z.string().optional().nullable(),
   grand_total: z.number().optional().nullable(),
