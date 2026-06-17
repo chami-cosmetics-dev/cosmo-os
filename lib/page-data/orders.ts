@@ -177,6 +177,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     "sample_free_issue",
     "print",
     "returned_to_store",
+    "returned",
     "ready_to_dispatch",
     "dispatched",
     "invoice_complete",

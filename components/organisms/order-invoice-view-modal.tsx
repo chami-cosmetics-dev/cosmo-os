@@ -44,6 +44,7 @@ const STAGE_LABELS: Record<string, string> = {
   sample_free_issue: "Sample/Free Issue",
   print: "Print",
   returned_to_store: "Returned to Store",
+  returned: "Returned",
   ready_to_dispatch: "Ready to Dispatch",
   dispatched: "Dispatched",
   invoice_complete: "Invoice Complete",
