@@ -703,7 +703,6 @@ export async function syncOrderToERPNext(
       erpShopifySyncSkipLogMessage(skipReason, {
         orderId: order.id,
         createdAt: order.createdAt.toISOString(),
-        enabledAt: location.erpnextInstance?.shopifySyncEnabledAt?.toISOString() ?? null,
       }),
       { orderId: order.id, reason: skipReason }
     );
@@ -956,7 +955,6 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
       erpShopifySyncSkipLogMessage(skipReason, {
         orderId: order.id,
         createdAt: order.createdAt.toISOString(),
-        enabledAt: location.erpnextInstance?.shopifySyncEnabledAt?.toISOString() ?? null,
       }),
       { orderId: order.id, reason: skipReason }
     );
