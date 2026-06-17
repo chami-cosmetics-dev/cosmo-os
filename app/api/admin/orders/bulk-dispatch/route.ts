@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
 import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
-import { DISPATCHABLE_STAGES } from "@/lib/fulfillment-permissions";
+import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/fulfillment-permissions";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
           orderNumber: true,
           shopifyOrderId: true,
           fulfillmentStage: true,
+          printCount: true,
           packageReadyAt: true,
           packageOnHoldAt: true,
           customerPhone: true,
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest) {
       await prisma.order.update({
         where: { id: orderId },
         data: {
+          ...printFieldsOnDispatchIfUnprinted(order, auth.context!.user!.id, now),
           ...(needsMarkReady && {
             packageReadyAt: now,
             packageReadyById: auth.context!.user!.id,

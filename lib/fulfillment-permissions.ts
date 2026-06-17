@@ -47,6 +47,24 @@ export const DISPATCHABLE_STAGES = [
   "ready_to_dispatch",
 ] as const;
 
+/** When dispatching an order that was never printed, record print metadata for print history. */
+export function printFieldsOnDispatchIfUnprinted(
+  order: { printCount: number },
+  userId: string,
+  at: Date,
+): {
+  printCount?: { increment: number };
+  lastPrintedAt?: Date;
+  lastPrintedById?: string;
+} {
+  if (order.printCount > 0) return {};
+  return {
+    printCount: { increment: 1 },
+    lastPrintedAt: at,
+    lastPrintedById: userId,
+  };
+}
+
 function stageToPermissionKey(stage: string): string {
   return stage === "ready_to_dispatch" ? "ready_dispatch" : stage;
 }
