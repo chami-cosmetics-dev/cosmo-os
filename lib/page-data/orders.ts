@@ -308,7 +308,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     packageOnHoldAt: true,
     sampleFreeIssueSendLaterDate: true,
     companyLocation: { select: { id: true, name: true } },
-    assignedMerchant: { select: { id: true, name: true, email: true } },
+    assignedMerchant: { select: { id: true, name: true, email: true, couponCodes: true } },
     packageHoldReason: { select: { id: true, name: true } },
     _count: { select: { lineItems: true } },
     approvalRequests: {
@@ -363,6 +363,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       sourceName: o.sourceName,
       discountCodes: o.discountCodes,
       rawPayload: null,
+      assignedMerchantCouponCodes: o.assignedMerchant?.couponCodes ?? null,
     }),
   }));
 
