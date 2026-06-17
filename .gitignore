@@ -32,8 +32,10 @@ yarn-error.log*
 .env.cosmo-dev
 .env.cosmo-prod
 
-
+# Local MCP credentials (copy from *.example)
 .mcp.json
+.cursor/mcp.json
+.vscode/mcp.json
 # vercel
 .vercel
 

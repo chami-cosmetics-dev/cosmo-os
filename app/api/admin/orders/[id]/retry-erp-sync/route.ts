@@ -10,6 +10,7 @@ import {
 } from "@/lib/failed-erp-sync-auto-retry";
 import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { isOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
+import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 
 export async function POST(
   _request: NextRequest,
@@ -44,11 +45,14 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (isOrderBeforeImportCutoff(order.createdAt)) {
+  if (
+    isOrderBeforeImportCutoff(order.createdAt) ||
+    shouldSkipShopifyOrderErpSync(order.createdAt, order.companyLocation)
+  ) {
     return NextResponse.json(
       {
-        error: "This order is before the import cutoff and cannot be synced to ERP.",
-        code: "BEFORE_IMPORT_CUTOFF",
+        error: "This order is excluded from Shopify → ERP sync and cannot create a Sales Invoice in ERP.",
+        code: "ERP_SHOPIFY_SYNC_EXCLUDED",
       },
       { status: 400 },
     );

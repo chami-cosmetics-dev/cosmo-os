@@ -64,6 +64,71 @@ export function getCustomerName(address: unknown) {
   return [first, last].filter(Boolean).join(" ").trim();
 }
 
+function looksLikePhoneNumber(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 9 || digits.length > 15) return false;
+  return /^[+]?[\d\s().-]+$/.test(trimmed);
+}
+
+/** Customer display name for waybills — never falls back to phone or email. */
+export function resolveOrderCustomerName(input: {
+  shippingAddress?: unknown;
+  billingAddress?: unknown;
+  rawPayload?: unknown;
+}) {
+  const candidates = [
+    getCustomerName(input.shippingAddress),
+    getCustomerName(input.billingAddress),
+  ];
+
+  if (input.rawPayload && typeof input.rawPayload === "object") {
+    const payload = input.rawPayload as Record<string, unknown>;
+    const customer = payload.customer;
+    if (customer && typeof customer === "object") {
+      candidates.push(getCustomerName(customer));
+      const defaultAddress = (customer as Record<string, unknown>).default_address;
+      if (defaultAddress) {
+        candidates.push(getCustomerName(defaultAddress));
+      }
+    }
+    if (payload.shipping_address) {
+      candidates.push(getCustomerName(payload.shipping_address));
+    }
+    if (payload.billing_address) {
+      candidates.push(getCustomerName(payload.billing_address));
+    }
+  }
+
+  for (const candidate of candidates) {
+    const name = candidate.trim();
+    if (name && !looksLikePhoneNumber(name)) {
+      return name;
+    }
+  }
+
+  return "";
+}
+
+export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
+  return !id || id === "pending" || id === "pending_approval";
+}
+
+export function formatDispatchOrderReference(order: {
+  name: string | null;
+  orderNumber: string | null;
+  shopifyOrderId: string;
+  erpnextInvoiceId?: string | null;
+}) {
+  const shopifyRef = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+  const erpId = order.erpnextInvoiceId?.trim();
+  if (erpId && !isPlaceholderErpInvoiceId(erpId) && erpId !== shopifyRef) {
+    return `${shopifyRef} / ${erpId}`;
+  }
+  return shopifyRef;
+}
+
 export function formatAddress(address: unknown) {
   const parts = [
     getAddressField(address, "address1"),

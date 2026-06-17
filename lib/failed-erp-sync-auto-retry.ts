@@ -9,6 +9,10 @@ import {
   getOrderImportCutoff,
   isOrderBeforeImportCutoff,
 } from "@/lib/order-import-cutoff";
+import {
+  getErpShopifySyncSkipReason,
+  shouldSkipShopifyOrderErpSync,
+} from "@/lib/erp-shopify-sync-eligibility";
 
 const AUTO_RETRY_DELAYS_MS = [
   60_000,
@@ -149,14 +153,22 @@ export async function markOrderErpSyncFailed(
 }
 
 export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> {
-  if (isOrderBeforeImportCutoff(order.createdAt)) {
+  const skipReason = getErpShopifySyncSkipReason(order.createdAt, order.companyLocation);
+  if (skipReason) {
     await prisma.order.update({
       where: { id: order.id },
-      data: orderUpdate(ERP_SYNC_SUCCESS_CLEAR),
+      data: orderUpdate({
+        ...ERP_SYNC_SUCCESS_CLEAR,
+        erpnextInvoiceId:
+          order.erpnextInvoiceId === "pending" || order.erpnextInvoiceId === "pending_approval"
+            ? null
+            : order.erpnextInvoiceId,
+      }),
     });
-    console.warn("[ERPNext] Skipping retry for pre-cutoff order", {
+    console.warn("[ERPNext] Skipping retry for order excluded from Shopify → ERP sync", {
       orderId: order.id,
       createdAt: order.createdAt.toISOString(),
+      reason: skipReason ?? "import_cutoff",
     });
     return;
   }
@@ -204,11 +216,30 @@ async function assertOrderHasErpSalesInvoice(orderId: string) {
 export async function runPostApprovalErpSync(orderId: string, paidAt: Date = new Date()): Promise<void> {
   const orderBefore = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { erpnextInvoiceId: true },
+    select: { erpnextInvoiceId: true, createdAt: true, companyLocationId: true },
   });
   const hadExistingSi = orderBefore && !isPlaceholderErpInvoiceId(orderBefore.erpnextInvoiceId);
 
   if (!hadExistingSi) {
+    const orderForSkipCheck = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { companyLocation: { include: { erpnextInstance: true } } },
+    });
+    if (!orderForSkipCheck?.companyLocation) {
+      throw new Error("Order or company location not found");
+    }
+
+    if (shouldSkipShopifyOrderErpSync(orderForSkipCheck.createdAt, orderForSkipCheck.companyLocation)) {
+      await prisma.order.updateMany({
+        where: {
+          id: orderId,
+          erpnextInvoiceId: "pending_approval",
+        },
+        data: orderUpdateMany({ erpnextInvoiceId: null }),
+      });
+      return;
+    }
+
     await prisma.order.updateMany({
       where: {
         id: orderId,

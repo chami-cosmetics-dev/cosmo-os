@@ -1,4 +1,5 @@
 import { APP_NAME } from "@/lib/branding";
+import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 
 type CsvRow = Record<string, string>;
 
@@ -31,6 +32,10 @@ export type FalconGroupedUploadResult = {
 
 export type FalconWaybillRow = {
   orderId?: string;
+  /** Zip export bucket — order-series prefix (Cosmo 100–900; Vault 100/200/300). */
+  exportGroupKey?: string;
+  locationReference?: string;
+  manualInvoicePrefix?: string | null;
   locationName: string;
   receiverName: string;
   receiverAddress1: string;
@@ -180,6 +185,7 @@ function getWaybillPieces(row: FalconWaybillRow) {
 function toFalconRowFromWaybill(row: FalconWaybillRow) {
   const reference = clean(row.reference) || clean(row.shopdropRef);
   const amount = formatCod(row.amount);
+  const receiverName = clean(row.receiverName);
 
   return [
     "",
@@ -192,7 +198,7 @@ function toFalconRowFromWaybill(row: FalconWaybillRow) {
     "",
     SENDER.contact1,
     SENDER.contact2,
-    clean(row.receiverName),
+    receiverName,
     clean(row.receiverAddress1),
     clean(row.receiverAddress2),
     "",
@@ -502,10 +508,8 @@ export function buildFalconUploadWorkbookFromWaybillRows(
   };
 }
 
-function getLocationPrefix(row: FalconWaybillRow) {
-  const reference = clean(row.reference) || clean(row.shopdropRef);
-  const match = /^(\d{3})/.exec(reference);
-  return match?.[1] ?? "unknown";
+function getExportGroupKey(row: FalconWaybillRow) {
+  return resolveFalconExportGroupKey(row);
 }
 
 export function buildGroupedFalconUploadZip(
@@ -514,23 +518,23 @@ export function buildGroupedFalconUploadZip(
 ): FalconGroupedUploadResult {
   const grouped = new Map<string, FalconWaybillRow[]>();
   for (const row of rows) {
-    const prefix = getLocationPrefix(row);
-    const group = grouped.get(prefix) ?? [];
+    const groupKey = getExportGroupKey(row);
+    const group = grouped.get(groupKey) ?? [];
     group.push(row);
-    grouped.set(prefix, group);
+    grouped.set(groupKey, group);
   }
 
   const groups = Array.from(grouped.entries()).sort(([a], [b]) =>
     a.localeCompare(b, undefined, { numeric: true })
   );
 
-  const files = groups.map(([prefix, groupRows]) => {
-    const fileName = `falcon-upload-${dispatchDate}-${prefix}.xlsx`;
+  const files = groups.map(([groupKey, groupRows]) => {
+    const fileName = `falcon-upload-${dispatchDate}-${groupKey}.xlsx`;
     return {
       name: fileName,
       content: createWorkbook(groupRows.map(toFalconRowFromWaybill)),
       rowCount: groupRows.length,
-      prefix,
+      prefix: groupKey,
       fileName,
     };
   });

@@ -469,12 +469,16 @@ export function OrderInvoiceViewModal({
           reason: hodRevertReason.trim() || null,
         }),
       });
-      const data = (await res.json()) as { error?: string };
+      const data = (await res.json()) as { error?: string; approvalRequeued?: boolean };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to revert payment status");
         return;
       }
-      notify.success("Order reverted to unpaid.");
+      notify.success(
+        data.approvalRequeued
+          ? "Order reverted to unpaid. Finance can confirm payment again from this order or Finance Approvals."
+          : "Order reverted to unpaid.",
+      );
       setHodPassword("");
       setHodRevertReason("");
       onRefresh?.();
