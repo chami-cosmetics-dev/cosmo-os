@@ -282,9 +282,13 @@ export async function POST(request: NextRequest) {
     };
   }
 
+  // Prefer ERPNext's display name (customer_name); fall back to the customer ID
+  // (which is often just a phone number when customers are keyed by mobile).
+  const erpCustomerName = nullIfNone(data.customer_name) ?? data.customer;
+
   const shippingAddressObj = parseErpAddress(
     nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
-    data.customer,
+    erpCustomerName,
   );
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
