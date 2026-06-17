@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { Prisma } from "@prisma/client";
-
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -39,24 +37,49 @@ export async function POST(request: NextRequest) {
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "50", 10), 200);
   const offset = parseInt(searchParams.get("offset") ?? "0", 10);
   const dryRun = searchParams.get("dry_run") === "1";
+  const targetOrderName = searchParams.get("order_name")?.trim() || null;
 
-  const eligibleWhere: Prisma.OrderWhereInput = {
-    companyId,
-    sourceName: { in: ["erpnext", "erpnext-pos"] },
-    erpnextInvoiceId: { not: null },
-    discountCodes: { equals: Prisma.JsonNull },
-  };
+  // Use raw SQL to reliably match both NULL and empty JSON array [] (Prisma JSON filter
+  // for equals:[] is unreliable across versions). When order_name is given, target that
+  // specific order regardless of coupon state (force re-sync).
+  type OrderRow = { id: string; name: string | null; erpnextInvoiceId: string | null; companyLocationId: string };
+  const orders: OrderRow[] = targetOrderName
+    ? await prisma.$queryRaw`
+        SELECT id, name, "erpnextInvoiceId", "companyLocationId"
+        FROM "Order"
+        WHERE "companyId" = ${companyId}
+          AND "sourceName" IN ('erpnext', 'erpnext-pos')
+          AND "erpnextInvoiceId" IS NOT NULL
+          AND name = ${targetOrderName}
+        LIMIT 1
+      `
+    : await prisma.$queryRaw`
+        SELECT id, name, "erpnextInvoiceId", "companyLocationId"
+        FROM "Order"
+        WHERE "companyId" = ${companyId}
+          AND "sourceName" IN ('erpnext', 'erpnext-pos')
+          AND "erpnextInvoiceId" IS NOT NULL
+          AND (
+            "discountCodes" IS NULL
+            OR "discountCodes" = '[]'::jsonb
+          )
+        ORDER BY "createdAt" DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
 
-  const [orders, totalEligible] = await Promise.all([
-    prisma.order.findMany({
-      where: eligibleWhere,
-      select: { id: true, name: true, erpnextInvoiceId: true, companyLocationId: true },
-      orderBy: { createdAt: "desc" },
-      take: limit,
-      skip: offset,
-    }),
-    prisma.order.count({ where: eligibleWhere }),
-  ]);
+  const totalEligible: number = targetOrderName
+    ? orders.length
+    : (await prisma.$queryRaw<[{ count: bigint }]>`
+        SELECT COUNT(*) AS count
+        FROM "Order"
+        WHERE "companyId" = ${companyId}
+          AND "sourceName" IN ('erpnext', 'erpnext-pos')
+          AND "erpnextInvoiceId" IS NOT NULL
+          AND (
+            "discountCodes" IS NULL
+            OR "discountCodes" = '[]'::jsonb
+          )
+      `)[0].count as unknown as number;
 
   const locationIds = [...new Set(orders.map((o) => o.companyLocationId))];
   const locations = await prisma.companyLocation.findMany({
@@ -120,11 +143,12 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     dryRun,
-    totalEligible,
+    targetOrderName,
+    totalEligible: Number(totalEligible),
     processed: orders.length,
     offset,
     limit,
-    hasMore: offset + orders.length < totalEligible,
+    hasMore: !targetOrderName && offset + orders.length < Number(totalEligible),
     nextOffset: offset + orders.length,
     summary: { updated, skipped, noCoupon, errors },
     results,

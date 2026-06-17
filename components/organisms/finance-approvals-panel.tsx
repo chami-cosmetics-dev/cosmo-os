@@ -168,12 +168,16 @@ export function FinanceApprovalsPanel({
           reason: revertReason.trim() || null,
         }),
       });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as { error?: string; approvalRequeued?: boolean };
       if (!response.ok) {
         notify.error(data.error ?? "Failed to revert payment status");
         return;
       }
-      notify.success("Order reverted to unpaid.");
+      notify.success(
+        data.approvalRequeued
+          ? "Order reverted to unpaid. A new finance approval was sent for payment confirmation."
+          : "Order reverted to unpaid.",
+      );
       setHodPassword("");
       setRevertReason("");
       await refresh();

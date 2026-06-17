@@ -6,6 +6,7 @@ import { CalendarDays, Download, FileSpreadsheet, Loader2, Search } from "lucide
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -35,7 +36,7 @@ export function FalconUploadFulfillmentPage() {
       receiverCity: string;
       receiverContact: string;
       amount: string;
-      locationPrefix: string;
+      orderPrefix: string;
       itemName: string;
       courierName: string;
     }>;
@@ -74,7 +75,7 @@ export function FalconUploadFulfillmentPage() {
             receiverCity?: string;
             receiverContact?: string;
             amount?: string;
-            locationPrefix?: string;
+            orderPrefix?: string;
             itemName?: string;
             courierName?: string;
           }>;
@@ -107,7 +108,7 @@ export function FalconUploadFulfillmentPage() {
               receiverCity: order.receiverCity ?? "",
               receiverContact: order.receiverContact ?? "",
               amount: order.amount ?? "",
-              locationPrefix: order.locationPrefix ?? "unknown",
+              orderPrefix: order.orderPrefix ?? "unknown",
               itemName: order.itemName ?? "",
               courierName: order.courierName ?? "",
             })),
@@ -146,7 +147,7 @@ export function FalconUploadFulfillmentPage() {
         order.receiverName,
         order.receiverCity,
         order.receiverContact,
-        order.locationPrefix,
+        order.orderPrefix,
         order.itemName,
         order.courierName,
       ]
@@ -160,7 +161,7 @@ export function FalconUploadFulfillmentPage() {
     const groups = new Map<string, number>();
     for (const order of countState.orders) {
       if (!selectedOrderIds.has(order.id)) continue;
-      groups.set(order.locationPrefix, (groups.get(order.locationPrefix) ?? 0) + 1);
+      groups.set(order.orderPrefix, (groups.get(order.orderPrefix) ?? 0) + 1);
     }
     return Array.from(groups.entries())
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
@@ -227,7 +228,7 @@ export function FalconUploadFulfillmentPage() {
       link.remove();
       URL.revokeObjectURL(url);
 
-      const summary = `${totalRows} WayBills rows exported into ${groupCount} location file${groupCount === "1" ? "" : "s"}.`;
+      const summary = `${totalRows} WayBill rows exported into ${groupCount} prefix file${groupCount === "1" ? "" : "s"}.`;
       setLastSummary(summary);
       notify.success(summary);
     } catch {
@@ -245,7 +246,9 @@ export function FalconUploadFulfillmentPage() {
           Falcon Upload
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Search and select City Pack dispatched orders, then generate Falcon upload workbooks split by order-number prefix.
+          {isVaultOsDeployment()
+            ? "Search and select City Pack dispatched orders, then generate one Falcon workbook per company prefix (100, 200, 300)."
+            : "Search and select City Pack dispatched orders, then generate one Falcon workbook per order-series prefix (100–900)."}
         </p>
       </div>
 
@@ -365,7 +368,7 @@ export function FalconUploadFulfillmentPage() {
                     </td>
                     <td className="px-3 py-2 font-medium">{order.reference}</td>
                     <td className="px-3 py-2 text-muted-foreground">{order.courierName || "-"}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{order.locationPrefix}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{order.orderPrefix}</td>
                     <td className="px-3 py-2">{order.receiverName || "-"}</td>
                     <td className="px-3 py-2 text-muted-foreground">{order.receiverCity || "-"}</td>
                     <td className="px-3 py-2 text-right">{order.amount || "0"}</td>
@@ -399,7 +402,7 @@ export function FalconUploadFulfillmentPage() {
             : countState.error
               ? countState.error
               : selectedOrderIds.size > 0
-                ? `${selectedOrderIds.size} selected order${selectedOrderIds.size === 1 ? "" : "s"} will export into ${selectedGroups.length} location file${selectedGroups.length === 1 ? "" : "s"}: ${selectedGroups.map((group) => `${group.prefix} (${group.rowCount})`).join(", ")}.`
+                ? `${selectedOrderIds.size} selected order${selectedOrderIds.size === 1 ? "" : "s"} will export into ${selectedGroups.length} prefix file${selectedGroups.length === 1 ? "" : "s"}: ${selectedGroups.map((group) => `${group.prefix} (${group.rowCount})`).join(", ")}.`
                 : countState.totalRows > 0
                   ? `Select one or more orders to generate. Available groups: ${countState.groups.map((group) => `${group.prefix} (${group.rowCount})`).join(", ")}.`
                 : "No City Pack dispatched orders found for this date.")}

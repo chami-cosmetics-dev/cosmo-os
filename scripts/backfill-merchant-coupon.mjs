@@ -1,12 +1,20 @@
 // Backfill merchant coupon codes from ERPNext for existing ERP orders
-// Usage: node scripts/backfill-merchant-coupon.mjs [--dry-run] [--limit=100]
+// Usage: node scripts/backfill-merchant-coupon.mjs [--dry-run] [--limit=100] [--order=SV200-0016]
 
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+// Neon pooler URLs are unreachable from local machine — use the direct connection URL
+// by stripping "-pooler" from the hostname if present.
+const rawUrl = process.env.DATABASE_URL ?? "";
+const directUrl = rawUrl.replace(/(ep-[^.]+)-pooler(\.[^/]+)/, "$1$2");
+const prisma = new PrismaClient({
+  datasources: { db: { url: directUrl } },
+});
 
 const isDryRun = process.argv.includes("--dry-run");
 const limitArg = process.argv.find((a) => a.startsWith("--limit="));
+const orderArg = process.argv.find((a) => a.startsWith("--order="));
+const TARGET_ORDER = orderArg ? orderArg.split("=")[1].trim() : null;
 const BATCH_LIMIT = limitArg ? parseInt(limitArg.split("=")[1]) : 200;
 
 const ERP_BASE_URL = (process.env.ERPNEXT_BASE_URL ?? "").trim().replace(/\/$/, "");
@@ -39,17 +47,30 @@ async function main() {
     process.exit(1);
   }
 
-  // Find all ERP orders with no coupon stored (discountCodes IS NULL in DB)
-  // Use raw SQL to avoid Prisma's JSON null filter complexity
-  const orders = await prisma.$queryRaw`
-    SELECT id, name, "erpnextInvoiceId", "companyLocationId"
-    FROM "Order"
-    WHERE "sourceName" IN ('erpnext', 'erpnext-pos')
-      AND name IS NOT NULL
-      AND "discountCodes" IS NULL
-    ORDER BY "createdAt" DESC
-    LIMIT ${BATCH_LIMIT}
-  `;
+  // Find ERP orders with no coupon stored:
+  //   - discountCodes IS NULL
+  //   - discountCodes = '[]' (empty array — webhook ran before coupon was added)
+  // Optionally target a single order by name with --order=SV200-0016
+  const orders = TARGET_ORDER
+    ? await prisma.$queryRaw`
+        SELECT id, name, "erpnextInvoiceId", "companyLocationId"
+        FROM "Order"
+        WHERE "sourceName" IN ('erpnext', 'erpnext-pos')
+          AND name = ${TARGET_ORDER}
+        LIMIT 1
+      `
+    : await prisma.$queryRaw`
+        SELECT id, name, "erpnextInvoiceId", "companyLocationId"
+        FROM "Order"
+        WHERE "sourceName" IN ('erpnext', 'erpnext-pos')
+          AND name IS NOT NULL
+          AND (
+            "discountCodes" IS NULL
+            OR "discountCodes" = '[]'::jsonb
+          )
+        ORDER BY "createdAt" DESC
+        LIMIT ${BATCH_LIMIT}
+      `;
 
   console.log(`Found ${orders.length} ERP orders with no merchant coupon stored.\n`);
 

@@ -14,6 +14,7 @@ import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInst
 import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
+import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -248,22 +249,25 @@ export async function processOrderWebhook(
   }
 
   if (isNewOrder || !existingOrder?.erpnextInvoiceId) {
-    // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks
-    const claimed = await prisma.order.updateMany({
-      where: { id: order.id, erpnextInvoiceId: null },
-      data: { erpnextInvoiceId: "pending" },
-    });
-    if (claimed.count > 0) {
-      try {
-        await syncOrderToERPNext(order, effectiveLocation, data);
-      } catch (err) {
-        console.error("[ERPNext] sync failed:", err);
-        const errMsg = err instanceof Error ? err.message : String(err);
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { erpnextInvoiceId: null },
-        });
-        await markOrderErpSyncFailed(order.id, errMsg);
+    const skipErpSync = shouldSkipShopifyOrderErpSync(order.createdAt, effectiveLocation);
+    if (!skipErpSync) {
+      // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks
+      const claimed = await prisma.order.updateMany({
+        where: { id: order.id, erpnextInvoiceId: null },
+        data: { erpnextInvoiceId: "pending" },
+      });
+      if (claimed.count > 0) {
+        try {
+          await syncOrderToERPNext(order, effectiveLocation, data);
+        } catch (err) {
+          console.error("[ERPNext] sync failed:", err);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { erpnextInvoiceId: null },
+          });
+          await markOrderErpSyncFailed(order.id, errMsg);
+        }
       }
     }
   }
