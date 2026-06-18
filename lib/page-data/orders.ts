@@ -8,6 +8,23 @@ import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
+import { resolveOrderCustomerName } from "@/lib/reports/csv";
+
+function pickOrderListCustomerName(order: {
+  customer?: { firstName: string | null; lastName: string | null } | null;
+  shippingAddress: unknown;
+  billingAddress: unknown;
+}): string | null {
+  if (order.customer?.firstName || order.customer?.lastName) {
+    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
+    if (name) return name;
+  }
+  const fromAddress = resolveOrderCustomerName({
+    shippingAddress: order.shippingAddress,
+    billingAddress: order.billingAddress,
+  });
+  return fromAddress || null;
+}
 
 export type OrdersPageParams = {
   page?: number;
@@ -303,7 +320,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStatus: true,
     customerEmail: true,
     customerPhone: true,
+    shippingAddress: true,
+    billingAddress: true,
     createdAt: true,
+    customer: { select: { firstName: true, lastName: true } },
     fulfillmentStage: true,
     printCount: true,
     lastPrintedAt: true,
@@ -349,6 +369,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStatus: o.fulfillmentStatus,
     customerEmail: o.customerEmail,
     customerPhone: o.customerPhone,
+    customerName: pickOrderListCustomerName(o),
     createdAt: o.createdAt.toISOString(),
     companyLocation: o.companyLocation,
     assignedMerchant: o.assignedMerchant,
