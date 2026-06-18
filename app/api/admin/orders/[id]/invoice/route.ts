@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { findMatchingContacts } from "@/lib/contact-identifiers";
+import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
+import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -67,7 +72,77 @@ function stripManualInvoiceNumberAsName(
 function getCity(addr: unknown): string {
   if (!addr || typeof addr !== "object") return "";
   const a = addr as Record<string, unknown>;
-  return typeof a.city === "string" ? a.city : "";
+  return typeof a.city === "string" ? a.city.trim() : "";
+}
+
+function isMeaningfulInvoiceValue(value: string | null | undefined): boolean {
+  const trimmed = value?.trim();
+  return Boolean(trimmed && trimmed !== "—" && trimmed.toLowerCase() !== "none");
+}
+
+function unwrapOrderRawPayload(rawPayload: unknown): Record<string, unknown> | null {
+  if (!rawPayload || typeof rawPayload !== "object") return null;
+  const top = rawPayload as Record<string, unknown>;
+  if (top.data != null && typeof top.data === "object" && !Array.isArray(top.data)) {
+    return top.data as Record<string, unknown>;
+  }
+  return top;
+}
+
+function extractPayloadText(rawPayload: unknown, keys: string[]): string {
+  const payload = unwrapOrderRawPayload(rawPayload);
+  if (!payload) return "";
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && isMeaningfulInvoiceValue(value)) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function joinRemarkContents(
+  remarks: Array<{ type: string; content: string; showOnInvoice: boolean }>,
+  type: "external" | "internal",
+  preferOnInvoice: boolean,
+): string {
+  const filtered = remarks.filter((r) => r.type === type);
+  const onInvoice = filtered.filter((r) => r.showOnInvoice).map((r) => r.content.trim()).filter(Boolean);
+  if (preferOnInvoice && onInvoice.length > 0) return onInvoice.join("; ");
+  const all = filtered.map((r) => r.content.trim()).filter(Boolean);
+  return all.join("; ");
+}
+
+function invoiceDetailLine(label: string, value: string | null | undefined, escape: (s: string) => string): string {
+  const display = isMeaningfulInvoiceValue(value) ? value!.trim() : "—";
+  return `<p><strong>${label}:</strong> ${escape(display)}</p>`;
+}
+
+function normalizeCompareText(value: string | null | undefined): string {
+  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+}
+
+function formatUserDisplayName(user: {
+  name?: string | null;
+  knownName?: string | null;
+  email?: string | null;
+} | null | undefined): string {
+  if (!user) return "";
+  return user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "";
+}
+
+async function resolveMerchantByCoupon(companyId: string, couponCode: string) {
+  const couponLower = couponCode.toLowerCase().trim();
+  if (!couponLower) return null;
+  const merchants = await prisma.user.findMany({
+    where: eligibleMerchantUserWhere(companyId),
+    select: { name: true, knownName: true, email: true, couponCodes: true },
+  });
+  return (
+    merchants.find((merchant) =>
+      merchant.couponCodes.some((code) => code.toLowerCase().trim() === couponLower),
+    ) ?? null
+  );
 }
 
 function formatPrice(val: string | number, currency?: string | null): string {
@@ -177,8 +252,8 @@ export async function GET(
       where: { id: idResult.data, companyId },
       include: {
         company: { select: { name: true, address: true } },
-        companyLocation: true,
-        assignedMerchant: { select: { name: true } },
+        companyLocation: { include: { erpnextInstance: true } },
+        assignedMerchant: { select: { name: true, knownName: true, email: true, couponCodes: true } },
         lineItems: {
           include: {
             productItem: {
@@ -211,6 +286,14 @@ export async function GET(
     return new NextResponse("Order not found", { status: 404 });
   }
 
+  const erpConfig = resolveErpApiCreds(order.companyLocation.erpnextInstance);
+  const lineItemSkus = order.lineItems
+    .map((li) => li.productItem.sku)
+    .filter((sku): sku is string => Boolean(sku?.trim()));
+  const barcodeBySku = await loadBarcodeLookupBySku(companyId, lineItemSkus, {
+    erpConfig,
+  });
+
   const showWatermark = order.printCount > 0;
   const printedAt = new Date();
   if (shouldIncrementPrint) {
@@ -237,8 +320,9 @@ export async function GET(
     order.customerEmail?.trim() ||
     "";
   const customerName = stripManualInvoiceNumberAsName(order, customerNameRaw);
-  const billingAddr = formatAddress(order.billingAddress);
+  const billingAddrRaw = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
+  const billingAddr = billingAddrRaw || shippingAddr;
   const shippingCity = getCity(order.shippingAddress);
   const customerPhones = await getInvoiceCustomerPhones({
     companyId,
@@ -247,18 +331,43 @@ export async function GET(
   });
   const customerPhoneDisplay = customerPhones.join(", ");
 
-  const externalRemarks = order.remarks
-    .filter((r) => r.type === "external" && r.showOnInvoice)
-    .map((r) => r.content);
-  const internalRemarks = order.remarks
-    .filter((r) => r.type === "internal" && r.showOnInvoice)
-    .map((r) => r.content);
-
   const merchantCouponCode = getMerchantCouponCode({
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
   });
+
+  let merchantName = formatUserDisplayName(order.assignedMerchant);
+
+  if (!merchantName && merchantCouponCode) {
+    const merchantFromCoupon = await resolveMerchantByCoupon(companyId, merchantCouponCode);
+    merchantName = formatUserDisplayName(merchantFromCoupon);
+  }
+
+  if (!merchantName) {
+    const erpOwner = extractPayloadText(order.rawPayload, ["owner"]);
+    if (erpOwner) {
+      const erpUser = await prisma.user.findUnique({
+        where: { erpnextUsername: erpOwner },
+        select: { name: true, knownName: true, email: true },
+      });
+      merchantName = formatUserDisplayName(erpUser) || erpOwner;
+    }
+  }
+
+  if (!merchantName && loc.defaultMerchantUserId) {
+    const defaultMerchant = await prisma.user.findUnique({
+      where: { id: loc.defaultMerchantUserId },
+      select: { name: true, knownName: true, email: true },
+    });
+    merchantName = formatUserDisplayName(defaultMerchant);
+  }
+
+  const customerNotes =
+    joinRemarkContents(order.remarks, "external", true) ||
+    extractPayloadText(order.rawPayload, ["note", "customer_note", "customer_notes", "remarks"]);
+  const callCenterNotes = joinRemarkContents(order.remarks, "internal", true);
 
   function escapeHtml(s: string): string {
     return s
@@ -269,7 +378,15 @@ export async function GET(
       .replace(/'/g, "&#039;");
   }
 
-  const invoiceNumber = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "";
+  const invoiceRefs = formatInvoiceOrderReference({
+    id: order.id,
+    name: order.name,
+    orderNumber: order.orderNumber,
+    shopifyOrderId: order.shopifyOrderId,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    sourceName: order.sourceName,
+  });
+  const invoiceNumber = invoiceRefs.primary;
   const invoiceDate = new Date(order.createdAt).toISOString().slice(0, 10);
   const printedOn = printedAt.toLocaleString("en-LK", {
     year: "numeric",
@@ -283,6 +400,11 @@ export async function GET(
   const companyName = company?.name ?? loc.name ?? "";
   const companyAddress = loc.address ?? company?.address ?? "";
   const currency = order.currency ?? "LKR";
+  const showCompanyName =
+    isMeaningfulInvoiceValue(companyName) &&
+    normalizeCompareText(companyName) !== normalizeCompareText(loc.invoiceHeader);
+  const paymentMethod = getPaymentMethod(order.financialStatus, paymentGatewayPrimary);
+  const paymentDescription = getPaymentDescription(order.financialStatus, paymentGatewayPrimary);
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -550,6 +672,7 @@ export async function GET(
       <div class="invoice-meta">
         <div class="inv-label">Invoice</div>
         <div class="inv-number">${escapeHtml(invoiceNumber)}</div>
+        ${merchantName ? `<p><strong>Merchant:</strong> ${escapeHtml(merchantName)}</p>` : ""}
         <p><strong>Invoice Date:</strong> ${invoiceDate}</p>
         <p><strong>Printed On:</strong> ${printedOn}</p>
       </div>
@@ -557,7 +680,7 @@ export async function GET(
         ${loc.logoUrl ? `<img src="${escapeHtml(loc.logoUrl)}" alt="Logo" class="company-logo" />` : ""}
         ${loc.invoiceHeader ? `<div class="brand">${escapeHtml(loc.invoiceHeader)}</div>` : ""}
         ${loc.invoiceSubHeader ? `<div class="tagline">${escapeHtml(loc.invoiceSubHeader)}</div>` : ""}
-        ${companyName ? `<p>${escapeHtml(companyName)}</p>` : ""}
+        ${showCompanyName ? `<p>${escapeHtml(companyName)}</p>` : ""}
         ${companyAddress ? `<p>${escapeHtml(companyAddress)}</p>` : ""}
         ${loc.invoiceEmail ? `<p>${escapeHtml(loc.invoiceEmail)}</p>` : ""}
         ${loc.invoicePhone ? `<p>Tel ${escapeHtml(loc.invoicePhone)}</p>` : ""}
@@ -567,15 +690,15 @@ export async function GET(
     <div class="addresses">
       <div class="address-block">
         <h3>Bill To</h3>
-        <p><strong>Customer Name:</strong> ${escapeHtml(customerName)}</p>
-        ${customerPhoneDisplay ? `<p><strong>Contact Number:</strong> ${escapeHtml(customerPhoneDisplay)}</p>` : ""}
-        ${billingAddr ? `<p><strong>Address:</strong> ${escapeHtml(billingAddr)}</p>` : ""}
+        <p><strong>Customer Name:</strong> ${escapeHtml(customerName || "—")}</p>
+        <p><strong>Contact Number:</strong> ${escapeHtml(customerPhoneDisplay || "—")}</p>
+        <p><strong>Address:</strong> ${escapeHtml(billingAddr || "—")}</p>
       </div>
       <div class="address-block">
         <h3>Shipping To</h3>
-        <p><strong>Customer Name:</strong> ${escapeHtml(customerName)}</p>
-        ${shippingAddr ? `<p><strong>Address:</strong> ${escapeHtml(shippingAddr)}</p>` : ""}
-        ${shippingCity ? `<p><strong>City:</strong> ${escapeHtml(shippingCity)}</p>` : ""}
+        <p><strong>Customer Name:</strong> ${escapeHtml(customerName || "—")}</p>
+        <p><strong>Address:</strong> ${escapeHtml(shippingAddr || "—")}</p>
+        <p><strong>City:</strong> ${escapeHtml(shippingCity || "—")}</p>
       </div>
     </div>
 
@@ -603,10 +726,13 @@ export async function GET(
                   ? String(li.discountPercent)
                   : "—";
               const productName = [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ");
+              const barcode = formatPickListBarcode(
+                resolvePickListBarcode(li.productItem.barcode, li.productItem.sku, barcodeBySku),
+              );
               return `
         <tr>
           <td>${escapeHtml(li.productItem.sku ?? "—")}</td>
-          <td>${escapeHtml(li.productItem.barcode ?? "—")}</td>
+          <td>${escapeHtml(barcode)}</td>
           <td>${escapeHtml(productName)}</td>
           <td class="text-right">${li.quantity}</td>
           <td class="text-right">${formatPrice(regPrice.toString(), order.currency)}</td>
@@ -668,13 +794,13 @@ export async function GET(
     </div>
 
     <div class="payment-section">
-      <p><strong>Payment Method:</strong> ${escapeHtml(getPaymentMethod(order.financialStatus, paymentGatewayPrimary))}</p>
-      ${merchantCouponCode ? `<p><strong>Coupon Code:</strong> ${escapeHtml(merchantCouponCode)}</p>` : ""}
-      <p><strong>Merchant:</strong> ${escapeHtml(order.assignedMerchant?.name ?? "—")}</p>
-      <p><strong>Customer Notes:</strong> ${externalRemarks.length > 0 ? escapeHtml(externalRemarks.join("; ")) : "—"}</p>
-      <p><strong>Call Center Notes:</strong> ${internalRemarks.length > 0 ? escapeHtml(internalRemarks.join("; ")) : "—"}</p>
-      <p><strong>Original Del Date:</strong> ${invoiceDate}</p>
-      <p><strong>Payment Description:</strong> ${escapeHtml(getPaymentDescription(order.financialStatus, paymentGatewayPrimary))}</p>
+      ${invoiceDetailLine("Payment Method", paymentMethod, escapeHtml)}
+      ${invoiceDetailLine("Coupon Code", merchantCouponCode, escapeHtml)}
+      ${invoiceDetailLine("Merchant", merchantName, escapeHtml)}
+      ${invoiceDetailLine("Customer Notes", customerNotes, escapeHtml)}
+      ${invoiceDetailLine("Call Center Notes", callCenterNotes, escapeHtml)}
+      ${invoiceDetailLine("Original Del Date", invoiceDate, escapeHtml)}
+      ${invoiceDetailLine("Payment Description", paymentDescription, escapeHtml)}
     </div>
 
     <div class="invoice-policy-notes">
@@ -682,11 +808,10 @@ export async function GET(
       <p class="return-policy">• Return Policy is applied. For more info please visit : https://cosmetics.lk/pages/return-policy</p>
     </div>
 
-    ${loc.invoiceFooter || loc.invoiceHeader ? `
+    ${loc.invoiceFooter ? `
     <div class="footer-section">
-      ${loc.invoiceHeader ? `<div class="brand">${escapeHtml(loc.invoiceHeader)}</div>` : ""}
       ${(loc.invoicePhone || loc.invoiceEmail) ? `<div class="contact">${[loc.invoicePhone ? `Tel ${escapeHtml(loc.invoicePhone)}` : "", loc.invoiceEmail ? escapeHtml(loc.invoiceEmail) : ""].filter(Boolean).join(" · ")}</div>` : ""}
-      ${loc.invoiceFooter ? `<div class="policy">${escapeHtml(loc.invoiceFooter)}</div>` : ""}
+      <div class="policy">${escapeHtml(loc.invoiceFooter)}</div>
     </div>` : ""}
   </div>
   <script>

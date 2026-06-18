@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ type OrderDetail = {
   shopifyOrderId: string;
   orderNumber: string | null;
   name: string | null;
+  erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
@@ -267,7 +269,14 @@ export function OrderFulfillmentDetail({
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-baseline gap-2 flex-wrap">
-            <span>Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}</span>
+            <span className="flex items-baseline gap-2 flex-wrap">
+              Order{" "}
+              <FulfillmentOrderReference
+                order={orderDetail ?? undefined}
+                variant="inline"
+                fallback="Details"
+              />
+            </span>
             {(() => {
               const coupon = Array.isArray(orderDetail?.discountCodes)
                 ? ((orderDetail.discountCodes as Array<{ code?: string }>)

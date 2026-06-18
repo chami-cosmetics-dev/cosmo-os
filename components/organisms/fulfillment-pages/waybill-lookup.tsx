@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import { Eye, Loader2, PackageSearch, Plus, Search, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -21,6 +22,7 @@ type LookupResult = {
     name: string | null;
     orderNumber: string | null;
     shopifyOrderId: string;
+    erpnextInvoiceId: string | null;
     customerEmail: string | null;
     customerPhone: string | null;
     financialStatus: string | null;
@@ -62,10 +64,6 @@ function stageLabel(value: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function orderLabel(order: NonNullable<LookupResult["order"]>) {
-  return order.name ?? order.orderNumber ?? order.shopifyOrderId;
 }
 
 function hasDisplayValue(value: unknown) {
@@ -290,8 +288,8 @@ export function WaybillLookupFulfillmentPage({
           <CardContent>
             <div className="grid gap-3 text-sm md:grid-cols-3">
               <div>
-                <p className="text-muted-foreground">Invoice</p>
-                <p className="font-medium">{orderLabel(matchedOrder)}</p>
+                <p className="text-muted-foreground">Order</p>
+                <FulfillmentOrderReference order={matchedOrder} variant="labeled" className="text-sm" />
               </div>
               <div>
                 <p className="text-muted-foreground">Courier</p>

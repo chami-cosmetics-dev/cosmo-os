@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -379,7 +380,6 @@ export function FulfillmentSampleFreeIssuePanel({
     [lookups?.samplesFreeIssues, selectedSamples]
   );
 
-  const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
   const paymentMethodInfo = getPaymentMethodInfo({
     paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
@@ -440,7 +440,13 @@ export function FulfillmentSampleFreeIssuePanel({
         <div>
           <h2 className="text-lg font-semibold">Sample / Free Issue</h2>
           <p className="text-muted-foreground text-sm">
-            {order ? `Order ${orderLabel}` : "Select an order to fill details"}
+            {order ? (
+              <>
+                Order <FulfillmentOrderReference order={order} variant="inline" />
+              </>
+            ) : (
+              "Select an order to fill details"
+            )}
           </p>
         </div>
         <div className="rounded-md border border-border/70 px-3 py-2 text-right">
@@ -459,7 +465,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 </div>
               )}
               <div className="space-y-1">
-                <p><span className="font-medium">Invoice:</span> {orderLabel}</p>
+                <FulfillmentOrderReference order={order} variant="labeled" />
                 <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
                 <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? (detail?.shippingAddress as Record<string, string> | null)?.phone ?? "-"}</p>
               </div>
