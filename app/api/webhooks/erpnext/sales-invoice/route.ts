@@ -321,7 +321,11 @@ export async function POST(request: NextRequest) {
 
   // Prefer ERPNext's display name (customer_name); fall back to the customer ID
   // (which is often just a phone number when customers are keyed by mobile).
-  const customerNameResolution = await resolveErpWebhookCustomerName(data, instanceCreds);
+  const customerNameResolution = await resolveErpWebhookCustomerName(data, {
+    baseUrl: instanceCreds.baseUrl,
+    apiKey: instanceCreds.apiKey,
+    apiSecret: instanceCreds.apiSecret,
+  });
   const erpCustomerName = customerNameResolution.name;
   console.log(
     `[ERPNext webhook] customer_name in payload: ${customerNameResolution.webhookCustomerName ?? "(missing)"}; ` +

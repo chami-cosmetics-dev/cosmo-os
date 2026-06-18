@@ -8,7 +8,8 @@ import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
-import { resolveStoredOrderCustomerName } from "@/lib/erpnext-customer-display-name";
+import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
+import { isValidCustomerDisplayName } from "@/lib/reports/csv";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -358,6 +359,26 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     getOrdersPageLookups(companyId),
   ]);
 
+  const storedCustomerNames = new Map(
+    orders.map((o) => [o.id, pickOrderListCustomerName(o)] as const),
+  );
+  const erpOrdersMissingName = orders.filter((o) => {
+    if (o.sourceName !== "erpnext" && o.sourceName !== "erpnext-pos") return false;
+    const stored = storedCustomerNames.get(o.id);
+    return !stored || !isValidCustomerDisplayName(stored);
+  });
+  const erpCustomerNames = await enrichErpOrderCustomerNames(
+    erpOrdersMissingName.map((o) => ({
+      id: o.id,
+      sourceName: o.sourceName,
+      name: o.name,
+      erpnextInvoiceId: o.erpnextInvoiceId,
+      shippingAddress: o.shippingAddress,
+      rawPayload: o.rawPayload,
+      companyLocationId: o.companyLocation.id,
+    })),
+  );
+
   const ordersData = orders.map((o) => ({
     id: o.id,
     shopifyOrderId: o.shopifyOrderId,
@@ -371,7 +392,12 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStatus: o.fulfillmentStatus,
     customerEmail: o.customerEmail,
     customerPhone: o.customerPhone,
-    customerName: pickOrderListCustomerName(o),
+    customerName: (() => {
+      const stored = storedCustomerNames.get(o.id);
+      const enriched = erpCustomerNames.get(o.id);
+      if (stored && isValidCustomerDisplayName(stored)) return stored;
+      return enriched ?? null;
+    })(),
     createdAt: o.createdAt.toISOString(),
     companyLocation: o.companyLocation,
     assignedMerchant: o.assignedMerchant,
