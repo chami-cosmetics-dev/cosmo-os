@@ -10,6 +10,7 @@ import {
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
+import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -320,7 +321,12 @@ export async function POST(request: NextRequest) {
 
   // Prefer ERPNext's display name (customer_name); fall back to the customer ID
   // (which is often just a phone number when customers are keyed by mobile).
-  const erpCustomerName = nullIfNone(data.customer_name) ?? data.customer;
+  const customerNameResolution = await resolveErpWebhookCustomerName(data, instanceCreds);
+  const erpCustomerName = customerNameResolution.name;
+  console.log(
+    `[ERPNext webhook] customer_name in payload: ${customerNameResolution.webhookCustomerName ?? "(missing)"}; ` +
+      `resolved display name: ${erpCustomerName} (source: ${customerNameResolution.source})`,
+  );
 
   const shippingAddressObj = parseErpAddress(
     nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),

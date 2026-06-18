@@ -64,7 +64,7 @@ export function getCustomerName(address: unknown) {
   return [first, last].filter(Boolean).join(" ").trim();
 }
 
-function looksLikePhoneNumber(value: string) {
+export function looksLikePhoneNumber(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return false;
   const digits = trimmed.replace(/\D/g, "");
@@ -85,7 +85,15 @@ export function resolveOrderCustomerName(input: {
 
   if (input.rawPayload && typeof input.rawPayload === "object") {
     const payload = input.rawPayload as Record<string, unknown>;
-    const customer = payload.customer;
+    const erpPayload =
+      payload.data != null && typeof payload.data === "object" && !Array.isArray(payload.data)
+        ? (payload.data as Record<string, unknown>)
+        : payload;
+    const erpCustomerName = erpPayload.customer_name;
+    if (typeof erpCustomerName === "string" && erpCustomerName.trim()) {
+      candidates.unshift(erpCustomerName.trim());
+    }
+    const customer = payload.customer ?? erpPayload.customer;
     if (customer && typeof customer === "object") {
       candidates.push(getCustomerName(customer));
       const defaultAddress = (customer as Record<string, unknown>).default_address;
