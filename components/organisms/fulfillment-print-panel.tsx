@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Printer } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { Button } from "@/components/ui/button";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -91,7 +92,6 @@ export function FulfillmentPrintPanel({ orderId, order }: FulfillmentPrintPanelP
     };
   }, [orderId]);
 
-  const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
 
   return (
@@ -102,7 +102,13 @@ export function FulfillmentPrintPanel({ orderId, order }: FulfillmentPrintPanelP
           Order Print
         </h2>
         <p className="text-muted-foreground text-sm">
-          {order ? `Order ${orderLabel}` : "Select an order to fill details"}
+          {order ? (
+            <>
+              Order <FulfillmentOrderReference order={order} variant="inline" />
+            </>
+          ) : (
+            "Select an order to fill details"
+          )}
         </p>
       </div>
       {loading && !detail ? (
@@ -113,7 +119,7 @@ export function FulfillmentPrintPanel({ orderId, order }: FulfillmentPrintPanelP
         <>
           <div className="grid gap-3 rounded-md border border-border/70 p-3 text-sm lg:grid-cols-2">
             <div className="space-y-1">
-              <p><span className="font-medium">Invoice:</span> {orderLabel}</p>
+              <FulfillmentOrderReference order={order} variant="labeled" />
               <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
               <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? "-"}</p>
             </div>

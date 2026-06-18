@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronsUpDown, Loader2, Truck, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -20,6 +21,10 @@ import {
   dispatchSelectionToApiBody,
   parseDispatchService,
 } from "@/lib/order-dispatch";
+import {
+  formatFulfillmentOrderReferenceText,
+  fulfillmentOrderSearchTokens,
+} from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
 
 type Lookups = {
@@ -31,6 +36,7 @@ type ReadyOrder = {
   id: string;
   name: string | null;
   orderNumber: string | null;
+  shopifyOrderId?: string | null;
   erpnextInvoiceId: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
@@ -138,7 +144,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
   const selectedDispatch = parseDispatchService(dispatchService);
 
   function orderLabel(order: ReadyOrder) {
-    return order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id;
+    return formatFulfillmentOrderReferenceText(order);
   }
 
   function fetchDetail(orderId: string) {
@@ -294,20 +300,16 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
                     )}
                     {comboOptions.map((order) => {
                       const alreadyAdded = selectedOrders.some((o) => o.id === order.id);
-                      const label = orderLabel(order);
-                      const erpId = order.erpnextInvoiceId;
-                      const showErpId = erpId && erpId !== label;
                       return (
                         <CommandItem
                           key={order.id}
-                          value={`${order.name ?? ""} ${order.orderNumber ?? ""} ${erpId ?? ""}`}
+                          value={fulfillmentOrderSearchTokens(order)}
                           onSelect={() => addOrder(order)}
                           className="flex items-center justify-between gap-3"
                         >
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">{label}</span>
+                            <FulfillmentOrderReference order={order} />
                             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                              {showErpId && <span className="mr-2 font-mono">{erpId}</span>}
                               {order.companyLocation?.name ?? "No location"}
                               {" | "}
                               {order.customerPhone ?? order.customerEmail ?? "No contact"}
@@ -408,7 +410,13 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
                 Dispatch
               </h2>
               <p className="text-muted-foreground text-sm">
-                {activeOrder ? `Order ${orderLabel(activeOrder)}` : "Select an order to fill details"}
+                {activeOrder ? (
+                  <>
+                    Order <FulfillmentOrderReference order={activeOrder} variant="inline" />
+                  </>
+                ) : (
+                  "Select an order to fill details"
+                )}
               </p>
             </div>
 
@@ -423,7 +431,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
                 </div>
               )}
               <div className="space-y-1">
-                <p><span className="font-medium">Invoice:</span> {activeOrder ? orderLabel(activeOrder) : "-"}</p>
+                <FulfillmentOrderReference order={activeOrder} variant="labeled" />
                 <p><span className="font-medium">Email:</span> {activeOrder?.customerEmail ?? "-"}</p>
                 <p><span className="font-medium">Phone:</span> {activeOrder?.customerPhone ?? activeOrder?.shippingAddress?.phone ?? "-"}</p>
                 <p><span className="font-medium">Address:</span> {addrLine || "-"}</p>

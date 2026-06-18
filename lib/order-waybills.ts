@@ -9,6 +9,7 @@ export type OrderWaybillLookupResult = {
     name: string | null;
     orderNumber: string | null;
     shopifyOrderId: string;
+    erpnextInvoiceId: string | null;
     customerEmail: string | null;
     customerPhone: string | null;
     financialStatus: string | null;
@@ -61,6 +62,7 @@ export async function findOrderWaybillsByInvoice(
     name: string | null;
     orderNumber: string | null;
     shopifyOrderId: string;
+    erpnextInvoiceId: string | null;
     customerEmail: string | null;
     customerPhone: string | null;
     financialStatus: string | null;
@@ -78,6 +80,7 @@ export async function findOrderWaybillsByInvoice(
         o."name",
         o."orderNumber",
         o."shopifyOrderId",
+        o."erpnextInvoiceId",
         o."customerEmail",
         o."customerPhone",
         o."financialStatus",

@@ -8,7 +8,9 @@ import {
   useFulfillmentPermissions,
 } from "@/components/contexts/fulfillment-permissions-context";
 import { Button } from "@/components/ui/button";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { Input } from "@/components/ui/input";
+import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
 import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 import { notify } from "@/lib/notify";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
@@ -17,6 +19,7 @@ type PrintOrder = {
   id: string;
   name: string | null;
   orderNumber: string | null;
+  shopifyOrderId?: string | null;
   erpnextInvoiceId: string | null;
   sourceName: string;
   totalPrice: string;
@@ -33,7 +36,7 @@ type PrintOrder = {
 };
 
 function orderLabel(order: PrintOrder): string {
-  return order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id;
+  return formatFulfillmentOrderReferenceText(order);
 }
 
 function fmtDate(iso: string) {
@@ -373,8 +376,6 @@ function PrintQueueInner() {
                   const isPrinted = order.printCount > 0;
                   const isSelected = selected.has(order.id);
                   const label = orderLabel(order);
-                  const erpId = order.erpnextInvoiceId;
-                  const showErpId = erpId && erpId !== label;
                   const payment = getPaymentMethodInfo({
                     paymentGatewayPrimary: order.paymentGatewayPrimary,
                     paymentGatewayNames: order.paymentGatewayNames,
@@ -415,12 +416,7 @@ function PrintQueueInner() {
                         />
                       </td>
                       <td className="px-4 py-3">
-                        <span className="block font-medium leading-tight">{label}</span>
-                        {showErpId && (
-                          <span className="mt-0.5 block font-mono text-xs leading-tight text-muted-foreground">
-                            {erpId}
-                          </span>
-                        )}
+                        <FulfillmentOrderReference order={order} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {order.companyLocation?.name ?? "—"}
