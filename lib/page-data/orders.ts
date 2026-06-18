@@ -8,7 +8,7 @@ import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
-import { resolveStoredOrderCustomerName } from "@/lib/erpnext-customer-display-name";
+import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -358,6 +358,24 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     getOrdersPageLookups(companyId),
   ]);
 
+  const storedCustomerNames = new Map(
+    orders.map((o) => [o.id, pickOrderListCustomerName(o)] as const),
+  );
+  const erpOrdersMissingName = orders.filter(
+    (o) =>
+      !storedCustomerNames.get(o.id) &&
+      (o.sourceName === "erpnext" || o.sourceName === "erpnext-pos"),
+  );
+  const erpCustomerNames = await enrichErpOrderCustomerNames(
+    erpOrdersMissingName.map((o) => ({
+      id: o.id,
+      sourceName: o.sourceName,
+      shippingAddress: o.shippingAddress,
+      rawPayload: o.rawPayload,
+      companyLocationId: o.companyLocation.id,
+    })),
+  );
+
   const ordersData = orders.map((o) => ({
     id: o.id,
     shopifyOrderId: o.shopifyOrderId,
@@ -371,7 +389,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     fulfillmentStatus: o.fulfillmentStatus,
     customerEmail: o.customerEmail,
     customerPhone: o.customerPhone,
-    customerName: pickOrderListCustomerName(o),
+    customerName: storedCustomerNames.get(o.id) ?? erpCustomerNames.get(o.id) ?? null,
     createdAt: o.createdAt.toISOString(),
     companyLocation: o.companyLocation,
     assignedMerchant: o.assignedMerchant,

@@ -8,11 +8,11 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import {
   fetchErpCustomerDisplayName,
-  getErpCustomerIdFromPayload,
   getErpWebhookCustomerNameField,
+  resolveErpCustomerIdForLookup,
   resolveStoredOrderCustomerName,
 } from "@/lib/erpnext-customer-display-name";
-import { looksLikePhoneNumber } from "@/lib/reports/csv";
+import { looksLikeErpCustomerId } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -199,12 +199,11 @@ export async function GET(
     details.companyLocation.erpnextInstance
   ) {
     const instance = details.companyLocation.erpnextInstance;
-    const customerId =
-      getErpCustomerIdFromPayload(details.rawPayload) ??
-      (typeof (details.shippingAddress as Record<string, unknown> | null)?.name === "string"
-        ? ((details.shippingAddress as Record<string, unknown>).name as string)
-        : null);
-    if (customerId && looksLikePhoneNumber(customerId)) {
+    const customerId = resolveErpCustomerIdForLookup({
+      rawPayload: details.rawPayload,
+      shippingAddress: details.shippingAddress,
+    });
+    if (customerId && looksLikeErpCustomerId(customerId)) {
       customerName = await fetchErpCustomerDisplayName(
         {
           baseUrl: instance.baseUrl,
