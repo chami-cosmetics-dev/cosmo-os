@@ -72,6 +72,11 @@ type OrderDetail = {
   paymentGatewayPrimary?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  customerName?: string | null;
+  /** `customer_name` as received on the ERP Sales Invoice webhook (stored in rawPayload). */
+  erpWebhookCustomerName?: string | null;
+  /** How customerName was resolved for ERP orders (shown in Order JSON for debugging). */
+  customerNameSource?: "stored" | "erp_customer_api" | null;
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
@@ -951,11 +956,7 @@ export function OrderInvoiceViewModal({
                     )}
                     <div>
                       <span className="text-muted-foreground text-xs">Customer</span>
-                      <p>
-                        {getCustomerName(orderDetail.shippingAddress) ??
-                          getCustomerName(orderDetail.billingAddress) ??
-                          "-"}
-                      </p>
+                      <p>{orderDetail.customerName ?? "-"}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground text-xs">Shipping address</span>
