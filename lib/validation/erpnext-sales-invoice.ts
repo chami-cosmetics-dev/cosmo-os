@@ -3,6 +3,7 @@ import { z } from "zod";
 export const erpnextSalesInvoiceWebhookSchema = z.object({
   name: z.string(),
   customer: z.string(),
+  customer_name: z.string().optional().nullable(),
   company: z.string(),
   posting_date: z.string().optional().nullable(),
   grand_total: z.number().optional().nullable(),
@@ -14,6 +15,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   set_warehouse: z.string().optional().nullable(),
   is_pos: z.union([z.number(), z.boolean()]).optional().nullable().transform((v) => (v == null ? null : Number(v))),
   is_return: z.union([z.number(), z.boolean()]).optional().nullable().transform((v) => (v == null ? null : Number(v))),
+  return_against: z.string().optional().nullable(),
   payment_type: z.string().optional().nullable().default(null),
   custom_payment_type: z.string().optional().nullable().default(null),
   custom_merchant_coupon_code: z.string().optional().nullable().default(null),

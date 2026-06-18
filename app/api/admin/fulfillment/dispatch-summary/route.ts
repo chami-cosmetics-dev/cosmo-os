@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
+import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { prisma } from "@/lib/prisma";
-import { buildCsv } from "@/lib/reports/csv";
+import { buildCsv, formatDispatchOrderReference } from "@/lib/reports/csv";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,9 @@ type DispatchGroup = {
   orders: Array<{
     orderId: string;
     reference: string;
+    shopifyReference: string;
+    erpReference: string | null;
+    companyGroup: string;
     orderDate: string;
     dispatchedAt: string;
     deliveryCompleteAt: string | null;
@@ -77,6 +81,7 @@ async function fetchDispatchGroups(
       id: true,
       name: true,
       orderNumber: true,
+      shopifyOrderId: true,
       erpnextInvoiceId: true,
       customerPhone: true,
       customerEmail: true,
@@ -146,7 +151,18 @@ async function fetchDispatchGroups(
 
     groupMap.get(dispatcherId)!.orders.push({
       orderId: order.id,
-      reference: order.name ?? order.orderNumber ?? order.erpnextInvoiceId ?? order.id,
+      reference: formatDispatchOrderReference(order),
+      shopifyReference: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+      erpReference:
+        order.erpnextInvoiceId &&
+        order.erpnextInvoiceId !== "pending" &&
+        order.erpnextInvoiceId !== "pending_approval"
+          ? order.erpnextInvoiceId
+          : null,
+      companyGroup: resolveFalconExportGroupKey({
+        reference: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+        locationName: order.companyLocation.name,
+      }),
       orderDate: order.createdAt.toISOString(),
       dispatchedAt: order.dispatchedAt?.toISOString() ?? order.createdAt.toISOString(),
       deliveryCompleteAt: order.deliveryCompleteAt?.toISOString() ?? null,
@@ -263,9 +279,12 @@ export async function POST(request: NextRequest) {
 
   if (format === "csv") {
     const headers = [
+      "company_group",
       "dispatcher_type",
       "dispatcher_name",
       "reference",
+      "shopify_reference",
+      "erp_reference",
       "location",
       "order_date",
       "dispatched_at",
@@ -283,9 +302,12 @@ export async function POST(request: NextRequest) {
 
     const rows = groups.flatMap((group) =>
       group.orders.map((order) => ({
+        company_group: order.companyGroup,
         dispatcher_type: group.dispatchType,
         dispatcher_name: group.dispatcherName,
         reference: order.reference,
+        shopify_reference: order.shopifyReference,
+        erp_reference: order.erpReference ?? "",
         location: order.locationName,
         order_date: order.orderDate,
         dispatched_at: order.dispatchedAt,
@@ -302,11 +324,31 @@ export async function POST(request: NextRequest) {
       })),
     );
 
-    const csv = buildCsv(headers, rows);
-    return new NextResponse(csv, {
+    const companyGroups = Array.from(new Set(rows.map((row) => row.company_group))).sort();
+    if (companyGroups.length <= 1) {
+      const csv = buildCsv(headers, rows);
+      return new NextResponse(csv, {
+        headers: {
+          "Content-Type": "text/csv; charset=utf-8",
+          "Content-Disposition": `attachment; filename="dispatch-summary-${fileSuffix}.csv"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    const csvFiles = companyGroups.map((companyGroup) => ({
+      name: `dispatch-summary-${fileSuffix}-${companyGroup}.csv`,
+      content: buildCsv(
+        headers,
+        rows.filter((row) => row.company_group === companyGroup)
+      ),
+    }));
+
+    const zip = createZip(csvFiles);
+    return new NextResponse(zip, {
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="dispatch-summary-${fileSuffix}.csv"`,
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="dispatch-summary-${fileSuffix}.zip"`,
         "Cache-Control": "no-store",
       },
     });

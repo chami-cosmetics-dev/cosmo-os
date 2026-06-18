@@ -14,7 +14,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-loadEnv({ path: resolve(__dirname, "../.env") });
+const repoRoot = resolve(__dirname, "..");
+// Cursor MCP uses envFile in .cursor/mcp.json; manual runs load .env.mcp.erp1 then .env.
+loadEnv({ path: resolve(repoRoot, ".env.mcp.erp1") });
+loadEnv({ path: resolve(repoRoot, ".env") });
 
 function getConfig() {
   const baseUrl = (process.env.ERPNEXT_BASE_URL ?? "").trim().replace(/\/$/, "");

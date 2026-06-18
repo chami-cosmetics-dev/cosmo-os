@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
       taxesAndCharges: true,
       shippingRule: true,
       shippingItem: true,
+      shippingChargeAccount: true,
       createdAt: true,
       _count: { select: { locations: true } },
     },

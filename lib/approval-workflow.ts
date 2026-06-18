@@ -114,6 +114,24 @@ export async function getOrderPaymentApproval(orderId: string) {
   return rows[0] ?? null;
 }
 
+/** True when finance already approved this payment type once (e.g. after HOD revert re-approval). */
+export async function hasPriorApprovedPaymentApproval(
+  orderId: string,
+  type: typeof ORDER_PAYMENT_APPROVAL | typeof DELIVERY_PAYMENT_APPROVAL,
+  excludeApprovalId: string,
+): Promise<boolean> {
+  const prior = await prisma.approvalRequest.findFirst({
+    where: {
+      orderId,
+      type,
+      status: "approved",
+      id: { not: excludeApprovalId },
+    },
+    select: { id: true },
+  });
+  return prior != null;
+}
+
 export async function createOrGetOrderPaymentApproval(input: {
   companyId: string;
   orderId: string;

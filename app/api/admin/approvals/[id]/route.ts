@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL, notifyApprovalRequester } from "@/lib/approval-workflow";
+import {
+  DELIVERY_PAYMENT_APPROVAL,
+  ORDER_PAYMENT_APPROVAL,
+  RETURN_REARRANGE_PAYMENT_APPROVAL,
+  hasPriorApprovedPaymentApproval,
+  notifyApprovalRequester,
+} from "@/lib/approval-workflow";
 import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -114,6 +120,16 @@ export async function PATCH(
 
   const now = new Date();
   const nextStatus = parsed.data.action === "approve" ? "approved" : "rejected";
+  const isPaymentReapproval =
+    nextStatus === "approved" &&
+    approval.orderId != null &&
+    (approval.type === ORDER_PAYMENT_APPROVAL || approval.type === DELIVERY_PAYMENT_APPROVAL) &&
+    (await hasPriorApprovedPaymentApproval(
+      approval.orderId,
+      approval.type as typeof ORDER_PAYMENT_APPROVAL | typeof DELIVERY_PAYMENT_APPROVAL,
+      approval.id,
+    ));
+
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw(
       Prisma.sql`
@@ -131,22 +147,23 @@ export async function PATCH(
 
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
-        // Order payment approval: just mark financial status paid.
-        // Fulfillment stage stays at sample_free_issue — merchant advances to print manually.
+        // Koko/bank orders skip sample — go straight to print (dispatch + print queue).
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: { financialStatus: "paid" },
+          data: { financialStatus: "paid", fulfillmentStage: "print" },
         });
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: {
-            financialStatus: "paid",
-            fulfillmentStage: "invoice_complete",
-            fulfillmentStatus: "fulfilled",
-            invoiceCompleteAt: now,
-            invoiceCompleteById: reviewerId,
-          },
+          data: isPaymentReapproval
+            ? { financialStatus: "paid" }
+            : {
+                financialStatus: "paid",
+                fulfillmentStage: "invoice_complete",
+                fulfillmentStatus: "fulfilled",
+                invoiceCompleteAt: now,
+                invoiceCompleteById: reviewerId,
+              },
         });
       } else {
         // Return rearrange approval: force to ready_to_dispatch + resolve the return
@@ -215,8 +232,13 @@ export async function PATCH(
   let erpSyncFailed = false;
   let erpSyncError: string | undefined;
 
-  // Await ERP sync so serverless does not terminate before the Sales Invoice is created.
-  if (nextStatus === "approved" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
+  // First-time approval only — re-approval after HOD revert updates Vault paid status; ERP SI stays unchanged.
+  if (
+    nextStatus === "approved" &&
+    !isPaymentReapproval &&
+    approval.type === ORDER_PAYMENT_APPROVAL &&
+    approval.orderId
+  ) {
     try {
       await runPostApprovalErpSync(approval.orderId, now);
     } catch (err) {
@@ -228,7 +250,12 @@ export async function PATCH(
     }
   }
 
-  if (nextStatus === "approved" && approval.type === DELIVERY_PAYMENT_APPROVAL && approval.orderId) {
+  if (
+    nextStatus === "approved" &&
+    !isPaymentReapproval &&
+    approval.type === DELIVERY_PAYMENT_APPROVAL &&
+    approval.orderId
+  ) {
     const order = await prisma.order.findUnique({
       where: { id: approval.orderId },
       include: { companyLocation: { include: { erpnextInstance: true } } },

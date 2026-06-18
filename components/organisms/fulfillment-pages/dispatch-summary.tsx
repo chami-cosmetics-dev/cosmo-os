@@ -145,7 +145,9 @@ export function DispatchSummaryPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `dispatch-summary-${fileSuffix()}.${format === "csv" ? "csv" : "zip"}`;
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      a.download = match?.[1] ?? `dispatch-summary-${fileSuffix()}.${format === "csv" ? "csv" : "zip"}`;
       document.body.appendChild(a);
       a.click();
       a.remove();

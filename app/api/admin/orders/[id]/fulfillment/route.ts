@@ -7,7 +7,7 @@ import { writeAuditLog } from "@/lib/audit-log";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
-import { DISPATCHABLE_STAGES } from "@/lib/fulfillment-permissions";
+import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/fulfillment-permissions";
 import type { FulfillmentStage } from "@prisma/client";
 import {
   calculateExchangePaymentDifference,
@@ -796,6 +796,7 @@ export async function PATCH(
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
+          ...printFieldsOnDispatchIfUnprinted(order, userId, now),
           ...(needsMarkReady && {
             packageReadyAt: now,
             packageReadyById: userId,

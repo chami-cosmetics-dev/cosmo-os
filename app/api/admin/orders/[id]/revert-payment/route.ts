@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit-log";
 import { verifyFinanceHodRevertPassword } from "@/lib/hod-payment-revert";
 import { prisma } from "@/lib/prisma";
+import { requeuePaymentApprovalAfterRevert } from "@/lib/requeue-payment-approval-after-revert";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -54,7 +55,6 @@ export async function POST(
       shopifyOrderId: true,
       financialStatus: true,
       fulfillmentStage: true,
-      fulfillmentStatus: true,
     },
   });
 
@@ -68,22 +68,10 @@ export async function POST(
   }
 
   const now = new Date();
-  const revertInvoice =
-    order.fulfillmentStage === "invoice_complete" || order.fulfillmentStatus === "fulfilled";
 
   await prisma.order.update({
     where: { id: order.id },
-    data: {
-      financialStatus: "pending",
-      ...(revertInvoice
-        ? {
-            fulfillmentStage: "delivery_complete",
-            fulfillmentStatus: "unfulfilled",
-            invoiceCompleteAt: null,
-            invoiceCompleteById: null,
-          }
-        : {}),
-    },
+    data: { financialStatus: "pending" },
   });
 
   await writeAuditLog({
@@ -96,21 +84,32 @@ export async function POST(
     summary: `HOD reverted order ${order.name ?? order.orderNumber ?? order.id} from paid to unpaid`,
     beforeData: {
       financialStatus: order.financialStatus,
-      fulfillmentStage: order.fulfillmentStage,
     },
     afterData: {
       financialStatus: "pending",
-      fulfillmentStage: revertInvoice ? "delivery_complete" : order.fulfillmentStage,
     },
     metadata: {
       reason: parsed.data.reason ?? null,
     },
   });
 
+  let approvalRequeued = false;
+  try {
+    const approval = await requeuePaymentApprovalAfterRevert({
+      companyId,
+      orderId: order.id,
+      requestedById: actorUserId,
+    });
+    approvalRequeued = approval != null;
+  } catch (err) {
+    console.error("[HOD revert] failed to re-queue finance approval:", err);
+  }
+
   return NextResponse.json({
     ok: true,
     financialStatus: "pending",
-    fulfillmentStage: revertInvoice ? "delivery_complete" : order.fulfillmentStage,
+    fulfillmentStage: order.fulfillmentStage,
     revertedAt: now.toISOString(),
+    approvalRequeued,
   });
 }

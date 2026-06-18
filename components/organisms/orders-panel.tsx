@@ -39,6 +39,7 @@ type Order = {
   fulfillmentStage?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  customerName: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -56,6 +57,7 @@ const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
   sample_free_issue: "Sample/Free Issue",
   print: "Print",
   returned_to_store: "Returned to Store",
+  returned: "Returned",
   ready_to_dispatch: "Ready to Dispatch",
   dispatched: "Dispatched",
   invoice_complete: "Invoice Complete",
@@ -67,6 +69,7 @@ const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
   sample_free_issue: "bg-purple-100 text-purple-800 dark:bg-purple-900/30  dark:text-purple-300",
   print:             "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-300",
   returned_to_store: "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-300",
+  returned:          "bg-rose-100   text-rose-800   dark:bg-rose-900/30    dark:text-rose-300",
   ready_to_dispatch: "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-300",
   dispatched:        "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30  dark:text-indigo-300",
   delivery_complete: "bg-teal-100   text-teal-800   dark:bg-teal-900/30    dark:text-teal-300",
@@ -665,9 +668,17 @@ export function OrdersPanel({
                           </div>
                         </td>
                         <td className="px-4 py-2">
-                          <div className="truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
-                            {order.customerEmail ?? order.customerPhone ?? "—"}
+                          <div className="truncate" title={order.customerName ?? undefined}>
+                            {order.customerName ?? "—"}
                           </div>
+                          {(order.customerPhone || order.customerEmail) && (
+                            <div
+                              className="truncate text-xs text-muted-foreground"
+                              title={order.customerPhone ?? order.customerEmail ?? undefined}
+                            >
+                              {order.customerPhone ?? order.customerEmail}
+                            </div>
+                          )}
                           {(() => {
                             const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
                             const coupon = Array.isArray(order.discountCodes)

@@ -5,7 +5,8 @@ import {
   buildGroupedFalconUploadZip,
   type FalconWaybillRow,
 } from "@/lib/falcon-upload";
-import { getAddressField, getCustomerName } from "@/lib/reports/csv";
+import { resolveFalconCompanyGroup, resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
+import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -78,11 +79,29 @@ async function getCitypakWaybillRows(
       dispatchedByCourierServiceId: { not: null },
     },
     orderBy: [{ dispatchedAt: "asc" }, { createdAt: "asc" }],
-    include: {
-      companyLocation: { select: { name: true, shortName: true, locationReference: true } },
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      financialStatus: true,
+      totalPrice: true,
+      customerEmail: true,
+      customerPhone: true,
+      shippingAddress: true,
+      billingAddress: true,
+      rawPayload: true,
+      companyLocation: {
+        select: {
+          name: true,
+          shortName: true,
+          locationReference: true,
+          manualInvoicePrefix: true,
+        },
+      },
       dispatchedByCourierService: { select: { name: true } },
       lineItems: {
-        include: {
+        select: {
           productItem: {
             select: {
               productTitle: true,
@@ -99,29 +118,49 @@ async function getCitypakWaybillRows(
   const allRows: (FalconWaybillRow & { courierName: string })[] = orders.map((order) => {
     const shippingAddress = order.shippingAddress;
     const reference = getOrderReference(order);
+    const brand = resolveFalconCompanyGroup();
+    const locationReference = order.companyLocation.locationReference ?? "";
+    const manualInvoicePrefix = order.companyLocation.manualInvoicePrefix ?? "";
+    const exportGroupKey = resolveFalconExportGroupKey({
+      reference,
+      shopdropRef: reference,
+      locationReference,
+      manualInvoicePrefix,
+      locationName:
+        locationReference ||
+        order.companyLocation.shortName ||
+        order.companyLocation.name,
+    });
     const locationName =
-      order.companyLocation.locationReference ??
-      order.companyLocation.shortName ??
+      locationReference ||
+      order.companyLocation.shortName ||
       order.companyLocation.name;
+    const receiverContact =
+      order.customerPhone ??
+      getAddressField(shippingAddress, "phone") ??
+      getAddressField(order.billingAddress, "phone");
 
     return {
       orderId: order.id,
+      exportGroupKey,
+      locationReference,
+      manualInvoicePrefix,
       locationName,
-      receiverName:
-        getCustomerName(shippingAddress) ||
-        order.customerEmail ||
-        order.customerPhone ||
-        "",
+      receiverName: resolveOrderCustomerName({
+        shippingAddress,
+        billingAddress: order.billingAddress,
+        rawPayload: order.rawPayload,
+      }),
       receiverAddress1: getAddressField(shippingAddress, "address1"),
       receiverAddress2: getAddressField(shippingAddress, "address2"),
       receiverCity: getAddressField(shippingAddress, "city"),
-      receiverContact: order.customerPhone ?? getAddressField(shippingAddress, "phone"),
+      receiverContact,
       pieces: "1",
       weightKg: "",
       weightG: "500",
       reference,
       amount: getOrderAmount(order),
-      itemName: "Cosmetics",
+      itemName: brand.itemName,
       shortName: order.companyLocation.shortName ?? "",
       shopdropRef: reference,
       waybillNo: "",
@@ -158,7 +197,7 @@ export async function GET(request: NextRequest) {
       receiverCity: row.receiverCity,
       receiverContact: row.receiverContact,
       amount: row.amount,
-      locationPrefix: /^(\d{3})/.exec(row.reference)?.[1] ?? "unknown",
+      orderPrefix: row.exportGroupKey ?? resolveFalconExportGroupKey(row),
       itemName: row.itemName,
       courierName: row.courierName,
     })),

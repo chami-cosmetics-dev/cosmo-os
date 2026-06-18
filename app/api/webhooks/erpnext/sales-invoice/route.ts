@@ -145,13 +145,49 @@ export async function POST(request: NextRequest) {
 
   const erpInvoiceId = `erp-${data.name}`;
 
-  // Credit notes (return invoices) are financial reversals, not fulfillment orders — skip them.
-  // Detected by is_return=1 OR negative grand_total (some ERP setups omit is_return from the payload).
-  // If a credit note order somehow already exists in the DB, void it so it leaves the print queue.
+  // Credit notes (return invoices) reverse a Sales Invoice. When ERP issues a credit note
+  // against an existing invoice, flip the original order to the "returned" stage so it shows
+  // as a returned order in Cosmo OS / Vault OS (same codebase, both deployments).
+  // Detected by is_return=1 OR negative grand_total (some ERP setups omit is_return).
   if (
     data.is_return === 1 ||
     (data.grand_total != null && data.grand_total < 0)
   ) {
+    const returnAgainst = data.return_against?.trim() || null;
+    if (returnAgainst) {
+      // The original SI name is stored on the order as erpnextInvoiceId for both
+      // ERP-origin orders and Shopify-origin orders synced to ERP. Match defensively.
+      const original = await prisma.order.findFirst({
+        where: {
+          OR: [
+            { erpnextInvoiceId: returnAgainst },
+            { name: returnAgainst },
+            { shopifyOrderId: `erp-${returnAgainst}` },
+          ],
+        },
+        select: { id: true, name: true },
+      });
+      if (original) {
+        await prisma.order.update({
+          where: { id: original.id },
+          data: { fulfillmentStage: "returned" },
+        });
+        console.log(
+          `[ERPNext webhook] Credit note ${data.name} — marked order ${original.name} as returned (return_against=${returnAgainst})`,
+        );
+        return NextResponse.json({
+          ok: true,
+          returned: true,
+          orderId: original.id,
+        });
+      }
+      console.warn(
+        `[ERPNext webhook] Credit note ${data.name} — no original order found for return_against=${returnAgainst}`,
+      );
+    }
+
+    // Fallback: if a credit-note-named order somehow already exists, void it so it
+    // leaves the print queue (no original invoice link available).
     const existing = await prisma.order.findUnique({
       where: { shopifyOrderId: erpInvoiceId },
       select: { id: true },
@@ -166,7 +202,7 @@ export async function POST(request: NextRequest) {
       );
     } else {
       console.log(
-        `[ERPNext webhook] Credit note ${data.name} — skipped (no fulfillment order created)`,
+        `[ERPNext webhook] Credit note ${data.name} — skipped (no matching order)`,
       );
     }
     return NextResponse.json({ ok: true, skipped: true });
@@ -282,9 +318,13 @@ export async function POST(request: NextRequest) {
     };
   }
 
+  // Prefer ERPNext's display name (customer_name); fall back to the customer ID
+  // (which is often just a phone number when customers are keyed by mobile).
+  const erpCustomerName = nullIfNone(data.customer_name) ?? data.customer;
+
   const shippingAddressObj = parseErpAddress(
     nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
-    data.customer,
+    erpCustomerName,
   );
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user

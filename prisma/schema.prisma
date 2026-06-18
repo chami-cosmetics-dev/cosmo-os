@@ -83,6 +83,8 @@ model ErpnextInstance {
   shippingRule          String?
   shippingItem          String?
   shippingChargeAccount String?
+  /// When set, only Shopify orders created at or after this time are synced to ERPNext SI.
+  shopifySyncEnabledAt  DateTime?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   company               Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1123,6 +1125,7 @@ enum FulfillmentStage {
   sample_free_issue
   print
   returned_to_store
+  returned
   ready_to_dispatch
   dispatched
   invoice_complete
