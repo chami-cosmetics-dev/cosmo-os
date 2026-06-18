@@ -23,6 +23,8 @@ export const AUDIT_LOG_ACTIONS = [
   "returned_order_updated",
   "returned_order_solved",
   "returned_order_rearranged",
+  "returned_order_cancel_requested",
+  "returned_order_cancel_approved",
   "exchange_created",
   "exchange_updated",
   "exchange_solved",

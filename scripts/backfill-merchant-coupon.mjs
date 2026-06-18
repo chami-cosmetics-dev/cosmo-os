@@ -14,7 +14,12 @@ const prisma = new PrismaClient({
 const isDryRun = process.argv.includes("--dry-run");
 const limitArg = process.argv.find((a) => a.startsWith("--limit="));
 const orderArg = process.argv.find((a) => a.startsWith("--order="));
-const TARGET_ORDER = orderArg ? orderArg.split("=")[1].trim() : null;
+const ordersArg = process.argv.find((a) => a.startsWith("--orders="));
+const TARGET_ORDERS = ordersArg
+  ? ordersArg.split("=").slice(1).join("=").split(",").map((s) => s.trim()).filter(Boolean)
+  : orderArg
+  ? [orderArg.split("=")[1].trim()]
+  : null;
 const BATCH_LIMIT = limitArg ? parseInt(limitArg.split("=")[1]) : 200;
 
 const ERP_BASE_URL = (process.env.ERPNEXT_BASE_URL ?? "").trim().replace(/\/$/, "");
@@ -50,14 +55,13 @@ async function main() {
   // Find ERP orders with no coupon stored:
   //   - discountCodes IS NULL
   //   - discountCodes = '[]' (empty array — webhook ran before coupon was added)
-  // Optionally target a single order by name with --order=SV200-0016
-  const orders = TARGET_ORDER
+  // Optionally target specific orders with --order=SV200-0016 or --orders=SV200-0016,SV300-0103,...
+  const orders = TARGET_ORDERS
     ? await prisma.$queryRaw`
         SELECT id, name, "erpnextInvoiceId", "companyLocationId"
         FROM "Order"
         WHERE "sourceName" IN ('erpnext', 'erpnext-pos')
-          AND name = ${TARGET_ORDER}
-        LIMIT 1
+          AND name = ANY(${TARGET_ORDERS})
       `
     : await prisma.$queryRaw`
         SELECT id, name, "erpnextInvoiceId", "companyLocationId"
@@ -72,7 +76,8 @@ async function main() {
         LIMIT ${BATCH_LIMIT}
       `;
 
-  console.log(`Found ${orders.length} ERP orders with no merchant coupon stored.\n`);
+  if (TARGET_ORDERS) console.log(`Targeting orders: ${TARGET_ORDERS.join(", ")}`);
+  console.log(`Found ${orders.length} ERP orders to process.\n`);
 
   // Load per-location ERP credentials from DB
   const locationIds = [...new Set(orders.map((o) => o.companyLocationId))];

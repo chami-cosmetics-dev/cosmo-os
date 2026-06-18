@@ -12,6 +12,10 @@ export type ReturnTrackingItem = {
   paymentGatewayPrimary: string | null;
   paymentGatewayNames: string[];
   shippingService: string;
+  shippingServiceType: string;
+  riderName: string | null;
+  shopifyOrderId: string | null;
+  erpnextInvoiceId: string | null;
   dispatchedAt: string;
   returnDate: string;
   createdAt: string;
@@ -19,6 +23,10 @@ export type ReturnTrackingItem = {
   dayCount: number;
   actionDate: string | null;
   actionRemark: string | null;
+  returnRemark: string | null;
+  remarkTemplate: string | null;
+  cancelRemark: string | null;
+  cancelRequestedAt: string | null;
   actionStatus: "pending" | "solved";
   actionType: string | null;
 };
@@ -84,17 +92,24 @@ export async function fetchReturnsTrackingData(input: {
         returnDate: true,
         createdAt: true,
         shippingServiceName: true,
+        shippingServiceType: true,
         actionStatus: true,
         actionType: true,
         actionRemark: true,
+        returnRemark: true,
+        remarkTemplate: true,
+        cancelRemark: true,
+        cancelRequestedAt: true,
         actionDate: true,
         returnedBy: { select: { id: true, name: true, email: true } },
+        rider: { select: { id: true, name: true, mobile: true } },
         merchantUser: { select: { id: true, name: true, email: true } },
         order: {
           select: {
             orderNumber: true,
             name: true,
             shopifyOrderId: true,
+            erpnextInvoiceId: true,
             customerEmail: true,
             customerPhone: true,
             financialStatus: true,
@@ -130,6 +145,10 @@ export async function fetchReturnsTrackingData(input: {
       paymentGatewayPrimary: item.order.paymentGatewayPrimary,
       paymentGatewayNames: item.order.paymentGatewayNames,
       shippingService: item.shippingServiceName,
+      shippingServiceType: item.shippingServiceType,
+      riderName: item.rider?.name ?? item.rider?.mobile ?? null,
+      shopifyOrderId: item.order.shopifyOrderId,
+      erpnextInvoiceId: item.order.erpnextInvoiceId,
       dispatchedAt: item.dispatchedAt.toISOString(),
       returnDate: item.returnDate.toISOString(),
       createdAt: item.createdAt.toISOString(),
@@ -137,6 +156,10 @@ export async function fetchReturnsTrackingData(input: {
       dayCount: Math.max(0, Math.ceil((item.returnDate.getTime() - item.dispatchedAt.getTime()) / 86_400_000)),
       actionDate: item.actionDate?.toISOString() ?? null,
       actionRemark: item.actionRemark,
+      returnRemark: item.returnRemark ?? item.actionRemark,
+      remarkTemplate: item.remarkTemplate,
+      cancelRemark: item.cancelRemark,
+      cancelRequestedAt: item.cancelRequestedAt?.toISOString() ?? null,
       actionStatus: item.actionStatus,
       actionType: item.actionType,
     }));

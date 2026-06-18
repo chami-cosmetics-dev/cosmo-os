@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, Search, X } from "lucide-react";
+import { Check, ChevronsUpDown, Download, Loader2, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 import type { ReturnsTrackingData, ReturnTrackingItem } from "@/lib/page-data/order-returns";
+import {
+  RETURN_REMARK_TEMPLATES,
+  type ReturnRemarkTemplateCode,
+} from "@/lib/return-remark-templates";
 
 type BulkReturnRow = {
   input: string;
@@ -29,6 +33,7 @@ type BulkReturnRow = {
     | "not_dispatched"
     | "missing_dispatch_date"
     | "ambiguous_match"
+    | "missing_remark"
     | "processed"
     | "failed";
   message: string;
@@ -38,6 +43,7 @@ type BulkReturnRow = {
   customer: string | null;
   shippingService: string | null;
   dispatchedAt: string | null;
+  returnRemark?: string | null;
 };
 
 type BulkReturnResponse = {
@@ -62,6 +68,11 @@ type BulkOrderOption = {
   companyLocation: { id: string; name: string } | null;
 };
 
+type BulkRemarkDraft = {
+  remarkTemplate: ReturnRemarkTemplateCode;
+  customRemark: string;
+};
+
 function formatDateTime(value?: string | null) {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -81,33 +92,59 @@ function formatDateOnly(value?: string | null) {
   }).format(date);
 }
 
+function actionTypeBadge(item: ReturnTrackingItem) {
+  if (item.actionType === "cancel") {
+    return item.actionStatus === "pending"
+      ? { label: "Cancel Pending", className: "border-rose-500/30 bg-rose-500/10 text-rose-700" }
+      : { label: "Cancelled", className: "border-rose-500/30 bg-rose-500/10 text-rose-700" };
+  }
+  if (item.actionType === "rearrange") {
+    const awaitingBank =
+      item.actionStatus === "pending" &&
+      (item.paymentGatewayPrimary === "bank_transfer" || item.paymentGatewayNames.includes("bank_transfer"));
+    return awaitingBank
+      ? { label: "Awaiting Bank Transfer", className: "border-amber-500/30 bg-amber-500/10 text-amber-700" }
+      : { label: "Rearranged", className: "border-sky-500/30 bg-sky-500/10 text-sky-700" };
+  }
+  return null;
+}
+
 export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
   const [items, setItems] = useState(initialData.returns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"__all" | ReturnTrackingItem["actionStatus"]>("pending");
   const [selectedId, setSelectedId] = useState(initialData.returns[0]?.id ?? "");
   const selected = items.find((item) => item.id === selectedId) ?? null;
-  const [remark, setRemark] = useState(selected?.actionRemark ?? "");
+  const [remark, setRemark] = useState(selected?.returnRemark ?? selected?.actionRemark ?? "");
+  const [cancelRemark, setCancelRemark] = useState("");
   const [saving, setSaving] = useState(false);
-  const [returnDate, setReturnDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [exporting, setExporting] = useState(false);
   const [bulkOrderOpen, setBulkOrderOpen] = useState(false);
   const [bulkOrderSearch, setBulkOrderSearch] = useState("");
   const [bulkOrderOptions, setBulkOrderOptions] = useState<BulkOrderOption[]>([]);
   const [selectedBulkOrders, setSelectedBulkOrders] = useState<BulkOrderOption[]>([]);
+  const [bulkRemarkDrafts, setBulkRemarkDrafts] = useState<Record<string, BulkRemarkDraft>>({});
   const [bulkOrderLoading, setBulkOrderLoading] = useState(false);
   const [bulkRows, setBulkRows] = useState<BulkReturnRow[]>([]);
   const [bulkCounts, setBulkCounts] = useState<BulkReturnResponse["counts"] | null>(null);
   const [bulkBusyKey, setBulkBusyKey] = useState<"preview" | "confirm" | null>(null);
 
-  const selectedBulkReferences = useMemo(
+  const bulkEntries = useMemo(
     () =>
       selectedBulkOrders
-        .map((order) => order.name ?? order.orderNumber ?? "")
+        .map((order) => {
+          const reference = order.name ?? order.orderNumber ?? "";
+          if (!reference) return null;
+          const draft = bulkRemarkDrafts[order.id] ?? { remarkTemplate: "UTC" as const, customRemark: "" };
+          return {
+            reference,
+            remarkTemplate: draft.remarkTemplate,
+            customRemark: draft.customRemark.trim() || null,
+          };
+        })
         .filter(Boolean),
-    [selectedBulkOrders]
+    [selectedBulkOrders, bulkRemarkDrafts]
   );
-
-  const combinedBulkReferences = useMemo(() => selectedBulkReferences.join("\n"), [selectedBulkReferences]);
 
   const counts = useMemo(
     () =>
@@ -136,7 +173,10 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         item.merchant?.name,
         item.merchant?.email,
         item.shippingService,
+        item.riderName,
+        item.returnRemark,
         item.actionRemark,
+        item.cancelRemark,
       ]
         .filter(Boolean)
         .some((value) => value!.toLowerCase().includes(query));
@@ -178,7 +218,8 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
 
   function selectItem(item: ReturnTrackingItem) {
     setSelectedId(item.id);
-    setRemark(item.actionRemark ?? "");
+    setRemark(item.returnRemark ?? item.actionRemark ?? "");
+    setCancelRemark(item.cancelRemark ?? "");
   }
 
   function resetBulkPreview() {
@@ -190,6 +231,11 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
     setSelectedBulkOrders((current) =>
       current.some((item) => item.id === order.id) ? current : [...current, order]
     );
+    setBulkRemarkDrafts((current) =>
+      current[order.id]
+        ? current
+        : { ...current, [order.id]: { remarkTemplate: "UTC", customRemark: "" } }
+    );
     resetBulkPreview();
     setBulkOrderOpen(false);
     setBulkOrderSearch("");
@@ -197,6 +243,22 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
 
   function removeBulkOrder(orderId: string) {
     setSelectedBulkOrders((current) => current.filter((order) => order.id !== orderId));
+    setBulkRemarkDrafts((current) => {
+      const next = { ...current };
+      delete next[orderId];
+      return next;
+    });
+    resetBulkPreview();
+  }
+
+  function updateBulkRemarkDraft(orderId: string, patch: Partial<BulkRemarkDraft>) {
+    setBulkRemarkDrafts((current) => {
+      const existing = current[orderId] ?? { remarkTemplate: "UTC" as const, customRemark: "" };
+      return {
+        ...current,
+        [orderId]: { ...existing, ...patch },
+      };
+    });
     resetBulkPreview();
   }
 
@@ -218,22 +280,36 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
     );
   }
 
-  async function saveAction(actionType: "save" | "rearrange" | "request_finance_approval" = "save") {
+  function canTakeAction(item: ReturnTrackingItem | null) {
+    if (!item || item.actionStatus !== "pending") return false;
+    if (item.actionType === "cancel") return false;
+    if (!item.actionType) return true;
+    return isBankTransferRearrangePending(item);
+  }
+
+  async function saveAction(
+    actionType: "save" | "rearrange" | "request_finance_approval" | "request_cancel" = "save"
+  ) {
     if (!selected) return;
+    if (actionType === "request_cancel" && !cancelRemark.trim()) {
+      notify.error("Cancel remark is required");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/returns/${selected.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          actionStatus: "solved",
+          actionStatus: actionType === "save" ? selected.actionStatus : "solved",
           actionRemark: remark.trim() || null,
+          cancelRemark: actionType === "request_cancel" ? cancelRemark.trim() : undefined,
           actionType,
         }),
       });
       const data = (await res.json()) as {
         error?: string;
-        returnedOrder?: Pick<ReturnTrackingItem, "id" | "actionStatus" | "actionRemark" | "actionDate" | "actionType">;
+        returnedOrder?: Partial<ReturnTrackingItem>;
         order?: {
           financialStatus?: string | null;
           paymentGatewayPrimary?: string | null;
@@ -244,29 +320,34 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         notify.error(data.error ?? "Failed to save return action");
         return;
       }
-      setItems((current) =>
-        current.map((item) =>
-          item.id === selected.id && data.returnedOrder
-            ? {
-                ...item,
-                ...data.returnedOrder,
-                financialStatus: data.order?.financialStatus ?? item.financialStatus,
-                paymentGatewayPrimary: data.order?.paymentGatewayPrimary ?? item.paymentGatewayPrimary,
-                paymentGatewayNames: data.order?.paymentGatewayPrimary
-                  ? [data.order.paymentGatewayPrimary]
-                  : item.paymentGatewayNames,
-              }
-            : item
-        )
-      );
-      if (actionType === "request_finance_approval") {
+      if (data.returnedOrder) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === selected.id
+              ? {
+                  ...item,
+                  ...data.returnedOrder,
+                  returnRemark: data.returnedOrder?.returnRemark ?? item.returnRemark,
+                  financialStatus: data.order?.financialStatus ?? item.financialStatus,
+                  paymentGatewayPrimary: data.order?.paymentGatewayPrimary ?? item.paymentGatewayPrimary,
+                  paymentGatewayNames: data.order?.paymentGatewayPrimary
+                    ? [data.order.paymentGatewayPrimary]
+                    : item.paymentGatewayNames,
+                }
+              : item
+          )
+        );
+      }
+      if (actionType === "request_cancel") {
+        notify.success("Cancel request sent to finance. Finance will process cancellation in ERPNext.");
+      } else if (actionType === "request_finance_approval") {
         notify.success("Finance approval requested.");
       } else if (data.order?.requiresBankTransferBeforeRearrange) {
         notify.success("Bank transfer required before rearrange. Order kept out of dispatch.");
       } else if (actionType === "rearrange") {
         notify.success("Rearrange action saved.");
       } else {
-        notify.success("Return action saved");
+        notify.success("Return remark saved");
       }
     } catch {
       notify.error("Failed to save return action");
@@ -276,12 +357,8 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
   }
 
   async function runBulkReturn(action: "preview" | "confirm") {
-    if (!combinedBulkReferences.trim()) {
-      notify.error("Add at least one invoice/order number");
-      return;
-    }
-    if (!returnDate) {
-      notify.error("Select return date");
+    if (bulkEntries.length === 0) {
+      notify.error("Add at least one dispatched order");
       return;
     }
 
@@ -290,7 +367,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       const res = await fetch("/api/admin/orders/bulk-return", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, references: combinedBulkReferences, returnDate }),
+        body: JSON.stringify({ action, entries: bulkEntries }),
       });
       const data = (await res.json()) as BulkReturnResponse;
       if (!res.ok) {
@@ -311,6 +388,33 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       notify.error("Bulk return failed");
     } finally {
       setBulkBusyKey(null);
+    }
+  }
+
+  async function downloadCsv() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== "__all") params.set("status", statusFilter);
+      if (search.trim()) params.set("search", search.trim());
+      const res = await fetch(`/api/admin/returns/export?${params}`);
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        notify.error(data.error ?? "Failed to export CSV");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "return-orders.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      notify.success("CSV downloaded");
+    } catch {
+      notify.error("Failed to export CSV");
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -336,16 +440,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-3 rounded-md border border-border/70 p-3">
-            <div className="grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)_auto_auto] lg:items-end">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Return date</label>
-                <Input
-                  type="date"
-                  value={returnDate}
-                  onChange={(event) => setReturnDate(event.target.value)}
-                  disabled={bulkBusyKey !== null}
-                />
-              </div>
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Bulk returned invoices</label>
                 <Popover open={bulkOrderOpen} onOpenChange={setBulkOrderOpen}>
@@ -406,62 +501,113 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     </Command>
                   </PopoverContent>
                 </Popover>
-                {selectedBulkOrders.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedBulkOrders([]);
-                        resetBulkPreview();
-                      }}
-                      disabled={bulkBusyKey !== null}
-                      className="h-8"
-                    >
-                      Clear All
-                    </Button>
-                    {selectedBulkOrders.map((order) => (
-                      <span
-                        key={order.id}
-                        className="inline-flex h-8 items-center gap-1 rounded-md border border-border/70 bg-muted/50 px-2 text-xs"
-                      >
-                        {bulkOrderLabel(order)}
-                        <button
-                          type="button"
-                          onClick={() => removeBulkOrder(order.id)}
-                          className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                          disabled={bulkBusyKey !== null}
-                          aria-label={`Remove ${bulkOrderLabel(order)}`}
-                        >
-                          <X className="size-3" aria-hidden />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => void runBulkReturn("preview")}
-                disabled={bulkBusyKey !== null || !combinedBulkReferences.trim() || !returnDate}
+                disabled={bulkBusyKey !== null || bulkEntries.length === 0}
                 className="gap-2"
               >
-                {bulkBusyKey === "preview" ? "Previewing..." : "Preview"}
+                {bulkBusyKey === "preview" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Previewing...
+                  </>
+                ) : (
+                  "Preview"
+                )}
               </Button>
               <Button
                 type="button"
                 onClick={() => void runBulkReturn("confirm")}
                 disabled={
                   bulkBusyKey !== null ||
-                  !returnDate ||
                   !bulkRows.some((row) => row.status === "valid" && row.orderId)
                 }
               >
-                {bulkBusyKey === "confirm" ? "Confirming..." : "Confirm Valid"}
+                {bulkBusyKey === "confirm" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Confirming...
+                  </>
+                ) : (
+                  "Confirm Valid"
+                )}
               </Button>
             </div>
+
+            {selectedBulkOrders.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedBulkOrders([]);
+                      setBulkRemarkDrafts({});
+                      resetBulkPreview();
+                    }}
+                    disabled={bulkBusyKey !== null}
+                    className="h-8"
+                  >
+                    Clear All
+                  </Button>
+                </div>
+                <div className="overflow-x-auto rounded-md border border-border/70">
+                  <table className="w-full min-w-[760px] text-sm">
+                    <thead className="bg-muted/40">
+                      <tr className="border-b">
+                        <th className="px-3 py-2 text-left font-medium">Invoice</th>
+                        <th className="px-3 py-2 text-left font-medium">Remark Template</th>
+                        <th className="px-3 py-2 text-left font-medium">Custom Remark</th>
+                        <th className="px-3 py-2 text-left font-medium" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedBulkOrders.map((order) => {
+                        const draft = bulkRemarkDrafts[order.id] ?? { remarkTemplate: "UTC", customRemark: "" };
+                        return (
+                          <tr key={order.id} className="border-b last:border-0">
+                            <td className="px-3 py-2 font-medium">{bulkOrderLabel(order)}</td>
+                            <td className="px-3 py-2">
+                              <Select
+                                value={draft.remarkTemplate}
+                                onValueChange={(value) =>
+                                  updateBulkRemarkDraft(order.id, { remarkTemplate: value as ReturnRemarkTemplateCode })
+                                }
+                                disabled={bulkBusyKey !== null}
+                              >
+                                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {RETURN_REMARK_TEMPLATES.map((template) => (
+                                    <SelectItem key={template.code} value={template.code}>{template.label}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                value={draft.customRemark}
+                                onChange={(event) => updateBulkRemarkDraft(order.id, { customRemark: event.target.value })}
+                                placeholder={draft.remarkTemplate === "CUSTOM" ? "Required for custom" : "Optional"}
+                                disabled={bulkBusyKey !== null}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button type="button" variant="ghost" size="sm" onClick={() => removeBulkOrder(order.id)} disabled={bulkBusyKey !== null}>
+                                <X className="size-4" aria-hidden />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {bulkCounts && (
               <p className="text-muted-foreground text-sm">
@@ -475,15 +621,14 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
 
             {bulkRows.length > 0 && (
               <div className="max-h-[360px] overflow-auto rounded-md border border-border/70">
-                <table className="w-full min-w-[900px] text-sm">
+                <table className="w-full min-w-[980px] text-sm">
                   <thead className="bg-muted/40">
                     <tr className="border-b border-border/70">
                       <th className="px-3 py-2 text-left font-medium">Input</th>
                       <th className="px-3 py-2 text-left font-medium">Invoice</th>
+                      <th className="px-3 py-2 text-left font-medium">Remark</th>
                       <th className="px-3 py-2 text-left font-medium">Merchant</th>
-                      <th className="px-3 py-2 text-left font-medium">Customer</th>
                       <th className="px-3 py-2 text-left font-medium">Service</th>
-                      <th className="px-3 py-2 text-left font-medium">Dispatch Date</th>
                       <th className="px-3 py-2 text-left font-medium">Status</th>
                     </tr>
                   </thead>
@@ -492,10 +637,9 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                       <tr key={`${row.input}-${index}`} className="border-b border-border/50 last:border-0">
                         <td className="px-3 py-2 font-medium">{row.input}</td>
                         <td className="px-3 py-2">{row.invoiceNo ?? "-"}</td>
+                        <td className="px-3 py-2">{row.returnRemark ?? "-"}</td>
                         <td className="px-3 py-2">{row.merchant ?? "-"}</td>
-                        <td className="px-3 py-2">{row.customer ?? "-"}</td>
                         <td className="px-3 py-2">{row.shippingService ?? "-"}</td>
-                        <td className="px-3 py-2">{formatDateOnly(row.dispatchedAt)}</td>
                         <td className="px-3 py-2">
                           <span className={`inline-flex rounded px-2 py-0.5 text-xs font-medium ${rowStatusClass(row.status)}`}>
                             {row.message}
@@ -512,7 +656,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
           <div className="flex flex-col gap-3 lg:flex-row">
             <div className="relative flex-1">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, merchant, customer, phone..." className="pl-9" />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, merchant, customer, phone, remark..." className="pl-9" />
             </div>
             <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
               <SelectTrigger className="w-full lg:w-[180px]"><SelectValue /></SelectTrigger>
@@ -522,6 +666,10 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                 <SelectItem value="solved">Solved</SelectItem>
               </SelectContent>
             </Select>
+            <Button type="button" variant="outline" onClick={() => void downloadCsv()} disabled={exporting} className="gap-2">
+              {exporting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
+              Download CSV
+            </Button>
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -531,45 +679,38 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   <tr className="border-b">
                     <th className="px-3 py-3 text-left">Invoice No</th>
                     <th className="px-3 py-3 text-left">Merchant</th>
-                    <th className="px-3 py-3 text-left">Shipping Service</th>
-                    <th className="px-3 py-3 text-left">Dispatch Date</th>
+                    <th className="px-3 py-3 text-left">Rider / Courier</th>
                     <th className="px-3 py-3 text-left">Return Date</th>
-                    <th className="px-3 py-3 text-right">Day Count</th>
-                    <th className="px-3 py-3 text-left">Action Date</th>
                     <th className="px-3 py-3 text-left">Remark</th>
                     <th className="px-3 py-3 text-left">Type</th>
                     <th className="px-3 py-3 text-left">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((item) => (
-                    <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
-                      <td className="px-3 py-3 font-medium">{item.invoiceNo}</td>
-                      <td className="px-3 py-3">{item.merchant?.name ?? item.merchant?.email ?? "Unassigned"}</td>
-                      <td className="px-3 py-3">{item.shippingService}</td>
-                      <td className="px-3 py-3">{formatDateOnly(item.dispatchedAt)}</td>
-                      <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
-                      <td className="px-3 py-3 text-right">{item.dayCount}</td>
-                      <td className="px-3 py-3">{formatDateTime(item.actionDate)}</td>
-                      <td className="max-w-[220px] truncate px-3 py-3">{item.actionRemark ?? "-"}</td>
-                      <td className="px-3 py-3">
-                        {item.actionType === "rearrange" ? (
-                          <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${
-                            isBankTransferRearrangePending(item)
-                              ? "border-amber-500/30 bg-amber-500/10 text-amber-700"
-                              : "border-sky-500/30 bg-sky-500/10 text-sky-700"
-                          }`}>
-                            {isBankTransferRearrangePending(item) ? "Awaiting Bank Transfer" : "Rearranged"}
-                          </span>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-3 py-3">{item.actionStatus === "solved" ? "Solved" : "Pending"}</td>
-                    </tr>
-                  ))}
+                  {filtered.map((item) => {
+                    const badge = actionTypeBadge(item);
+                    return (
+                      <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
+                        <td className="px-3 py-3 font-medium">{item.invoiceNo}</td>
+                        <td className="px-3 py-3">{item.merchant?.name ?? item.merchant?.email ?? "Unassigned"}</td>
+                        <td className="px-3 py-3">{item.riderName ?? item.shippingService}</td>
+                        <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
+                        <td className="max-w-[220px] truncate px-3 py-3">{item.returnRemark ?? item.actionRemark ?? "-"}</td>
+                        <td className="px-3 py-3">
+                          {badge ? (
+                            <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${badge.className}`}>
+                              {badge.label}
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-3 py-3">{item.actionStatus === "solved" ? "Solved" : "Pending"}</td>
+                      </tr>
+                    );
+                  })}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={10} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
+                    <tr><td colSpan={7} className="px-3 py-10 text-center text-muted-foreground">No returned orders found.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -585,38 +726,74 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   <>
                     <div className="rounded-md border border-border/70 px-3 py-2 text-sm">
                       Status: {selected.actionStatus === "solved" ? "Solved" : "Pending"}
-                      <div className="mt-1 text-muted-foreground">
-                        Payment: {paymentLabel(selected)}
-                      </div>
+                      <div className="mt-1 text-muted-foreground">Payment: {paymentLabel(selected)}</div>
+                      <div className="mt-1 text-muted-foreground">Service: {selected.riderName ?? selected.shippingService}</div>
+                      {selected.returnRemark && (
+                        <div className="mt-1 text-muted-foreground">Return remark: {selected.returnRemark}</div>
+                      )}
                     </div>
                     {isBankTransferRearrangePending(selected) && (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
-                        This returned COD order is waiting for bank transfer. Do not dispatch until payment is confirmed.
+                        This returned courier order is waiting for bank transfer. Request finance approval before dispatch.
                       </div>
                     )}
-                    <Textarea value={remark} onChange={(event) => setRemark(event.target.value)} placeholder="Cancel order, customer wants callback, no response, wrong number..." className="min-h-32" />
-                    <div className="grid gap-2">
-                      <Button onClick={() => void saveAction()} disabled={saving} className="w-full">{saving ? "Saving..." : "Save Return Action"}</Button>
-                      {isBankTransferRearrangePending(selected) && (
-                        <Button
-                          type="button"
-                          onClick={() => void saveAction("request_finance_approval")}
+                    {canTakeAction(selected) ? (
+                      <>
+                        <Textarea
+                          value={remark}
+                          onChange={(event) => setRemark(event.target.value)}
+                          placeholder="Update return remark if needed..."
+                          className="min-h-24"
                           disabled={saving}
-                          className="w-full"
-                        >
-                          Request Finance Approval
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void saveAction("rearrange")}
-                        disabled={saving}
-                        className="w-full"
-                      >
-                        Mark as Rearrange
-                      </Button>
-                    </div>
+                        />
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Cancel remark (required for cancel request)</label>
+                          <Textarea
+                            value={cancelRemark}
+                            onChange={(event) => setCancelRemark(event.target.value)}
+                            placeholder="Why is this return being cancelled?"
+                            className="min-h-24"
+                            disabled={saving}
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          {!selected.actionType && (
+                            <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
+                              {saving ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  Processing...
+                                </>
+                              ) : (
+                                "Rearrange"
+                              )}
+                            </Button>
+                          )}
+                          {isBankTransferRearrangePending(selected) && (
+                            <Button type="button" onClick={() => void saveAction("request_finance_approval")} disabled={saving} className="w-full">
+                              Request Finance Approval
+                            </Button>
+                          )}
+                          {!selected.actionType && (
+                            <Button type="button" variant="destructive" onClick={() => void saveAction("request_cancel")} disabled={saving} className="w-full">
+                              Request Cancel
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-muted-foreground text-sm">
+                        {selected.actionType === "cancel"
+                          ? selected.actionStatus === "pending"
+                            ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
+                            : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
+                          : selected.actionType === "rearrange"
+                            ? selected.actionStatus === "pending"
+                              ? "Rearrange is awaiting finance approval."
+                              : "This return has been rearranged."
+                            : "This return is already solved."}
+                      </p>
+                    )}
                   </>
                 ) : (
                   <p className="text-muted-foreground text-sm">No returned order selected.</p>
