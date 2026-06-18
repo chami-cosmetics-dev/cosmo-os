@@ -5,6 +5,7 @@ import {
   buildGroupedFalconUploadZip,
   type FalconWaybillRow,
 } from "@/lib/falcon-upload";
+import { isCitypakCourier } from "@/lib/courier";
 import { resolveFalconCompanyGroup, resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
@@ -38,11 +39,6 @@ function getFirstBarcode(
   lineItems: Array<{ productItem: { barcode: string | null } }>
 ) {
   return lineItems.find((item) => item.productItem.barcode)?.productItem.barcode ?? "";
-}
-
-function isCitypakCourier(name: string | null | undefined) {
-  const normalized = (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  return normalized.includes("citypak") || normalized.includes("citypack");
 }
 
 export const dynamic = "force-dynamic";

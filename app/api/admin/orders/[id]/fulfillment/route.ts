@@ -8,6 +8,10 @@ import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { getDeliveryUrl, resolveCustomerPhone, resolveOrderInvoiceNumber, resolveOrderNumber, sendOrderSms } from "@/lib/order-sms";
 import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/fulfillment-permissions";
+import {
+  buildReturnRemarkText,
+  RETURN_REMARK_TEMPLATE_CODES,
+} from "@/lib/return-remark-templates";
 import type { FulfillmentStage } from "@prisma/client";
 import {
   calculateExchangePaymentDifference,
@@ -82,6 +86,8 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
       "dispatched",
       "delivery_complete",
     ]),
+    revertReason: z.string().trim().min(1).max(500),
+    remarkTemplate: z.enum(RETURN_REMARK_TEMPLATE_CODES).optional(),
   }),
 ]);
 
@@ -184,6 +190,23 @@ function isBankTransferGateway(order: {
   return [order.paymentGatewayPrimary, ...order.paymentGatewayNames]
     .map(normalizeText)
     .some((value) => value.includes("bank"));
+}
+
+function getShippingServiceForReturn(order: {
+  dispatchedByRiderId: string | null;
+  dispatchedByRider: { name: string | null; mobile: string | null } | null;
+  dispatchedByCourierService: { name: string } | null;
+}) {
+  if (order.dispatchedByRiderId) {
+    return {
+      type: "rider",
+      name: order.dispatchedByRider?.name ?? order.dispatchedByRider?.mobile ?? "Rider",
+    };
+  }
+  return {
+    type: "courier",
+    name: order.dispatchedByCourierService?.name ?? "Courier",
+  };
 }
 
 async function hasPendingBankTransferRearrange(order: {
@@ -1066,8 +1089,21 @@ export async function PATCH(
         }
       }
       const clearFromStageIdx = targetIdx + 1;
+      const dispatchedIdx = FULFILLMENT_STAGE_ORDER.indexOf("dispatched");
+      const readyIdx = FULFILLMENT_STAGE_ORDER.indexOf("ready_to_dispatch");
+      const shouldRecordReturn = currentIdx >= dispatchedIdx && targetIdx >= readyIdx && order.dispatchedAt;
+      const returnRemark = data.remarkTemplate
+        ? buildReturnRemarkText({
+            remarkTemplate: data.remarkTemplate,
+            customRemark: data.revertReason,
+          })
+        : data.revertReason;
+      if (data.remarkTemplate && !returnRemark) {
+        return NextResponse.json({ error: "Custom remark is required for custom template" }, { status: 400 });
+      }
+
       const updateData: Parameters<typeof prisma.order.update>[0]["data"] = {
-        fulfillmentStage: targetStage,
+        fulfillmentStage: shouldRecordReturn ? "returned_to_store" : targetStage,
       };
       if (currentStage === "invoice_complete" && targetStage !== "invoice_complete") {
         updateData.fulfillmentStatus = "unfulfilled";
@@ -1108,11 +1144,72 @@ export async function PATCH(
         updateData.invoiceCompleteAt = null;
         updateData.invoiceCompleteById = null;
       }
+      if (shouldRecordReturn) {
+        updateData.fulfillmentStatus = "unfulfilled";
+        updateData.packageReadyAt = null;
+        updateData.packageReadyById = null;
+        updateData.packageOnHoldAt = null;
+        updateData.packageHoldReasonId = null;
+        updateData.dispatchedAt = null;
+        updateData.dispatchedById = null;
+        updateData.dispatchedByRiderId = null;
+        updateData.dispatchedByCourierServiceId = null;
+        updateData.dispatchedToCustomer = false;
+        updateData.riderDeliveryToken = null;
+        updateData.deliveryCompleteAt = null;
+        updateData.deliveryCompleteById = null;
+        updateData.invoiceCompleteAt = null;
+        updateData.invoiceCompleteById = null;
+        updateData.deliveryOutcome = "pending";
+        updateData.deliveryFailedReason = null;
+        updateData.lastRiderUpdateAt = null;
+      }
       await prisma.order.update({
         where: { id: order.id },
         data: updateData,
       });
-      if (targetIdx < FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
+      if (shouldRecordReturn) {
+        const shipping = getShippingServiceForReturn(order);
+        const existingPendingReturn = await prisma.orderReturn.findFirst({
+          where: { orderId: order.id, companyId, actionStatus: "pending" },
+          select: { id: true },
+        });
+        if (!existingPendingReturn) {
+          const createdReturn = await prisma.orderReturn.create({
+            data: {
+              companyId,
+              orderId: order.id,
+              merchantUserId: order.assignedMerchantId,
+              dispatchedAt: order.dispatchedAt!,
+              returnDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
+              shippingServiceType: shipping.type,
+              shippingServiceName: shipping.name,
+              riderId: order.dispatchedByRiderId,
+              courierServiceId: order.dispatchedByCourierServiceId,
+              returnedById: auth.context!.user!.id,
+              returnRemark: returnRemark!,
+              remarkTemplate: data.remarkTemplate ?? null,
+              actionStatus: "pending",
+            },
+          });
+          await writeAuditLog({
+            companyId,
+            actorUserId: auth.context!.user!.id,
+            module: "orders",
+            action: "returned_order_recorded",
+            entityType: "OrderReturn",
+            entityId: createdReturn.id,
+            summary: `Recorded return from order revert for ${order.orderNumber ?? order.name ?? order.id}`,
+            afterData: {
+              orderId: order.id,
+              returnRemark,
+              remarkTemplate: data.remarkTemplate ?? null,
+              source: "revert_to_stage",
+            },
+          });
+        }
+        await prisma.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
+      } else if (targetIdx < FULFILLMENT_STAGE_ORDER.indexOf("dispatched")) {
         await prisma.riderDeliveryTask.deleteMany({
           where: { orderId: order.id },
         });
@@ -1137,7 +1234,7 @@ export async function PATCH(
         summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
         beforeStage: order.fulfillmentStage,
         afterStage: targetStage,
-        metadata: { action: data.action, targetStage },
+        metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
       });
       return NextResponse.json({ success: true });
     }

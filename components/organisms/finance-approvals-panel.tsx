@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,11 +26,23 @@ export type FinanceApprovalItem = {
   reviewedAt: string | null;
   reviewedByName: string | null;
   reviewedByEmail: string | null;
+  shopifyOrderId?: string | null;
+  erpnextInvoiceId?: string | null;
+  erpAdminInvoiceUrl?: string | null;
+  returnedByName?: string | null;
+  returnedByEmail?: string | null;
+  cancelRequestedByName?: string | null;
+  cancelRequestedByEmail?: string | null;
+  returnRemark?: string | null;
+  cancelRemark?: string | null;
+  returnDate?: string | null;
+  cancelRequestedAt?: string | null;
 };
 
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
   if (type === "return_rearrange_payment") return "Return Rearrange";
+  if (type === "return_cancel") return "Return Cancel";
   if (type === "delivery_payment_approval") return "Delivery Payment";
   return type;
 }
@@ -140,6 +152,8 @@ export function FinanceApprovalsPanel({
           data.erpSyncError ??
             "Approval saved but ERP Sales Invoice could not be created. Check Failed ERP syncs."
         );
+      } else if (action === "approve" && selected.type === "return_cancel") {
+        notify.success("Cancel request marked processed. Complete cancellation in ERPNext if not done already.");
       } else {
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");
       }
@@ -292,16 +306,54 @@ export function FinanceApprovalsPanel({
             {selected ? (
               <>
                 <div className="space-y-2 rounded-md border border-border/70 p-3 text-sm">
+                  <p><span className="font-medium">Type:</span> {typeLabel(selected.type)}</p>
                   <p><span className="font-medium">Invoice:</span> {selected.invoiceNo ?? "-"}</p>
                   {selected.orderMissing && (
                     <p className="text-rose-700 text-xs">
                       The linked order was removed from Vault OS. Reject this request to clear it — approval cannot create an ERP invoice.
                     </p>
                   )}
-                  <p><span className="font-medium">Amount:</span> {formatAmount(selected.totalPrice)}</p>
+                  {selected.type !== "return_cancel" && (
+                    <p><span className="font-medium">Amount:</span> {formatAmount(selected.totalPrice)}</p>
+                  )}
                   <p><span className="font-medium">Customer:</span> {selected.customerPhone ?? selected.customerEmail ?? "-"}</p>
                   <p><span className="font-medium">Requested:</span> {formatDate(selected.createdAt)}</p>
-                  {selected.requestNote && (
+                  {selected.type === "return_cancel" && (
+                    <div className="space-y-3 border-t border-border/60 pt-3">
+                      <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-200">
+                        Cancellation and credit notes are created in ERPNext only. Cosmo OS does not create credit notes.
+                        Open the Sales Invoice below, process the cancel there, then mark this request as processed.
+                      </div>
+                      {selected.erpAdminInvoiceUrl ? (
+                        <Button asChild className="w-full gap-2">
+                          <a href={selected.erpAdminInvoiceUrl} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="size-4" aria-hidden />
+                            Open ERP Sales Invoice
+                          </a>
+                        </Button>
+                      ) : (
+                        <p className="text-amber-700 text-sm dark:text-amber-300">
+                          ERP Sales Invoice link is unavailable for this order. Open ERPNext manually using invoice{" "}
+                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"}.
+                        </p>
+                      )}
+                      <div className="space-y-1 text-sm text-muted-foreground">
+                        {selected.shopifyOrderId && (
+                          <p><span className="font-medium text-foreground">Shopify ID:</span> {selected.shopifyOrderId}</p>
+                        )}
+                        {selected.erpnextInvoiceId && (
+                          <p><span className="font-medium text-foreground">ERP SI:</span> {selected.erpnextInvoiceId}</p>
+                        )}
+                        <p><span className="font-medium text-foreground">Returned by:</span> {selected.returnedByName ?? selected.returnedByEmail ?? "-"}</p>
+                        <p><span className="font-medium text-foreground">Cancel requested by:</span> {selected.cancelRequestedByName ?? selected.cancelRequestedByEmail ?? "-"}</p>
+                        <p><span className="font-medium text-foreground">Return remark:</span> {selected.returnRemark ?? "-"}</p>
+                        <p><span className="font-medium text-foreground">Cancel remark:</span> {selected.cancelRemark ?? "-"}</p>
+                        <p><span className="font-medium text-foreground">Return date:</span> {selected.returnDate ? formatDate(selected.returnDate) : "-"}</p>
+                        <p><span className="font-medium text-foreground">Cancel requested:</span> {selected.cancelRequestedAt ? formatDate(selected.cancelRequestedAt) : "-"}</p>
+                      </div>
+                    </div>
+                  )}
+                  {selected.requestNote && selected.type !== "return_cancel" && (
                     <p className="whitespace-pre-wrap text-muted-foreground">{selected.requestNote}</p>
                   )}
                 </div>
@@ -317,7 +369,9 @@ export function FinanceApprovalsPanel({
                       {!selected.orderMissing && (
                         <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
                           {busy === "approve" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                          Approve — {typeLabel(selected.type)}
+                          {selected.type === "return_cancel"
+                            ? "Mark processed (cancel in ERPNext)"
+                            : `Approve — ${typeLabel(selected.type)}`}
                         </Button>
                       )}
                       <Button variant="outline" onClick={() => void review("reject")} disabled={busy !== null} className="gap-2">

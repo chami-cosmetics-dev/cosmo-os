@@ -3,8 +3,15 @@ import { Prisma } from "@prisma/client";
 
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { FinanceApprovalsPanel, type FinanceApprovalItem } from "@/components/organisms/finance-approvals-panel";
-import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL, RETURN_REARRANGE_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import {
+  DELIVERY_PAYMENT_APPROVAL,
+  ORDER_PAYMENT_APPROVAL,
+  RETURN_CANCEL_APPROVAL,
+  RETURN_REARRANGE_PAYMENT_APPROVAL,
+  parseReturnCancelApprovalNote,
+} from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
+import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
@@ -27,6 +34,18 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
     orderLinked: boolean;
     reviewedByName: string | null;
     reviewedByEmail: string | null;
+    shopifyOrderId: string | null;
+    erpnextInvoiceId: string | null;
+    sourceName: string | null;
+    erpBaseUrl: string | null;
+    returnedByName: string | null;
+    returnedByEmail: string | null;
+    cancelRequestedByName: string | null;
+    cancelRequestedByEmail: string | null;
+    returnRemark: string | null;
+    cancelRemark: string | null;
+    returnDate: Date | null;
+    cancelRequestedAt: Date | null;
   }>>(
     Prisma.sql`
       SELECT
@@ -44,12 +63,34 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
         o."customerEmail",
         (o."id" IS NOT NULL) AS "orderLinked",
         rev."name" AS "reviewedByName",
-        rev."email" AS "reviewedByEmail"
+        rev."email" AS "reviewedByEmail",
+        o."shopifyOrderId",
+        o."erpnextInvoiceId",
+        o."sourceName",
+        ei."baseUrl" AS "erpBaseUrl",
+        returnedBy."name" AS "returnedByName",
+        returnedBy."email" AS "returnedByEmail",
+        cancelBy."name" AS "cancelRequestedByName",
+        cancelBy."email" AS "cancelRequestedByEmail",
+        ort."returnRemark",
+        ort."cancelRemark",
+        ort."returnDate",
+        ort."cancelRequestedAt"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
+      LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
+      LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
+      LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
+      LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
+      LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
       WHERE ar."companyId" = ${companyId}
-        AND ar."type" IN (${RETURN_REARRANGE_PAYMENT_APPROVAL}, ${ORDER_PAYMENT_APPROVAL}, ${DELIVERY_PAYMENT_APPROVAL})
+        AND ar."type" IN (
+          ${RETURN_REARRANGE_PAYMENT_APPROVAL},
+          ${RETURN_CANCEL_APPROVAL},
+          ${ORDER_PAYMENT_APPROVAL},
+          ${DELIVERY_PAYMENT_APPROVAL}
+        )
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC
@@ -57,14 +98,35 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
     `
   );
 
-  return rows.map((row) =>
-    enrichApprovalDisplay({
+  return rows.map((row) => {
+    const cancelNote = row.type === RETURN_CANCEL_APPROVAL ? parseReturnCancelApprovalNote(row.requestNote) : null;
+    const enriched = enrichApprovalDisplay({
       ...row,
       totalPrice: row.totalPrice?.toString() ?? null,
       createdAt: row.createdAt.toISOString(),
       reviewedAt: row.reviewedAt?.toISOString() ?? null,
-    })
-  );
+    });
+
+    return {
+      ...enriched,
+      shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
+      erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
+      erpAdminInvoiceUrl: buildErpAdminInvoiceUrl({
+        baseUrl: row.erpBaseUrl,
+        sourceName: row.sourceName,
+        name: row.invoiceNo,
+        erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
+      }),
+      returnedByName: row.returnedByName,
+      returnedByEmail: row.returnedByEmail,
+      cancelRequestedByName: row.cancelRequestedByName,
+      cancelRequestedByEmail: row.cancelRequestedByEmail,
+      returnRemark: cancelNote?.returnRemark ?? row.returnRemark,
+      cancelRemark: cancelNote?.cancelRemark ?? row.cancelRemark,
+      returnDate: cancelNote?.returnDate ?? row.returnDate?.toISOString() ?? null,
+      cancelRequestedAt: cancelNote?.cancelRequestedAt ?? row.cancelRequestedAt?.toISOString() ?? null,
+    };
+  });
 }
 
 export default async function FinanceApprovalsPage() {

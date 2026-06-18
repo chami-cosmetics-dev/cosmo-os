@@ -18,6 +18,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -38,6 +39,10 @@ import {
 import { getOrderDispatchLabel } from "@/lib/order-dispatch";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
+import {
+  RETURN_REMARK_TEMPLATES,
+  type ReturnRemarkTemplateCode,
+} from "@/lib/return-remark-templates";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -408,6 +413,7 @@ export function OrderInvoiceViewModal({
   const [revertingToStage, setRevertingToStage] = useState<string | null>(null);
   const [confirmRevertStage, setConfirmRevertStage] = useState<{ targetStage: string; label: string } | null>(null);
   const [revertReason, setRevertReason] = useState("");
+  const [revertRemarkTemplate, setRevertRemarkTemplate] = useState<ReturnRemarkTemplateCode>("UTC");
   const [visibleRevertReasonId, setVisibleRevertReasonId] = useState<string | null>(null);
   const [financeReviewNote, setFinanceReviewNote] = useState("");
   const [financeBusy, setFinanceBusy] = useState<"approve" | "reject" | null>(null);
@@ -529,13 +535,14 @@ export function OrderInvoiceViewModal({
 
   function handleRevertClick(targetStage: string, label: string) {
     setRevertReason("");
+    setRevertRemarkTemplate("UTC");
     setConfirmRevertStage({ targetStage, label });
   }
 
   async function handleConfirmRevert() {
     if (!orderId || !confirmRevertStage) return;
-    if (!revertReason.trim()) {
-      notify.error("Please provide a reason for reverting.");
+    if (!revertReason.trim() && revertRemarkTemplate === "CUSTOM") {
+      notify.error("Please provide a custom remark for reverting.");
       return;
     }
     setRevertingToStage(confirmRevertStage.targetStage);
@@ -543,7 +550,12 @@ export function OrderInvoiceViewModal({
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "revert_to_stage", targetStage: confirmRevertStage.targetStage, revertReason: revertReason.trim() }),
+        body: JSON.stringify({
+          action: "revert_to_stage",
+          targetStage: confirmRevertStage.targetStage,
+          revertReason: revertReason.trim() || RETURN_REMARK_TEMPLATES.find((item) => item.code === revertRemarkTemplate)?.label || "Reverted",
+          remarkTemplate: revertRemarkTemplate,
+        }),
       });
       const data = (await res.json()) as { success?: boolean; error?: string };
       if (!res.ok) {
@@ -1177,7 +1189,7 @@ export function OrderInvoiceViewModal({
       </DialogContent>
     </Dialog>
 
-    <AlertDialog open={!!confirmRevertStage} onOpenChange={(open) => { if (!open) { setConfirmRevertStage(null); setRevertReason(""); } }}>
+    <AlertDialog open={!!confirmRevertStage} onOpenChange={(open) => { if (!open) { setConfirmRevertStage(null); setRevertReason(""); setRevertRemarkTemplate("UTC"); } }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Revert to {confirmRevertStage?.label}</AlertDialogTitle>
@@ -1187,26 +1199,47 @@ export function OrderInvoiceViewModal({
             action cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="py-1">
-          <label className="mb-1.5 block text-sm font-medium" htmlFor="revert-reason">
-            Reason for reverting <span className="text-destructive">*</span>
-          </label>
-          <Textarea
-            id="revert-reason"
-            placeholder="Describe why this order is being reverted…"
-            value={revertReason}
-            onChange={(e) => setRevertReason(e.target.value)}
-            maxLength={500}
-            rows={3}
-            disabled={!!revertingToStage}
-          />
-          <p className="mt-1 text-right text-xs text-muted-foreground">{revertReason.length}/500</p>
+        <div className="space-y-3 py-1">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Return remark template</label>
+            <Select
+              value={revertRemarkTemplate}
+              onValueChange={(value) => setRevertRemarkTemplate(value as ReturnRemarkTemplateCode)}
+              disabled={!!revertingToStage}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {RETURN_REMARK_TEMPLATES.map((template) => (
+                  <SelectItem key={template.code} value={template.code}>{template.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="revert-reason">
+              {revertRemarkTemplate === "CUSTOM" ? (
+                <>Custom remark <span className="text-destructive">*</span></>
+              ) : (
+                <>Additional note (optional)</>
+              )}
+            </label>
+            <Textarea
+              id="revert-reason"
+              placeholder={revertRemarkTemplate === "CUSTOM" ? "Enter custom return remark…" : "Optional extra detail…"}
+              value={revertReason}
+              onChange={(e) => setRevertReason(e.target.value)}
+              maxLength={500}
+              rows={3}
+              disabled={!!revertingToStage}
+            />
+            <p className="mt-1 text-right text-xs text-muted-foreground">{revertReason.length}/500</p>
+          </div>
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={!!revertingToStage}>Cancel</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={!!revertingToStage || !revertReason.trim()}
+            disabled={!!revertingToStage || (revertRemarkTemplate === "CUSTOM" && !revertReason.trim())}
             onClick={handleConfirmRevert}
             className="gap-2"
           >
