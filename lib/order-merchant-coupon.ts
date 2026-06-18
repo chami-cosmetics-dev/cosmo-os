@@ -3,8 +3,16 @@ export function getMerchantCouponCode(params: {
   discountCodes: unknown;
   rawPayload: unknown;
   assignedMerchantCouponCodes?: string[] | null;
+  /** When true, return all discount codes comma-separated (dump 2 report). Default: single preferred merchant code. */
+  joinAllDiscountCodes?: boolean;
 }): string | null {
-  const { sourceName, discountCodes, rawPayload, assignedMerchantCouponCodes } = params;
+  const {
+    sourceName,
+    discountCodes,
+    rawPayload,
+    assignedMerchantCouponCodes,
+    joinAllDiscountCodes = false,
+  } = params;
 
   if (sourceName === "erpnext" || sourceName === "erpnext-pos") {
     if (rawPayload != null && typeof rawPayload === "object") {
@@ -32,30 +40,52 @@ export function getMerchantCouponCode(params: {
   }
 
   if (Array.isArray(discountCodes) && discountCodes.length > 0) {
-    const codes = discountCodes as Array<Record<string, unknown>>;
-    // When multiple discount codes are present (e.g. site discount + merchant tracking code),
-    // prefer the merchant tracking code. Identify it by:
-    //   1. Code starting with "MER" (system-wide merchant code convention)
-    //   2. Code with amount "0.00" / 0 (tracking codes carry no monetary discount)
-    if (codes.length > 1) {
-      const merCode = codes.find((d) => {
-        const c = typeof d?.code === "string" ? d.code.trim() : "";
-        return c.toUpperCase().startsWith("MER");
-      });
-      if (merCode && typeof merCode.code === "string" && merCode.code.trim()) {
-        return merCode.code.trim();
+    if (joinAllDiscountCodes) {
+      const codes = discountCodes
+        .map((discount, index) => {
+          if (discount == null || typeof discount !== "object") return null;
+          const code = (discount as Record<string, unknown>).code;
+          if (typeof code !== "string" || !code.trim()) return null;
+          return { code: code.trim(), index };
+        })
+        .filter((code): code is { code: string; index: number } => code != null)
+        .sort((a, b) => {
+          const aIsMerchant = a.code.toUpperCase().startsWith("MER");
+          const bIsMerchant = b.code.toUpperCase().startsWith("MER");
+          if (aIsMerchant !== bIsMerchant) return aIsMerchant ? -1 : 1;
+          return a.index - b.index;
+        })
+        .map(({ code }) => code);
+
+      if (codes.length > 0) return codes.join(",");
+    } else {
+      const codes = discountCodes as Array<Record<string, unknown>>;
+      // When multiple discount codes are present (e.g. site discount + merchant tracking code),
+      // prefer the merchant tracking code. Identify it by:
+      //   1. Code starting with "MER" (system-wide merchant code convention)
+      //   2. Code with amount "0.00" / 0 (tracking codes carry no monetary discount)
+      if (codes.length > 1) {
+        const merCode = codes.find((d) => {
+          const c = typeof d?.code === "string" ? d.code.trim() : "";
+          return c.toUpperCase().startsWith("MER");
+        });
+        if (merCode && typeof merCode.code === "string" && merCode.code.trim()) {
+          return merCode.code.trim();
+        }
+        const zeroCode = codes.find((d) => {
+          const amt = d?.amount;
+          return (
+            (typeof amt === "string" && parseFloat(amt) === 0) ||
+            (typeof amt === "number" && amt === 0)
+          );
+        });
+        if (zeroCode && typeof zeroCode.code === "string" && zeroCode.code.trim()) {
+          return zeroCode.code.trim();
+        }
       }
-      const zeroCode = codes.find((d) => {
-        const amt = d?.amount;
-        return (typeof amt === "string" && parseFloat(amt) === 0) ||
-               (typeof amt === "number" && amt === 0);
-      });
-      if (zeroCode && typeof zeroCode.code === "string" && zeroCode.code.trim()) {
-        return zeroCode.code.trim();
-      }
+      const first = codes[0];
+      if (typeof first?.code === "string" && first.code.trim()) return first.code.trim();
     }
-    const first = codes[0];
-    if (typeof first?.code === "string" && first.code.trim()) return first.code.trim();
   }
 
   // For non-ERP orders (Shopify POS, etc.) where merchant is assigned by user_id not coupon:
