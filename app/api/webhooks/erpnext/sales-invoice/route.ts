@@ -11,6 +11,7 @@ import {
 } from "@/lib/approval-workflow";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
+import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -469,10 +470,23 @@ export async function POST(request: NextRequest) {
     for (const [idx, item] of data.items.entries()) {
       if (!item.item_code) continue;
 
+      const erpBarcodeConfig = {
+        baseUrl: instanceCreds.baseUrl,
+        apiKey: instanceCreds.apiKey,
+        apiSecret: instanceCreds.apiSecret,
+      };
+
       let productItem = await prisma.productItem.findFirst({
         where: { companyLocationId: location.id, sku: item.item_code },
-        select: { id: true },
+        select: { id: true, barcode: true },
       });
+
+      let barcode: string | null = productItem?.barcode ?? null;
+      if (!barcode) {
+        barcode = await findBarcodeForSku(location.companyId, item.item_code, {
+          erpConfig: erpBarcodeConfig,
+        });
+      }
 
       if (!productItem) {
         const category = await prisma.category.upsert({
@@ -501,13 +515,21 @@ export async function POST(request: NextRequest) {
             shopifyVariantId: syntheticVariantId,
             productTitle: (item.item_name ?? item.item_code).slice(0, 255),
             sku: item.item_code,
+            barcode: barcode?.slice(0, 100) ?? null,
             price: new Decimal(item.rate),
             categoryId: category.id,
             itemStatusCategory: "NEWLY_ADDED",
             itemStatusLabel: "Newly Added",
             inventoryQuantity: 0,
           },
-          update: {},
+          update: {
+            ...(barcode ? { barcode: barcode.slice(0, 100) } : {}),
+          },
+        });
+      } else if (barcode && !productItem.barcode) {
+        await prisma.productItem.update({
+          where: { id: productItem.id },
+          data: { barcode: barcode.slice(0, 100) },
         });
       }
 

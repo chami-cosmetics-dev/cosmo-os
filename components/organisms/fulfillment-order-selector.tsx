@@ -17,12 +17,15 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { FulfillmentOrderInvoiceDetails } from "@/components/organisms/fulfillment-order-invoice-details";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { fulfillmentOrderSearchTokens } from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
 
 export type FulfillmentOrder = {
   id: string;
   orderNumber: string | null;
   name: string | null;
+  shopifyOrderId?: string | null;
   erpnextInvoiceId?: string | null;
   sourceName: string;
   totalPrice: string;
@@ -223,7 +226,11 @@ export function FulfillmentOrderSelector({
                     aria-expanded={orderOpen}
                     className="h-10 justify-between border-border/70 bg-background text-left font-normal"
                   >
-                    {selectedOrder?.name ?? selectedOrder?.orderNumber ?? "Please Select an Option"}
+                    {selectedOrder ? (
+                      <FulfillmentOrderReference order={selectedOrder} variant="inline" />
+                    ) : (
+                      "Please Select an Option"
+                    )}
                     <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
                   </Button>
                 </PopoverTrigger>
@@ -249,25 +256,21 @@ export function FulfillmentOrderSelector({
                       </CommandEmpty>
                       <CommandGroup>
                         {orders.map((order) => {
-                          const label = order.name ?? order.orderNumber ?? order.id;
-                          const erpId = order.erpnextInvoiceId;
-                          const showErpId = erpId && erpId !== label;
                           return (
                             <CommandItem
                               key={order.id}
-                              value={`${order.name ?? ""} ${order.orderNumber ?? ""} ${erpId ?? ""}`}
+                              value={fulfillmentOrderSearchTokens(order)}
                               onSelect={() => handleWorksheetSelect(order)}
                               className="flex items-center justify-between gap-3"
                             >
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate">
-                                  <span className="font-medium">{label}</span>
+                                  <FulfillmentOrderReference order={order} />
                                   <span className="text-muted-foreground ml-2 text-xs">
                                     {merchantLabel(order)}
                                   </span>
                                 </span>
                                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                                  {showErpId && <span className="mr-2 font-mono">{erpId}</span>}
                                   {order.companyLocation?.name ?? "No location"}
                                 </span>
                                 {showFutureSendLater && order.sampleFreeIssueSendLaterDate && (
@@ -412,10 +415,7 @@ export function FulfillmentOrderSelector({
                         }`}
                       >
                         <td className="px-4 py-2">
-                          <span className="block font-medium">{order.name ?? order.orderNumber ?? "—"}</span>
-                          {order.erpnextInvoiceId && order.erpnextInvoiceId !== (order.name ?? order.orderNumber) && (
-                            <span className="block font-mono text-xs text-muted-foreground">{order.erpnextInvoiceId}</span>
-                          )}
+                          <FulfillmentOrderReference order={order} />
                         </td>
                         <td className="px-4 py-2">{order.companyLocation?.name ?? "—"}</td>
                         <td className="px-4 py-2">{order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? "—"}</td>

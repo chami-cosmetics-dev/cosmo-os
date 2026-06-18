@@ -1,3 +1,5 @@
+import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
+
 export type CsvPrimitive = string | number | null | undefined;
 
 export function escapeCsvCell(value: CsvPrimitive) {
@@ -142,12 +144,7 @@ export function formatDispatchOrderReference(order: {
   shopifyOrderId: string;
   erpnextInvoiceId?: string | null;
 }) {
-  const shopifyRef = order.name ?? order.orderNumber ?? order.shopifyOrderId;
-  const erpId = order.erpnextInvoiceId?.trim();
-  if (erpId && !isPlaceholderErpInvoiceId(erpId) && erpId !== shopifyRef) {
-    return `${shopifyRef} / ${erpId}`;
-  }
-  return shopifyRef;
+  return formatFulfillmentOrderReferenceText(order);
 }
 
 export function formatAddress(address: unknown) {

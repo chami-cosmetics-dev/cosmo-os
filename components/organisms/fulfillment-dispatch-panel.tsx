@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Truck } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import {
@@ -170,7 +171,6 @@ export function FulfillmentDispatchPanel({
     return parts.join(", ") || "-";
   }
 
-  const orderLabel = order ? (order.name ?? order.orderNumber ?? order.id) : "-";
   const currency = detail?.currency ?? order?.currency;
   const selectedDispatchService = parseDispatchService(dispatchService);
 
@@ -182,7 +182,13 @@ export function FulfillmentDispatchPanel({
           Dispatch
         </h2>
         <p className="text-muted-foreground text-sm">
-          {order ? `Order ${orderLabel}` : "Select an order to fill details"}
+          {order ? (
+            <>
+              Order <FulfillmentOrderReference order={order} variant="inline" />
+            </>
+          ) : (
+            "Select an order to fill details"
+          )}
         </p>
       </div>
 
@@ -196,7 +202,7 @@ export function FulfillmentDispatchPanel({
           </div>
         )}
         <div className="space-y-1">
-          <p><span className="font-medium">Invoice:</span> {orderLabel}</p>
+          <FulfillmentOrderReference order={order} variant="labeled" />
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
           <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? (detail?.shippingAddress as Record<string, string> | null)?.phone ?? "-"}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>

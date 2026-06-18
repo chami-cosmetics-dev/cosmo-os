@@ -3,7 +3,7 @@ import "server-only";
 import { normalizePickListBarcode } from "@/lib/product-item-barcode";
 import { prisma } from "@/lib/prisma";
 
-type ErpConfig = {
+export type ErpBarcodeConfig = {
   baseUrl: string;
   apiKey: string;
   apiSecret: string;
@@ -11,10 +11,11 @@ type ErpConfig = {
 
 type ErpItemPayload = {
   item_code?: string;
+  barcode?: string | null;
   barcodes?: Array<{ barcode?: string | null }>;
 };
 
-async function getErpConfigForCompany(companyId: string): Promise<ErpConfig | null> {
+async function getErpConfigForCompany(companyId: string): Promise<ErpBarcodeConfig | null> {
   const instance = await prisma.erpnextInstance.findFirst({
     where: { companyId },
     orderBy: { createdAt: "asc" },
@@ -28,6 +29,8 @@ async function getErpConfigForCompany(companyId: string): Promise<ErpConfig | nu
 }
 
 function extractBarcodeFromErpItem(item: ErpItemPayload): string | null {
+  const direct = normalizePickListBarcode(item.barcode);
+  if (direct) return direct;
   for (const row of item.barcodes ?? []) {
     const normalized = normalizePickListBarcode(row.barcode);
     if (normalized) return normalized;
@@ -35,7 +38,7 @@ function extractBarcodeFromErpItem(item: ErpItemPayload): string | null {
   return null;
 }
 
-async function fetchErpBarcode(cfg: ErpConfig, sku: string): Promise<string | null> {
+async function fetchErpBarcode(cfg: ErpBarcodeConfig, sku: string): Promise<string | null> {
   try {
     const res = await fetch(`${cfg.baseUrl}/api/resource/Item/${encodeURIComponent(sku)}`, {
       headers: {
@@ -74,8 +77,11 @@ async function loadBarcodeLookupFromDb(companyId: string, skus: string[]): Promi
   return map;
 }
 
-async function loadBarcodeLookupFromErp(companyId: string, skus: string[]): Promise<Map<string, string>> {
-  const cfg = await getErpConfigForCompany(companyId);
+async function loadBarcodeLookupFromErp(
+  skus: string[],
+  erpConfig?: ErpBarcodeConfig | null,
+): Promise<Map<string, string>> {
+  const cfg = erpConfig ?? null;
   if (!cfg || skus.length === 0) return new Map();
 
   const map = new Map<string, string>();
@@ -101,6 +107,7 @@ async function backfillProductItemBarcodes(companyId: string, barcodeBySku: Read
 export async function findBarcodeForSku(
   companyId: string,
   sku: string | null | undefined,
+  options?: { erpConfig?: ErpBarcodeConfig | null },
 ): Promise<string | null> {
   const key = sku?.trim();
   if (!key) return null;
@@ -113,7 +120,7 @@ export async function findBarcodeForSku(
   const fromDb = normalizePickListBarcode(row?.barcode);
   if (fromDb) return fromDb;
 
-  const cfg = await getErpConfigForCompany(companyId);
+  const cfg = options?.erpConfig ?? (await getErpConfigForCompany(companyId));
   if (!cfg) return null;
 
   const fromErp = await fetchErpBarcode(cfg, key);
@@ -126,6 +133,7 @@ export async function findBarcodeForSku(
 export async function loadBarcodeLookupBySku(
   companyId: string,
   skus: string[],
+  options?: { erpConfig?: ErpBarcodeConfig | null },
 ): Promise<Map<string, string>> {
   const unique = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
   if (unique.length === 0) return new Map();
@@ -134,7 +142,8 @@ export async function loadBarcodeLookupBySku(
   const missing = unique.filter((sku) => !map.has(sku));
   if (missing.length === 0) return map;
 
-  const erpMap = await loadBarcodeLookupFromErp(companyId, missing);
+  const erpConfig = options?.erpConfig ?? (await getErpConfigForCompany(companyId));
+  const erpMap = await loadBarcodeLookupFromErp(missing, erpConfig);
   for (const [sku, barcode] of erpMap) {
     map.set(sku, barcode);
   }
