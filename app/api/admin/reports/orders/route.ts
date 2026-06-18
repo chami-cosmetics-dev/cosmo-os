@@ -139,6 +139,7 @@ export async function GET(request: NextRequest) {
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
+        joinAllDiscountCodes: true,
       });
 
       return order.lineItems.map((item) =>
@@ -212,6 +213,7 @@ export async function GET(request: NextRequest) {
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
+        joinAllDiscountCodes: true,
       }),
       createdAt: order.createdAt,
       locationName: order.companyLocation.name,
