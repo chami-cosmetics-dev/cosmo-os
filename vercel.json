@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/failed-erp-syncs-auto-retry",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/erp-credit-note-reconcile",
+      "schedule": "*/15 * * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

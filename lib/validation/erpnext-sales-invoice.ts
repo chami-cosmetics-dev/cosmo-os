@@ -3,6 +3,8 @@ import { z } from "zod";
 /**
  * ERPNext Sales Invoice webhook body (Cosmo OS + Vault OS share this handler).
  * ERP must include `customer_name` (Sales Invoice display name) — not only `customer` (often a phone ID).
+ * For credit notes, also send `is_return`, `return_against`, `grand_total`, and `status`
+ * (original invoice becomes "Credit Note Issued" after a return is submitted).
  */
 export const erpnextSalesInvoiceWebhookSchema = z.object({
   name: z.string(),
@@ -15,6 +17,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   po_no: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
   docstatus: z.number().optional().nullable(),
+  status: z.string().optional().nullable(),
   outstanding_amount: z.number().optional().nullable(),
   set_warehouse: z.string().optional().nullable(),
   is_pos: z.union([z.number(), z.boolean()]).optional().nullable().transform((v) => (v == null ? null : Number(v))),

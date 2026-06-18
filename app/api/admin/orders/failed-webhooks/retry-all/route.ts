@@ -69,7 +69,12 @@ export async function POST() {
     }
 
     try {
-      await processOrderWebhook(parsed.data, item.companyLocation, rawPayload);
+      await processOrderWebhook(
+        parsed.data,
+        item.companyLocation,
+        rawPayload,
+        item.shopifyTopic
+      );
       await prisma.failedOrderWebhook.update({
         where: { id: item.id },
         data: {
