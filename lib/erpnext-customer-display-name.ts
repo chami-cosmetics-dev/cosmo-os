@@ -291,21 +291,41 @@ export async function enrichErpOrderCustomerNames(
   );
 
   const fetchCache = new Map<string, string | null>();
+  const persistUpdates: Array<{ id: string; shippingAddress: unknown; name: string }> = [];
 
   await Promise.all(
     erpOrders.map(async (order) => {
       const creds = credsByLocation.get(order.companyLocationId);
       if (!creds) return;
 
-      const cacheKey = `${creds.baseUrl}:${order.id}`;
+      const invoiceRef = resolveErpInvoiceRef(order) ?? order.id;
+      const cacheKey = `${creds.baseUrl}:${invoiceRef}`;
       let name = fetchCache.get(cacheKey);
       if (name === undefined) {
         name = await resolveErpCustomerNameLive(creds, order);
         fetchCache.set(cacheKey, name);
       }
-      if (name) result.set(order.id, name);
+      if (name) {
+        result.set(order.id, name);
+        persistUpdates.push({ id: order.id, shippingAddress: order.shippingAddress, name });
+      }
     }),
   );
+
+  if (persistUpdates.length > 0) {
+    await Promise.all(
+      persistUpdates.map(({ id, shippingAddress, name }) => {
+        const addr =
+          shippingAddress && typeof shippingAddress === "object" && !Array.isArray(shippingAddress)
+            ? { ...(shippingAddress as Record<string, unknown>), name }
+            : { name };
+        return prisma.order.update({
+          where: { id },
+          data: { shippingAddress: addr },
+        });
+      }),
+    );
+  }
 
   return result;
 }
