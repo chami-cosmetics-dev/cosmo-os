@@ -370,6 +370,8 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     erpOrdersMissingName.map((o) => ({
       id: o.id,
       sourceName: o.sourceName,
+      name: o.name,
+      erpnextInvoiceId: o.erpnextInvoiceId,
       shippingAddress: o.shippingAddress,
       rawPayload: o.rawPayload,
       companyLocationId: o.companyLocation.id,

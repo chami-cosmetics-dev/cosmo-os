@@ -7,12 +7,11 @@ import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-c
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import {
-  fetchErpCustomerDisplayName,
   getErpWebhookCustomerNameField,
-  resolveErpCustomerIdForLookup,
+  resolveErpApiCreds,
+  resolveErpCustomerNameLive,
   resolveStoredOrderCustomerName,
 } from "@/lib/erpnext-customer-display-name";
-import { looksLikeErpCustomerId } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -195,23 +194,16 @@ export async function GET(
 
   if (
     !customerName &&
-    details.sourceName?.startsWith("erpnext") &&
-    details.companyLocation.erpnextInstance
+    details.sourceName?.startsWith("erpnext")
   ) {
-    const instance = details.companyLocation.erpnextInstance;
-    const customerId = resolveErpCustomerIdForLookup({
-      rawPayload: details.rawPayload,
-      shippingAddress: details.shippingAddress,
-    });
-    if (customerId && looksLikeErpCustomerId(customerId)) {
-      customerName = await fetchErpCustomerDisplayName(
-        {
-          baseUrl: instance.baseUrl,
-          apiKey: instance.apiKey,
-          apiSecret: instance.apiSecret,
-        },
-        customerId,
-      );
+    const creds = resolveErpApiCreds(details.companyLocation.erpnextInstance);
+    if (creds) {
+      customerName = await resolveErpCustomerNameLive(creds, {
+        rawPayload: details.rawPayload,
+        shippingAddress: details.shippingAddress,
+        name: details.name,
+        erpnextInvoiceId: details.erpnextInvoiceId,
+      });
       if (customerName) customerNameSource = "erp_customer_api";
     }
   }
