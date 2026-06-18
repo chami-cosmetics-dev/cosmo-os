@@ -39,6 +39,7 @@ type Order = {
   fulfillmentStage?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  customerName: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -667,9 +668,17 @@ export function OrdersPanel({
                           </div>
                         </td>
                         <td className="px-4 py-2">
-                          <div className="truncate" title={order.customerEmail ?? order.customerPhone ?? undefined}>
-                            {order.customerEmail ?? order.customerPhone ?? "—"}
+                          <div className="truncate" title={order.customerName ?? undefined}>
+                            {order.customerName ?? "—"}
                           </div>
+                          {(order.customerPhone || order.customerEmail) && (
+                            <div
+                              className="truncate text-xs text-muted-foreground"
+                              title={order.customerPhone ?? order.customerEmail ?? undefined}
+                            >
+                              {order.customerPhone ?? order.customerEmail}
+                            </div>
+                          )}
                           {(() => {
                             const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
                             const coupon = Array.isArray(order.discountCodes)
