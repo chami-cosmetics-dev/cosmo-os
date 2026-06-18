@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+/**
+ * ERPNext Sales Invoice webhook body (Cosmo OS + Vault OS share this handler).
+ * ERP must include `customer_name` (Sales Invoice display name) — not only `customer` (often a phone ID).
+ */
 export const erpnextSalesInvoiceWebhookSchema = z.object({
   name: z.string(),
   customer: z.string(),

@@ -8,22 +8,23 @@ import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
-import { resolveOrderCustomerName } from "@/lib/reports/csv";
+import { resolveStoredOrderCustomerName } from "@/lib/erpnext-customer-display-name";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
   shippingAddress: unknown;
   billingAddress: unknown;
+  rawPayload?: unknown;
 }): string | null {
   if (order.customer?.firstName || order.customer?.lastName) {
     const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
     if (name) return name;
   }
-  const fromAddress = resolveOrderCustomerName({
+  return resolveStoredOrderCustomerName({
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
+    rawPayload: order.rawPayload,
   });
-  return fromAddress || null;
 }
 
 export type OrdersPageParams = {
@@ -322,6 +323,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     customerPhone: true,
     shippingAddress: true,
     billingAddress: true,
+    rawPayload: true,
     createdAt: true,
     customer: { select: { firstName: true, lastName: true } },
     fulfillmentStage: true,

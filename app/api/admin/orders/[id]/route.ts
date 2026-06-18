@@ -6,6 +6,13 @@ import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approva
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import {
+  fetchErpCustomerDisplayName,
+  getErpCustomerIdFromPayload,
+  getErpWebhookCustomerNameField,
+  resolveStoredOrderCustomerName,
+} from "@/lib/erpnext-customer-display-name";
+import { looksLikePhoneNumber } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -51,7 +58,7 @@ const orderSelect = {
       shopifyAdminStoreHandle: true,
       erpnextCompany: true,
       erpnextWarehouse: true,
-      erpnextInstance: { select: { baseUrl: true } },
+      erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } },
     },
   },
   assignedMerchant: { select: { id: true, name: true, email: true, couponCodes: true } },
@@ -178,6 +185,38 @@ export async function GET(
       paymentGatewayPrimary: string | null;
     }>;
 
+  let customerName = resolveStoredOrderCustomerName({
+    shippingAddress: details.shippingAddress,
+    billingAddress: details.billingAddress,
+    rawPayload: details.rawPayload,
+  });
+  let customerNameSource: "stored" | "erp_customer_api" | null = customerName ? "stored" : null;
+  const erpWebhookCustomerName = getErpWebhookCustomerNameField(details.rawPayload);
+
+  if (
+    !customerName &&
+    details.sourceName?.startsWith("erpnext") &&
+    details.companyLocation.erpnextInstance
+  ) {
+    const instance = details.companyLocation.erpnextInstance;
+    const customerId =
+      getErpCustomerIdFromPayload(details.rawPayload) ??
+      (typeof (details.shippingAddress as Record<string, unknown> | null)?.name === "string"
+        ? ((details.shippingAddress as Record<string, unknown>).name as string)
+        : null);
+    if (customerId && looksLikePhoneNumber(customerId)) {
+      customerName = await fetchErpCustomerDisplayName(
+        {
+          baseUrl: instance.baseUrl,
+          apiKey: instance.apiKey,
+          apiSecret: instance.apiSecret,
+        },
+        customerId,
+      );
+      if (customerName) customerNameSource = "erp_customer_api";
+    }
+  }
+
   const lineItems = details.lineItems.map((li) => ({
     id: li.id,
     productTitle: li.productItem.productTitle,
@@ -213,6 +252,9 @@ export async function GET(
       : null,
     customerEmail: details.customerEmail,
     customerPhone: details.customerPhone,
+    customerName,
+    erpWebhookCustomerName,
+    customerNameSource,
     resolvedCustomerPhone:
       resolveCustomerPhone({
         customerPhone: details.customerPhone,
