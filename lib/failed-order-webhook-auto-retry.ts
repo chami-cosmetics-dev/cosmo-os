@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { processOrderWebhook } from "@/lib/order-webhook-process";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
+import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { classifyFailedWebhookError } from "@/lib/failed-order-webhook-classification";
 
@@ -219,8 +220,23 @@ export async function runDueFailedOrderWebhookRetries(options?: {
       continue;
     }
 
+    const orderExists = await prisma.order.findUnique({
+      where: { shopifyOrderId: String(parsed.data.id) },
+      select: { id: true },
+    });
+    if (shouldSkipShopifyOrderWebhookForMissingOrder(item.shopifyTopic, !!orderExists)) {
+      await resolveFailedOrderWebhookRecord(item.id, attemptedAt);
+      resolved += 1;
+      continue;
+    }
+
     try {
-      await processOrderWebhook(parsed.data, item.companyLocation, rawPayload);
+      await processOrderWebhook(
+        parsed.data,
+        item.companyLocation,
+        rawPayload,
+        item.shopifyTopic
+      );
       await resolveFailedOrderWebhookRecord(item.id, attemptedAt);
       resolved += 1;
     } catch (error) {

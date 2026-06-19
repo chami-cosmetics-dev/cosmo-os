@@ -15,6 +15,7 @@ import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
+import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -49,7 +50,8 @@ function getShopifyOrderCreatedAt(order: ShopifyOrderWebhookPayload) {
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
   location: LocationWithErpInstance,
-  rawPayload: unknown
+  rawPayload: unknown,
+  shopifyTopic?: string | null
 ): Promise<void> {
   if (isShopifyOrderBeforeImportCutoff(data.created_at)) {
     console.warn("[Order webhook] Skipping processOrderWebhook for pre-cutoff order", {
@@ -68,6 +70,15 @@ export async function processOrderWebhook(
       erpnextInvoiceId: true,
     },
   });
+
+  if (shouldSkipShopifyOrderWebhookForMissingOrder(shopifyTopic, !!existingOrder)) {
+    console.warn("[Order webhook] Skipping update webhook for order not in Vault OS", {
+      shopifyOrderId: String(data.id),
+      shopifyTopic: shopifyTopic ?? null,
+    });
+    return;
+  }
+
   let effectiveLocation: LocationWithErpInstance = location;
   if (existingOrder && existingOrder.companyLocationId !== location.id) {
     const persistedLocation = await prisma.companyLocation.findUnique({
@@ -139,7 +150,9 @@ export async function processOrderWebhook(
     totalTax,
     totalShipping,
     currency: data.currency?.slice(0, 10) ?? null,
-    financialStatus: data.financial_status?.slice(0, 50) ?? null,
+    financialStatus: totalPrice.lessThan(0)
+      ? "voided"
+      : data.financial_status?.slice(0, 50) ?? null,
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
     paymentGatewayNames: paymentGateways.names,
     paymentGatewayPrimary: paymentGateways.primary,
@@ -248,7 +261,9 @@ export async function processOrderWebhook(
     }).catch((err) => console.error("[Order SMS] order_received failed:", err));
   }
 
-  if (isNewOrder || !existingOrder?.erpnextInvoiceId) {
+  const isVoided = order.financialStatus?.toLowerCase() === "voided";
+
+  if (!isVoided && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
     const skipErpSync = shouldSkipShopifyOrderErpSync(order.createdAt, effectiveLocation);
     if (!skipErpSync) {
       // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks

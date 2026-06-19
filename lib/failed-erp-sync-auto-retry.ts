@@ -103,6 +103,7 @@ export function buildFailedErpSyncWhere(companyId?: string): Prisma.OrderWhereIn
   return {
     ...(companyId ? { companyId } : {}),
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
+    financialStatus: { not: "voided" },
     erpnextSyncError: { not: null },
     OR: [
       { erpnextInvoiceId: null },
@@ -153,6 +154,17 @@ export async function markOrderErpSyncFailed(
 }
 
 export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> {
+  if (order.financialStatus?.toLowerCase() === "voided") {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: orderUpdate(ERP_SYNC_SUCCESS_CLEAR),
+    });
+    console.warn("[ERPNext] Skipping retry for voided order", {
+      orderId: order.id,
+    });
+    return;
+  }
+
   const skipReason = getErpShopifySyncSkipReason(order.createdAt, order.companyLocation);
   if (skipReason) {
     await prisma.order.update({
