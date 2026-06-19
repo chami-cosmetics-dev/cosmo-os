@@ -12,13 +12,15 @@ import {
 } from "@/lib/reports/csv";
 import {
   buildOrderInvoiceCsv,
+  buildOrderInvoiceCsvWithoutCustomerPhone,
   buildOrderInvoiceItemCsv,
+  buildOrderInvoiceItemCsvWithoutCustomerPhone,
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
 } from "@/lib/reports/order-dump";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
-import { getOrderDumpPermission } from "@/lib/report-permissions";
+import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
 type ReportKind = "invoice" | "invoice-item";
@@ -64,10 +66,14 @@ function decimalToString(value: Prisma.Decimal | null) {
 }
 
 function getShippingService(order: {
+  sourceName: string;
+  locationName: string;
   dispatchedToCustomer?: boolean | null;
   dispatchedByRider?: { name: string | null; mobile?: string | null } | null;
   dispatchedByCourierService?: { name: string } | null;
 }) {
+  const source = order.sourceName.toLowerCase();
+  if (source.includes("erpnext-pos") || source.includes("erpnext pos")) return order.locationName;
   if (order.dispatchedToCustomer) return "Customer pickup";
   if (order.dispatchedByRider) {
     return order.dispatchedByRider.name ?? order.dispatchedByRider.mobile ?? "Rider";
@@ -92,7 +98,14 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const report = parseReportKind(request.nextUrl.searchParams.get("report"));
   const range = parseRangeKind(request.nextUrl.searchParams.get("range"));
-  const auth = await requirePermission(getOrderDumpPermission(report, range));
+  const omitCustomerPhone = request.nextUrl.searchParams.get("omit_customer_phone") === "1";
+  if (omitCustomerPhone && range !== "last-90") {
+    return NextResponse.json({ error: "Utility dumps are only available for last-90 reports" }, { status: 400 });
+  }
+  const permission = omitCustomerPhone
+    ? getUtilityOrderDumpPermission(report)
+    : getOrderDumpPermission(report, range);
+  const auth = await requirePermission(permission);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -135,8 +148,12 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const filters = range === "historical-year" ? `report=${report};range=${range};year=${label}` : `report=${report};range=${range}`;
-  const reportLabel = getReportLabel(report, range);
+  const filterParts = [`report=${report}`, `range=${range}`];
+  if (range === "historical-year") filterParts.push(`year=${label}`);
+  if (omitCustomerPhone) filterParts.push("omit_customer_phone=1");
+  const filters = filterParts.join(";");
+  const baseReportLabel = getReportLabel(report, range);
+  const reportLabel = omitCustomerPhone ? `Utility ${baseReportLabel}` : baseReportLabel;
 
   if (report === "invoice-item") {
     const rows = orders.flatMap((order) => {
@@ -186,8 +203,12 @@ export async function GET(request: NextRequest) {
       );
     });
 
-    const csv = buildOrderInvoiceItemCsv(rows);
-    const fileName = `order-invoice-item-${label}.csv`;
+    const csv = omitCustomerPhone
+      ? buildOrderInvoiceItemCsvWithoutCustomerPhone(rows)
+      : buildOrderInvoiceItemCsv(rows);
+    const fileName = omitCustomerPhone
+      ? `utility-order-invoice-item-${label}.csv`
+      : `order-invoice-item-${label}.csv`;
 
     await logReportDownload({
       companyId,
@@ -230,7 +251,10 @@ export async function GET(request: NextRequest) {
         joinAllDiscountCodes: true,
       }),
       fulfillmentStage: order.fulfillmentStage,
-      shippingService: getShippingService(order),
+      shippingService: getShippingService({
+        ...order,
+        locationName: order.companyLocation.name,
+      }),
       createdAt: order.createdAt,
       locationName: order.companyLocation.name,
       customerName,
@@ -254,8 +278,12 @@ export async function GET(request: NextRequest) {
     });
   });
 
-  const csv = buildOrderInvoiceCsv(rows);
-  const fileName = `order-invoice-${label}.csv`;
+  const csv = omitCustomerPhone
+    ? buildOrderInvoiceCsvWithoutCustomerPhone(rows)
+    : buildOrderInvoiceCsv(rows);
+  const fileName = omitCustomerPhone
+    ? `utility-order-invoice-${label}.csv`
+    : `order-invoice-${label}.csv`;
 
   await logReportDownload({
     companyId,
