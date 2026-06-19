@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Clock, Loader2, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, Clock, Loader2, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
@@ -43,11 +44,25 @@ export function FailedErpSyncsPanel() {
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryingAll, setRetryingAll] = useState(false);
   const [approvalBlockedOrder, setApprovalBlockedOrder] = useState<FailedErpSync | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [effectiveSearch]);
 
   const fetchData = useCallback(async () => {
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("limit", String(limit));
+    if (effectiveSearch) params.set("search", effectiveSearch);
     const res = await fetch(`/api/admin/orders/failed-erp-syncs?${params}`);
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
@@ -62,7 +77,7 @@ export function FailedErpSyncsPanel() {
     };
     setItems(data.items);
     setTotal(data.total);
-  }, [page, limit]);
+  }, [page, limit, effectiveSearch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -192,11 +207,22 @@ export function FailedErpSyncsPanel() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="relative max-w-md">
+            <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+            <Input
+              placeholder="Search by order #, ERP invoice, customer, or error..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="border-border/70 bg-background/90 pl-9"
+            />
+          </div>
           {loading ? (
             <TableSkeleton columns={7} rows={5} />
           ) : items.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground text-sm">
-              No failed ERP syncs. All orders have been synced to ERPNext successfully.
+              {effectiveSearch
+                ? "No failed ERP syncs match your search."
+                : "No failed ERP syncs. All orders have been synced to ERPNext successfully."}
             </p>
           ) : (
             <>
