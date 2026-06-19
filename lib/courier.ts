@@ -1,5 +1,5 @@
 export function isCitypakCourier(name: string | null | undefined) {
-  const normalized = name?.trim().toLowerCase() ?? "";
+  const normalized = (name?.trim().toLowerCase() ?? "").replace(/\s+/g, "");
   return normalized.includes("citypak") || normalized.includes("citypack");
 }
 
