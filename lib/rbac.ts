@@ -179,6 +179,14 @@ const DEFAULT_PERMISSIONS = [
     description: "Download Dump 3 invoice item-wise last 90 days",
   },
   {
+    key: REPORT_DUMP_PERMISSIONS.utilityInvoice90,
+    description: "Download Utility Dump 2 invoice-wise last 90 days",
+  },
+  {
+    key: REPORT_DUMP_PERMISSIONS.utilityInvoiceItem90,
+    description: "Download Utility Dump 3 invoice item-wise last 90 days",
+  },
+  {
     key: REPORT_DUMP_PERMISSIONS.contactLastPurchased,
     description: "Download Dump 4 contacts with last purchased date",
   },
@@ -410,6 +418,8 @@ const DEFAULT_ROLES = [
       REPORT_DUMP_PERMISSIONS.contactListAll,
       REPORT_DUMP_PERMISSIONS.invoice90,
       REPORT_DUMP_PERMISSIONS.invoiceItem90,
+      REPORT_DUMP_PERMISSIONS.utilityInvoice90,
+      REPORT_DUMP_PERMISSIONS.utilityInvoiceItem90,
       REPORT_DUMP_PERMISSIONS.contactLastPurchased,
       REPORT_DUMP_PERMISSIONS.contactLog,
       REPORT_DUMP_PERMISSIONS.loyaltyCustomers,

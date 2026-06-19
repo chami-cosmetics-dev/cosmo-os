@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
-import { ALL_REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import { ALL_REPORT_DUMP_PERMISSIONS, REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { APP_INITIALS, APP_NAME } from "@/lib/branding";
 
 interface AppSidebarProps {
@@ -80,6 +80,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewReports = ALL_REPORT_DUMP_PERMISSIONS.some((permission) =>
     hasSidebarPermission(permission)
   );
+  const canViewUtilityDumps =
+    hasSidebarPermission(REPORT_DUMP_PERMISSIONS.utilityInvoice90) ||
+    hasSidebarPermission(REPORT_DUMP_PERMISSIONS.utilityInvoiceItem90);
   const canViewAudit = canViewUsers;
   const canViewComplaints =
     hasSidebarPermission("complaints.create") ||
@@ -261,7 +264,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {(canViewReports || canViewAudit || canViewFailedWebhooks) && (
+        {(canViewReports || canViewUtilityDumps || canViewAudit || canViewFailedWebhooks) && (
           <SidebarGroup>
             <SidebarGroupLabel>Reports</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -287,6 +290,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                   icon={FileText}
                   label="Dump Reports"
                   isActive={pathname === "/dashboard/reports" || pathname.startsWith("/dashboard/reports/")}
+                />
+              )}
+              {canViewUtilityDumps && (
+                <NavItem
+                  href="/dashboard/utility-dumps"
+                  icon={FileText}
+                  label="Utility Dumps"
+                  isActive={pathname === "/dashboard/utility-dumps"}
                 />
               )}
               {canViewReports && (

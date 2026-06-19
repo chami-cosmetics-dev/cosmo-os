@@ -32,6 +32,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/contacts/allocation", label: "Contact Allocation" },
     { prefix: "/dashboard/contacts", label: "Contacts" },
     { prefix: "/dashboard/reports", label: "Dump Reports" },
+    { prefix: "/dashboard/utility-dumps", label: "Utility Dumps" },
     { prefix: "/dashboard/koko-tally", label: "Koko Tally" },
     { prefix: "/dashboard/audit", label: "Audit Trail" },
     { prefix: "/dashboard/orders/create", label: "Create Manual Order" },
