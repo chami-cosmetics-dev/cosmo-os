@@ -545,6 +545,7 @@ export function OrdersPanel({
                 <SelectItem value={ALL_FILTER_VALUE}>All sources</SelectItem>
                 <SelectItem value="web">Web</SelectItem>
                 <SelectItem value="pos">POS</SelectItem>
+                <SelectItem value="erpnext-pos">ERPNext POS</SelectItem>
               </SelectContent>
             </Select>
             <Select
