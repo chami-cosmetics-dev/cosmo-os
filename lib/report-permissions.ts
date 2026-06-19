@@ -5,6 +5,8 @@ export const REPORT_DUMP_PERMISSIONS = {
   contactListAll: "reports.dumps.contact_list.all",
   invoice90: "reports.dumps.invoice.last_90",
   invoiceItem90: "reports.dumps.invoice_item.last_90",
+  utilityInvoice90: "reports.utility_dumps.invoice.last_90",
+  utilityInvoiceItem90: "reports.utility_dumps.invoice_item.last_90",
   contactLastPurchased: "reports.dumps.contacts.last_purchased",
   contactLog: "reports.dumps.contacts.log",
   loyaltyCustomers: "reports.dumps.contacts.loyalty",
@@ -14,7 +16,14 @@ export const REPORT_DUMP_PERMISSIONS = {
   historicalInvoiceItem: "reports.dumps.invoice_item.historical",
 } as const;
 
-export const ALL_REPORT_DUMP_PERMISSIONS = Object.values(REPORT_DUMP_PERMISSIONS);
+export const UTILITY_REPORT_DUMP_PERMISSIONS = [
+  REPORT_DUMP_PERMISSIONS.utilityInvoice90,
+  REPORT_DUMP_PERMISSIONS.utilityInvoiceItem90,
+] as const;
+
+export const ALL_REPORT_DUMP_PERMISSIONS = Object.values(REPORT_DUMP_PERMISSIONS).filter(
+  (permission) => !(UTILITY_REPORT_DUMP_PERMISSIONS as readonly string[]).includes(permission)
+);
 
 export function getContactDumpPermission(part: string) {
   if (part === "1_1") return REPORT_DUMP_PERMISSIONS.contactListPart1_1;
@@ -39,6 +48,12 @@ export function getOrderDumpPermission(report: string, range: string) {
   return report === "invoice-item"
     ? REPORT_DUMP_PERMISSIONS.invoiceItem90
     : REPORT_DUMP_PERMISSIONS.invoice90;
+}
+
+export function getUtilityOrderDumpPermission(report: string) {
+  return report === "invoice-item"
+    ? REPORT_DUMP_PERMISSIONS.utilityInvoiceItem90
+    : REPORT_DUMP_PERMISSIONS.utilityInvoice90;
 }
 
 export function getContactReportPermission(report: string) {

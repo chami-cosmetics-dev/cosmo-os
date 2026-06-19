@@ -134,6 +134,14 @@ export function buildOrderInvoiceItemCsv(rows: OrderInvoiceItemCsvRow[]) {
   return buildCsv(ORDER_INVOICE_ITEM_HEADERS, rows);
 }
 
+export function buildOrderInvoiceCsvWithoutCustomerPhone(rows: OrderInvoiceCsvRow[]) {
+  return buildCsv(ORDER_INVOICE_HEADERS.filter((header) => header !== "customer_phone"), rows);
+}
+
+export function buildOrderInvoiceItemCsvWithoutCustomerPhone(rows: OrderInvoiceItemCsvRow[]) {
+  return buildCsv(ORDER_INVOICE_ITEM_HEADERS.filter((header) => header !== "customer_phone"), rows);
+}
+
 export function createOrderInvoiceRow(input: {
   invoiceId: string;
   invoiceNo: string;
