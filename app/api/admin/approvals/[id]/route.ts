@@ -5,10 +5,12 @@ import { z } from "zod";
 import {
   DELIVERY_PAYMENT_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
+  RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
   notifyApprovalRequester,
 } from "@/lib/approval-workflow";
+import { writeAuditLog } from "@/lib/audit-log";
 import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -113,8 +115,11 @@ export async function PATCH(
     );
     return NextResponse.json({ ok: true, status: "rejected" });
   }
-  // Return rearrange approvals require an orderReturn link
-  if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL && !approval.orderReturnId) {
+  // Return rearrange/cancel approvals require an orderReturn link
+  if (
+    (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL || approval.type === RETURN_CANCEL_APPROVAL) &&
+    !approval.orderReturnId
+  ) {
     return NextResponse.json({ error: "Approval request is missing linked order return" }, { status: 400 });
   }
 
@@ -165,7 +170,17 @@ export async function PATCH(
                 invoiceCompleteById: reviewerId,
               },
         });
-      } else {
+      } else if (approval.type === RETURN_CANCEL_APPROVAL) {
+        await tx.orderReturn.update({
+          where: { id: approval.orderReturnId! },
+          data: {
+            actionStatus: "solved",
+            actionType: "cancel",
+            actionDate: now,
+            actionById: reviewerId,
+          },
+        });
+      } else if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL) {
         // Return rearrange approval: force to ready_to_dispatch + resolve the return
         await tx.order.update({
           where: { id: approval.orderId! },
@@ -195,6 +210,19 @@ export async function PATCH(
               : "Finance approved bank transfer.",
           },
         });
+        await tx.riderDeliveryTask.updateMany({
+          where: { orderId: approval.orderId! },
+          data: {
+            deliveryKind: "rearranged",
+            exchangeId: null,
+            oldOrderLabel: null,
+            replacementOrderLabel: null,
+            requiresOldItemCollection: false,
+            oldItemCollectionStatus: "pending",
+            oldItemCollectionRemark: null,
+            exchangePaymentDifference: null,
+          },
+        });
       }
     }
 
@@ -222,12 +250,30 @@ export async function PATCH(
     approvalId: approval.id,
     status: nextStatus,
     requestedById: approval.requestedById,
+    approvalType: approval.type,
     invoiceLabel: invoiceLabel({
       name: approval.orderName,
       orderNumber: approval.orderNumber,
       shopifyOrderId: approval.shopifyOrderId,
     }),
   });
+
+  if (nextStatus === "approved" && approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
+    await writeAuditLog({
+      companyId,
+      actorUserId: reviewerId,
+      module: "orders",
+      action: "returned_order_cancel_approved",
+      entityType: "OrderReturn",
+      entityId: approval.orderReturnId,
+      summary: `Finance acknowledged cancel for ${invoiceLabel({
+        name: approval.orderName,
+        orderNumber: approval.orderNumber,
+        shopifyOrderId: approval.shopifyOrderId,
+      })} (process in ERPNext)`,
+      metadata: { approvalId: approval.id, orderId: approval.orderId },
+    });
+  }
 
   let erpSyncFailed = false;
   let erpSyncError: string | undefined;

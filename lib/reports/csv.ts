@@ -1,3 +1,5 @@
+import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
+
 export type CsvPrimitive = string | number | null | undefined;
 
 export function escapeCsvCell(value: CsvPrimitive) {
@@ -72,6 +74,19 @@ export function looksLikePhoneNumber(value: string) {
   return /^[+]?[\d\s().-]+$/.test(trimmed);
 }
 
+/** ERP customer document IDs are often numeric (e.g. 0000717) or phone numbers — not display names. */
+export function looksLikeErpCustomerId(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  if (looksLikePhoneNumber(trimmed)) return true;
+  return /^\d+$/.test(trimmed);
+}
+
+export function isValidCustomerDisplayName(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !looksLikeErpCustomerId(trimmed);
+}
+
 /** Customer display name for waybills — never falls back to phone or email. */
 export function resolveOrderCustomerName(input: {
   shippingAddress?: unknown;
@@ -111,7 +126,7 @@ export function resolveOrderCustomerName(input: {
 
   for (const candidate of candidates) {
     const name = candidate.trim();
-    if (name && !looksLikePhoneNumber(name)) {
+    if (name && isValidCustomerDisplayName(name)) {
       return name;
     }
   }
@@ -129,12 +144,7 @@ export function formatDispatchOrderReference(order: {
   shopifyOrderId: string;
   erpnextInvoiceId?: string | null;
 }) {
-  const shopifyRef = order.name ?? order.orderNumber ?? order.shopifyOrderId;
-  const erpId = order.erpnextInvoiceId?.trim();
-  if (erpId && !isPlaceholderErpInvoiceId(erpId) && erpId !== shopifyRef) {
-    return `${shopifyRef} / ${erpId}`;
-  }
-  return shopifyRef;
+  return formatFulfillmentOrderReferenceText(order);
 }
 
 export function formatAddress(address: unknown) {

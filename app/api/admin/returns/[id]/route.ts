@@ -1,36 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createOrGetReturnRearrangeApproval } from "@/lib/approval-workflow";
+import {
+  createOrGetReturnCancelApproval,
+  createOrGetReturnRearrangeApproval,
+  serializeReturnCancelApprovalNote,
+} from "@/lib/approval-workflow";
 import { writeAuditLog } from "@/lib/audit-log";
+import { isCitypakCourier, isRiderReturn } from "@/lib/courier";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
 const returnActionSchema = z.object({
-  actionStatus: z.enum(["pending", "solved"]),
-  actionRemark: z.string().trim().max(5000).nullable(),
-  actionType: z.enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval"]).optional(),
+  actionStatus: z.enum(["pending", "solved"]).optional(),
+  actionRemark: z.string().trim().max(5000).nullable().optional(),
+  cancelRemark: z.string().trim().max(5000).optional(),
+  actionType: z
+    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel"])
+    .optional(),
 });
 
 function normalizeText(value: string | null | undefined) {
   return value?.trim().toLowerCase() ?? "";
-}
-
-function isCodOrder(order: {
-  financialStatus: string | null;
-  paymentGatewayPrimary: string | null;
-  paymentGatewayNames: string[];
-}) {
-  const candidates = [
-    order.paymentGatewayPrimary,
-    ...order.paymentGatewayNames,
-    order.financialStatus,
-  ].map(normalizeText);
-
-  if (candidates.some((value) => value.includes("bank"))) return false;
-  if (candidates.some((value) => value.includes("card") || value.includes("paid"))) return false;
-  return candidates.some((value) => value.includes("cod")) || normalizeText(order.financialStatus) === "pending";
 }
 
 function isPendingBankTransferOrder(order: {
@@ -40,6 +32,14 @@ function isPendingBankTransferOrder(order: {
 }) {
   const gateways = [order.paymentGatewayPrimary, ...order.paymentGatewayNames].map(normalizeText);
   return gateways.some((value) => value.includes("bank")) && normalizeText(order.financialStatus) === "pending";
+}
+
+function requiresCourierBankTransferBeforeRearrange(orderReturn: {
+  shippingServiceType: string;
+  shippingServiceName: string;
+}) {
+  if (isRiderReturn(orderReturn.shippingServiceType)) return false;
+  return isCitypakCourier(orderReturn.shippingServiceName);
 }
 
 export async function PUT(
@@ -77,10 +77,7 @@ export async function PUT(
       ...(canManageAll
         ? {}
         : {
-            OR: [
-              { merchantUserId: viewerUserId },
-              { merchantUserId: null },
-            ],
+            OR: [{ merchantUserId: viewerUserId }, { merchantUserId: null }],
           }),
     },
     include: {
@@ -89,6 +86,8 @@ export async function PUT(
           id: true,
           orderNumber: true,
           name: true,
+          shopifyOrderId: true,
+          erpnextInvoiceId: true,
           fulfillmentStage: true,
           financialStatus: true,
           paymentGatewayPrimary: true,
@@ -102,37 +101,53 @@ export async function PUT(
     return NextResponse.json({ error: "Returned order not found" }, { status: 404 });
   }
 
-  const remark = parsed.data.actionRemark?.trim() || null;
+  const remark = parsed.data.actionRemark?.trim() || existing.returnRemark || null;
   const actionDate = new Date();
   const isRearrange = parsed.data.actionType === "rearrange";
   const isConfirmRearrangePaid = parsed.data.actionType === "confirm_rearrange_paid";
   const isFinanceApprovalRequest = parsed.data.actionType === "request_finance_approval";
-  const requiresBankTransferBeforeRearrange = isRearrange && isCodOrder(existing.order);
+  const isCancelRequest = parsed.data.actionType === "request_cancel";
+
+  if (isCancelRequest) {
+    const cancelRemark = parsed.data.cancelRemark?.trim();
+    if (!cancelRemark) {
+      return NextResponse.json({ error: "Cancel remark is required" }, { status: 400 });
+    }
+  }
+
+  const requiresBankTransferBeforeRearrange =
+    isRearrange && requiresCourierBankTransferBeforeRearrange(existing);
   const isApprovalRequestFlow =
     isFinanceApprovalRequest &&
-    (isCodOrder(existing.order) || isPendingBankTransferOrder(existing.order));
-  const nextStatus = isRearrange
-    ? requiresBankTransferBeforeRearrange
-      ? "pending"
-      : "solved"
-    : isFinanceApprovalRequest
-      ? "pending"
-    : isConfirmRearrangePaid
-      ? "solved"
-      : parsed.data.actionStatus;
+    (requiresCourierBankTransferBeforeRearrange(existing) || isPendingBankTransferOrder(existing.order));
+
+  const nextStatus = isCancelRequest
+    ? "pending"
+    : isRearrange
+      ? requiresBankTransferBeforeRearrange
+        ? "pending"
+        : "solved"
+      : isFinanceApprovalRequest
+        ? "pending"
+        : isConfirmRearrangePaid
+          ? "solved"
+          : (parsed.data.actionStatus ?? existing.actionStatus);
+
   let approvalRequestId: string | null = null;
   const updated = await prisma.$transaction(async (tx) => {
     const returnedOrder = await tx.orderReturn.update({
       where: { id: existing.id },
       data: {
         actionStatus: nextStatus,
-        actionType: isRearrange || isConfirmRearrangePaid || isFinanceApprovalRequest ? "rearrange" : null,
-        actionRemark: requiresBankTransferBeforeRearrange || isApprovalRequestFlow
-          ? [
-              remark,
-              "Bank transfer required before rearranging this returned COD order.",
-            ].filter(Boolean).join("\n")
-          : remark,
+        actionType: isCancelRequest
+          ? "cancel"
+          : isRearrange || isConfirmRearrangePaid || isFinanceApprovalRequest
+            ? "rearrange"
+            : existing.actionType,
+        returnRemark: remark,
+        actionRemark: remark,
+        cancelRemark: isCancelRequest ? parsed.data.cancelRemark!.trim() : existing.cancelRemark,
+        cancelRequestedAt: isCancelRequest ? actionDate : existing.cancelRequestedAt,
         actionDate,
         actionById: viewerUserId,
       },
@@ -207,6 +222,43 @@ export async function PUT(
     return returnedOrder;
   });
 
+  if (isCancelRequest) {
+    const invoiceLabel =
+      existing.order.orderNumber ?? existing.order.name ?? existing.order.shopifyOrderId ?? existing.orderId;
+    const approval = await createOrGetReturnCancelApproval({
+      companyId,
+      orderId: existing.orderId,
+      orderReturnId: existing.id,
+      requestedById: viewerUserId,
+      invoiceLabel,
+      requestNote: serializeReturnCancelApprovalNote({
+        invoiceLabel,
+        shopifyOrderId: existing.order.shopifyOrderId,
+        erpnextInvoiceId: existing.order.erpnextInvoiceId,
+        returnRemark: remark,
+        cancelRemark: parsed.data.cancelRemark!.trim(),
+        returnDate: existing.returnDate.toISOString(),
+        cancelRequestedAt: actionDate.toISOString(),
+      }),
+    });
+    approvalRequestId = approval.id;
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: viewerUserId,
+      module: "orders",
+      action: "returned_order_cancel_requested",
+      entityType: "OrderReturn",
+      entityId: updated.id,
+      summary: `Cancel requested for returned order ${invoiceLabel}`,
+      afterData: {
+        cancelRemark: parsed.data.cancelRemark!.trim(),
+        returnRemark: remark,
+        approvalRequestId,
+      },
+    });
+  }
+
   if (isApprovalRequestFlow) {
     const approval = await createOrGetReturnRearrangeApproval({
       companyId,
@@ -219,25 +271,29 @@ export async function PUT(
     approvalRequestId = approval.id;
   }
 
-  await writeAuditLog({
-    companyId,
-    actorUserId: viewerUserId,
-    module: "orders",
-    action: updated.actionStatus === "solved" ? "returned_order_solved" : "returned_order_updated",
-    entityType: "OrderReturn",
-    entityId: updated.id,
-    summary: `Updated returned order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId}`,
-    beforeData: {
-      actionStatus: existing.actionStatus,
-      actionRemark: existing.actionRemark,
-    },
-    afterData: {
-      actionStatus: updated.actionStatus,
-      actionRemark: updated.actionRemark,
-      actionDate: updated.actionDate,
-    },
+  if (!isCancelRequest) {
+    await writeAuditLog({
+      companyId,
+      actorUserId: viewerUserId,
+      module: "orders",
+      action: updated.actionStatus === "solved" ? "returned_order_solved" : "returned_order_updated",
+      entityType: "OrderReturn",
+      entityId: updated.id,
+      summary: `Updated returned order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId}`,
+      beforeData: {
+        actionStatus: existing.actionStatus,
+        actionRemark: existing.actionRemark,
+        returnRemark: existing.returnRemark,
+      },
+      afterData: {
+        actionStatus: updated.actionStatus,
+        actionRemark: updated.actionRemark,
+        returnRemark: updated.returnRemark,
+        actionDate: updated.actionDate,
+      },
       metadata: { actionType: parsed.data.actionType ?? "save", approvalRequestId },
-  });
+    });
+  }
 
   if (isRearrange || isConfirmRearrangePaid || isFinanceApprovalRequest) {
     await writeAuditLog({
@@ -248,15 +304,15 @@ export async function PUT(
       entityType: "Order",
       entityId: existing.orderId,
       summary: requiresBankTransferBeforeRearrange
-        ? `Marked returned COD order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId} as pending bank transfer before rearrange`
+        ? `Marked returned courier order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId} as pending bank transfer before rearrange`
         : isFinanceApprovalRequest
-          ? `Requested finance approval for returned COD order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId}`
-        : `Marked returned order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId} as rearrange`,
+          ? `Requested finance approval for returned order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId}`
+          : `Marked returned order ${existing.order.orderNumber ?? existing.order.name ?? existing.orderId} as rearrange`,
       beforeData: { fulfillmentStage: existing.order.fulfillmentStage },
       afterData: {
-        fulfillmentStage: requiresBankTransferBeforeRearrange ? "returned_to_store" : "ready_to_dispatch",
-        paymentGatewayPrimary: "bank_transfer",
-        financialStatus: isConfirmRearrangePaid ? "paid" : "pending",
+        fulfillmentStage: requiresBankTransferBeforeRearrange || isApprovalRequestFlow ? "returned_to_store" : "ready_to_dispatch",
+        paymentGatewayPrimary: requiresBankTransferBeforeRearrange || isApprovalRequestFlow ? "bank_transfer" : existing.order.paymentGatewayPrimary,
+        financialStatus: isConfirmRearrangePaid ? "paid" : existing.order.financialStatus,
       },
       metadata: {
         orderReturnId: updated.id,
@@ -273,18 +329,26 @@ export async function PUT(
       id: updated.id,
       actionStatus: updated.actionStatus,
       actionRemark: updated.actionRemark,
+      returnRemark: updated.returnRemark,
+      cancelRemark: updated.cancelRemark,
+      cancelRequestedAt: updated.cancelRequestedAt?.toISOString() ?? null,
       actionDate: updated.actionDate?.toISOString() ?? null,
       actionType: updated.actionType,
     },
     approvalRequestId,
-    order: isRearrange || isConfirmRearrangePaid || isFinanceApprovalRequest
-      ? {
-          id: existing.orderId,
-          fulfillmentStage: requiresBankTransferBeforeRearrange || isApprovalRequestFlow ? "returned_to_store" : "ready_to_dispatch",
-          financialStatus: isConfirmRearrangePaid ? "paid" : "pending",
-          paymentGatewayPrimary: "bank_transfer",
-          requiresBankTransferBeforeRearrange: requiresBankTransferBeforeRearrange || isApprovalRequestFlow,
-        }
-      : undefined,
+    order:
+      isRearrange || isConfirmRearrangePaid || isFinanceApprovalRequest
+        ? {
+            id: existing.orderId,
+            fulfillmentStage:
+              requiresBankTransferBeforeRearrange || isApprovalRequestFlow ? "returned_to_store" : "ready_to_dispatch",
+            financialStatus: isConfirmRearrangePaid ? "paid" : existing.order.financialStatus,
+            paymentGatewayPrimary:
+              requiresBankTransferBeforeRearrange || isApprovalRequestFlow
+                ? "bank_transfer"
+                : existing.order.paymentGatewayPrimary,
+            requiresBankTransferBeforeRearrange: requiresBankTransferBeforeRearrange || isApprovalRequestFlow,
+          }
+        : undefined,
   });
 }

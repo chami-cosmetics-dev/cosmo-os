@@ -4,11 +4,23 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  buildReturnRemarkText,
+  isReturnRemarkTemplateCode,
+  RETURN_REMARK_TEMPLATE_CODES,
+} from "@/lib/return-remark-templates";
+
+const bulkReturnEntrySchema = z.object({
+  reference: z.string().trim().min(1).max(120),
+  remarkTemplate: z.enum(RETURN_REMARK_TEMPLATE_CODES),
+  customRemark: z.string().trim().max(500).optional().nullable(),
+});
 
 const bulkReturnSchema = z.object({
   action: z.enum(["preview", "confirm"]),
-  references: z.string().trim().min(1).max(12000),
-  returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  entries: z.array(bulkReturnEntrySchema).min(1).max(200).optional(),
+  references: z.string().trim().min(1).max(12000).optional(),
+  returnDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 type BulkReturnStatus =
@@ -18,6 +30,7 @@ type BulkReturnStatus =
   | "not_dispatched"
   | "missing_dispatch_date"
   | "ambiguous_match"
+  | "missing_remark"
   | "processed"
   | "failed";
 
@@ -31,6 +44,14 @@ type BulkReturnRow = {
   customer: string | null;
   shippingService: string | null;
   dispatchedAt: string | null;
+  remarkTemplate: string | null;
+  returnRemark: string | null;
+};
+
+type NormalizedEntry = {
+  reference: string;
+  remarkTemplate: z.infer<typeof bulkReturnEntrySchema>["remarkTemplate"];
+  customRemark: string | null;
 };
 
 function parseReferences(input: string) {
@@ -45,9 +66,9 @@ function duplicateKey(value: string) {
   return value.trim().toLowerCase();
 }
 
-function dateOnlyUtc(value: string) {
-  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
-  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+function startOfTodayUtc() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
 }
 
 function getOrderLabel(order: {
@@ -91,17 +112,34 @@ function getShippingService(order: {
   };
 }
 
-async function buildPreviewRows(companyId: string, referencesText: string): Promise<BulkReturnRow[]> {
-  const rawRefs = parseReferences(referencesText);
+function normalizeEntries(payload: z.infer<typeof bulkReturnSchema>): NormalizedEntry[] {
+  if (payload.entries?.length) {
+    return payload.entries.map((entry) => ({
+      reference: entry.reference,
+      remarkTemplate: entry.remarkTemplate,
+      customRemark: entry.customRemark?.trim() || null,
+    }));
+  }
+  if (payload.references) {
+    return parseReferences(payload.references).map((reference) => ({
+      reference,
+      remarkTemplate: "UTC" as const,
+      customRemark: null,
+    }));
+  }
+  return [];
+}
+
+async function buildPreviewRows(companyId: string, entries: NormalizedEntry[]): Promise<BulkReturnRow[]> {
   const seen = new Set<string>();
-  const uniqueRefs: string[] = [];
+  const uniqueEntries: NormalizedEntry[] = [];
   const duplicateRows: BulkReturnRow[] = [];
 
-  for (const ref of rawRefs) {
-    const key = duplicateKey(ref);
+  for (const entry of entries) {
+    const key = duplicateKey(entry.reference);
     if (seen.has(key)) {
       duplicateRows.push({
-        input: ref,
+        input: entry.reference,
         status: "duplicate_input",
         message: "Duplicate input",
         orderId: null,
@@ -110,21 +148,24 @@ async function buildPreviewRows(companyId: string, referencesText: string): Prom
         customer: null,
         shippingService: null,
         dispatchedAt: null,
+        remarkTemplate: entry.remarkTemplate,
+        returnRemark: null,
       });
       continue;
     }
     seen.add(key);
-    uniqueRefs.push(ref);
+    uniqueEntries.push(entry);
   }
 
-  const orders = uniqueRefs.length
+  const refs = uniqueEntries.map((entry) => entry.reference);
+  const orders = refs.length
     ? await prisma.order.findMany({
         where: {
           companyId,
           OR: [
-            { name: { in: uniqueRefs } },
-            { orderNumber: { in: uniqueRefs } },
-            { shopifyOrderId: { in: uniqueRefs } },
+            { name: { in: refs } },
+            { orderNumber: { in: refs } },
+            { shopifyOrderId: { in: refs } },
           ],
         },
         select: {
@@ -145,13 +186,36 @@ async function buildPreviewRows(companyId: string, referencesText: string): Prom
       })
     : [];
 
-  const rows: BulkReturnRow[] = uniqueRefs.map((ref) => {
+  const rows: BulkReturnRow[] = uniqueEntries.map((entry) => {
+    const returnRemark = buildReturnRemarkText({
+      remarkTemplate: entry.remarkTemplate,
+      customRemark: entry.customRemark,
+    });
+    if (!returnRemark) {
+      return {
+        input: entry.reference,
+        status: "missing_remark",
+        message: "Custom remark is required for custom template",
+        orderId: null,
+        invoiceNo: null,
+        merchant: null,
+        customer: null,
+        shippingService: null,
+        dispatchedAt: null,
+        remarkTemplate: entry.remarkTemplate,
+        returnRemark: null,
+      };
+    }
+
     const matches = orders.filter(
-      (order) => order.name === ref || order.orderNumber === ref || order.shopifyOrderId === ref
+      (order) =>
+        order.name === entry.reference ||
+        order.orderNumber === entry.reference ||
+        order.shopifyOrderId === entry.reference
     );
     if (matches.length === 0) {
       return {
-        input: ref,
+        input: entry.reference,
         status: "not_found",
         message: "Order not found",
         orderId: null,
@@ -160,11 +224,13 @@ async function buildPreviewRows(companyId: string, referencesText: string): Prom
         customer: null,
         shippingService: null,
         dispatchedAt: null,
+        remarkTemplate: entry.remarkTemplate,
+        returnRemark,
       };
     }
     if (matches.length > 1) {
       return {
-        input: ref,
+        input: entry.reference,
         status: "ambiguous_match",
         message: "More than one order matched this reference",
         orderId: null,
@@ -173,19 +239,23 @@ async function buildPreviewRows(companyId: string, referencesText: string): Prom
         customer: null,
         shippingService: null,
         dispatchedAt: null,
+        remarkTemplate: entry.remarkTemplate,
+        returnRemark,
       };
     }
 
     const order = matches[0]!;
     const shipping = getShippingService(order);
     const base = {
-      input: ref,
+      input: entry.reference,
       orderId: order.id,
       invoiceNo: getOrderLabel(order),
       merchant: order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null,
       customer: getCustomerName(order),
       shippingService: shipping.name,
       dispatchedAt: order.dispatchedAt?.toISOString() ?? null,
+      remarkTemplate: entry.remarkTemplate,
+      returnRemark,
     };
 
     if (order.fulfillmentStage !== "dispatched") {
@@ -225,18 +295,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const entries = normalizeEntries(parsed.data);
+  if (entries.length === 0) {
+    return NextResponse.json({ error: "At least one order entry is required" }, { status: 400 });
+  }
+
+  for (const entry of entries) {
+    if (!isReturnRemarkTemplateCode(entry.remarkTemplate)) {
+      return NextResponse.json({ error: "Invalid remark template" }, { status: 400 });
+    }
+    if (!buildReturnRemarkText({ remarkTemplate: entry.remarkTemplate, customRemark: entry.customRemark })) {
+      return NextResponse.json({ error: "Custom remark is required when template is Custom" }, { status: 400 });
+    }
+  }
+
   const companyId = auth.context!.user!.companyId;
   const actorUserId = auth.context!.user!.id;
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const returnDate = dateOnlyUtc(parsed.data.returnDate);
-  if (Number.isNaN(returnDate.getTime())) {
-    return NextResponse.json({ error: "Invalid return date" }, { status: 400 });
-  }
+  const returnDate = parsed.data.returnDate
+    ? new Date(`${parsed.data.returnDate}T00:00:00.000Z`)
+    : startOfTodayUtc();
 
-  const previewRows = await buildPreviewRows(companyId, parsed.data.references);
+  const previewRows = await buildPreviewRows(companyId, entries);
   const validRows = previewRows.filter((row) => row.status === "valid" && row.orderId);
 
   if (parsed.data.action === "preview") {
@@ -250,10 +333,26 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const entryByReference = new Map(entries.map((entry) => [duplicateKey(entry.reference), entry]));
   const results: BulkReturnRow[] = [];
   for (const row of previewRows) {
     if (row.status !== "valid" || !row.orderId) {
       results.push(row);
+      continue;
+    }
+
+    const entry = entryByReference.get(duplicateKey(row.input));
+    if (!entry) {
+      results.push({ ...row, status: "failed", message: "Missing entry metadata" });
+      continue;
+    }
+
+    const returnRemark = buildReturnRemarkText({
+      remarkTemplate: entry.remarkTemplate,
+      customRemark: entry.customRemark,
+    });
+    if (!returnRemark) {
+      results.push({ ...row, status: "missing_remark", message: "Custom remark is required" });
       continue;
     }
 
@@ -297,6 +396,9 @@ export async function POST(request: NextRequest) {
             riderId: order.dispatchedByRiderId,
             courierServiceId: order.dispatchedByCourierServiceId,
             returnedById: actorUserId,
+            returnRemark,
+            remarkTemplate: entry.remarkTemplate,
+            actionStatus: "pending",
           },
         });
 
@@ -337,6 +439,8 @@ export async function POST(request: NextRequest) {
         afterData: {
           orderId: order.id,
           returnDate,
+          returnRemark,
+          remarkTemplate: entry.remarkTemplate,
           dispatchedAt: order.dispatchedAt,
           shippingServiceType: shipping.type,
           shippingServiceName: shipping.name,
@@ -370,6 +474,8 @@ export async function POST(request: NextRequest) {
         ...row,
         status: "processed",
         message: "Returned to store",
+        returnRemark,
+        remarkTemplate: entry.remarkTemplate,
       });
     } catch (error) {
       console.error("Bulk return failed:", error);

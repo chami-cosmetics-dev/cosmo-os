@@ -267,9 +267,6 @@ export function OrdersPanel({
   initialData,
 }: OrdersPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
-  const pagePerfRef = useRef(
-    createClientPerfLogger("orders.panel.mount", { hasInitialData }),
-  );
   const canRevertToStage = useMemo(
     () => createCanRevertToStageFromKeys(revertPermissionKeys),
     [revertPermissionKeys]
@@ -354,17 +351,7 @@ export function OrdersPanel({
     perf.end({ ok: true, total: data.total });
   }, [effectiveSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
 
-  const skippedInitialFetch = useRef(false);
   useEffect(() => {
-    pagePerfRef.current.end({ initialOrderCount: initialData?.orders.length ?? 0 });
-  }, [initialData]);
-
-  useEffect(() => {
-    if (initialData && !skippedInitialFetch.current) {
-      skippedInitialFetch.current = true;
-      return;
-    }
-    skippedInitialFetch.current = true;
     let cancelled = false;
     fetchPageData()
       .then(() => {
@@ -379,7 +366,7 @@ export function OrdersPanel({
     return () => {
       cancelled = true;
     };
-  }, [fetchPageData, initialData]);
+  }, [fetchPageData]);
 
   function handlePageChange(newPage: number) {
     setPage(newPage);
@@ -558,6 +545,7 @@ export function OrdersPanel({
                 <SelectItem value={ALL_FILTER_VALUE}>All sources</SelectItem>
                 <SelectItem value="web">Web</SelectItem>
                 <SelectItem value="pos">POS</SelectItem>
+                <SelectItem value="erpnext-pos">ERPNext POS</SelectItem>
               </SelectContent>
             </Select>
             <Select

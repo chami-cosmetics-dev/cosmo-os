@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { findMatchingContacts } from "@/lib/contact-identifiers";
+import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
+import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -177,8 +181,8 @@ export async function GET(
       where: { id: idResult.data, companyId },
       include: {
         company: { select: { name: true, address: true, logoUrl: true } },
-        companyLocation: true,
-        assignedMerchant: { select: { name: true } },
+        companyLocation: { include: { erpnextInstance: true } },
+        assignedMerchant: { select: { name: true, knownName: true, email: true, couponCodes: true } },
         lineItems: {
           include: {
             productItem: {
@@ -210,6 +214,12 @@ export async function GET(
   if (!order) {
     return new NextResponse("Order not found", { status: 404 });
   }
+
+  const erpConfig = resolveErpApiCreds(order.companyLocation.erpnextInstance);
+  const lineItemSkus = order.lineItems
+    .map((li) => li.productItem.sku)
+    .filter((sku): sku is string => Boolean(sku?.trim()));
+  const barcodeBySku = await loadBarcodeLookupBySku(companyId, lineItemSkus, { erpConfig });
 
   const showWatermark = order.printCount > 0;
   const printedAt = new Date();
@@ -258,6 +268,7 @@ export async function GET(
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
   });
 
   function escapeHtml(s: string): string {
@@ -269,7 +280,15 @@ export async function GET(
       .replace(/'/g, "&#039;");
   }
 
-  const invoiceNumber = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "";
+  const invoiceRefs = formatInvoiceOrderReference({
+    id: order.id,
+    name: order.name,
+    orderNumber: order.orderNumber,
+    shopifyOrderId: order.shopifyOrderId,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    sourceName: order.sourceName,
+  });
+  const invoiceNumber = invoiceRefs.primary;
   const invoiceDate = new Date(order.createdAt).toISOString().slice(0, 10);
   const printedOn = printedAt.toLocaleString("en-LK", {
     year: "numeric",
@@ -591,11 +610,14 @@ export async function GET(
                   ? (regularPrice * li.quantity * Number(li.discountPercent)) / 100
                   : Math.max(0, (regularPrice - linePrice) * li.quantity);
               const productName = [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ");
+              const barcode = formatPickListBarcode(
+                resolvePickListBarcode(li.productItem.barcode, li.productItem.sku, barcodeBySku),
+              );
               return `
           <tr>
             <td class="text-center">${index + 1}</td>
             <td class="sku">${escapeHtml(li.productItem.sku ?? "-")}</td>
-            <td>${li.productItem.barcode ? `<span class="barcode">${escapeHtml(li.productItem.barcode)}</span>` : "-"}</td>
+            <td>${barcode ? `<span class="barcode">${escapeHtml(barcode)}</span>` : "-"}</td>
             <td>${escapeHtml(productName)}</td>
             <td class="text-right">${li.quantity}</td>
             <td class="text-right">${formatInvoiceMoney(regularPrice)}</td>

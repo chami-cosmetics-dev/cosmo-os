@@ -6,10 +6,12 @@ import { prisma } from "@/lib/prisma";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const RETURN_REARRANGE_PAYMENT_APPROVAL = "return_rearrange_payment";
+export const RETURN_CANCEL_APPROVAL = "return_cancel";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
 export const DELIVERY_PAYMENT_APPROVAL = "delivery_payment_approval";
 export const FINANCE_APPROVAL_TYPES = [
   RETURN_REARRANGE_PAYMENT_APPROVAL,
+  RETURN_CANCEL_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_APPROVAL,
 ] as const;
@@ -398,14 +400,131 @@ export async function createOrGetReturnRearrangeApproval(input: {
   return { id, status: "pending" as ApprovalStatus };
 }
 
+export type ReturnCancelApprovalNote = {
+  invoiceLabel: string;
+  shopifyOrderId: string | null;
+  erpnextInvoiceId: string | null;
+  returnRemark: string | null;
+  cancelRemark: string;
+  returnDate: string;
+  cancelRequestedAt: string;
+};
+
+export function serializeReturnCancelApprovalNote(note: ReturnCancelApprovalNote) {
+  return JSON.stringify(note);
+}
+
+export function parseReturnCancelApprovalNote(requestNote: string | null | undefined): ReturnCancelApprovalNote | null {
+  if (!requestNote?.trim()) return null;
+  try {
+    const parsed = JSON.parse(requestNote) as ReturnCancelApprovalNote;
+    if (!parsed || typeof parsed !== "object" || !parsed.cancelRemark) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export async function createOrGetReturnCancelApproval(input: {
+  companyId: string;
+  orderId: string;
+  orderReturnId: string;
+  requestedById: string;
+  requestNote: string;
+  invoiceLabel: string;
+}) {
+  const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+    Prisma.sql`
+      SELECT "id", "status"
+      FROM "ApprovalRequest"
+      WHERE "companyId" = ${input.companyId}
+        AND "type" = ${RETURN_CANCEL_APPROVAL}
+        AND "orderReturnId" = ${input.orderReturnId}
+        AND "status" = 'pending'
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `
+  );
+
+  if (existing[0]) {
+    return existing[0];
+  }
+
+  const id = randomUUID();
+  const rowsAffected = await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "ApprovalRequest" (
+        "id",
+        "companyId",
+        "type",
+        "status",
+        "orderId",
+        "orderReturnId",
+        "requestedById",
+        "requestNote",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${id},
+        ${input.companyId},
+        ${RETURN_CANCEL_APPROVAL},
+        ${"pending"},
+        ${input.orderId},
+        ${input.orderReturnId},
+        ${input.requestedById},
+        ${input.requestNote},
+        ${new Date()},
+        ${new Date()}
+      )
+      ON CONFLICT DO NOTHING
+    `
+  );
+
+  if (rowsAffected === 0) {
+    const concurrent = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "type" = ${RETURN_CANCEL_APPROVAL}
+          AND "orderReturnId" = ${input.orderReturnId}
+          AND "status" = 'pending'
+        LIMIT 1
+      `
+    );
+    return concurrent[0]!;
+  }
+
+  const financeUserIds = await getFinanceApprovalUserIds(input.companyId);
+  await Promise.all(
+    financeUserIds.map((userId) =>
+      createNotification({
+        companyId: input.companyId,
+        userId,
+        type: "approval_requested",
+        title: "Return cancel approval requested",
+        body: `Process cancellation in ERPNext for ${input.invoiceLabel}. Open the linked Sales Invoice from Finance Approvals.`,
+        entityType: "ApprovalRequest",
+        entityId: id,
+      })
+    )
+  );
+
+  return { id, status: "pending" as ApprovalStatus };
+}
+
 export async function notifyApprovalRequester(input: {
   companyId: string;
   approvalId: string;
   status: "approved" | "rejected";
   invoiceLabel: string;
   requestedById: string | null;
+  approvalType?: string;
 }) {
   if (!input.requestedById) return;
+  const isReturnCancel = input.approvalType === RETURN_CANCEL_APPROVAL;
+  const isReturnRearrange = input.approvalType === RETURN_REARRANGE_PAYMENT_APPROVAL;
   await createNotification({
     companyId: input.companyId,
     userId: input.requestedById,
@@ -413,8 +532,14 @@ export async function notifyApprovalRequester(input: {
     title: input.status === "approved" ? "Finance approval granted" : "Finance approval rejected",
     body:
       input.status === "approved"
-        ? `${input.invoiceLabel} is approved for rearrange dispatch.`
-        : `${input.invoiceLabel} finance approval was rejected.`,
+        ? isReturnCancel
+          ? `${input.invoiceLabel} cancel request marked processed. Cancellation is completed in ERPNext.`
+          : isReturnRearrange
+            ? `${input.invoiceLabel} is approved for rearrange dispatch.`
+            : `${input.invoiceLabel} finance approval was granted.`
+        : isReturnCancel
+          ? `${input.invoiceLabel} cancel request was rejected.`
+          : `${input.invoiceLabel} finance approval was rejected.`,
     entityType: "ApprovalRequest",
     entityId: input.approvalId,
   });

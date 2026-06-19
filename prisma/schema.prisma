@@ -642,6 +642,10 @@ model OrderReturn {
   actionStatus        OrderReturnActionStatus @default(pending)
   actionType          String?
   actionRemark        String?
+  returnRemark        String?
+  remarkTemplate      String?
+  cancelRemark        String?
+  cancelRequestedAt   DateTime?
   actionDate          DateTime?
   returnedById        String?
   actionById          String?
