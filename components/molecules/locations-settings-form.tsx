@@ -64,6 +64,7 @@ type Location = {
   erpnextWarehouse?: string | null;
   erpnextInstanceId?: string | null;
   fulfillmentBlocked?: boolean;
+  isMainCompany?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -102,6 +103,7 @@ const emptyForm = (): LocationForm => ({
   erpnextWarehouse: "",
   erpnextInstanceId: null,
   fulfillmentBlocked: false,
+  isMainCompany: false,
 });
 
 interface LocationsSettingsFormProps {
@@ -286,6 +288,7 @@ export function LocationsSettingsForm({
       erpnextWarehouse: loc.erpnextWarehouse ?? "",
       erpnextInstanceId: loc.erpnextInstanceId ?? null,
       fulfillmentBlocked: loc.fulfillmentBlocked ?? false,
+      isMainCompany: loc.isMainCompany ?? false,
     });
     setSheetOpen(true);
   }
@@ -400,7 +403,8 @@ export function LocationsSettingsForm({
           (form.erpnextCompany?.trim() ?? "") !== (editingLocation.erpnextCompany ?? "").trim() ||
           (form.erpnextWarehouse?.trim() ?? "") !== (editingLocation.erpnextWarehouse ?? "").trim() ||
           (form.erpnextInstanceId ?? null) !== (editingLocation.erpnextInstanceId ?? null) ||
-          (form.fulfillmentBlocked ?? false) !== (editingLocation.fulfillmentBlocked ?? false)
+          (form.fulfillmentBlocked ?? false) !== (editingLocation.fulfillmentBlocked ?? false) ||
+          (form.isMainCompany ?? false) !== (editingLocation.isMainCompany ?? false)
         : false;
 
   async function handleLocationLogoChange(url: string | null) {
@@ -437,6 +441,7 @@ export function LocationsSettingsForm({
         erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
         erpnextInstanceId: form.erpnextInstanceId ?? null,
         fulfillmentBlocked: form.fulfillmentBlocked ?? false,
+        isMainCompany: form.isMainCompany ?? false,
       };
       const res = await fetch(`/api/admin/company/locations/${editingId}`, {
         method: "PATCH",
@@ -498,6 +503,7 @@ export function LocationsSettingsForm({
       erpnextWarehouse: form.erpnextWarehouse?.trim() || null,
       erpnextInstanceId: form.erpnextInstanceId ?? null,
       fulfillmentBlocked: form.fulfillmentBlocked ?? false,
+      isMainCompany: form.isMainCompany ?? false,
     };
 
     if (sheetMode === "add") {
@@ -691,6 +697,12 @@ export function LocationsSettingsForm({
                         <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
                           <Ban className="size-3" aria-hidden />
                           Fulfillment blocked
+                        </span>
+                      )}
+                      {loc.isMainCompany && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          <Store className="size-3" aria-hidden />
+                          Main company
                         </span>
                       )}
                     </div>
@@ -894,6 +906,23 @@ export function LocationsSettingsForm({
                 disabled={isBusy}
                 maxLength={50}
               />
+              <label className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/70 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4 shrink-0"
+                  checked={form.isMainCompany ?? false}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, isMainCompany: e.target.checked }))
+                  }
+                  disabled={isBusy}
+                />
+                <span>
+                  <span className="block font-medium">Main company</span>
+                  <span className="text-muted-foreground text-xs">
+                    Prints this location as the main company without the brand logo.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">

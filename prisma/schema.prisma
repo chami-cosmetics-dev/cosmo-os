@@ -404,6 +404,7 @@ model CompanyLocation {
   erpnextWarehouse        String?
   erpnextInstanceId       String?
   fulfillmentBlocked      Boolean                 @default(false)
+  isMainCompany           Boolean                 @default(false)
   company                 Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   erpnextInstance         ErpnextInstance?        @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
   defaultMerchant         User?                   @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])

@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { findMatchingContacts } from "@/lib/contact-identifiers";
 import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
-import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
-import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -72,77 +71,7 @@ function stripManualInvoiceNumberAsName(
 function getCity(addr: unknown): string {
   if (!addr || typeof addr !== "object") return "";
   const a = addr as Record<string, unknown>;
-  return typeof a.city === "string" ? a.city.trim() : "";
-}
-
-function isMeaningfulInvoiceValue(value: string | null | undefined): boolean {
-  const trimmed = value?.trim();
-  return Boolean(trimmed && trimmed !== "—" && trimmed.toLowerCase() !== "none");
-}
-
-function unwrapOrderRawPayload(rawPayload: unknown): Record<string, unknown> | null {
-  if (!rawPayload || typeof rawPayload !== "object") return null;
-  const top = rawPayload as Record<string, unknown>;
-  if (top.data != null && typeof top.data === "object" && !Array.isArray(top.data)) {
-    return top.data as Record<string, unknown>;
-  }
-  return top;
-}
-
-function extractPayloadText(rawPayload: unknown, keys: string[]): string {
-  const payload = unwrapOrderRawPayload(rawPayload);
-  if (!payload) return "";
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === "string" && isMeaningfulInvoiceValue(value)) {
-      return value.trim();
-    }
-  }
-  return "";
-}
-
-function joinRemarkContents(
-  remarks: Array<{ type: string; content: string; showOnInvoice: boolean }>,
-  type: "external" | "internal",
-  preferOnInvoice: boolean,
-): string {
-  const filtered = remarks.filter((r) => r.type === type);
-  const onInvoice = filtered.filter((r) => r.showOnInvoice).map((r) => r.content.trim()).filter(Boolean);
-  if (preferOnInvoice && onInvoice.length > 0) return onInvoice.join("; ");
-  const all = filtered.map((r) => r.content.trim()).filter(Boolean);
-  return all.join("; ");
-}
-
-function invoiceDetailLine(label: string, value: string | null | undefined, escape: (s: string) => string): string {
-  const display = isMeaningfulInvoiceValue(value) ? value!.trim() : "—";
-  return `<p><strong>${label}:</strong> ${escape(display)}</p>`;
-}
-
-function normalizeCompareText(value: string | null | undefined): string {
-  return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
-}
-
-function formatUserDisplayName(user: {
-  name?: string | null;
-  knownName?: string | null;
-  email?: string | null;
-} | null | undefined): string {
-  if (!user) return "";
-  return user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "";
-}
-
-async function resolveMerchantByCoupon(companyId: string, couponCode: string) {
-  const couponLower = couponCode.toLowerCase().trim();
-  if (!couponLower) return null;
-  const merchants = await prisma.user.findMany({
-    where: eligibleMerchantUserWhere(companyId),
-    select: { name: true, knownName: true, email: true, couponCodes: true },
-  });
-  return (
-    merchants.find((merchant) =>
-      merchant.couponCodes.some((code) => code.toLowerCase().trim() === couponLower),
-    ) ?? null
-  );
+  return typeof a.city === "string" ? a.city : "";
 }
 
 function formatPrice(val: string | number, currency?: string | null): string {
@@ -251,7 +180,7 @@ export async function GET(
     prisma.order.findFirst({
       where: { id: idResult.data, companyId },
       include: {
-        company: { select: { name: true, address: true } },
+        company: { select: { name: true, address: true, logoUrl: true } },
         companyLocation: { include: { erpnextInstance: true } },
         assignedMerchant: { select: { name: true, knownName: true, email: true, couponCodes: true } },
         lineItems: {
@@ -290,9 +219,7 @@ export async function GET(
   const lineItemSkus = order.lineItems
     .map((li) => li.productItem.sku)
     .filter((sku): sku is string => Boolean(sku?.trim()));
-  const barcodeBySku = await loadBarcodeLookupBySku(companyId, lineItemSkus, {
-    erpConfig,
-  });
+  const barcodeBySku = await loadBarcodeLookupBySku(companyId, lineItemSkus, { erpConfig });
 
   const showWatermark = order.printCount > 0;
   const printedAt = new Date();
@@ -320,9 +247,8 @@ export async function GET(
     order.customerEmail?.trim() ||
     "";
   const customerName = stripManualInvoiceNumberAsName(order, customerNameRaw);
-  const billingAddrRaw = formatAddress(order.billingAddress);
+  const billingAddr = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
-  const billingAddr = billingAddrRaw || shippingAddr;
   const shippingCity = getCity(order.shippingAddress);
   const customerPhones = await getInvoiceCustomerPhones({
     companyId,
@@ -331,43 +257,19 @@ export async function GET(
   });
   const customerPhoneDisplay = customerPhones.join(", ");
 
+  const externalRemarks = order.remarks
+    .filter((r) => r.type === "external" && r.showOnInvoice)
+    .map((r) => r.content);
+  const internalRemarks = order.remarks
+    .filter((r) => r.type === "internal" && r.showOnInvoice)
+    .map((r) => r.content);
+
   const merchantCouponCode = getMerchantCouponCode({
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
     assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
   });
-
-  let merchantName = formatUserDisplayName(order.assignedMerchant);
-
-  if (!merchantName && merchantCouponCode) {
-    const merchantFromCoupon = await resolveMerchantByCoupon(companyId, merchantCouponCode);
-    merchantName = formatUserDisplayName(merchantFromCoupon);
-  }
-
-  if (!merchantName) {
-    const erpOwner = extractPayloadText(order.rawPayload, ["owner"]);
-    if (erpOwner) {
-      const erpUser = await prisma.user.findUnique({
-        where: { erpnextUsername: erpOwner },
-        select: { name: true, knownName: true, email: true },
-      });
-      merchantName = formatUserDisplayName(erpUser) || erpOwner;
-    }
-  }
-
-  if (!merchantName && loc.defaultMerchantUserId) {
-    const defaultMerchant = await prisma.user.findUnique({
-      where: { id: loc.defaultMerchantUserId },
-      select: { name: true, knownName: true, email: true },
-    });
-    merchantName = formatUserDisplayName(defaultMerchant);
-  }
-
-  const customerNotes =
-    joinRemarkContents(order.remarks, "external", true) ||
-    extractPayloadText(order.rawPayload, ["note", "customer_note", "customer_notes", "remarks"]);
-  const callCenterNotes = joinRemarkContents(order.remarks, "internal", true);
 
   function escapeHtml(s: string): string {
     return s
@@ -400,11 +302,38 @@ export async function GET(
   const companyName = company?.name ?? loc.name ?? "";
   const companyAddress = loc.address ?? company?.address ?? "";
   const currency = order.currency ?? "LKR";
-  const showCompanyName =
-    isMeaningfulInvoiceValue(companyName) &&
-    normalizeCompareText(companyName) !== normalizeCompareText(loc.invoiceHeader);
-  const paymentMethod = getPaymentMethod(order.financialStatus, paymentGatewayPrimary);
-  const paymentDescription = getPaymentDescription(order.financialStatus, paymentGatewayPrimary);
+  const printedDate = printedAt.toISOString().slice(0, 10);
+  const totalQuantity =
+    order.lineItems.reduce((sum, item) => sum + item.quantity, 0) +
+    order.sampleFreeIssues.reduce((sum, item) => sum + item.quantity, 0);
+  const shippingTotal = Number(order.totalShipping ?? 0);
+  const grandTotal = Number(order.totalPrice ?? 0);
+  const productTotal = Math.max(0, grandTotal - shippingTotal);
+  const brandLogoUrl = company?.logoUrl ?? null;
+  const locationLogoUrl = loc.logoUrl ?? null;
+  const locationDisplayName = loc.invoiceHeader ?? loc.name ?? "";
+
+  function formatInvoiceMoney(val: string | number): string {
+    const n = typeof val === "string" ? parseFloat(val) : val;
+    if (Number.isNaN(n)) return String(val);
+    return `Rs ${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
+  }
+
+  function renderBrandMark(input: { logoUrl: string | null; label: string; showLabel?: boolean }) {
+    const label = escapeHtml(input.label || "");
+    const fallbackClass = input.showLabel ? "brand-fallback visible" : "brand-fallback";
+    const fallback = label ? `<span class="${fallbackClass}">${label}</span>` : "";
+    if (!input.logoUrl) return fallback;
+    return `
+      ${fallback}
+      <img
+        src="${escapeHtml(input.logoUrl)}"
+        alt="${label}"
+        class="brand-logo"
+        referrerpolicy="no-referrer"
+        onerror="this.style.display='none';var fallback=this.previousElementSibling;if(fallback){fallback.style.display='block';}"
+      />`;
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -415,13 +344,13 @@ export async function GET(
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      font-size: 11px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10px;
       line-height: 1.5;
-      color: #1a1a1a;
-      max-width: 820px;
+      color: #000;
+      max-width: 760px;
       margin: 0 auto;
-      padding: 28px;
+      padding: 42px 48px;
       background: #fff;
     }
     .copy-banner {
@@ -436,383 +365,314 @@ export async function GET(
       color: #92400e;
       margin-bottom: 20px;
     }
-    @media print {
-      .copy-banner { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    }
-    .top-accent {
-      height: 4px;
-      background: linear-gradient(90deg, #1e3a5f 0%, #2d5a87 100%);
-      margin: -28px -28px 24px -28px;
-      border-radius: 0;
-    }
-    .invoice-header {
+    .invoice-brands {
       display: flex;
       justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 28px;
-      flex-wrap: wrap;
-      gap: 20px;
+      align-items: center;
+      gap: 24px;
+      min-height: 58px;
+      padding-bottom: 12px;
+      border-bottom: 1.5px solid #000;
+      margin-bottom: 22px;
     }
-    .invoice-meta {
-      padding: 16px 20px;
-      background: #f8fafc;
-      border-left: 4px solid #1e3a5f;
-      border-radius: 0 6px 6px 0;
+    .brand-block {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      width: 45%;
     }
-    .invoice-meta .inv-label {
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #64748b;
-      margin-bottom: 4px;
-    }
-    .invoice-meta .inv-number {
-      font-size: 20px;
-      font-weight: 700;
-      color: #1e3a5f;
-      margin-bottom: 8px;
-    }
-    .invoice-meta p {
-      font-size: 11px;
-      color: #475569;
-      margin: 2px 0;
-    }
-    .company-info {
+    .brand-block.right {
+      justify-content: flex-end;
       text-align: right;
-      max-width: 280px;
+      margin-left: auto;
     }
-    .company-info .company-logo {
-      max-height: 64px;
-      max-width: 180px;
+    .brand-logo {
+      max-height: 52px;
+      max-width: 205px;
       width: auto;
       height: auto;
       object-fit: contain;
-      margin-bottom: 12px;
-      display: block;
-      margin-left: auto;
     }
-    .company-info .brand {
-      font-size: 18px;
+    .brand-fallback {
+      display: none;
+      font-size: 13px;
       font-weight: 700;
-      color: #1e3a5f;
-      margin: 0 0 2px 0;
-      letter-spacing: -0.02em;
+      line-height: 1.2;
     }
-    .company-info .tagline {
-      font-size: 11px;
-      color: #64748b;
-      margin: 0 0 12px 0;
-      font-weight: 500;
+    .brand-fallback.visible {
+      display: block;
+      margin-top: 4px;
     }
-    .company-info p {
-      font-size: 11px;
-      color: #475569;
-      margin: 2px 0;
-      line-height: 1.5;
+    h1 {
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0 0 16px 0;
+      font-weight: 800;
     }
+    .invoice-details {
+      display: grid;
+      grid-template-columns: 104px 10px 1fr;
+      gap: 4px 8px;
+      margin-bottom: 34px;
+      font-size: 9px;
+      max-width: 310px;
+    }
+    .invoice-details dt { font-weight: 700; }
+    .invoice-details dd { margin: 0; }
     .addresses {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 28px;
-      margin-bottom: 24px;
-      padding: 20px;
-      background: #fafbfc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      gap: 56px;
+      margin-bottom: 34px;
     }
-    @media (max-width: 600px) { .addresses { grid-template-columns: 1fr; } }
     .address-block h3 {
       font-size: 10px;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #64748b;
-      margin-bottom: 10px;
-      padding-bottom: 6px;
-      border-bottom: 1px solid #e2e8f0;
+      margin-bottom: 8px;
     }
     .address-block p {
-      font-size: 11px;
-      color: #334155;
-      margin: 4px 0;
-      line-height: 1.5;
+      font-size: 9px;
+      margin: 2px 0;
+      line-height: 1.45;
     }
     .table-wrap {
-      overflow-x: auto;
-      margin-bottom: 20px;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      margin-bottom: 28px;
+      border-top: 1.5px solid #000;
+      border-bottom: 1.5px solid #000;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 11px;
+      font-size: 8px;
     }
     th, td {
-      padding: 10px 14px;
+      padding: 10px 8px;
       text-align: left;
-      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
     }
     thead th {
-      background: #1e3a5f;
-      color: #fff;
-      font-weight: 600;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      border: none;
+      color: #000;
+      font-weight: 800;
+      font-size: 7px;
+      border-bottom: 1px solid #000;
     }
-    thead th:first-child { border-radius: 8px 0 0 0; }
-    thead th:last-child { border-radius: 0 8px 0 0; }
-    tbody tr:nth-child(even) { background: #f8fafc; }
-    tbody tr:hover { background: #f1f5f9; }
-    tbody tr:last-child td { border-bottom: none; }
+    tbody td {
+      padding-top: 12px;
+      padding-bottom: 12px;
+    }
+    .sku {
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .barcode {
+      display: inline-block;
+      max-width: 78px;
+      padding: 2px 4px;
+      border: 1px solid #d8d8d8;
+      border-radius: 2px;
+      color: #666;
+      font-size: 7px;
+      overflow-wrap: anywhere;
+    }
     .text-right { text-align: right; }
-    .grand-total-container { text-align: right; margin-top: 16px; margin-bottom: 8px; }
-    .grand-total-wrap {
-      display: inline-block;
-      text-align: right;
-      padding: 16px 28px;
-      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
-      color: #fff;
-      border-radius: 8px;
-    }
-    .grand-total-label {
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      opacity: 0.9;
-      margin-bottom: 4px;
-    }
-    .grand-total-amount {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-    .payment-section {
-      margin-top: 24px;
-      padding: 20px 24px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
+    .text-center { text-align: center; }
+    .summary {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px 32px;
+      grid-template-columns: 1fr 260px;
+      gap: 28px;
+      margin-bottom: 20px;
     }
-    @media (max-width: 600px) { .payment-section { grid-template-columns: 1fr; } }
-    .payment-section p {
-      margin: 0;
-      font-size: 11px;
-      color: #334155;
+    .summary-left,
+    .summary-right {
+      font-size: 9px;
     }
-    .payment-section strong {
-      display: inline-block;
-      min-width: 130px;
-      color: #64748b;
-      font-weight: 600;
+    .summary-left p,
+    .summary-right p {
+      margin: 0 0 12px 0;
     }
-    .footer-section {
-      margin-top: 32px;
-      padding-top: 24px;
-      border-top: 2px solid #e2e8f0;
-      text-align: center;
-    }
-    .footer-section .brand {
-      font-size: 13px;
-      font-weight: 700;
-      color: #1e3a5f;
-      margin-bottom: 8px;
-    }
-    .footer-section .contact {
-      font-size: 10px;
-      color: #64748b;
+    .summary-row {
+      display: grid;
+      grid-template-columns: 1fr 120px;
+      gap: 16px;
+      align-items: baseline;
       margin-bottom: 12px;
     }
-    .footer-section .policy {
-      font-size: 10px;
-      color: #64748b;
-      line-height: 1.6;
-      max-width: 640px;
-      margin: 0 auto;
+    .summary-row.line {
+      padding-bottom: 8px;
+      border-bottom: 1px solid #000;
     }
-    .invoice-policy-notes {
-      margin-top: 28px;
-      padding-top: 16px;
-      border-top: 1px solid #e2e8f0;
-      font-size: 10px;
-      color: #1a1a1a;
-      line-height: 1.7;
+    .grand {
+      font-size: 11px;
+      font-weight: 800;
     }
-    .invoice-policy-notes p {
-      margin: 6px 0;
+    .notes-box {
+      margin-top: 14px;
+      width: 330px;
+      min-height: 60px;
+      border: 1px dashed #bdbdbd;
+      padding: 9px 11px;
+      font-size: 8px;
     }
-    .invoice-policy-notes .return-policy {
+    .notes-box .label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 7px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+    .help-line {
+      margin-top: 56px;
       text-align: center;
-      font-weight: 700;
+      font-size: 9px;
+    }
+    .help-line strong { font-weight: 800; }
+    .invoice-policy-notes {
+      margin-top: 10px;
+      font-size: 8px;
+      text-align: center;
+      line-height: 1.6;
+    }
+    .invoice-policy-notes p { margin: 6px 0; }
+    @media (max-width: 600px) {
+      body { padding: 28px; }
+      .addresses,
+      .summary { grid-template-columns: 1fr; }
+      .notes-box { width: 100%; }
     }
     @media print {
-      body { padding: 16px; }
-      .top-accent { margin: -16px -16px 20px -16px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .invoice-meta { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .grand-total-wrap { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      tbody tr:nth-child(even) { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      tbody tr:hover { background: none !important; }
+      @page { size: A4; margin: 0; }
+      body { padding: 42px 48px; max-width: none; }
+      .copy-banner { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
   </style>
 </head>
 <body>
   <div class="content">
-    <div class="top-accent"></div>
     ${showWatermark ? '<div class="copy-banner">COPY</div>' : ""}
-    <div class="invoice-header">
-      <div class="invoice-meta">
-        <div class="inv-label">Invoice</div>
-        <div class="inv-number">${escapeHtml(invoiceNumber)}</div>
-        ${merchantName ? `<p><strong>Merchant:</strong> ${escapeHtml(merchantName)}</p>` : ""}
-        <p><strong>Invoice Date:</strong> ${invoiceDate}</p>
-        <p><strong>Printed On:</strong> ${printedOn}</p>
+    <div class="invoice-brands">
+      <div class="brand-block left">
+        ${renderBrandMark({ logoUrl: locationLogoUrl, label: locationDisplayName })}
       </div>
-      <div class="company-info">
-        ${loc.logoUrl ? `<img src="${escapeHtml(loc.logoUrl)}" alt="Logo" class="company-logo" />` : ""}
-        ${loc.invoiceHeader ? `<div class="brand">${escapeHtml(loc.invoiceHeader)}</div>` : ""}
-        ${loc.invoiceSubHeader ? `<div class="tagline">${escapeHtml(loc.invoiceSubHeader)}</div>` : ""}
-        ${showCompanyName ? `<p>${escapeHtml(companyName)}</p>` : ""}
-        ${companyAddress ? `<p>${escapeHtml(companyAddress)}</p>` : ""}
-        ${loc.invoiceEmail ? `<p>${escapeHtml(loc.invoiceEmail)}</p>` : ""}
-        ${loc.invoicePhone ? `<p>Tel ${escapeHtml(loc.invoicePhone)}</p>` : ""}
+      <div class="brand-block right">
+        ${loc.isMainCompany
+          ? `<span class="brand-fallback visible">${escapeHtml(locationDisplayName)}</span>`
+          : renderBrandMark({ logoUrl: brandLogoUrl, label: companyName })}
       </div>
     </div>
 
+    <h1>Sales Invoice</h1>
+    <dl class="invoice-details">
+      <dt>Invoice No</dt><dd>:</dd><dd>${escapeHtml(invoiceNumber)}</dd>
+      <dt>Invoice Date</dt><dd>:</dd><dd>${invoiceDate}</dd>
+      <dt>Printed On</dt><dd>:</dd><dd>${printedDate}</dd>
+      <dt>Payment Status</dt><dd>:</dd><dd>${escapeHtml(order.financialStatus ?? "-")}</dd>
+      <dt>Payment Method</dt><dd>:</dd><dd>${escapeHtml(getPaymentMethod(order.financialStatus, paymentGatewayPrimary))}</dd>
+    </dl>
+
     <div class="addresses">
       <div class="address-block">
-        <h3>Bill To</h3>
-        <p><strong>Customer Name:</strong> ${escapeHtml(customerName || "—")}</p>
-        <p><strong>Contact Number:</strong> ${escapeHtml(customerPhoneDisplay || "—")}</p>
-        <p><strong>Address:</strong> ${escapeHtml(billingAddr || "—")}</p>
+        <h3>Bill to</h3>
+        <p><strong>${escapeHtml(customerName || "-")}</strong></p>
+        ${customerPhoneDisplay ? `<p>Contact: ${escapeHtml(customerPhoneDisplay)}</p>` : ""}
+        ${billingAddr ? `<p>${escapeHtml(billingAddr)}</p>` : ""}
       </div>
       <div class="address-block">
-        <h3>Shipping To</h3>
-        <p><strong>Customer Name:</strong> ${escapeHtml(customerName || "—")}</p>
-        <p><strong>Address:</strong> ${escapeHtml(shippingAddr || "—")}</p>
-        <p><strong>City:</strong> ${escapeHtml(shippingCity || "—")}</p>
+        <h3>Ship to</h3>
+        <p><strong>${escapeHtml(customerName || "-")}</strong></p>
+        ${customerPhoneDisplay ? `<p>Contact: ${escapeHtml(customerPhoneDisplay)}</p>` : ""}
+        ${shippingAddr ? `<p>${escapeHtml(shippingAddr)}</p>` : ""}
+        ${shippingCity ? `<p>${escapeHtml(shippingCity)}</p>` : ""}
       </div>
     </div>
 
     <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>CODE</th>
-          <th>BARCODE</th>
-          <th>PRODUCT</th>
-          <th class="text-right">QTY</th>
-          <th class="text-right">REGULAR PRICE</th>
-          <th class="text-right">SALES PRICE</th>
-          <th class="text-right">DISC %</th>
-          <th class="text-right">TOTAL</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${order.lineItems
-          .map(
-            (li) => {
-              const regPrice = li.productItem.compareAtPrice ?? li.productItem.price;
-              const discPct =
+      <table>
+        <thead>
+          <tr>
+            <th class="text-center">SR</th>
+            <th>ITEM CODE</th>
+            <th>BARCODE</th>
+            <th>DESCRIPTION</th>
+            <th class="text-right">QTY</th>
+            <th class="text-right">PRICE</th>
+            <th class="text-right">DISCOUNT</th>
+            <th class="text-right">NET RATE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${order.lineItems
+            .map((li, index) => {
+              const regularPrice = Number(li.productItem.compareAtPrice ?? li.productItem.price);
+              const linePrice = Number(li.price);
+              const lineTotal = linePrice * li.quantity;
+              const lineDiscount =
                 li.discountPercent != null && Number(li.discountPercent) !== 0
-                  ? String(li.discountPercent)
-                  : "—";
+                  ? (regularPrice * li.quantity * Number(li.discountPercent)) / 100
+                  : Math.max(0, (regularPrice - linePrice) * li.quantity);
               const productName = [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ");
               const barcode = formatPickListBarcode(
                 resolvePickListBarcode(li.productItem.barcode, li.productItem.sku, barcodeBySku),
               );
               return `
-        <tr>
-          <td>${escapeHtml(li.productItem.sku ?? "—")}</td>
-          <td>${escapeHtml(barcode)}</td>
-          <td>${escapeHtml(productName)}</td>
-          <td class="text-right">${li.quantity}</td>
-          <td class="text-right">${formatPrice(regPrice.toString(), order.currency)}</td>
-          <td class="text-right">${formatPrice(li.price.toString(), order.currency)}</td>
-          <td class="text-right">${escapeHtml(discPct)}</td>
-          <td class="text-right">${formatPrice(Number(li.price) * li.quantity, order.currency)}</td>
-        </tr>`;
-            }
-          )
-          .join("")}
-        ${order.sampleFreeIssues
-          .map(
-            (s) => `
-        <tr>
-          <td>—</td>
-          <td>—</td>
-          <td>${escapeHtml(s.sampleFreeIssueItem.name)} <em>(${s.sampleFreeIssueItem.type})</em></td>
-          <td class="text-right">${s.quantity}</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-        </tr>`
-          )
-          .join("")}
-        ${order.totalDiscounts && Number(order.totalDiscounts) !== 0
-          ? `
-        <tr>
-          <td colspan="2">—</td>
-          <td>Discount${merchantCouponCode ? ` (${escapeHtml(merchantCouponCode)})` : ""}</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">-${formatPrice(order.totalDiscounts.toString(), order.currency)}</td>
-        </tr>`
-          : ""}
-        ${order.totalShipping && Number(order.totalShipping) !== 0
-          ? `
-        <tr>
-          <td colspan="2">—</td>
-          <td>Shipping + Bag Fee</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">—</td>
-          <td class="text-right">${formatPrice(order.totalShipping.toString(), order.currency)}</td>
-        </tr>`
-          : ""}
-      </tbody>
-    </table>
+          <tr>
+            <td class="text-center">${index + 1}</td>
+            <td class="sku">${escapeHtml(li.productItem.sku ?? "-")}</td>
+            <td>${barcode ? `<span class="barcode">${escapeHtml(barcode)}</span>` : "-"}</td>
+            <td>${escapeHtml(productName)}</td>
+            <td class="text-right">${li.quantity}</td>
+            <td class="text-right">${formatInvoiceMoney(regularPrice)}</td>
+            <td class="text-right">${formatInvoiceMoney(lineDiscount)}</td>
+            <td class="text-right"><strong>${formatInvoiceMoney(lineTotal)}</strong></td>
+          </tr>`;
+            })
+            .join("")}
+          ${order.sampleFreeIssues
+            .map((s, index) => `
+          <tr>
+            <td class="text-center">${order.lineItems.length + index + 1}</td>
+            <td>-</td>
+            <td>-</td>
+            <td>${escapeHtml(s.sampleFreeIssueItem.name)} <em>(${s.sampleFreeIssueItem.type})</em></td>
+            <td class="text-right">${s.quantity}</td>
+            <td class="text-right">-</td>
+            <td class="text-right">-</td>
+            <td class="text-right">-</td>
+          </tr>`)
+            .join("")}
+        </tbody>
+      </table>
     </div>
 
-    <div class="grand-total-container">
-    <div class="grand-total-wrap">
-      <div class="grand-total-label">Total (${currency})</div>
-      <div class="grand-total-amount">${formatPrice(order.totalPrice.toString(), null)}</div>
-    </div>
+    <div class="summary">
+      <div class="summary-left">
+        <p>Total Quantity: <strong>${totalQuantity}</strong></p>
+        <p><strong>Coupon Code</strong> <span style="display:inline-block;width:22px;text-align:center;">:</span> ${escapeHtml(merchantCouponCode ?? "-")}</p>
+        <div class="notes-box">
+          <span class="label">SPECIAL NOTES</span>
+          ${externalRemarks.length > 0 ? escapeHtml(externalRemarks.join("; ")) : "No special delivery notes applied."}
+        </div>
+      </div>
+      <div class="summary-right">
+        <div class="summary-row">
+          <span>Total</span>
+          <strong class="text-right">${formatInvoiceMoney(productTotal)}</strong>
+        </div>
+        <div class="summary-row line">
+          <span>Shipping Charges</span>
+          <strong class="text-right">${formatInvoiceMoney(shippingTotal)}</strong>
+        </div>
+        <div class="summary-row grand">
+          <span>Grand Total</span>
+          <span class="text-right">${formatInvoiceMoney(grandTotal)}</span>
+        </div>
+      </div>
     </div>
 
-    <div class="payment-section">
-      ${invoiceDetailLine("Payment Method", paymentMethod, escapeHtml)}
-      ${invoiceDetailLine("Coupon Code", merchantCouponCode, escapeHtml)}
-      ${invoiceDetailLine("Merchant", merchantName, escapeHtml)}
-      ${invoiceDetailLine("Customer Notes", customerNotes, escapeHtml)}
-      ${invoiceDetailLine("Call Center Notes", callCenterNotes, escapeHtml)}
-      ${invoiceDetailLine("Original Del Date", invoiceDate, escapeHtml)}
-      ${invoiceDetailLine("Payment Description", paymentDescription, escapeHtml)}
-    </div>
-
+    <p class="help-line">If you have any questions, Please call <strong>${escapeHtml(loc.invoicePhone ?? "+94777555304")}</strong></p>
     <div class="invoice-policy-notes">
-      <p>• NOTE- Please check and confirm product(s) with the invoice at the time of receiving and in case of an exchange should be within 3 days of the delivery, complains receiving afterward will not be accepted</p>
-      <p class="return-policy">• Return Policy is applied. For more info please visit : https://cosmetics.lk/pages/return-policy</p>
+      <p><strong>NOTE</strong> - Please check and confirm the product(s) at the time of receiving. In case of an exchange, it must be requested within 3 days of delivery. Complaints received afterward will not be accepted.</p>
+      ${loc.invoiceFooter ? `<p>${escapeHtml(loc.invoiceFooter)}</p>` : ""}
     </div>
-
-    ${loc.invoiceFooter ? `
-    <div class="footer-section">
-      ${(loc.invoicePhone || loc.invoiceEmail) ? `<div class="contact">${[loc.invoicePhone ? `Tel ${escapeHtml(loc.invoicePhone)}` : "", loc.invoiceEmail ? escapeHtml(loc.invoiceEmail) : ""].filter(Boolean).join(" · ")}</div>` : ""}
-      <div class="policy">${escapeHtml(loc.invoiceFooter)}</div>
-    </div>` : ""}
   </div>
   <script>
     if (${JSON.stringify(!!printParam)}) {

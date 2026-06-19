@@ -12,6 +12,10 @@ import {
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
+import {
+  handleErpSalesInvoiceCreditNoteEvent,
+  isErpSalesInvoiceCreditNoted,
+} from "@/lib/erp-credit-note-order-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -148,48 +152,25 @@ export async function POST(request: NextRequest) {
   const erpInvoiceId = `erp-${data.name}`;
 
   // Credit notes (return invoices) reverse a Sales Invoice. When ERP issues a credit note
-  // against an existing invoice, flip the original order to the "returned" stage so it shows
-  // as a returned order in Cosmo OS / Vault OS (same codebase, both deployments).
-  // Detected by is_return=1 OR negative grand_total (some ERP setups omit is_return).
+  // against an existing invoice, void the original order and move it to "returned".
+  const creditNoteResult = await handleErpSalesInvoiceCreditNoteEvent(data);
+  if (creditNoteResult.handled) {
+    console.log(
+      `[ERPNext webhook] Credit note event for ${data.name} — marked order as returned`,
+      { orderId: creditNoteResult.orderId },
+    );
+    return NextResponse.json({
+      ok: true,
+      returned: true,
+      orderId: creditNoteResult.orderId,
+    });
+  }
+
   if (
     data.is_return === 1 ||
     (data.grand_total != null && data.grand_total < 0)
   ) {
-    const returnAgainst = data.return_against?.trim() || null;
-    if (returnAgainst) {
-      // The original SI name is stored on the order as erpnextInvoiceId for both
-      // ERP-origin orders and Shopify-origin orders synced to ERP. Match defensively.
-      const original = await prisma.order.findFirst({
-        where: {
-          OR: [
-            { erpnextInvoiceId: returnAgainst },
-            { name: returnAgainst },
-            { shopifyOrderId: `erp-${returnAgainst}` },
-          ],
-        },
-        select: { id: true, name: true },
-      });
-      if (original) {
-        await prisma.order.update({
-          where: { id: original.id },
-          data: { fulfillmentStage: "returned" },
-        });
-        console.log(
-          `[ERPNext webhook] Credit note ${data.name} — marked order ${original.name} as returned (return_against=${returnAgainst})`,
-        );
-        return NextResponse.json({
-          ok: true,
-          returned: true,
-          orderId: original.id,
-        });
-      }
-      console.warn(
-        `[ERPNext webhook] Credit note ${data.name} — no original order found for return_against=${returnAgainst}`,
-      );
-    }
-
-    // Fallback: if a credit-note-named order somehow already exists, void it so it
-    // leaves the print queue (no original invoice link available).
+    // Return SI without a matching Vault order — void a stray credit-note row if present.
     const existing = await prisma.order.findUnique({
       where: { shopifyOrderId: erpInvoiceId },
       select: { id: true },
@@ -209,6 +190,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true, skipped: true });
   }
+
   const isPOS =
     data.is_pos === 1 ||
     (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
@@ -383,6 +365,8 @@ export async function POST(request: NextRequest) {
         ? [cleanPaymentType]
         : [];
 
+  const isCreditNoted = isErpSalesInvoiceCreditNoted(data.status, data.docstatus);
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -394,8 +378,12 @@ export async function POST(request: NextRequest) {
       erpnextInvoiceId: data.name,
       totalPrice: grandTotal,
       currency: data.currency ?? "LKR",
-      financialStatus,
-      fulfillmentStage: isPOS ? "delivery_complete" : "print",
+      financialStatus: isCreditNoted ? "voided" : financialStatus,
+      fulfillmentStage: isPOS
+        ? "delivery_complete"
+        : isCreditNoted
+          ? "returned"
+          : "print",
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
@@ -411,10 +399,14 @@ export async function POST(request: NextRequest) {
     },
     update: {
       totalPrice: grandTotal,
-      financialStatus,
+      financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
-      ...(isPOS ? { fulfillmentStage: "delivery_complete" } : {}),
+      ...(isPOS
+        ? { fulfillmentStage: "delivery_complete" }
+        : isCreditNoted
+          ? { fulfillmentStage: "returned" }
+          : {}),
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,

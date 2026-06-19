@@ -15,6 +15,7 @@ import {
   getOrderImportCutoff,
   isShopifyOrderBeforeImportCutoff,
 } from "@/lib/order-import-cutoff";
+import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -48,7 +49,12 @@ async function processOrderWebhookWithImmediateRetry(
 
   for (let attempt = 1; attempt <= WEBHOOK_PROCESS_ATTEMPTS; attempt += 1) {
     try {
-      await processOrderWebhook(input.data, input.location, input.rawPayload);
+      await processOrderWebhook(
+        input.data,
+        input.location,
+        input.rawPayload,
+        input.webhookMeta.topic
+      );
       if (attempt > 1) {
         console.warn("[Order webhook] Processed after retry", {
           ...input.webhookMeta,
@@ -305,6 +311,24 @@ export async function POST(request: NextRequest) {
       ok: true,
       skipped: true,
       reason: "before_import_cutoff",
+    });
+  }
+
+  const existingOrder = await prisma.order.findUnique({
+    where: { shopifyOrderId },
+    select: { id: true },
+  });
+
+  if (shouldSkipShopifyOrderWebhookForMissingOrder(shopifyTopic, !!existingOrder)) {
+    console.warn("[Order webhook] Skipping update webhook for order not in Vault OS", {
+      ...webhookMeta,
+      shopifyOrderId,
+      shopifyTopic,
+    });
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "order_not_in_system",
     });
   }
 
