@@ -29,6 +29,7 @@ const createLocationSchema = z.object({
   shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
   locationReference: z.string().max(LIMITS.locationReference.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
+  isMainCompany: z.boolean().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -82,6 +83,7 @@ export async function GET(request: NextRequest) {
         erpnextWarehouse: true,
         erpnextInstanceId: true,
         fulfillmentBlocked: true,
+        isMainCompany: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -176,6 +178,7 @@ export async function POST(request: NextRequest) {
       shopifyAdminStoreHandle: d.shopifyAdminStoreHandle?.trim() || null,
       locationReference: d.locationReference?.trim() || null,
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
+      isMainCompany: d.isMainCompany ?? false,
     },
     select: {
       id: true,
@@ -200,6 +203,7 @@ export async function POST(request: NextRequest) {
       manualInvoicePrefix: true,
       manualInvoiceNextSeq: true,
       manualInvoiceSeqPadding: true,
+      isMainCompany: true,
       createdAt: true,
       updatedAt: true,
     },

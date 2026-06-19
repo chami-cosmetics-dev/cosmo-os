@@ -1,0 +1,2 @@
+ALTER TABLE "CompanyLocation"
+ADD COLUMN IF NOT EXISTS "isMainCompany" BOOLEAN NOT NULL DEFAULT false;

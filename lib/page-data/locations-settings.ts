@@ -29,6 +29,7 @@ export type LocationsSettingsLocation = {
   erpnextCompany: string | null;
   erpnextWarehouse: string | null;
   fulfillmentBlocked: boolean;
+  isMainCompany: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -78,6 +79,7 @@ export async function getLocationsSettingsInitialData(
         erpnextCompany: true,
         erpnextWarehouse: true,
         fulfillmentBlocked: true,
+        isMainCompany: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -99,6 +101,7 @@ export async function getLocationsSettingsInitialData(
     erpnextCompany: l.erpnextCompany,
     erpnextWarehouse: l.erpnextWarehouse,
     fulfillmentBlocked: l.fulfillmentBlocked,
+    isMainCompany: l.isMainCompany,
     createdAt: l.createdAt.toISOString(),
     updatedAt: l.updatedAt.toISOString(),
   }));
