@@ -418,7 +418,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     merchantCouponCode: getMerchantCouponCode({
       sourceName: o.sourceName,
       discountCodes: o.discountCodes,
-      rawPayload: null,
+      rawPayload: o.rawPayload,
       assignedMerchantCouponCodes: o.assignedMerchant?.couponCodes ?? null,
     }),
   }));
