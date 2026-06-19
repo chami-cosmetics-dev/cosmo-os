@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -8,6 +9,8 @@ import {
   runDueFailedErpSyncRetries,
   scheduleUnscheduledFailedErpSyncs,
 } from "@/lib/failed-erp-sync-auto-retry";
+
+const failedErpSyncSearchSchema = z.string().trim().max(100).optional();
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("failed_webhooks.read");
@@ -38,11 +41,15 @@ export async function GET(request: NextRequest) {
 
   const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
   const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
+  const searchResult = failedErpSyncSearchSchema.safeParse(
+    request.nextUrl.searchParams.get("search") ?? undefined
+  );
   const page = pageResult.success ? pageResult.data : 1;
   const limit = limitResult.success ? limitResult.data : 20;
   const skip = (page - 1) * limit;
+  const search = searchResult.success ? searchResult.data : undefined;
 
-  const where = buildFailedErpSyncWhere(companyId);
+  const where = buildFailedErpSyncWhere(companyId, search);
 
   const [total, orders] = await Promise.all([
     prisma.order.count({ where }),
