@@ -17,6 +17,8 @@ export type OrderInvoiceCsvRow = {
   order_number: string;
   source_name: string;
   merchant_coupon_code: string;
+  status: string;
+  shipping_service: string;
   invoice_date: string;
   location_name: string;
   customer_name: string;
@@ -73,6 +75,8 @@ const ORDER_INVOICE_HEADERS = [
   "order_number",
   "source_name",
   "merchant_coupon_code",
+  "status",
+  "shipping_service",
   "invoice_date",
   "location_name",
   "customer_name",
@@ -137,6 +141,9 @@ export function createOrderInvoiceRow(input: {
   orderNumber: string | null;
   sourceName: string;
   merchantCouponCode: string | null;
+  fulfillmentStage: string | null;
+  financialStatus: string | null;
+  shippingService: string;
   createdAt: Date;
   locationName: string;
   customerName: string;
@@ -144,7 +151,6 @@ export function createOrderInvoiceRow(input: {
   customerPhone: string | null;
   billingAddress: string;
   shippingAddress: string;
-  financialStatus: string | null;
   fulfillmentStatus: string | null;
   paymentGateway: string;
   merchantName: string;
@@ -165,6 +171,8 @@ export function createOrderInvoiceRow(input: {
     order_number: input.orderNumber ?? "",
     source_name: formatSourceName(input.sourceName),
     merchant_coupon_code: input.merchantCouponCode ?? "",
+    status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
+    shipping_service: input.shippingService,
     invoice_date: formatIsoDate(input.createdAt),
     location_name: input.locationName,
     customer_name: input.customerName,

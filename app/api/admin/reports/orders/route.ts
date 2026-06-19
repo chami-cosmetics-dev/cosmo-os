@@ -63,6 +63,18 @@ function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
 }
 
+function getShippingService(order: {
+  dispatchedToCustomer?: boolean | null;
+  dispatchedByRider?: { name: string | null; mobile?: string | null } | null;
+  dispatchedByCourierService?: { name: string } | null;
+}) {
+  if (order.dispatchedToCustomer) return "Customer pickup";
+  if (order.dispatchedByRider) {
+    return order.dispatchedByRider.name ?? order.dispatchedByRider.mobile ?? "Rider";
+  }
+  return order.dispatchedByCourierService?.name ?? "";
+}
+
 function getReportLabel(report: ReportKind, range: RangeKind) {
   if (report === "invoice-item") {
     if (range === "warehouse-360") return "Web-site Invoice Item Detail (Invoice Wise) [Processed Up to Last Day]";
@@ -106,6 +118,8 @@ export async function GET(request: NextRequest) {
     include: {
       companyLocation: { select: { name: true } },
       assignedMerchant: { select: { name: true } },
+      dispatchedByRider: { select: { name: true, mobile: true } },
+      dispatchedByCourierService: { select: { name: true } },
       lineItems: {
         include: {
           productItem: {
@@ -215,6 +229,8 @@ export async function GET(request: NextRequest) {
         rawPayload: order.rawPayload,
         joinAllDiscountCodes: true,
       }),
+      fulfillmentStage: order.fulfillmentStage,
+      shippingService: getShippingService(order),
       createdAt: order.createdAt,
       locationName: order.companyLocation.name,
       customerName,
