@@ -98,16 +98,39 @@ export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
   return !id || id === "pending" || id === "pending_approval";
 }
 
-export function buildFailedErpSyncWhere(companyId?: string): Prisma.OrderWhereInput {
+export function buildFailedErpSyncWhere(companyId?: string, search?: string): Prisma.OrderWhereInput {
   const cutoff = getOrderImportCutoff();
-  return {
+  const base: Prisma.OrderWhereInput = {
     ...(companyId ? { companyId } : {}),
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
+    financialStatus: { not: "voided" },
     erpnextSyncError: { not: null },
     OR: [
       { erpnextInvoiceId: null },
       { erpnextInvoiceId: "pending" },
       { erpnextInvoiceId: "pending_approval" },
+    ],
+  };
+
+  const term = search?.trim();
+  if (!term) {
+    return base;
+  }
+
+  return {
+    AND: [
+      base,
+      {
+        OR: [
+          { orderNumber: { endsWith: term, mode: "insensitive" } },
+          { name: { endsWith: term, mode: "insensitive" } },
+          { erpnextInvoiceId: { endsWith: term, mode: "insensitive" } },
+          { shopifyOrderId: { contains: term, mode: "insensitive" } },
+          { customerEmail: { contains: term, mode: "insensitive" } },
+          { customerPhone: { contains: term, mode: "insensitive" } },
+          { erpnextSyncError: { contains: term, mode: "insensitive" } },
+        ],
+      },
     ],
   };
 }
@@ -153,6 +176,17 @@ export async function markOrderErpSyncFailed(
 }
 
 export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> {
+  if (order.financialStatus?.toLowerCase() === "voided") {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: orderUpdate(ERP_SYNC_SUCCESS_CLEAR),
+    });
+    console.warn("[ERPNext] Skipping retry for voided order", {
+      orderId: order.id,
+    });
+    return;
+  }
+
   const skipReason = getErpShopifySyncSkipReason(order.createdAt, order.companyLocation);
   if (skipReason) {
     await prisma.order.update({
