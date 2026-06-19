@@ -153,7 +153,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     }
   }
 
-  if (params.sourceFilter === "pos" || params.sourceFilter === "web") {
+  if (params.sourceFilter === "pos" || params.sourceFilter === "web" || params.sourceFilter === "erpnext-pos") {
     where.sourceName = params.sourceFilter;
   }
 
