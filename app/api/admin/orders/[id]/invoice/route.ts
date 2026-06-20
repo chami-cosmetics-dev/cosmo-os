@@ -5,6 +5,7 @@ import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { getDiscountCouponCode } from "@/lib/shopify-discount-codes";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
@@ -270,6 +271,7 @@ export async function GET(
     rawPayload: order.rawPayload,
     assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
   });
+  const discountCouponCode = getDiscountCouponCode(order.discountCodes);
 
   function escapeHtml(s: string): string {
     return s
@@ -646,7 +648,8 @@ export async function GET(
     <div class="summary">
       <div class="summary-left">
         <p>Total Quantity: <strong>${totalQuantity}</strong></p>
-        <p><strong>Coupon Code</strong> <span style="display:inline-block;width:22px;text-align:center;">:</span> ${escapeHtml(merchantCouponCode ?? "-")}</p>
+        <p><strong>Coupon Code</strong> <span style="display:inline-block;width:22px;text-align:center;">:</span> ${escapeHtml(discountCouponCode ?? "-")}</p>
+        ${merchantCouponCode ? `<p><strong>Mer Coupon</strong> <span style="display:inline-block;width:22px;text-align:center;">:</span> ${escapeHtml(merchantCouponCode)}</p>` : ""}
         <div class="notes-box">
           <span class="label">SPECIAL NOTES</span>
           ${externalRemarks.length > 0 ? escapeHtml(externalRemarks.join("; ")) : "No special delivery notes applied."}
