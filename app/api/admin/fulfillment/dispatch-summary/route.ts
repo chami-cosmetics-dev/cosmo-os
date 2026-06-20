@@ -4,6 +4,7 @@ import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
 import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { buildCsv, formatDispatchOrderReference } from "@/lib/reports/csv";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -97,10 +98,12 @@ async function fetchDispatchGroups(
       dispatchedToCustomer: true,
       deliveryCompleteAt: true,
       deliveryOutcome: true,
+      sourceName: true,
+      discountCodes: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
-      assignedMerchant: { select: { name: true } },
+      assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
     },
   });
 
@@ -178,7 +181,13 @@ async function fetchDispatchGroups(
       customerAddress,
       city,
       address,
-      merchantName: order.assignedMerchant?.name ?? null,
+      merchantName: resolveOrderMerchantLabel({
+        assignedMerchant: order.assignedMerchant,
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+        assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      }),
       totalPrice: order.totalPrice.toString(),
       currency: order.currency ?? "LKR",
       paymentType,

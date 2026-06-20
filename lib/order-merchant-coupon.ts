@@ -86,3 +86,23 @@ export function getMerchantCouponCode(params: {
 
   return null;
 }
+
+/** Display label for merchant column: assigned user name/email, else MER coupon code. */
+export function resolveOrderMerchantLabel(params: {
+  assignedMerchant?: { name: string | null; email: string | null } | null;
+  sourceName?: string | null;
+  discountCodes?: unknown;
+  rawPayload?: unknown;
+  assignedMerchantCouponCodes?: string[] | null;
+}): string | null {
+  const assigned =
+    params.assignedMerchant?.name?.trim() || params.assignedMerchant?.email?.trim() || null;
+  if (assigned) return assigned;
+
+  return getMerchantCouponCode({
+    sourceName: params.sourceName ?? null,
+    discountCodes: params.discountCodes,
+    rawPayload: params.rawPayload ?? null,
+    assignedMerchantCouponCodes: params.assignedMerchantCouponCodes ?? null,
+  });
+}
