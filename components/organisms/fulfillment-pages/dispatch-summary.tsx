@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarDays, CheckCircle2, Clock, Download, Loader2, Package, RefreshCw, Truck, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
 
 function todayIso() {
@@ -16,9 +24,24 @@ function formatPaymentType(raw: string | null) {
   return raw.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatAmount(price: string, currency: string) {
+function formatAmount(price: string | null | undefined, currency: string | null | undefined) {
+  if (price == null) return "—";
   const n = parseFloat(price);
-  return Number.isNaN(n) ? price : `${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })} ${currency}`;
+  if (Number.isNaN(n)) return price;
+  return `${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })} ${currency ?? "LKR"}`;
+}
+
+function formatAddress(addr: unknown): string {
+  if (!addr || typeof addr !== "object") return "—";
+  const a = addr as Record<string, unknown>;
+  const parts = [
+    a.address1,
+    a.address2,
+    [a.city, a.province_code].filter(Boolean).join(", "),
+    a.country,
+    a.zip,
+  ].filter(Boolean) as string[];
+  return parts.join(", ") || "—";
 }
 
 function formatDate(iso: string | null) {
@@ -29,21 +52,34 @@ function formatDate(iso: string | null) {
     : d.toLocaleString("en-LK", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function outcomeLabel(outcome: string | null) {
-  if (outcome === "delivered") return { label: "Delivered", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" };
-  if (outcome === "failed") return { label: "Failed", cls: "border-rose-500/30 bg-rose-500/10 text-rose-700" };
+function orderStatusLabel(
+  viewStatus: "pending" | "completed",
+  deliveryOutcome: string | null,
+): { label: string; cls: string } {
+  if (viewStatus === "pending") {
+    return { label: "Pending", cls: "border-amber-500/30 bg-amber-500/10 text-amber-700" };
+  }
+  if (deliveryOutcome === "delivered") {
+    return { label: "Delivered", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700" };
+  }
+  if (deliveryOutcome === "failed") {
+    return { label: "Failed", cls: "border-rose-500/30 bg-rose-500/10 text-rose-700" };
+  }
   return { label: "Pending", cls: "border-amber-500/30 bg-amber-500/10 text-amber-700" };
 }
 
 type DispatchOrder = {
   orderId: string;
   reference: string;
+  shopifyReference: string;
+  erpReference: string | null;
   orderDate: string;
   dispatchedAt: string;
   deliveryCompleteAt: string | null;
   deliveryOutcome: string | null;
   customerName: string;
   customerPhone: string | null;
+  customerAddress: string | null;
   city: string | null;
   address: string | null;
   merchantName: string | null;
@@ -53,10 +89,38 @@ type DispatchOrder = {
   locationName: string;
 };
 
+type OrderDetail = {
+  customerEmail?: string | null;
+  customerName?: string | null;
+  merchantCouponCode?: string | null;
+  discountCouponCode?: string | null;
+  totalDiscounts?: string | null;
+  totalShipping?: string | null;
+  subtotalPrice?: string | null;
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  financialStatus?: string | null;
+  shippingAddress?: unknown;
+  lineItems?: Array<{
+    id: string;
+    productTitle: string;
+    quantity: number;
+    price: string;
+    total: string;
+  }>;
+};
+
+type SelectedDispatchRow = {
+  order: DispatchOrder;
+  dispatcherName: string;
+  dispatchType: DispatchGroup["dispatchType"];
+  viewStatus: "pending" | "completed";
+};
+
 type DispatchGroup = {
   dispatcherId: string;
   dispatcherName: string;
-  dispatchType: "rider" | "courier";
+  dispatchType: "rider" | "courier" | "customer";
   orders: DispatchOrder[];
 };
 
@@ -83,6 +147,34 @@ export function DispatchSummaryPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [selectedRow, setSelectedRow] = useState<SelectedDispatchRow | null>(null);
+  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setOrderDetail(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setDetailLoading(true);
+    fetch(`/api/admin/orders/${selectedRow.order.orderId}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load order details");
+        return res.json() as Promise<OrderDetail>;
+      })
+      .then((json) => setOrderDetail(json))
+      .catch((err) => {
+        if ((err as Error).name !== "AbortError") {
+          setOrderDetail(null);
+          notify.error("Could not load full order details.");
+        }
+      })
+      .finally(() => setDetailLoading(false));
+
+    return () => controller.abort();
+  }, [selectedRow]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -176,8 +268,8 @@ export function DispatchSummaryPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isCompleted
-              ? "Completed deliveries grouped by rider and courier."
-              : "All outstanding dispatches awaiting delivery."}
+              ? "Completed deliveries grouped by rider, courier, and customer pickup."
+              : "Outstanding dispatches awaiting delivery, grouped by rider and courier."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -300,6 +392,8 @@ export function DispatchSummaryPage() {
                   <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
                     {group.dispatchType === "rider" ? (
                       <Users className="size-4 text-blue-500" />
+                    ) : group.dispatchType === "customer" ? (
+                      <Package className="size-4 text-violet-500" />
                     ) : (
                       <Truck className="size-4 text-amber-500" />
                     )}
@@ -315,73 +409,60 @@ export function DispatchSummaryPage() {
                     <table className="w-full text-sm">
                       <thead className="border-b bg-muted/30 text-left text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap">Invoice No</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Invoice</th>
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Location</th>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap">
-                            {isCompleted ? "Dispatched" : "Dispatched"}
-                          </th>
-                          {isCompleted && (
-                            <>
-                              <th className="px-4 py-2 font-medium whitespace-nowrap">Delivered</th>
-                              <th className="px-4 py-2 font-medium whitespace-nowrap">Status</th>
-                            </>
-                          )}
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Merchant</th>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap">Payment</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Dispatched</th>
                           <th className="px-4 py-2 font-medium whitespace-nowrap">Phone</th>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap">City</th>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap">Address</th>
-                          <th className="px-4 py-2 font-medium whitespace-nowrap text-right">Total</th>
+                          <th className="px-4 py-2 font-medium whitespace-nowrap">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         {group.orders.map((order) => {
-                          const outcome = outcomeLabel(order.deliveryOutcome);
+                          const statusBadge = orderStatusLabel(data.status, order.deliveryOutcome);
                           return (
-                            <tr key={order.orderId} className="border-b last:border-0 hover:bg-muted/20">
+                            <tr
+                              key={order.orderId}
+                              className="cursor-pointer border-b last:border-0 hover:bg-muted/20"
+                              tabIndex={0}
+                              onClick={() =>
+                                setSelectedRow({
+                                  order,
+                                  dispatcherName: group.dispatcherName,
+                                  dispatchType: group.dispatchType,
+                                  viewStatus: data.status,
+                                })
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key !== "Enter" && event.key !== " ") return;
+                                event.preventDefault();
+                                setSelectedRow({
+                                  order,
+                                  dispatcherName: group.dispatcherName,
+                                  dispatchType: group.dispatchType,
+                                  viewStatus: data.status,
+                                });
+                              }}
+                            >
                               <td className="px-4 py-2 font-medium whitespace-nowrap">{order.reference}</td>
                               <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.locationName}</td>
+                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.merchantName ?? "—"}</td>
                               <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
                                 <span className="flex items-center gap-1">
                                   <Clock className="size-3 shrink-0" />
                                   {formatDate(order.dispatchedAt)}
                                 </span>
                               </td>
-                              {isCompleted && (
-                                <>
-                                  <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">
-                                    {order.deliveryCompleteAt ? formatDate(order.deliveryCompleteAt) : "—"}
-                                  </td>
-                                  <td className="px-4 py-2 whitespace-nowrap">
-                                    <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${outcome.cls}`}>
-                                      {outcome.label}
-                                    </span>
-                                  </td>
-                                </>
-                              )}
-                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.merchantName ?? "—"}</td>
-                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatPaymentType(order.paymentType)}</td>
                               <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.customerPhone ?? "—"}</td>
-                              <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{order.city ?? "—"}</td>
-                              <td className="px-4 py-2 text-muted-foreground">{order.address ?? "—"}</td>
-                              <td className="px-4 py-2 text-right whitespace-nowrap">{formatAmount(order.totalPrice, order.currency)}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">
+                                <span className={`inline-flex rounded border px-2 py-0.5 text-xs font-medium ${statusBadge.cls}`}>
+                                  {statusBadge.label}
+                                </span>
+                              </td>
                             </tr>
                           );
                         })}
                       </tbody>
-                      <tfoot>
-                        <tr className="border-t bg-muted/30 font-medium">
-                          <td colSpan={isCompleted ? 10 : 8} className="px-4 py-2 text-xs text-muted-foreground">
-                            {group.orders.length} order{group.orders.length !== 1 ? "s" : ""}
-                          </td>
-                          <td className="px-4 py-2 text-right whitespace-nowrap">
-                            {formatAmount(
-                              group.orders.reduce((s, o) => s + parseFloat(o.totalPrice || "0"), 0).toFixed(2),
-                              group.orders[0]?.currency ?? "LKR",
-                            )}
-                          </td>
-                        </tr>
-                      </tfoot>
                     </table>
                   </div>
                 </div>
@@ -390,7 +471,133 @@ export function DispatchSummaryPage() {
           )}
         </>
       )}
+
+      <DispatchOrderDetailDialog
+        selected={selectedRow}
+        detail={orderDetail}
+        loading={detailLoading}
+        onClose={() => setSelectedRow(null)}
+      />
     </div>
+  );
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <p className="mt-0.5 text-sm">{value}</p>
+    </div>
+  );
+}
+
+function DispatchOrderDetailDialog({
+  selected,
+  detail,
+  loading,
+  onClose,
+}: {
+  selected: SelectedDispatchRow | null;
+  detail: OrderDetail | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  if (!selected) return null;
+
+  const { order, dispatcherName, dispatchType, viewStatus } = selected;
+  const statusBadge = orderStatusLabel(viewStatus, order.deliveryOutcome);
+  const paymentLabel = detail
+    ? getPaymentMethodInfo({
+        paymentGatewayPrimary: detail.paymentGatewayPrimary,
+        paymentGatewayNames: detail.paymentGatewayNames,
+        financialStatus: detail.financialStatus,
+      }).label
+    : formatPaymentType(order.paymentType);
+
+  return (
+    <Dialog open={!!selected} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{order.reference}</DialogTitle>
+          <DialogDescription>
+            {dispatcherName} · {dispatchType}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6 text-sm">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <DetailField label="Location" value={order.locationName} />
+            <DetailField label="Merchant" value={order.merchantName ?? "—"} />
+            <DetailField label="Status" value={statusBadge.label} />
+            <DetailField label="Payment" value={paymentLabel} />
+            <DetailField label="Dispatched" value={formatDate(order.dispatchedAt)} />
+            <DetailField label="Delivered" value={formatDate(order.deliveryCompleteAt)} />
+            <DetailField label="Shopify ref" value={order.shopifyReference} />
+            <DetailField label="ERP ref" value={order.erpReference ?? "—"} />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <DetailField label="Customer" value={order.customerName} />
+            <DetailField label="Phone" value={order.customerPhone ?? "—"} />
+            <DetailField label="Email" value={detail?.customerEmail ?? "—"} />
+            <DetailField
+              label="Address"
+              value={detail ? formatAddress(detail.shippingAddress) : order.customerAddress ?? "—"}
+            />
+            {detail?.merchantCouponCode && (
+              <DetailField label="Mer coupon" value={detail.merchantCouponCode} />
+            )}
+            {detail?.discountCouponCode && (
+              <DetailField label="Discount coupon" value={detail.discountCouponCode} />
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <DetailField label="Subtotal" value={formatAmount(detail?.subtotalPrice, order.currency)} />
+            <DetailField label="Discount" value={formatAmount(detail?.totalDiscounts, order.currency)} />
+            <DetailField label="Shipping" value={formatAmount(detail?.totalShipping, order.currency)} />
+            <DetailField label="Total" value={formatAmount(order.totalPrice, order.currency)} />
+          </div>
+
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Loading line items...
+            </div>
+          ) : detail?.lineItems && detail.lineItems.length > 0 ? (
+            <div>
+              <h4 className="mb-2 font-medium">Line Items</h4>
+              <div className="overflow-x-auto rounded border">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Product</th>
+                      <th className="px-3 py-2 font-medium text-right">Qty</th>
+                      <th className="px-3 py-2 font-medium text-right">Price</th>
+                      <th className="px-3 py-2 font-medium text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.lineItems.map((item) => (
+                      <tr key={item.id} className="border-b last:border-0">
+                        <td className="px-3 py-2">{item.productTitle}</td>
+                        <td className="px-3 py-2 text-right">{item.quantity}</td>
+                        <td className="px-3 py-2 text-right">
+                          {formatAmount(item.price, order.currency)}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          {formatAmount(item.total, order.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
