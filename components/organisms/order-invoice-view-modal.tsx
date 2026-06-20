@@ -86,6 +86,7 @@ type OrderDetail = {
   billingAddress: unknown;
   discountCodes: unknown;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -217,7 +218,7 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
-function getMerchantCouponCode(discountCodes: unknown): string | null {
+function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
   if (!Array.isArray(discountCodes) || discountCodes.length === 0) return null;
   const codes = discountCodes
     .map((entry) => {
@@ -583,7 +584,10 @@ export function OrderInvoiceViewModal({
           <DialogTitle className="flex items-baseline gap-2 flex-wrap">
             <span>Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}</span>
             {(() => {
-              const coupon = getMerchantCouponCode(orderDetail?.discountCodes);
+              const coupon =
+                orderDetail?.discountCouponCode ??
+                orderDetail?.merchantCouponCode ??
+                formatAllDiscountCodeLabels(orderDetail?.discountCodes);
               if (!coupon) return null;
               return <span className="text-sm font-normal text-muted-foreground">{coupon}</span>;
             })()}
@@ -1002,7 +1006,7 @@ export function OrderInvoiceViewModal({
                       )}
                     </div>
                     {(() => {
-                      const coupon = getMerchantCouponCode(orderDetail.discountCodes);
+                      const coupon = orderDetail.merchantCouponCode;
                       if (coupon) return (
                         <div>
                           <span className="text-muted-foreground text-xs">Mer Coupon</span>
@@ -1047,9 +1051,13 @@ export function OrderInvoiceViewModal({
                       </tbody>
                     </table>
                   </div>
-                  {orderDetail.merchantCouponCode && (
+                  {(orderDetail.discountCouponCode ||
+                    (orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0)) && (
                     <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Coupon: {orderDetail.merchantCouponCode}{orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? ` (−${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)})` : ""}
+                      Coupon: {orderDetail.discountCouponCode ?? "Discount"}
+                      {orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0
+                        ? ` (−${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)})`
+                        : ""}
                     </p>
                   )}
                   {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
