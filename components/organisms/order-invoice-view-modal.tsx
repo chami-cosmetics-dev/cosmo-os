@@ -36,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getOrderDispatchLabel } from "@/lib/order-dispatch";
+import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho } from "@/lib/order-dispatch";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
 import {
@@ -362,29 +362,29 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     icon: <Truck className="size-4" />,
   });
 
-  // 6. Delivered
-  const courierOrRider = getOrderDispatchLabel(orderDetail);
-  const deliveredByUser = orderDetail.deliveryCompleteBy
-    ? userName(orderDetail.deliveryCompleteBy)
-    : null;
-  const deliveredWho = courierOrRider && deliveredByUser
-    ? `${courierOrRider} · marked by ${deliveredByUser}`
-    : deliveredByUser ?? courierOrRider ?? "-";
+  // 6. Delivered — store marks after dispatch; courier name only once delivered
   items.push({
     id: "invoice_delivered",
     label: "Delivered",
     date: orderDetail.deliveryCompleteAt ?? null,
-    who: deliveredWho,
+    who: formatDeliveredTimelineWho({
+      deliveryCompleteAt: orderDetail.deliveryCompleteAt,
+      deliveryCompleteBy: orderDetail.deliveryCompleteBy,
+      dispatchLabel: getOrderDispatchLabel(orderDetail),
+    }),
     done: !!orderDetail.deliveryCompleteAt,
     icon: <PackageCheck className="size-4" />,
   });
 
-  // 7. Invoice Completed
+  // 7. Invoice Completed — finance approver after delivery payment confirmation (COD)
   items.push({
     id: "invoice_complete",
     label: "Invoice Completed",
     date: orderDetail.invoiceCompleteAt ?? null,
-    who: orderDetail.invoiceCompleteBy ? userName(orderDetail.invoiceCompleteBy) : "-",
+    who: formatInvoiceCompleteTimelineWho({
+      invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+      deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
+    }),
     done: !!orderDetail.invoiceCompleteAt,
     icon: <Check className="size-4" />,
   });
