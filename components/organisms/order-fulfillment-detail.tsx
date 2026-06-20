@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
-import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho } from "@/lib/order-dispatch";
+import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho, SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS } from "@/lib/order-dispatch";
 import {
   Dialog,
   DialogContent,
@@ -642,7 +642,7 @@ export function OrderFulfillmentDetail({
             )}
 
             {/* Invoice Complete (2nd: after finance confirms COD payment) */}
-            {!isPos && (stage === "delivery_complete" || stage === "invoice_complete") && (
+            {SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS && !isPos && (stage === "delivery_complete" || stage === "invoice_complete") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Invoice Complete</h4>
                 {orderDetail.invoiceCompleteAt ? (
