@@ -1,6 +1,9 @@
 /** Select value for in-store customer pickup dispatch. */
 export const DISPATCH_CUSTOMER_PICKUP = "customer:pickup";
 
+/** When false, Invoice Completed is hidden on order detail views until re-enabled. */
+export const SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS = false;
+
 export type DispatchServiceSelection =
   | { type: "rider"; id: string }
   | { type: "courier"; id: string }
