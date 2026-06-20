@@ -1,3 +1,5 @@
+import { isMerchantTrackingRow } from "@/lib/shopify-discount-codes";
+
 export function getMerchantCouponCode(params: {
   sourceName: string | null | undefined;
   discountCodes: unknown;
@@ -60,31 +62,18 @@ export function getMerchantCouponCode(params: {
       if (codes.length > 0) return codes.join(",");
     } else {
       const codes = discountCodes as Array<Record<string, unknown>>;
-      // When multiple discount codes are present (e.g. site discount + merchant tracking code),
-      // prefer the merchant tracking code. Identify it by:
-      //   1. Code starting with "MER" (system-wide merchant code convention)
-      //   2. Code with amount "0.00" / 0 (tracking codes carry no monetary discount)
-      if (codes.length > 1) {
-        const merCode = codes.find((d) => {
+      const merchantOnly = codes.filter(isMerchantTrackingRow);
+      if (merchantOnly.length > 0) {
+        const merCode = merchantOnly.find((d) => {
           const c = typeof d?.code === "string" ? d.code.trim() : "";
           return c.toUpperCase().startsWith("MER");
         });
         if (merCode && typeof merCode.code === "string" && merCode.code.trim()) {
           return merCode.code.trim();
         }
-        const zeroCode = codes.find((d) => {
-          const amt = d?.amount;
-          return (
-            (typeof amt === "string" && parseFloat(amt) === 0) ||
-            (typeof amt === "number" && amt === 0)
-          );
-        });
-        if (zeroCode && typeof zeroCode.code === "string" && zeroCode.code.trim()) {
-          return zeroCode.code.trim();
-        }
+        const first = merchantOnly[0];
+        if (typeof first?.code === "string" && first.code.trim()) return first.code.trim();
       }
-      const first = codes[0];
-      if (typeof first?.code === "string" && first.code.trim()) return first.code.trim();
     }
   }
 

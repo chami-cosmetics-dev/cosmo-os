@@ -75,6 +75,7 @@ type OrderDetail = {
   billingAddress: unknown;
   discountCodes: unknown;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -289,7 +290,12 @@ export function OrderFulfillmentDetail({
             })()}
           </DialogTitle>
           <DialogDescription>
-            {orderDetail && formatDate(orderDetail.createdAt)}{orderDetail?.merchantCouponCode ? ` · Coupon: ${orderDetail.merchantCouponCode}` : ""}
+            {orderDetail && formatDate(orderDetail.createdAt)}
+            {orderDetail?.discountCouponCode
+              ? ` · Coupon: ${orderDetail.discountCouponCode}`
+              : orderDetail?.merchantCouponCode
+                ? ` · Mer coupon: ${orderDetail.merchantCouponCode}`
+                : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -822,9 +828,18 @@ export function OrderFulfillmentDetail({
                       </tbody>
                     </table>
                   </div>
+                  {(orderDetail.discountCouponCode ||
+                    (orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0)) && (
+                    <p className="mt-1 text-right text-sm text-muted-foreground">
+                      Coupon ({orderDetail.discountCouponCode ?? "Discount"})
+                      {orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0
+                        ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}`
+                        : ""}
+                    </p>
+                  )}
                   {orderDetail.merchantCouponCode && (
                     <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Coupon ({orderDetail.merchantCouponCode}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
+                      Mer coupon: {orderDetail.merchantCouponCode}
                     </p>
                   )}
                   {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (

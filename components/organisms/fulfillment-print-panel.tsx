@@ -21,6 +21,7 @@ type PrintOrderDetail = {
   totalPrice: string;
   currency: string | null;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -126,7 +127,12 @@ export function FulfillmentPrintPanel({ orderId, order }: FulfillmentPrintPanelP
             <div className="space-y-1">
               <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
               <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
-              {detail?.merchantCouponCode && <p><span className="font-medium">Coupon:</span> {detail.merchantCouponCode}</p>}
+              {detail?.discountCouponCode && (
+                <p><span className="font-medium">Coupon:</span> {detail.discountCouponCode}</p>
+              )}
+              {detail?.merchantCouponCode && (
+                <p><span className="font-medium">Mer coupon:</span> {detail.merchantCouponCode}</p>
+              )}
               <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
             </div>
           </div>
