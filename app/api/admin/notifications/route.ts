@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
+import {
+  DELIVERY_PAYMENT_APPROVAL,
+  DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
+} from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext } from "@/lib/rbac";
 
@@ -24,6 +28,26 @@ async function dismissStaleApprovalNotifications(companyId: string, userId: stri
   );
 }
 
+/** Hide delivery-payment approval alerts while notifications are disabled (keeps rows for later re-enable). */
+async function dismissDeliveryPaymentApprovalNotifications(companyId: string, userId: string) {
+  if (DELIVERY_PAYMENT_FINANCE_UI_ENABLED) return;
+  const now = new Date();
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE "Notification" n
+      SET "readAt" = COALESCE(n."readAt", ${now})
+      FROM "ApprovalRequest" ar
+      WHERE n."companyId" = ${companyId}
+        AND n."userId" = ${userId}
+        AND n."readAt" IS NULL
+        AND n."entityType" = 'ApprovalRequest'
+        AND n."type" = 'approval_requested'
+        AND n."entityId" = ar."id"
+        AND ar."type" = ${DELIVERY_PAYMENT_APPROVAL}
+    `
+  );
+}
+
 export async function GET() {
   const context = await getCurrentUserContext();
   const userId = context?.user?.id;
@@ -33,6 +57,9 @@ export async function GET() {
   }
 
   await dismissStaleApprovalNotifications(companyId, userId);
+  await dismissDeliveryPaymentApprovalNotifications(companyId, userId);
+
+  const hideDeliveryPaymentNotifications = !DELIVERY_PAYMENT_FINANCE_UI_ENABLED;
 
   const [notifications, unreadRows] = await Promise.all([
     prisma.$queryRaw<Array<{
@@ -45,24 +72,62 @@ export async function GET() {
       readAt: Date | null;
       createdAt: Date;
     }>>(
-      Prisma.sql`
-        SELECT "id", "type", "title", "body", "entityType", "entityId", "readAt", "createdAt"
-        FROM "Notification"
-        WHERE "companyId" = ${companyId}
-          AND "userId" = ${userId}
-          AND "readAt" IS NULL
-        ORDER BY "createdAt" DESC
-        LIMIT 20
-      `
+      hideDeliveryPaymentNotifications
+        ? Prisma.sql`
+            SELECT n."id", n."type", n."title", n."body", n."entityType", n."entityId", n."readAt", n."createdAt"
+            FROM "Notification" n
+            WHERE n."companyId" = ${companyId}
+              AND n."userId" = ${userId}
+              AND n."readAt" IS NULL
+              AND NOT (
+                n."entityType" = 'ApprovalRequest'
+                AND n."type" = 'approval_requested'
+                AND EXISTS (
+                  SELECT 1
+                  FROM "ApprovalRequest" ar
+                  WHERE ar."id" = n."entityId"
+                    AND ar."type" = ${DELIVERY_PAYMENT_APPROVAL}
+                )
+              )
+            ORDER BY n."createdAt" DESC
+            LIMIT 20
+          `
+        : Prisma.sql`
+            SELECT "id", "type", "title", "body", "entityType", "entityId", "readAt", "createdAt"
+            FROM "Notification"
+            WHERE "companyId" = ${companyId}
+              AND "userId" = ${userId}
+              AND "readAt" IS NULL
+            ORDER BY "createdAt" DESC
+            LIMIT 20
+          `
     ),
     prisma.$queryRaw<Array<{ count: bigint }>>(
-      Prisma.sql`
-        SELECT COUNT(*)::bigint AS count
-        FROM "Notification"
-        WHERE "companyId" = ${companyId}
-          AND "userId" = ${userId}
-          AND "readAt" IS NULL
-      `
+      hideDeliveryPaymentNotifications
+        ? Prisma.sql`
+            SELECT COUNT(*)::bigint AS count
+            FROM "Notification" n
+            WHERE n."companyId" = ${companyId}
+              AND n."userId" = ${userId}
+              AND n."readAt" IS NULL
+              AND NOT (
+                n."entityType" = 'ApprovalRequest'
+                AND n."type" = 'approval_requested'
+                AND EXISTS (
+                  SELECT 1
+                  FROM "ApprovalRequest" ar
+                  WHERE ar."id" = n."entityId"
+                    AND ar."type" = ${DELIVERY_PAYMENT_APPROVAL}
+                )
+              )
+          `
+        : Prisma.sql`
+            SELECT COUNT(*)::bigint AS count
+            FROM "Notification"
+            WHERE "companyId" = ${companyId}
+              AND "userId" = ${userId}
+              AND "readAt" IS NULL
+          `
     ),
   ]);
 

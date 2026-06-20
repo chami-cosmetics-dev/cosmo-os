@@ -101,7 +101,7 @@ export function FulfillmentDeliveryInvoicePanel({
       }
       notify.success(
         data.needsPaymentApproval
-          ? "Delivery recorded. Finance will confirm payment before the order is marked paid."
+          ? "Delivery recorded. Finance will confirm before invoice complete."
           : "Updated."
       );
       onRefresh(true);
@@ -228,7 +228,7 @@ export function FulfillmentDeliveryInvoicePanel({
 
       {awaitingFinancePayment && (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
-          Delivery is complete. Finance must confirm payment received before this order can be marked paid and invoice complete.
+          Delivery is complete. Finance must confirm before invoice complete.
         </p>
       )}
 

@@ -1,14 +1,16 @@
 import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
-import { sendFinanceApprovalEmail } from "@/lib/maileroo";
 import { prisma } from "@/lib/prisma";
+import { sendFinanceApprovalEmail } from "@/lib/maileroo";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const RETURN_REARRANGE_PAYMENT_APPROVAL = "return_rearrange_payment";
 export const RETURN_CANCEL_APPROVAL = "return_cancel";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
 export const DELIVERY_PAYMENT_APPROVAL = "delivery_payment_approval";
+/** When false, delivery payment approvals stay in DB but are hidden from finance UI (notifications + approvals list). */
+export const DELIVERY_PAYMENT_FINANCE_UI_ENABLED = false;
 export const FINANCE_APPROVAL_TYPES = [
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   RETURN_CANCEL_APPROVAL,
@@ -114,6 +116,21 @@ export async function getOrderPaymentApproval(orderId: string) {
     `
   );
   return rows[0] ?? null;
+}
+
+/** Finance user who approved KOKO/bank payment before fulfillment. */
+export async function getApprovedOrderPaymentReviewerId(orderId: string): Promise<string | null> {
+  const row = await prisma.approvalRequest.findFirst({
+    where: {
+      orderId,
+      type: ORDER_PAYMENT_APPROVAL,
+      status: "approved",
+      reviewedById: { not: null },
+    },
+    orderBy: { reviewedAt: "desc" },
+    select: { reviewedById: true },
+  });
+  return row?.reviewedById ?? null;
 }
 
 /** True when finance already approved this payment type once (e.g. after HOD revert re-approval). */
@@ -282,29 +299,21 @@ export async function createOrGetDeliveryPaymentApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUsers = await getFinanceApprovalUsers(input.companyId);
-  await Promise.all(
-    financeUsers.map((u) =>
-      createNotification({
-        companyId: input.companyId,
-        userId: u.id,
-        type: "approval_requested",
-        title: "Delivery payment confirmation required",
-        body: `Confirm payment received for ${input.invoiceLabel} (${input.paymentType}).`,
-        entityType: "ApprovalRequest",
-        entityId: id,
-      })
-    )
-  );
-
-  const financeEmails = financeUsers.map((u) => u.email).filter((e): e is string => !!e);
-  if (financeEmails.length > 0) {
-    void sendFinanceApprovalEmail(
-      financeEmails,
-      input.invoiceLabel,
-      `Delivery: ${input.paymentType}`,
-      input.amount
-    ).catch((err) => console.error("[Finance approval] delivery email send failed:", err));
+  if (DELIVERY_PAYMENT_FINANCE_UI_ENABLED) {
+    const financeUsers = await getFinanceApprovalUsers(input.companyId);
+    await Promise.all(
+      financeUsers.map((u) =>
+        createNotification({
+          companyId: input.companyId,
+          userId: u.id,
+          type: "approval_requested",
+          title: "Delivery payment confirmation required",
+          body: `Confirm payment received for ${input.invoiceLabel} (${input.paymentType}).`,
+          entityType: "ApprovalRequest",
+          entityId: id,
+        })
+      )
+    );
   }
 
   return { id, status: "pending" as ApprovalStatus };

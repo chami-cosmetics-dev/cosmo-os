@@ -5,6 +5,7 @@ import { PermissionDeniedCard } from "@/components/molecules/permission-denied-c
 import { FinanceApprovalsPanel, type FinanceApprovalItem } from "@/components/organisms/finance-approvals-panel";
 import {
   DELIVERY_PAYMENT_APPROVAL,
+  DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
   ORDER_PAYMENT_APPROVAL,
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
@@ -91,6 +92,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
           ${ORDER_PAYMENT_APPROVAL},
           ${DELIVERY_PAYMENT_APPROVAL}
         )
+        AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC
