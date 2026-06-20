@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho } from "@/lib/order-dispatch";
 import {
   Dialog,
   DialogContent,
@@ -96,10 +98,19 @@ type OrderDetail = {
   packageOnHoldAt?: string | null;
   packageHoldReason?: { id: string; name: string } | null;
   dispatchedAt?: string | null;
+  dispatchedBy?: { id: string; name: string | null; email: string | null } | null;
   dispatchedByRider?: { id: string; name: string | null; mobile: string | null } | null;
   dispatchedByCourierService?: { id: string; name: string } | null;
+  dispatchedToCustomer?: boolean | null;
   invoiceCompleteAt?: string | null;
+  invoiceCompleteBy?: { id: string; name: string | null; email: string | null } | null;
   deliveryCompleteAt?: string | null;
+  deliveryCompleteBy?: { id: string; name: string | null; email: string | null } | null;
+  deliveryPaymentApproval?: {
+    id: string;
+    status: string;
+    reviewedBy?: { id: string; name: string | null; email: string | null } | null;
+  } | null;
   lastRiderUpdateAt?: string | null;
   riderDeliveryTask?: {
     id: string;
@@ -180,6 +191,7 @@ export function OrderFulfillmentDetail({
   addressesEqual: _addressesEqual,
 }: OrderFulfillmentDetailProps) {
   void _addressesEqual;
+  const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<FulfillmentLookups | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedSamples, setSelectedSamples] = useState<Array<{ id: string; qty: number }>>([]);
@@ -610,12 +622,17 @@ export function OrderFulfillmentDetail({
                 <h4 className="mb-2 text-sm font-medium">Delivery Complete</h4>
                 {orderDetail.deliveryCompleteAt ? (
                   <p className="text-muted-foreground text-sm">
-                    Delivered {formatDate(orderDetail.deliveryCompleteAt)}
+                    {formatDeliveredTimelineWho({
+                      deliveryCompleteAt: orderDetail.deliveryCompleteAt,
+                      deliveryCompleteBy: orderDetail.deliveryCompleteBy,
+                      dispatchLabel: getOrderDispatchLabel(orderDetail),
+                    })}{" "}
+                    · {formatDate(orderDetail.deliveryCompleteAt)}
                   </p>
                 ) : (
                   <Button
                     onClick={() => doFulfillmentAction("mark_delivered")}
-                    disabled={isBusy}
+                    disabled={isBusy || stage !== "dispatched"}
                   >
                     {busyKey === "mark_delivered" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                     Mark Delivered
@@ -624,22 +641,34 @@ export function OrderFulfillmentDetail({
               </div>
             )}
 
-            {/* Invoice Complete (2nd: after delivery) */}
+            {/* Invoice Complete (2nd: after finance confirms COD payment) */}
             {!isPos && (stage === "delivery_complete" || stage === "invoice_complete") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Invoice Complete</h4>
                 {orderDetail.invoiceCompleteAt ? (
                   <p className="text-muted-foreground text-sm">
-                    Completed {formatDate(orderDetail.invoiceCompleteAt)}
+                    {formatInvoiceCompleteTimelineWho({
+                      invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+                      deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
+                    })}{" "}
+                    · {formatDate(orderDetail.invoiceCompleteAt)}
                   </p>
-                ) : (
+                ) : orderDetail.deliveryPaymentApproval?.status === "pending" ? (
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    Awaiting finance confirmation before invoice complete.
+                  </p>
+                ) : perms.canMarkInvoiceComplete ? (
                   <Button
                     variant="outline"
                     onClick={() => doFulfillmentAction("mark_invoice_complete")}
-                    disabled={isBusy}
+                    disabled={isBusy || stage !== "delivery_complete"}
                   >
                     Mark Invoice Complete
                   </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Awaiting finance to confirm invoice complete.
+                  </p>
                 )}
               </div>
             )}
