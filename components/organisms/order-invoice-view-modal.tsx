@@ -36,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho } from "@/lib/order-dispatch";
+import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho, SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS } from "@/lib/order-dispatch";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
 import {
@@ -377,17 +377,19 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
   });
 
   // 7. Invoice Completed — finance approver after delivery payment confirmation (COD)
-  items.push({
-    id: "invoice_complete",
-    label: "Invoice Completed",
-    date: orderDetail.invoiceCompleteAt ?? null,
-    who: formatInvoiceCompleteTimelineWho({
-      invoiceCompleteBy: orderDetail.invoiceCompleteBy,
-      deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
-    }),
-    done: !!orderDetail.invoiceCompleteAt,
-    icon: <Check className="size-4" />,
-  });
+  if (SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS) {
+    items.push({
+      id: "invoice_complete",
+      label: "Invoice Completed",
+      date: orderDetail.invoiceCompleteAt ?? null,
+      who: formatInvoiceCompleteTimelineWho({
+        invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+        deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
+      }),
+      done: !!orderDetail.invoiceCompleteAt,
+      icon: <Check className="size-4" />,
+    });
+  }
 
   return items;
 }
