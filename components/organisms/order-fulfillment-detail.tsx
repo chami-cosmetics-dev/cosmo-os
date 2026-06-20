@@ -12,6 +12,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
+import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho } from "@/lib/order-dispatch";
 import {
   Dialog,
@@ -101,7 +102,6 @@ type OrderDetail = {
   dispatchedByRider?: { id: string; name: string | null; mobile: string | null } | null;
   dispatchedByCourierService?: { id: string; name: string } | null;
   dispatchedToCustomer?: boolean | null;
-  financialStatus?: string | null;
   invoiceCompleteAt?: string | null;
   invoiceCompleteBy?: { id: string; name: string | null; email: string | null } | null;
   deliveryCompleteAt?: string | null;
