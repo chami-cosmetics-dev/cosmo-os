@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
+import { formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
 
 type FailedErpSync = {
   id: string;
@@ -87,6 +88,10 @@ export function FailedErpSyncsPanel() {
       .catch(() => { if (!cancelled) { setLoading(false); notify.error("Failed to load data"); } });
     return () => { cancelled = true; };
   }, [fetchData]);
+
+  function formatSyncError(message: string | null) {
+    return message ? formatFailedErpSyncErrorMessage(message) : null;
+  }
 
   async function handleRetry(id: string) {
     setRetryingId(id);
@@ -251,9 +256,9 @@ export function FailedErpSyncsPanel() {
                           <div className="text-xs text-muted-foreground">{item.customerPhone ?? ""}</div>
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
-                        <td className="max-w-[260px] truncate px-4 py-2 text-xs" title={item.erpnextSyncError ?? ""}>
+                        <td className="max-w-[260px] truncate px-4 py-2 text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
                           {item.erpnextSyncError ? (
-                            <span className="text-destructive">{item.erpnextSyncError}</span>
+                            <span className="text-destructive">{formatSyncError(item.erpnextSyncError)}</span>
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
                             <span className="text-amber-500">Awaiting ERP sync — payment was approved</span>
                           ) : "—"}
@@ -350,7 +355,7 @@ export function FailedErpSyncsPanel() {
                   {selectedItem.erpnextInvoiceId === "pending_approval" && !selectedItem.erpnextSyncError ? "Status" : "Error"}
                 </h4>
                 <pre className={`max-h-48 overflow-auto rounded-xl border p-3 text-xs whitespace-pre-wrap ${selectedItem.erpnextInvoiceId === "pending_approval" && !selectedItem.erpnextSyncError ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
-                  {selectedItem.erpnextSyncError ?? (selectedItem.erpnextInvoiceId === "pending_approval" ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now." : "—")}
+                  {formatSyncError(selectedItem.erpnextSyncError) ?? (selectedItem.erpnextInvoiceId === "pending_approval" ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now." : "—")}
                 </pre>
               </div>
               <div className="flex justify-end gap-2">
