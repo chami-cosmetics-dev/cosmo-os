@@ -1017,6 +1017,12 @@ export function OrderInvoiceViewModal({
                         </p>
                       )}
                     </div>
+                    {orderDetail.discountCouponCode && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Coupon</span>
+                        <p>{orderDetail.discountCouponCode}</p>
+                      </div>
+                    )}
                     {(() => {
                       const coupon = orderDetail.merchantCouponCode;
                       if (coupon) return (

@@ -5,7 +5,7 @@ import { Prisma } from "@prisma/client";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
-import { getDiscountCouponCode } from "@/lib/shopify-discount-codes";
+import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import {
   getErpWebhookCustomerNameField,
@@ -221,6 +221,15 @@ export async function GET(
     erpnextInstance: details.companyLocation.erpnextInstance,
   });
 
+  const discountCouponCode = await resolveOrderDiscountCouponForOrder({
+    sourceName: details.sourceName,
+    discountCodes: details.discountCodes,
+    rawPayload: details.rawPayload,
+    name: details.name,
+    erpnextInvoiceId: details.erpnextInvoiceId,
+    erpnextInstance: details.companyLocation.erpnextInstance,
+  });
+
   const lineItems = details.lineItems.map((li) => ({
     id: li.id,
     productTitle: li.productItem.productTitle,
@@ -276,7 +285,7 @@ export async function GET(
       rawPayload: details.rawPayload,
       assignedMerchantCouponCodes: details.assignedMerchant?.couponCodes ?? null,
     }),
-    discountCouponCode: getDiscountCouponCode(details.discountCodes),
+    discountCouponCode,
     createdAt: details.createdAt.toISOString(),
     companyLocation: details.companyLocation,
     assignedMerchant: details.assignedMerchant,
