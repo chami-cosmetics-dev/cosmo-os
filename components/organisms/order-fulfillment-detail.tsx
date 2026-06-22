@@ -10,6 +10,7 @@ import {
   Truck,
 } from "lucide-react";
 
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -66,6 +67,7 @@ type OrderDetail = {
   totalDiscounts: string | null;
   totalTax: string | null;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -814,6 +816,14 @@ export function OrderFulfillmentDetail({
                   <div>
                     <h4 className="mb-1 text-muted-foreground">Shipping</h4>
                     <p>{formatAddress(orderDetail.shippingAddress)}</p>
+                    <OrderShippingLine
+                      className="mt-1 text-muted-foreground"
+                      prefix="Delivery:"
+                      shippingRuleLabel={orderDetail.shippingRuleLabel}
+                      totalShipping={orderDetail.totalShipping}
+                      currency={orderDetail.currency}
+                      formatPrice={formatPrice}
+                    />
                   </div>
                   {(() => {
                     const merCoupon = Array.isArray(orderDetail.discountCodes)
@@ -871,11 +881,13 @@ export function OrderFulfillmentDetail({
                       Mer coupon: {orderDetail.merchantCouponCode}
                     </p>
                   )}
-                  {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}
-                    </p>
-                  )}
+                  <OrderShippingLine
+                    className="mt-1 text-right text-sm text-muted-foreground"
+                    shippingRuleLabel={orderDetail.shippingRuleLabel}
+                    totalShipping={orderDetail.totalShipping}
+                    currency={orderDetail.currency}
+                    formatPrice={formatPrice}
+                  />
                   <p className="mt-1 text-right font-medium">
                     Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
                   </p>

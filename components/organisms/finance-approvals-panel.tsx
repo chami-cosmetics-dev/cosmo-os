@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, ExternalLink, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,6 +73,29 @@ function isPendingApproval(approval: FinanceApprovalItem) {
   return approval.status === "pending";
 }
 
+function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
+  const q = term.toLowerCase();
+  const haystack = [
+    approval.invoiceNo,
+    approval.customerPhone,
+    approval.customerEmail,
+    approval.shopifyOrderId,
+    approval.erpnextInvoiceId,
+    approval.paymentTypeLabel,
+    typeLabel(approval.type),
+    approval.status,
+    approval.requestNote,
+    approval.reviewNote,
+    approval.returnedByName,
+    approval.returnedByEmail,
+    approval.cancelRequestedByName,
+    approval.cancelRequestedByEmail,
+    approval.returnRemark,
+    approval.cancelRemark,
+  ];
+  return haystack.some((value) => value?.toLowerCase().includes(q));
+}
+
 function selectFirstInView(
   approvals: FinanceApprovalItem[],
   view: "pending" | "history",
@@ -99,11 +122,34 @@ export function FinanceApprovalsPanel({
   const [hodPassword, setHodPassword] = useState("");
   const [revertReason, setRevertReason] = useState("");
   const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
   const pendingApprovals = approvals.filter(isPendingApproval);
   const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
   const visibleApprovals = view === "pending" ? pendingApprovals : historyApprovals;
-  const selected = visibleApprovals.find((item) => item.id === selectedId) ?? null;
+  const searchedApprovals = useMemo(() => {
+    if (!effectiveSearch) return visibleApprovals;
+    return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
+  }, [visibleApprovals, effectiveSearch]);
+  const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (searchedApprovals.length === 0) {
+      setSelectedId("");
+      return;
+    }
+    if (!searchedApprovals.some((item) => item.id === selectedId)) {
+      setSelectedId(searchedApprovals[0].id);
+    }
+  }, [searchedApprovals, selectedId]);
 
   function switchView(next: "pending" | "history") {
     setView(next);
@@ -244,6 +290,17 @@ export function FinanceApprovalsPanel({
             <CardTitle>{view === "pending" ? "Pending Requests" : "History"}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            <div className="border-b border-border/50 px-4 py-3">
+              <div className="relative max-w-md">
+                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                <Input
+                  placeholder="Search by invoice, customer, ERP SI, or payment type..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="border-border/70 bg-background/90 pl-9"
+                />
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-sm">
                 <thead className="border-b bg-muted/35 text-left text-muted-foreground">
@@ -257,7 +314,7 @@ export function FinanceApprovalsPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleApprovals.map((approval) => (
+                  {searchedApprovals.map((approval) => (
                     <tr
                       key={approval.id}
                       className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
@@ -285,10 +342,14 @@ export function FinanceApprovalsPanel({
                       <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
                     </tr>
                   ))}
-                  {visibleApprovals.length === 0 && (
+                  {searchedApprovals.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
-                        {view === "pending" ? "No pending approval requests." : "No approval history yet."}
+                        {effectiveSearch
+                          ? "No approval requests match your search."
+                          : view === "pending"
+                            ? "No pending approval requests."
+                            : "No approval history yet."}
                       </td>
                     </tr>
                   )}

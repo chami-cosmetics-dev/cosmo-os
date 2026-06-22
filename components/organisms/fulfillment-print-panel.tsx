@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -25,6 +26,8 @@ type PrintOrderDetail = {
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
+  totalShipping?: string | null;
+  shippingRuleLabel?: string | null;
   lineItems: Array<{
     id: string;
     productTitle: string;
@@ -134,6 +137,13 @@ export function FulfillmentPrintPanel({ orderId, order }: FulfillmentPrintPanelP
                 <p><span className="font-medium">Mer coupon:</span> {detail.merchantCouponCode}</p>
               )}
               <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
+              <OrderShippingLine
+                prefix="Delivery:"
+                shippingRuleLabel={detail?.shippingRuleLabel}
+                totalShipping={detail?.totalShipping}
+                currency={currency}
+                formatPrice={formatPrice}
+              />
             </div>
           </div>
 

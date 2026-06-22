@@ -5,6 +5,7 @@ import { Check, ChevronsUpDown, Loader2, Truck, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -68,6 +69,8 @@ type OrderDetail = {
   shippingAddress: ShippingAddress | null;
   createdAt: string;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
+  currency?: string | null;
   totalPrice: string;
   discountCodes: Array<{ code: string }> | null;
   lineItems: Array<{
@@ -440,7 +443,15 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
               <div className="space-y-1">
                 <p><span className="font-medium">Order Date:</span> {detail ? new Date(detail.createdAt).toLocaleDateString("en-LK") : "-"}</p>
                 <p><span className="font-medium">Total:</span> {activeOrder ? Number(activeOrder.totalPrice).toLocaleString("en-LK", { minimumFractionDigits: 2 }) : "-"}</p>
-                <p><span className="font-medium">Shipping:</span> {detail?.totalShipping ? Number(detail.totalShipping).toLocaleString("en-LK", { minimumFractionDigits: 2 }) : "-"}</p>
+                <OrderShippingLine
+                  prefix="Delivery:"
+                  shippingRuleLabel={detail?.shippingRuleLabel}
+                  totalShipping={detail?.totalShipping}
+                  currency={detail?.currency ?? null}
+                  formatPrice={(amount, currency) =>
+                    Number(amount).toLocaleString("en-LK", { minimumFractionDigits: 2 }) + (currency ? ` ${currency}` : "")
+                  }
+                />
                 <p><span className="font-medium">Payment:</span> {activeOrder ? payment.label : "-"}</p>
                 <p><span className="font-medium">Stage:</span> {activeOrder ? (STAGE_LABEL[activeOrder.fulfillmentStage] ?? activeOrder.fulfillmentStage) : "-"}</p>
               </div>

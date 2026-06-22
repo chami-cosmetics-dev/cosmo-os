@@ -16,6 +16,7 @@ import {
   Truck,
 } from "lucide-react";
 
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -70,6 +71,7 @@ type OrderDetail = {
   totalDiscounts: string | null;
   totalTax: string | null;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -979,6 +981,14 @@ export function OrderInvoiceViewModal({
                     <div>
                       <span className="text-muted-foreground text-xs">Shipping address</span>
                       <p>{formatAddress(orderDetail.shippingAddress)}</p>
+                      <OrderShippingLine
+                        className="mt-1 text-muted-foreground"
+                        prefix="Delivery:"
+                        shippingRuleLabel={orderDetail.shippingRuleLabel}
+                        totalShipping={orderDetail.totalShipping}
+                        currency={orderDetail.currency}
+                        formatPrice={formatPrice}
+                      />
                     </div>
                   </div>
 
@@ -1062,11 +1072,13 @@ export function OrderInvoiceViewModal({
                         : ""}
                     </p>
                   )}
-                  {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}
-                    </p>
-                  )}
+                  <OrderShippingLine
+                    className="mt-1 text-right text-sm text-muted-foreground"
+                    shippingRuleLabel={orderDetail.shippingRuleLabel}
+                    totalShipping={orderDetail.totalShipping}
+                    currency={orderDetail.currency}
+                    formatPrice={formatPrice}
+                  />
                   <p className="mt-2 text-right font-medium">
                     Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
                   </p>
