@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
+import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
+import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -68,6 +70,9 @@ type OrderDetail = {
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
+  subtotalOriginal?: string | null;
+  subtotalSale?: string | null;
+  discountTotal?: string | null;
   totalDiscounts: string | null;
   totalTax: string | null;
   totalShipping: string | null;
@@ -100,6 +105,9 @@ type OrderDetail = {
     quantity: number;
     price: string;
     total: string;
+    originalPrice?: string | null;
+    originalTotal?: string | null;
+    lineDiscount?: string | null;
   }>;
   shopifyAdminOrderUrl: string | null;
   erpAdminInvoiceUrl?: string | null;
@@ -1059,35 +1067,44 @@ export function OrderInvoiceViewModal({
                             <td className="px-3 py-2">{li.productTitle}</td>
                             <td className="px-3 py-2 text-right">{li.quantity}</td>
                             <td className="px-3 py-2 text-right">
-                              {formatPrice(li.price, orderDetail.currency)}
+                              <OrderLineItemPrice
+                                salePrice={li.price}
+                                originalPrice={li.originalPrice}
+                                formatPrice={formatPrice}
+                                currency={orderDetail.currency}
+                              />
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {formatPrice(li.total, orderDetail.currency)}
+                              {li.originalTotal &&
+                              parseFloat(li.originalTotal) > parseFloat(li.total) ? (
+                                <span>
+                                  <span className="block text-muted-foreground line-through">
+                                    {formatPrice(li.originalTotal, orderDetail.currency)}
+                                  </span>
+                                  <span className="block">
+                                    {formatPrice(li.total, orderDetail.currency)}
+                                  </span>
+                                </span>
+                              ) : (
+                                formatPrice(li.total, orderDetail.currency)
+                              )}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  {(orderDetail.discountCouponCode ||
-                    (orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0)) && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Coupon: {orderDetail.discountCouponCode ?? "Discount"}
-                      {orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0
-                        ? ` (−${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)})`
-                        : ""}
-                    </p>
-                  )}
-                  <OrderShippingLine
-                    className="mt-1 text-right text-sm text-muted-foreground"
-                    shippingRuleLabel={orderDetail.shippingRuleLabel}
+                  <OrderLineItemsTotals
+                    subtotalOriginal={orderDetail.subtotalOriginal}
+                    subtotalSale={orderDetail.subtotalSale ?? orderDetail.subtotalPrice}
+                    discountCouponCode={orderDetail.discountCouponCode}
+                    discountTotal={orderDetail.discountTotal ?? orderDetail.totalDiscounts}
                     totalShipping={orderDetail.totalShipping}
+                    shippingRuleLabel={orderDetail.shippingRuleLabel}
+                    totalPrice={orderDetail.totalPrice}
                     currency={orderDetail.currency}
                     formatPrice={formatPrice}
                   />
-                  <p className="mt-2 text-right font-medium">
-                    Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
-                  </p>
                 </div>
               </div>
             </details>

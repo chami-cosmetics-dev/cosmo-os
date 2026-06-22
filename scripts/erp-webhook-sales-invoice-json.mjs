@@ -15,6 +15,7 @@ export function buildSalesInvoiceWebhookJson({ vaultStyle = false } = {}) {
   "posting_date": "{{ doc.posting_date }}",
   "grand_total": {{ doc.grand_total or 0 }},
   "net_total": {{ doc.net_total or 0 }},
+  "discount_amount": {{ doc.discount_amount or 0 }},
   "outstanding_amount": {{ doc.outstanding_amount or 0 }},
   "po_no": "{{ doc.po_no }}",
   "currency": "{{ doc.currency }}",
@@ -37,7 +38,7 @@ ${merchantField}
   "shipping_rule": "{{ doc.shipping_rule }}",
   "total_taxes_and_charges": {{ doc.total_taxes_and_charges or 0 }},
   "taxes": [{% for tax in doc.get("taxes") %}{"description": "{{ tax.description }}", "tax_amount": {{ tax.tax_amount or 0 }}, "account_head": "{{ tax.account_head }}"}{% if not loop.last %},{% endif %}{% endfor %}],
-  "items": [{% for item in doc.get("items") %}{"item_code": "{{ item.item_code }}", "item_name": "{{ item.item_name }}", "qty": {{ item.qty }}, "rate": {{ item.rate }}, "amount": {{ item.amount }}}{% if not loop.last %},{% endif %}{% endfor %}],
+  "items": [{% for item in doc.get("items") %}{"item_code": "{{ item.item_code }}", "item_name": "{{ item.item_name }}", "qty": {{ item.qty }}, "rate": {{ item.rate }}, "amount": {{ item.amount }}, "price_list_rate": {{ item.price_list_rate or item.rate }}, "discount_amount": {{ item.discount_amount or 0 }}}{% if not loop.last %},{% endif %}{% endfor %}],
   "payments": [{% for p in doc.get("payments") %}{"mode_of_payment": "{{ p.mode_of_payment }}", "amount": {{ p.amount or 0 }}}{% if not loop.last %},{% endif %}{% endfor %}]
 }`;
 }
