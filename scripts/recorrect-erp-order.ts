@@ -11,11 +11,29 @@
  *   --invoice <erp-name>   Resolve order by erpnextInvoiceId
  *   --assume-cancelled     Skip API cancel (use after manual cancel in ERP)
  */
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 
 import { ERP_SYNC_SUCCESS_CLEAR } from "@/lib/failed-erp-sync-auto-retry";
 import { cancelErpnextSalesInvoice, syncOrderToERPNext } from "@/lib/erpnext-sync";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
+
+/** ERP SI cancel webhook marks Shopify orders voided/returned — undo when re-correcting. */
+function restoreOrderStatusAfterManualSiCancel(order: {
+  financialStatus: string | null;
+  fulfillmentStage: string | null;
+  sourceName: string | null;
+}): Prisma.OrderUpdateInput {
+  const patch: Prisma.OrderUpdateInput = {};
+  if (order.financialStatus === "voided") {
+    patch.financialStatus = "pending";
+  }
+  if (order.fulfillmentStage === "returned") {
+    const source = order.sourceName?.toLowerCase() ?? "";
+    patch.fulfillmentStage =
+      source === "web" || source === "manual" ? "print" : "print";
+  }
+  return patch;
+}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -82,6 +100,7 @@ async function main() {
     data: {
       erpnextInvoiceId: null,
       ...ERP_SYNC_SUCCESS_CLEAR,
+      ...(assumeCancelled ? restoreOrderStatusAfterManualSiCancel(order) : {}),
     },
   });
 
