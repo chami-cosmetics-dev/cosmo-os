@@ -825,23 +825,18 @@ export function OrderFulfillmentDetail({
                       formatPrice={formatPrice}
                     />
                   </div>
-                  {(() => {
-                    const merCoupon = Array.isArray(orderDetail.discountCodes)
-                      ? ((orderDetail.discountCodes as Array<{ code?: string }>)
-                          .map((d) => d?.code?.trim())
-                          .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
-                          .join(", ") || null)
-                      : null;
-                    const merchant = orderDetail.assignedMerchant?.name ?? orderDetail.assignedMerchant?.email ?? null;
-                    const display = merCoupon ?? merchant;
-                    if (!display) return null;
-                    return (
-                      <div>
-                        <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
-                        <p>{display}</p>
-                      </div>
-                    );
-                  })()}
+                  {orderDetail.discountCouponCode && (
+                    <div>
+                      <h4 className="mb-1 text-muted-foreground">Coupon</h4>
+                      <p>{orderDetail.discountCouponCode}</p>
+                    </div>
+                  )}
+                  {orderDetail.merchantCouponCode && (
+                    <div>
+                      <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
+                      <p>{orderDetail.merchantCouponCode}</p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <h4 className="mb-2 text-sm font-medium">Line Items</h4>
