@@ -4,8 +4,12 @@ import { Prisma } from "@prisma/client";
 
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
-import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
-import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
+import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
+import {
+  resolveOrderDiscountTotal,
+  resolveOrderLineItemsPricing,
+  sumOriginalTotals,
+} from "@/lib/order-line-item-pricing";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import {
   getErpWebhookCustomerNameField,
@@ -230,18 +234,60 @@ export async function GET(
     erpnextInstance: details.companyLocation.erpnextInstance,
   });
 
-  const lineItems = details.lineItems.map((li) => ({
-    id: li.id,
-    productTitle: li.productItem.productTitle,
-    variantTitle: li.productItem.variantTitle,
+  const merchantCouponCode = await resolveOrderMerchantCouponForOrder({
+    sourceName: details.sourceName,
+    discountCodes: details.discountCodes,
+    rawPayload: details.rawPayload,
+    assignedMerchantCouponCodes: details.assignedMerchant?.couponCodes ?? null,
+    erpnextInvoiceId: details.erpnextInvoiceId,
+    erpnextInstance: details.companyLocation.erpnextInstance,
+  });
+
+  const lineItemsBase = details.lineItems.map((li) => ({
     sku: li.productItem.sku,
-    brand: li.productItem.vendor?.name ?? null,
-    category: li.productItem.category?.name ?? null,
-    subCategory: li.productItem.productType ?? null,
     quantity: li.quantity,
     price: li.price.toString(),
-    total: (Number(li.price) * li.quantity).toFixed(2),
   }));
+
+  const linePricing = await resolveOrderLineItemsPricing({
+    sourceName: details.sourceName,
+    rawPayload: details.rawPayload,
+    name: details.name,
+    erpnextInvoiceId: details.erpnextInvoiceId,
+    erpnextInstance: details.companyLocation.erpnextInstance,
+    lineItems: lineItemsBase,
+  });
+
+  const lineItems = details.lineItems.map((li, index) => {
+    const pricing = linePricing[index];
+    return {
+      id: li.id,
+      productTitle: li.productItem.productTitle,
+      variantTitle: li.productItem.variantTitle,
+      sku: li.productItem.sku,
+      brand: li.productItem.vendor?.name ?? null,
+      category: li.productItem.category?.name ?? null,
+      subCategory: li.productItem.productType ?? null,
+      quantity: li.quantity,
+      price: pricing?.salePrice ?? li.price.toString(),
+      total: pricing?.saleTotal ?? (Number(li.price) * li.quantity).toFixed(2),
+      originalPrice: pricing?.originalPrice ?? null,
+      originalTotal: pricing?.originalTotal ?? null,
+      lineDiscount: pricing?.lineDiscount ?? null,
+    };
+  });
+
+  const discountTotal = resolveOrderDiscountTotal({
+    totalDiscounts: details.totalDiscounts?.toString() ?? null,
+    linePricing,
+    discountCouponCode: discountCouponCode ?? null,
+  });
+  const subtotalOriginal = sumOriginalTotals(linePricing);
+  const subtotalSale =
+    details.subtotalPrice?.toString() ??
+    linePricing
+      .reduce((acc, row) => acc + parseFloat(row.saleTotal), 0)
+      .toFixed(2);
 
   return NextResponse.json({
     id: details.id,
@@ -250,8 +296,11 @@ export async function GET(
     name: details.name,
     sourceName: details.sourceName,
     totalPrice: details.totalPrice.toString(),
-    subtotalPrice: details.subtotalPrice?.toString() ?? null,
-    totalDiscounts: details.totalDiscounts?.toString() ?? null,
+    subtotalPrice: details.subtotalPrice?.toString() ?? subtotalSale,
+    subtotalOriginal,
+    subtotalSale,
+    discountTotal,
+    totalDiscounts: discountTotal ?? details.totalDiscounts?.toString() ?? null,
     totalTax: details.totalTax?.toString() ?? null,
     totalShipping: shippingDisplay.amount ?? details.totalShipping?.toString() ?? null,
     shippingRuleLabel: shippingDisplay.label,
@@ -279,12 +328,7 @@ export async function GET(
     shippingAddress: details.shippingAddress,
     billingAddress: details.billingAddress,
     discountCodes: details.discountCodes,
-    merchantCouponCode: getMerchantCouponCode({
-      sourceName: details.sourceName,
-      discountCodes: details.discountCodes,
-      rawPayload: details.rawPayload,
-      assignedMerchantCouponCodes: details.assignedMerchant?.couponCodes ?? null,
-    }),
+    merchantCouponCode,
     discountCouponCode,
     createdAt: details.createdAt.toISOString(),
     companyLocation: details.companyLocation,

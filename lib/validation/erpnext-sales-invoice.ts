@@ -14,6 +14,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   posting_date: z.string().optional().nullable(),
   grand_total: z.number().optional().nullable(),
   net_total: z.number().optional().nullable(),
+  discount_amount: z.number().optional().nullable(),
   po_no: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
   docstatus: z.number().optional().nullable(),
@@ -55,6 +56,8 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
         qty: z.number(),
         rate: z.number(),
         amount: z.number().optional().nullable(),
+        price_list_rate: z.number().optional().nullable(),
+        discount_amount: z.number().optional().nullable(),
       }),
     )
     .optional()
