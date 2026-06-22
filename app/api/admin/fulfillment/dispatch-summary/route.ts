@@ -12,6 +12,10 @@ import { requireAnyPermission } from "@/lib/rbac";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function parseDateRange(from: string | null, to: string | null) {
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!from || !re.test(from)) return null;
@@ -24,6 +28,10 @@ function parseDateRange(from: string | null, to: string | null) {
     dateFrom: from,
     dateTo: toStr,
   };
+}
+
+function resolveDateRange(from: string | null, to: string | null) {
+  return parseDateRange(from ?? todayIso(), to ?? from ?? todayIso());
 }
 
 type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
@@ -67,10 +75,7 @@ async function fetchDispatchGroups(
         status === "pending"
           ? "dispatched"
           : { in: ["delivery_complete", "invoice_complete"] },
-      dispatchedAt:
-        status === "completed" && range
-          ? { gte: range.from, lte: range.to }
-          : undefined,
+      dispatchedAt: range ? { gte: range.from, lte: range.to } : undefined,
       OR: [
         { dispatchedByRiderId: { not: null } },
         { dispatchedByCourierServiceId: { not: null } },
@@ -225,14 +230,7 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("status") === "completed" ? "completed" : "pending";
   const dateFrom = request.nextUrl.searchParams.get("dateFrom");
   const dateTo = request.nextUrl.searchParams.get("dateTo");
-  const range = parseDateRange(dateFrom, dateTo);
-
-  if (status === "completed" && !range) {
-    return NextResponse.json(
-      { error: "Provide a valid dateFrom (YYYY-MM-DD) for completed view." },
-      { status: 400 },
-    );
-  }
+  const range = resolveDateRange(dateFrom, dateTo);
 
   const [data, company] = await Promise.all([
     fetchDispatchGroups(companyId, status, range),
@@ -241,8 +239,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     status,
-    dateFrom: range?.dateFrom ?? null,
-    dateTo: range?.dateTo ?? null,
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
     companyName: company?.name ?? null,
     ...data,
   });
@@ -265,26 +263,18 @@ export async function POST(request: NextRequest) {
 
   const status = body.status === "completed" ? "completed" : "pending";
   const format = body.format === "csv" ? "csv" : "pdf";
-  const range = parseDateRange(body.dateFrom ?? null, body.dateTo ?? null);
-
-  if (status === "completed" && !range) {
-    return NextResponse.json(
-      { error: "Provide a valid dateFrom (YYYY-MM-DD)." },
-      { status: 400 },
-    );
-  }
+  const range = resolveDateRange(body.dateFrom ?? null, body.dateTo ?? null);
 
   const { groups } = await fetchDispatchGroups(companyId, status, range);
   if (groups.length === 0)
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
-  const today = new Date().toISOString().slice(0, 10);
   const fileSuffix =
     status === "pending"
-      ? `pending-${today}`
-      : range!.dateFrom === range!.dateTo
-        ? range!.dateFrom
-        : `${range!.dateFrom}_to_${range!.dateTo}`;
+      ? `pending-${range.dateFrom}`
+      : range.dateFrom === range.dateTo
+        ? range.dateFrom
+        : `${range.dateFrom}_to_${range.dateTo}`;
 
   if (format === "csv") {
     const headers = [
@@ -363,8 +353,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const pdfDateFrom = range?.dateFrom ?? today;
-  const pdfDateTo = range?.dateTo ?? today;
+  const pdfDateFrom = range.dateFrom;
+  const pdfDateTo = range.dateTo;
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {
