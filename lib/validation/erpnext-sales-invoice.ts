@@ -32,6 +32,18 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   contact_mobile: z.string().optional().nullable(),
   address_display: z.string().optional().nullable(),
   shipping_address: z.string().optional().nullable(),
+  shipping_rule: z.string().optional().nullable(),
+  total_taxes_and_charges: z.number().optional().nullable(),
+  taxes: z
+    .array(
+      z.object({
+        description: z.string().optional().nullable(),
+        tax_amount: z.number().optional().nullable(),
+        account_head: z.string().optional().nullable(),
+      }),
+    )
+    .optional()
+    .default([]),
   items: z
     .array(
       z.object({

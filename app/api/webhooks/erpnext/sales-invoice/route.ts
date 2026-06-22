@@ -16,6 +16,7 @@ import {
   handleErpSalesInvoiceCreditNoteEvent,
   isErpSalesInvoiceCreditNoted,
 } from "@/lib/erp-credit-note-order-sync";
+import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -367,6 +368,12 @@ export async function POST(request: NextRequest) {
 
   const isCreditNoted = isErpSalesInvoiceCreditNoted(data.status, data.docstatus);
 
+  const erpShipping = buildErpOrderShippingFields({
+    shipping_rule: data.shipping_rule,
+    taxes: data.taxes,
+    total_taxes_and_charges: data.total_taxes_and_charges,
+  });
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -377,6 +384,10 @@ export async function POST(request: NextRequest) {
       name: data.name,
       erpnextInvoiceId: data.name,
       totalPrice: grandTotal,
+      ...(erpShipping.totalShipping
+        ? { totalShipping: new Decimal(erpShipping.totalShipping) }
+        : {}),
+      ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       currency: data.currency ?? "LKR",
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       fulfillmentStage: isPOS
@@ -399,6 +410,10 @@ export async function POST(request: NextRequest) {
     },
     update: {
       totalPrice: grandTotal,
+      ...(erpShipping.totalShipping
+        ? { totalShipping: new Decimal(erpShipping.totalShipping) }
+        : {}),
+      ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",

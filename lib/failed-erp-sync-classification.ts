@@ -5,11 +5,11 @@ export function normalizeFailedErpSyncMessage(message: string) {
 function formatOutOfStockLabel(rawItem: string) {
   const item = rawItem.trim();
   const colonIdx = item.indexOf(":");
-  const label =
-    colonIdx >= 0 && colonIdx < item.length - 1
-      ? item.slice(colonIdx + 1).trim()
+  const sku =
+    colonIdx > 0
+      ? item.slice(0, colonIdx).trim()
       : item;
-  return `Out of stock - ${label}`;
+  return `Out of stock - ${sku}`;
 }
 
 /** Turn raw ERPNext NegativeStockError payloads into a short operator-friendly message. */

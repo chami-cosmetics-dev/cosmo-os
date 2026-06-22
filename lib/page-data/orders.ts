@@ -5,7 +5,7 @@ import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-c
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
-import { cuidSchema, orderPaymentGatewayFilterSchema } from "@/lib/validation";
+import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
 import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
@@ -43,6 +43,8 @@ export type OrdersPageParams = {
   createdTo?: Date;
   /** Match orders whose `paymentGatewayNames` contains this string (Shopify gateway name). */
   paymentGateway?: string | null;
+  /** Financial or return-stage filter for the main orders list. */
+  orderStatusFilter?: OrderStatusFilter;
   sampleSendLater?: "available" | "future" | "all";
   returnFilter?: "normal" | "rearrange";
   /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
@@ -171,6 +173,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     gatewayParsed.data
   ) {
     where.paymentGatewayNames = { has: gatewayParsed.data };
+  }
+
+  if (params.orderStatusFilter === "pending") {
+    where.financialStatus = "pending";
+  } else if (params.orderStatusFilter === "paid") {
+    where.financialStatus = "paid";
+  } else if (params.orderStatusFilter === "voided") {
+    where.financialStatus = "voided";
+  } else if (params.orderStatusFilter === "returned") {
+    where.fulfillmentStage = "returned";
+  } else if (params.orderStatusFilter === "returned_to_store") {
+    where.fulfillmentStage = "returned_to_store";
   }
 
   if (params.search?.trim()) {
