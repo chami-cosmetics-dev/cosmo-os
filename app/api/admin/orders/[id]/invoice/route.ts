@@ -4,8 +4,7 @@ import { findMatchingContacts } from "@/lib/contact-identifiers";
 import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
-import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
-import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
+import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
@@ -265,11 +264,13 @@ export async function GET(
     .filter((r) => r.type === "internal" && r.showOnInvoice)
     .map((r) => r.content);
 
-  const merchantCouponCode = getMerchantCouponCode({
+  const merchantCouponCode = await resolveOrderMerchantCouponForOrder({
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
     assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    erpnextInstance: order.companyLocation.erpnextInstance,
   });
   const discountCouponCode = await resolveOrderDiscountCouponForOrder({
     sourceName: order.sourceName,

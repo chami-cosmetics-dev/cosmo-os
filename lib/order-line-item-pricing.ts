@@ -1,4 +1,5 @@
 import { unwrapErpWebhookPayload } from "@/lib/erpnext-customer-display-name";
+import { shouldResolveFromLinkedErpInvoice } from "@/lib/erp-order-link";
 
 type ErpInstanceLike = {
   baseUrl: string;
@@ -179,12 +180,14 @@ export async function resolveOrderLineItemsPricing(input: {
   erpnextInstance?: ErpInstanceLike;
   lineItems: Array<{ sku: string | null; quantity: number; price: string }>;
 }): Promise<OrderLineItemPricing[]> {
-  const source = input.sourceName?.toLowerCase() ?? "";
-  const isErp = source.startsWith("erpnext");
+  const useErp = shouldResolveFromLinkedErpInvoice({
+    sourceName: input.sourceName,
+    erpnextInvoiceId: input.erpnextInvoiceId,
+  });
 
-  let erpRows = isErp ? readErpPayloadItems(input.rawPayload) : [];
+  let erpRows = useErp ? readErpPayloadItems(input.rawPayload) : [];
   const needsLive =
-    isErp &&
+    useErp &&
     (erpRows.length === 0 ||
       erpRows.some((row) => row.price_list_rate == null && row.discount_amount == null));
 
@@ -198,7 +201,7 @@ export async function resolveOrderLineItemsPricing(input: {
   }
 
   return input.lineItems.map((li, index) => {
-    if (isErp) {
+    if (useErp) {
       const row = matchErpItemRow(erpRows, li.sku, index);
       if (row) return resolveFromErpRow(row, li.quantity);
     }
