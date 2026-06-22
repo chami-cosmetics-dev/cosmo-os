@@ -405,6 +405,9 @@ export async function POST(request: NextRequest) {
       : {}),
   };
 
+  const skipSampleStage = !isCreditNoted;
+  const sampleStageCompletedAt = skipSampleStage ? new Date() : undefined;
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -427,6 +430,7 @@ export async function POST(request: NextRequest) {
         : isCreditNoted
           ? "returned"
           : "print",
+      ...(sampleStageCompletedAt ? { sampleFreeIssueCompleteAt: sampleStageCompletedAt } : {}),
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
