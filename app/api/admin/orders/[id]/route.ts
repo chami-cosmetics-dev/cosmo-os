@@ -13,6 +13,7 @@ import {
   resolveErpCustomerNameLive,
   resolveStoredOrderCustomerName,
 } from "@/lib/erpnext-customer-display-name";
+import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -29,6 +30,7 @@ const orderSelect = {
   totalDiscounts: true,
   totalTax: true,
   totalShipping: true,
+  shippingLines: true,
   currency: true,
   financialStatus: true,
   fulfillmentStatus: true,
@@ -209,6 +211,16 @@ export async function GET(
     }
   }
 
+  const shippingDisplay = await resolveOrderShippingDisplayForOrder({
+    totalShipping: details.totalShipping?.toString() ?? null,
+    shippingLines: details.shippingLines,
+    rawPayload: details.rawPayload,
+    sourceName: details.sourceName,
+    name: details.name,
+    erpnextInvoiceId: details.erpnextInvoiceId,
+    erpnextInstance: details.companyLocation.erpnextInstance,
+  });
+
   const lineItems = details.lineItems.map((li) => ({
     id: li.id,
     productTitle: li.productItem.productTitle,
@@ -232,7 +244,8 @@ export async function GET(
     subtotalPrice: details.subtotalPrice?.toString() ?? null,
     totalDiscounts: details.totalDiscounts?.toString() ?? null,
     totalTax: details.totalTax?.toString() ?? null,
-    totalShipping: details.totalShipping?.toString() ?? null,
+    totalShipping: shippingDisplay.amount ?? details.totalShipping?.toString() ?? null,
+    shippingRuleLabel: shippingDisplay.label,
     currency: details.currency,
     financialStatus: details.financialStatus,
     fulfillmentStatus: details.fulfillmentStatus,

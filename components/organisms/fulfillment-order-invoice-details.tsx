@@ -14,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -38,6 +39,7 @@ type OrderDetail = {
   discountCouponCode?: string | null;
   totalTax: string | null;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
   currency: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -172,6 +174,14 @@ export function FulfillmentOrderInvoiceDetails({
           <div>
             <h4 className="mb-1 font-medium text-muted-foreground">Shipping</h4>
             <p className="line-clamp-2">{formatAddress(detail.shippingAddress)}</p>
+            <OrderShippingLine
+              className="mt-1 text-muted-foreground"
+              prefix="Delivery:"
+              shippingRuleLabel={detail.shippingRuleLabel}
+              totalShipping={detail.totalShipping}
+              currency={detail.currency}
+              formatPrice={formatPrice}
+            />
           </div>
         </div>
         {detail.sampleFreeIssues && detail.sampleFreeIssues.length > 0 && (
@@ -238,9 +248,12 @@ export function FulfillmentOrderInvoiceDetails({
             {detail.merchantCouponCode && (
               <p>Mer coupon: {detail.merchantCouponCode}</p>
             )}
-            {detail.totalShipping != null && parseFloat(detail.totalShipping) > 0 && (
-              <p>Shipping: {formatPrice(detail.totalShipping, detail.currency)}</p>
-            )}
+            <OrderShippingLine
+              shippingRuleLabel={detail.shippingRuleLabel}
+              totalShipping={detail.totalShipping}
+              currency={detail.currency}
+              formatPrice={formatPrice}
+            />
             {detail.totalTax != null && parseFloat(detail.totalTax) > 0 && (
               <p>Tax: {formatPrice(detail.totalTax, detail.currency)}</p>
             )}

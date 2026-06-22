@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { formatOrderShippingDetail } from "@/lib/order-shipping-display";
 import { notify } from "@/lib/notify";
 
 function todayIso() {
@@ -96,6 +97,7 @@ type OrderDetail = {
   discountCouponCode?: string | null;
   totalDiscounts?: string | null;
   totalShipping?: string | null;
+  shippingRuleLabel?: string | null;
   subtotalPrice?: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -555,7 +557,19 @@ function DispatchOrderDetailDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <DetailField label="Subtotal" value={formatAmount(detail?.subtotalPrice, order.currency)} />
             <DetailField label="Discount" value={formatAmount(detail?.totalDiscounts, order.currency)} />
-            <DetailField label="Shipping" value={formatAmount(detail?.totalShipping, order.currency)} />
+            <DetailField
+              label="Delivery"
+              value={
+                formatOrderShippingDetail(
+                  {
+                    label: detail?.shippingRuleLabel ?? null,
+                    amount: detail?.totalShipping ?? null,
+                  },
+                  (amount, currency) => formatAmount(String(amount), currency),
+                  order.currency,
+                ) ?? "—"
+              }
+            />
             <DetailField label="Total" value={formatAmount(order.totalPrice, order.currency)} />
           </div>
 

@@ -5,6 +5,7 @@ import { Check, Loader2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -21,6 +22,8 @@ type DeliveryOrderDetail = {
   customerPhone: string | null;
   resolvedCustomerPhone?: string | null;
   shippingAddress: unknown;
+  totalShipping?: string | null;
+  shippingRuleLabel?: string | null;
   dispatchedAt: string | null;
   dispatchedBy: { id: string; name: string | null; email: string | null } | null;
   dispatchedByRider: { id: string; name: string | null; mobile: string | null } | null;
@@ -167,6 +170,13 @@ export function FulfillmentDeliveryInvoicePanel({
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
           <p><span className="font-medium">Phone:</span> {displayPhone}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
+          <OrderShippingLine
+            prefix="Delivery:"
+            shippingRuleLabel={detail?.shippingRuleLabel}
+            totalShipping={detail?.totalShipping}
+            currency={currency ?? null}
+            formatPrice={formatPrice}
+          />
           <p>
             <span className="font-medium">Dispatched via:</span>{" "}
             {detail
