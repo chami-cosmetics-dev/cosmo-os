@@ -1,4 +1,6 @@
 import { unwrapErpWebhookPayload } from "@/lib/erpnext-customer-display-name";
+import { shouldResolveFromLinkedErpInvoice } from "@/lib/erp-order-link";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getDiscountCouponCode } from "@/lib/shopify-discount-codes";
 
 type ErpInstanceLike = {
@@ -112,14 +114,51 @@ export async function fetchErpInvoiceDiscountCoupon(
   const ref = invoiceName.trim();
   if (!ref) return null;
 
-  const fields = encodeURIComponent(JSON.stringify(["coupon_code", "custom_coupon_code"]));
-  const row = await erpGet<{ coupon_code?: string | null; custom_coupon_code?: string | null }>(
+  const row = await erpGet<{
+    coupon_code?: string | null;
+    custom_coupon_code?: string | null;
+    pricing_rules?: Array<{ pricing_rule?: string | null }>;
+  }>(creds, `/api/resource/Sales Invoice/${encodeURIComponent(ref)}`);
+
+  if (!row) return null;
+
+  const direct = nullIfNone(row.coupon_code) ?? nullIfNone(row.custom_coupon_code);
+  if (direct) return direct;
+
+  // Shopify-synced invoices often apply SV20 via Pricing Rule while coupon_code stays empty.
+  const ruleName = row.pricing_rules?.find((r) => r.pricing_rule?.trim())?.pricing_rule?.trim();
+  if (!ruleName) return null;
+
+  const rule = await erpGet<{ title?: string | null }>(
+    creds,
+    `/api/resource/Pricing Rule/${encodeURIComponent(ruleName)}`,
+  );
+  return nullIfNone(rule?.title);
+}
+
+/** Fetch merchant coupon from linked ERP Sales Invoice. */
+export async function fetchErpInvoiceMerchantCoupon(
+  creds: ErpApiCreds,
+  invoiceName: string,
+): Promise<string | null> {
+  const ref = invoiceName.trim();
+  if (!ref) return null;
+
+  const fields = encodeURIComponent(
+    JSON.stringify(["custom_merchant_coupon_code", "merchant_coupon_code"]),
+  );
+  const row = await erpGet<{
+    custom_merchant_coupon_code?: string | null;
+    merchant_coupon_code?: string | null;
+  }>(
     creds,
     `/api/resource/Sales Invoice/${encodeURIComponent(ref)}?fields=${fields}`,
   );
   if (!row) return null;
 
-  return nullIfNone(row.coupon_code) ?? nullIfNone(row.custom_coupon_code);
+  return (
+    nullIfNone(row.custom_merchant_coupon_code) ?? nullIfNone(row.merchant_coupon_code)
+  );
 }
 
 /** Resolve discount coupon from stored data, falling back to live ERP invoice lookup. */
@@ -131,15 +170,49 @@ export async function resolveOrderDiscountCouponForOrder(input: {
   erpnextInvoiceId?: string | null;
   erpnextInstance?: ErpInstanceLike;
 }): Promise<string | null> {
-  const stored = getOrderDiscountCouponCode(input);
-  if (stored) return stored;
+  const fromShopify = getDiscountCouponCode(input.discountCodes);
+  const fromErpPayload =
+    input.sourceName?.startsWith("erpnext")
+      ? getErpDiscountCouponFromPayload(input.rawPayload ?? null)
+      : null;
+  const stored = fromShopify ?? fromErpPayload;
 
-  const source = input.sourceName?.toLowerCase() ?? "";
-  if (!source.startsWith("erpnext")) return null;
+  if (!shouldResolveFromLinkedErpInvoice(input)) {
+    return stored;
+  }
 
   const creds = resolveErpApiCreds(input.erpnextInstance ?? null);
   const invoiceRef = resolveErpInvoiceRef(input);
-  if (!creds || !invoiceRef) return null;
+  if (!creds || !invoiceRef) return stored;
 
-  return fetchErpInvoiceDiscountCoupon(creds, invoiceRef);
+  const fromErp = await fetchErpInvoiceDiscountCoupon(creds, invoiceRef);
+  return fromErp ?? stored;
+}
+
+/** Resolve merchant coupon, preferring linked ERP Sales Invoice when available. */
+export async function resolveOrderMerchantCouponForOrder(input: {
+  sourceName?: string | null;
+  discountCodes: unknown;
+  rawPayload?: unknown;
+  assignedMerchantCouponCodes?: string[] | null;
+  erpnextInvoiceId?: string | null;
+  erpnextInstance?: ErpInstanceLike;
+}): Promise<string | null> {
+  const stored = getMerchantCouponCode({
+    sourceName: input.sourceName,
+    discountCodes: input.discountCodes,
+    rawPayload: input.rawPayload,
+    assignedMerchantCouponCodes: input.assignedMerchantCouponCodes,
+  });
+
+  if (!shouldResolveFromLinkedErpInvoice(input)) {
+    return stored;
+  }
+
+  const creds = resolveErpApiCreds(input.erpnextInstance ?? null);
+  const invoiceRef = input.erpnextInvoiceId?.trim();
+  if (!creds || !invoiceRef) return stored;
+
+  const fromErp = await fetchErpInvoiceMerchantCoupon(creds, invoiceRef);
+  return fromErp ?? stored;
 }

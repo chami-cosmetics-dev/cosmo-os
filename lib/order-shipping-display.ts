@@ -1,3 +1,5 @@
+import { shouldResolveFromLinkedErpInvoice } from "@/lib/erp-order-link";
+
 type ErpTaxRow = {
   description?: string | null;
   tax_amount?: number | null;
@@ -248,8 +250,7 @@ export async function resolveOrderShippingDisplayForOrder(input: {
   const needsAmount = !stored.amount;
   if (!needsLabel && !needsAmount) return stored;
 
-  const source = input.sourceName?.toLowerCase() ?? "";
-  if (source !== "erpnext" && source !== "erpnext-pos") return stored;
+  if (!shouldResolveFromLinkedErpInvoice(input)) return stored;
 
   const creds = resolveErpApiCreds(input.erpnextInstance ?? null);
   const invoiceRef = resolveErpInvoiceRef(input);

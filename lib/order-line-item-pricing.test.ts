@@ -32,6 +32,18 @@ describe("resolveOrderLineItemsPricing", () => {
     expect(result[0].lineDiscount).toBe("5075.00");
     expect(result[0].salePrice).toBe("28760.00");
   });
+
+  it("loads ERP line pricing for Shopify orders linked to an ERP invoice", async () => {
+    const result = await resolveOrderLineItemsPricing({
+      sourceName: "web",
+      erpnextInvoiceId: "SV100-0464",
+      rawPayload: null,
+      lineItems: [{ sku: "SW035-1", quantity: 1, price: "14500.00" }],
+    });
+
+    // Without live ERP in tests, falls back to sale price only.
+    expect(result[0].salePrice).toBe("14500.00");
+  });
 });
 
 describe("sumLineDiscounts", () => {

@@ -231,6 +231,28 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+        {canViewOrderManagement && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Order Management</SidebarGroupLabel>
+            <SidebarGroupContent>
+              {canViewOrders && (
+                <NavItem href="/dashboard/orders" icon={ShoppingCart} label="Orders" isActive={pathname === "/dashboard/orders"} />
+              )}
+              {canViewReturns && (
+                <NavItem href="/dashboard/returns" icon={PackageCheck} label="Returned Orders" isActive={pathname === "/dashboard/returns"} />
+              )}
+              {canViewExchanges && (
+                <NavItem href="/dashboard/exchanges" icon={RefreshCw} label="Exchanges" isActive={pathname === "/dashboard/exchanges"} />
+              )}
+              {canCreateManualOrder && (
+                <NavItem href="/dashboard/orders/create" icon={Plus} label="Create Manual Order" isActive={pathname === "/dashboard/orders/create"} />
+              )}
+              {fulfillmentHref && (
+                <NavItem href={fulfillmentHref} icon={PackageCheck} label="Fulfillment" isActive={pathname.startsWith("/dashboard/fulfillment")} />
+              )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
         {canViewContacts && (
           <SidebarGroup>
             <SidebarGroupLabel>Contacts</SidebarGroupLabel>
@@ -334,28 +356,6 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
               )}
               {canViewFulfillmentSettings && (
                 <NavItem href="/dashboard/settings/fulfillment" icon={PackageCheck} label="Fulfillment Data" isActive={pathname === "/dashboard/settings/fulfillment"} />
-              )}
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-        {canViewOrderManagement && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Order Management</SidebarGroupLabel>
-            <SidebarGroupContent>
-              {canViewOrders && (
-                <NavItem href="/dashboard/orders" icon={ShoppingCart} label="Orders" isActive={pathname === "/dashboard/orders"} />
-              )}
-              {canViewReturns && (
-                <NavItem href="/dashboard/returns" icon={PackageCheck} label="Returned Orders" isActive={pathname === "/dashboard/returns"} />
-              )}
-              {canViewExchanges && (
-                <NavItem href="/dashboard/exchanges" icon={RefreshCw} label="Exchanges" isActive={pathname === "/dashboard/exchanges"} />
-              )}
-              {canCreateManualOrder && (
-                <NavItem href="/dashboard/orders/create" icon={Plus} label="Create Manual Order" isActive={pathname === "/dashboard/orders/create"} />
-              )}
-              {fulfillmentHref && (
-                <NavItem href={fulfillmentHref} icon={PackageCheck} label="Fulfillment" isActive={pathname.startsWith("/dashboard/fulfillment")} />
               )}
             </SidebarGroupContent>
           </SidebarGroup>
