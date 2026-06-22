@@ -30,8 +30,18 @@ function parseDateRange(from: string | null, to: string | null) {
   };
 }
 
-function resolveDateRange(from: string | null, to: string | null) {
-  return parseDateRange(from ?? todayIso(), to ?? from ?? todayIso());
+function resolveDateRange(from: string | null, to: string | null): DateRange {
+  const parsed = parseDateRange(from ?? todayIso(), to ?? from ?? todayIso());
+  if (parsed) return parsed;
+
+  const today = todayIso();
+  const [y, m, d] = today.split("-").map(Number);
+  return {
+    from: new Date(y, m - 1, d, 0, 0, 0, 0),
+    to: new Date(y, m - 1, d, 23, 59, 59, 999),
+    dateFrom: today,
+    dateTo: today,
+  };
 }
 
 type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
