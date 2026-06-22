@@ -15,6 +15,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
+import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
+import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -34,6 +36,9 @@ type OrderDetail = {
   name: string | null;
   totalPrice: string;
   subtotalPrice: string | null;
+  subtotalOriginal?: string | null;
+  subtotalSale?: string | null;
+  discountTotal?: string | null;
   totalDiscounts: string | null;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
@@ -52,6 +57,9 @@ type OrderDetail = {
     quantity: number;
     price: string;
     total: string;
+    originalPrice?: string | null;
+    originalTotal?: string | null;
+    lineDiscount?: string | null;
   }>;
   sampleFreeIssues?: Array<{
     id: string;
@@ -233,44 +241,54 @@ export function FulfillmentOrderInvoiceDetails({
                     </td>
                     <td className="px-3 py-2 text-right">{li.quantity}</td>
                     <td className="px-3 py-2 text-right">
-                      {formatPrice(li.price, detail.currency)}
+                      <OrderLineItemPrice
+                        salePrice={li.price}
+                        originalPrice={li.originalPrice}
+                        formatPrice={formatPrice}
+                        currency={detail.currency}
+                      />
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {formatPrice(li.total, detail.currency)}
+                      {li.originalTotal &&
+                      parseFloat(li.originalTotal) > parseFloat(li.total) ? (
+                        <span>
+                          <span className="block text-muted-foreground line-through">
+                            {formatPrice(li.originalTotal, detail.currency)}
+                          </span>
+                          <span className="block">
+                            {formatPrice(li.total, detail.currency)}
+                          </span>
+                        </span>
+                      ) : (
+                        formatPrice(li.total, detail.currency)
+                      )}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="mt-2 space-y-1 text-right">
-            {detail.subtotalPrice != null && (
-              <p>
-                Subtotal: {formatPrice(detail.subtotalPrice, detail.currency)}
-              </p>
-            )}
-            {detail.discountCouponCode && (
-              <p>Coupon ({detail.discountCouponCode}){detail.totalDiscounts != null && parseFloat(detail.totalDiscounts) > 0 ? `: -${formatPrice(detail.totalDiscounts, detail.currency)}` : ""}</p>
-            )}
-            {!detail.discountCouponCode && detail.totalDiscounts != null && parseFloat(detail.totalDiscounts) > 0 && (
-              <p>Discounts: -{formatPrice(detail.totalDiscounts, detail.currency)}</p>
-            )}
-            {detail.merchantCouponCode && (
-              <p>Mer coupon: {detail.merchantCouponCode}</p>
-            )}
-            <OrderShippingLine
-              shippingRuleLabel={detail.shippingRuleLabel}
-              totalShipping={detail.totalShipping}
-              currency={detail.currency}
-              formatPrice={formatPrice}
-            />
-            {detail.totalTax != null && parseFloat(detail.totalTax) > 0 && (
-              <p>Tax: {formatPrice(detail.totalTax, detail.currency)}</p>
-            )}
-            <p className="font-medium">
-              Total: {formatPrice(detail.totalPrice, detail.currency)}
+          <OrderLineItemsTotals
+            subtotalOriginal={detail.subtotalOriginal}
+            subtotalSale={detail.subtotalSale ?? detail.subtotalPrice}
+            discountCouponCode={detail.discountCouponCode}
+            discountTotal={detail.discountTotal ?? detail.totalDiscounts}
+            totalShipping={detail.totalShipping}
+            shippingRuleLabel={detail.shippingRuleLabel}
+            totalPrice={detail.totalPrice}
+            currency={detail.currency}
+            formatPrice={formatPrice}
+          />
+          {detail.merchantCouponCode && (
+            <p className="mt-1 text-right text-sm text-muted-foreground">
+              Mer coupon: {detail.merchantCouponCode}
             </p>
-          </div>
+          )}
+          {detail.totalTax != null && parseFloat(detail.totalTax) > 0 && (
+            <p className="mt-1 text-right text-sm text-muted-foreground">
+              Tax: {formatPrice(detail.totalTax, detail.currency)}
+            </p>
+          )}
         </div>
 
         <div>

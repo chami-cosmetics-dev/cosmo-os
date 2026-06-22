@@ -384,6 +384,27 @@ export async function POST(request: NextRequest) {
     total_taxes_and_charges: data.total_taxes_and_charges,
   });
 
+  const lineDiscountSum = data.items.reduce(
+    (acc, item) => acc + (item.discount_amount ?? 0),
+    0,
+  );
+  const totalDiscountsValue =
+    lineDiscountSum > 0
+      ? lineDiscountSum
+      : data.discount_amount != null && data.discount_amount > 0
+        ? data.discount_amount
+        : null;
+  const subtotalPriceValue =
+    data.net_total != null && data.net_total > 0 ? data.net_total : null;
+  const pricingFields = {
+    ...(subtotalPriceValue != null
+      ? { subtotalPrice: new Decimal(subtotalPriceValue) }
+      : {}),
+    ...(totalDiscountsValue != null
+      ? { totalDiscounts: new Decimal(totalDiscountsValue) }
+      : {}),
+  };
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -394,6 +415,7 @@ export async function POST(request: NextRequest) {
       name: data.name,
       erpnextInvoiceId: data.name,
       totalPrice: grandTotal,
+      ...pricingFields,
       ...(erpShipping.totalShipping
         ? { totalShipping: new Decimal(erpShipping.totalShipping) }
         : {}),
@@ -420,6 +442,7 @@ export async function POST(request: NextRequest) {
     },
     update: {
       totalPrice: grandTotal,
+      ...pricingFields,
       ...(erpShipping.totalShipping
         ? { totalShipping: new Decimal(erpShipping.totalShipping) }
         : {}),
