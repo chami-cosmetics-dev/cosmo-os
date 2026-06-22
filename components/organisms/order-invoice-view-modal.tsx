@@ -228,6 +228,27 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
+function isErpOrderSource(sourceName: string): boolean {
+  return sourceName === "erpnext" || sourceName === "erpnext-pos";
+}
+
+function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
+  if (!fulfillmentStage) return false;
+  const printIdx = FULFILLMENT_STAGE_ORDER.indexOf("print");
+  const stageIdx = FULFILLMENT_STAGE_ORDER.indexOf(
+    fulfillmentStage as (typeof FULFILLMENT_STAGE_ORDER)[number],
+  );
+  if (stageIdx >= 0) return stageIdx >= printIdx;
+  return fulfillmentStage === "returned";
+}
+
+function erpOrderSkippedSampleStage(orderDetail: OrderDetail): boolean {
+  return (
+    isErpOrderSource(orderDetail.sourceName) &&
+    isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage)
+  );
+}
+
 function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
   if (!Array.isArray(discountCodes) || discountCodes.length === 0) return null;
   const codes = discountCodes
@@ -317,6 +338,15 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       id: "sample_free_issue",
       label: "Sample / Free Issue",
       date: orderDetail.sampleFreeIssueCompleteAt ?? null,
+      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
+      done: true,
+      icon: <Package className="size-4" />,
+    });
+  } else if (erpOrderSkippedSampleStage(orderDetail)) {
+    items.push({
+      id: "sample_free_issue",
+      label: "Sample / Free Issue",
+      date: orderDetail.sampleFreeIssueCompleteAt ?? orderDetail.createdAt,
       who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
       done: true,
       icon: <Package className="size-4" />,
@@ -544,6 +574,7 @@ export function OrderInvoiceViewModal({
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
+    window.setTimeout(() => onRefresh?.(), 2000);
   }
 
   function handleRevertClick(targetStage: string, label: string) {

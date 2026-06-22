@@ -225,14 +225,16 @@ export async function GET(
   const printedAt = new Date();
   if (shouldIncrementPrint) {
     const userId = auth.context!.user!.id;
-    const advanceToDispatch = order.fulfillmentStage === "print";
+    const stage = order.fulfillmentStage;
+    const nextStage =
+      stage === "order_received" || stage === "sample_free_issue" ? "print" : null;
     await prisma.order.update({
       where: { id: order.id },
       data: {
         printCount: { increment: 1 },
         lastPrintedAt: printedAt,
         lastPrintedById: userId,
-        ...(advanceToDispatch ? { fulfillmentStage: "ready_to_dispatch" } : {}),
+        ...(nextStage ? { fulfillmentStage: nextStage } : {}),
       },
     });
   }

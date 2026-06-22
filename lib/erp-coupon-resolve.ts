@@ -46,6 +46,46 @@ async function listErpDocuments(
   return json.data ?? [];
 }
 
+/** Resolve ERP Coupon Code document name (case-insensitive). */
+export async function resolveErpCouponCodeDocument(
+  cfg: ErpCouponApiConfig,
+  discountCode: string,
+): Promise<string | null> {
+  const trimmed = discountCode.trim();
+  if (!trimmed) return null;
+
+  for (const candidate of [trimmed, trimmed.toUpperCase(), trimmed.toLowerCase()]) {
+    if (await erpDocumentExists(cfg, "Coupon Code", candidate)) return candidate;
+  }
+
+  const exactMatches = await listErpDocuments(
+    cfg,
+    "Coupon Code",
+    [["name", "=", trimmed]],
+    ["name"],
+    5,
+  );
+  if (exactMatches.length === 1) return exactMatches[0].name;
+
+  const lowered = trimmed.toLowerCase();
+  const prefixMatches = await listErpDocuments(
+    cfg,
+    "Coupon Code",
+    [["name", "like", `${trimmed}%`]],
+    ["name"],
+    20,
+  );
+  const caseInsensitive = prefixMatches.filter((row) => row.name.toLowerCase() === lowered);
+  if (caseInsensitive.length === 1) return caseInsensitive[0].name;
+  if (caseInsensitive.length > 1) {
+    console.warn(
+      `[ERPNext] Ambiguous Coupon Code matches for "${trimmed}": ${caseInsensitive.map((r) => r.name).join(", ")}`,
+    );
+  }
+
+  return null;
+}
+
 /**
  * Shopify sends short MER codes (e.g. MER99); ERP Sales Person uses MER99-Name.
  */
@@ -82,6 +122,8 @@ export async function resolveErpSalesPersonForMerchantCode(
 export type ResolvedErpSalesInvoiceCoupons = {
   couponCode: string | null;
   merchantSalesPerson: string | null;
+  /** Shopify discount code label (e.g. LOYALCS2), even when ERP coupon_code is omitted. */
+  discountCodeLabel: string | null;
 };
 
 /**
@@ -108,9 +150,8 @@ export async function resolveErpSalesInvoiceCouponFields(
 
   let couponCode: string | null = null;
   if (discountCode) {
-    if (await erpDocumentExists(cfg, "Coupon Code", discountCode)) {
-      couponCode = discountCode;
-    } else {
+    couponCode = await resolveErpCouponCodeDocument(cfg, discountCode);
+    if (!couponCode) {
       console.warn(
         `[ERPNext] Discount coupon "${discountCode}" not found in ERP Coupon Code — omitting coupon_code`,
       );
@@ -127,5 +168,9 @@ export async function resolveErpSalesInvoiceCouponFields(
     }
   }
 
-  return { couponCode, merchantSalesPerson };
+  return {
+    couponCode,
+    merchantSalesPerson,
+    discountCodeLabel: discountCode,
+  };
 }
