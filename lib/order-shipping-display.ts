@@ -154,7 +154,7 @@ export function buildErpOrderShippingFields(data: {
 
 export function formatOrderShippingDetail(
   display: OrderShippingDisplay,
-  formatPrice: (amount: string | number, currency?: string | null) => string,
+  formatPrice: (amount: string, currency?: string | null) => string,
   currency?: string | null,
 ): string | null {
   const label = display.label?.trim();

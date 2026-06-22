@@ -4,7 +4,7 @@ type OrderShippingLineProps = {
   shippingRuleLabel?: string | null;
   totalShipping?: string | null;
   currency?: string | null;
-  formatPrice: (amount: string | number, currency?: string | null) => string;
+  formatPrice: (amount: string, currency?: string | null) => string;
   className?: string;
   prefix?: string;
 };
