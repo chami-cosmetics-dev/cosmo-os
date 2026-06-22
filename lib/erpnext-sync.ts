@@ -189,9 +189,35 @@ async function erpnextGet<T>(cfg: ErpConfig, path: string): Promise<T | null> {
 
 type ErpSalesInvoiceCreateResult = { name: string; debit_to: string; grand_total: number };
 
+type CreateErpSalesInvoiceOpts = {
+  /** Header discount when coupon_code cannot be applied on the SI. */
+  discountFallback?: number;
+  /** Shopify coupon label to store on custom_coupon_code when coupon_code is stripped. */
+  couponLabel?: string | null;
+};
+
+function withCouponDiscountFallback(
+  body: Record<string, unknown>,
+  opts?: CreateErpSalesInvoiceOpts,
+  couponLabel?: string | null,
+): Record<string, unknown> {
+  const retryBody: Record<string, unknown> = { ...body };
+  const fallback = opts?.discountFallback ?? 0;
+  if (fallback > 0 && retryBody.discount_amount == null) {
+    retryBody.discount_amount = fallback;
+    retryBody.apply_discount_on = "Net Total";
+  }
+  const label = couponLabel ?? opts?.couponLabel ?? null;
+  if (label && !retryBody.custom_coupon_code) {
+    retryBody.custom_coupon_code = label;
+  }
+  return retryBody;
+}
+
 async function createErpSalesInvoice(
   cfg: ErpConfig,
   siBody: Record<string, unknown>,
+  opts?: CreateErpSalesInvoiceOpts,
 ): Promise<ErpSalesInvoiceCreateResult> {
   try {
     return await erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", siBody);
@@ -208,23 +234,32 @@ async function createErpSalesInvoice(
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
       try {
-        return await erpnextPost<ErpSalesInvoiceCreateResult>(
-          cfg,
-          "/api/resource/Sales Invoice",
-          withoutMerchant,
-        );
+        return await createErpSalesInvoice(cfg, withoutMerchant, opts);
       } catch (retryErr) {
         console.warn("[ERPNext] SI retry without merchant failed — falling back to SHOPIFY Sales Person");
-        return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", {
+        return createErpSalesInvoice(cfg, {
           ...withoutMerchant,
           custom_merchant_coupon_code: "SHOPIFY",
-        });
+        }, opts);
       }
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in siBody) {
-      console.warn("[ERPNext] SI creation failed — coupon_code invalid, retrying without it:", msg.slice(0, 200));
+      const couponLabel =
+        (typeof siBody.coupon_code === "string" && siBody.coupon_code) ||
+        opts?.couponLabel ||
+        null;
+      console.warn("[ERPNext] SI creation failed — coupon_code invalid, retrying with discount fallback:", msg.slice(0, 200));
       const { coupon_code: _coupon, ...withoutCoupon } = siBody;
-      return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", withoutCoupon);
+      return createErpSalesInvoice(
+        cfg,
+        withCouponDiscountFallback(withoutCoupon, opts, couponLabel),
+        opts,
+      );
+    }
+    if (msg.includes("417") && /coupon/i.test(msg) && "custom_coupon_code" in siBody) {
+      console.warn("[ERPNext] SI creation failed — custom_coupon_code invalid, retrying without it:", msg.slice(0, 200));
+      const { custom_coupon_code: _custom, ...withoutCustom } = siBody;
+      return createErpSalesInvoice(cfg, withCouponDiscountFallback(withoutCustom, opts, null), opts);
     }
     if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
@@ -243,14 +278,19 @@ async function buildErpSalesInvoiceCouponFields(
     rawPayload?: unknown;
     assignedMerchantCouponCodes?: string[] | null;
   },
-): Promise<Record<string, string>> {
+): Promise<{ fields: Record<string, string>; discountCodeLabel: string | null }> {
   const resolved = await resolveErpSalesInvoiceCouponFields(cfg, params);
-  return {
-    ...(resolved.couponCode ? { coupon_code: resolved.couponCode } : {}),
-    ...(resolved.merchantSalesPerson
-      ? { custom_merchant_coupon_code: resolved.merchantSalesPerson }
-      : {}),
-  };
+  const fields: Record<string, string> = {};
+  if (resolved.couponCode) {
+    fields.coupon_code = resolved.couponCode;
+    fields.custom_coupon_code = resolved.couponCode;
+  } else if (resolved.discountCodeLabel) {
+    fields.custom_coupon_code = resolved.discountCodeLabel;
+  }
+  if (resolved.merchantSalesPerson) {
+    fields.custom_merchant_coupon_code = resolved.merchantSalesPerson;
+  }
+  return { fields, discountCodeLabel: resolved.discountCodeLabel };
 }
 
 async function erpnextSetCustomerField(
@@ -891,11 +931,12 @@ export async function syncOrderToERPNext(
   // When shipping goes to taxes (not items), add it back so the discount calc stays correct
   const discountAmt = parseFloat((itemsTotal + (useShippingTaxRow ? shopifyShippingAmt : 0) - vaultTotal).toFixed(2));
 
-  const erpCouponFields = await buildErpSalesInvoiceCouponFields(cfg, {
+  const erpCouponResolved = await buildErpSalesInvoiceCouponFields(cfg, {
     sourceName: order.sourceName,
     discountCodes: shopifyData.discount_codes,
     rawPayload: shopifyData,
   });
+  const erpCouponFields = erpCouponResolved.fields;
 
   const billingAddressHtml = formatAddressHtml(billingAddr);
   const shippingAddressHtml = formatAddressHtml(shippingAddr);
@@ -949,7 +990,10 @@ export async function syncOrderToERPNext(
       : {}),
   };
 
-  const si = await createErpSalesInvoice(cfg, siBody as Record<string, unknown>);
+  const si = await createErpSalesInvoice(cfg, siBody as Record<string, unknown>, {
+    discountFallback: discountAmt > 0 ? discountAmt : undefined,
+    couponLabel: erpCouponResolved.discountCodeLabel,
+  });
 
   await prisma.order.update({
     where: { id: order.id },
@@ -1093,11 +1137,12 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
 
   const addrHtml = formatAddressHtml(addr);
 
-  const erpCouponFields = await buildErpSalesInvoiceCouponFields(cfg, {
+  const erpCouponResolved = await buildErpSalesInvoiceCouponFields(cfg, {
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
   });
+  const erpCouponFields = erpCouponResolved.fields;
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -1126,7 +1171,10 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
       : {}),
   };
 
-  const si = await createErpSalesInvoice(cfg, siBody as Record<string, unknown>);
+  const si = await createErpSalesInvoice(cfg, siBody as Record<string, unknown>, {
+    discountFallback: discountAmt > 0 ? discountAmt : undefined,
+    couponLabel: erpCouponResolved.discountCodeLabel,
+  });
 
   await prisma.order.update({
     where: { id: order.id },

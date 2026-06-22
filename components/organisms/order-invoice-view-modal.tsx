@@ -574,6 +574,7 @@ export function OrderInvoiceViewModal({
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
+    window.setTimeout(() => onRefresh?.(), 2000);
   }
 
   function handleRevertClick(targetStage: string, label: string) {
