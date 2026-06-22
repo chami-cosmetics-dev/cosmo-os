@@ -170,6 +170,16 @@ export function FulfillmentOrderInvoiceDetails({
             {detail.customerPhone && (
               <p className="text-muted-foreground">{detail.customerPhone}</p>
             )}
+            {detail.discountCouponCode && (
+              <p className="mt-1">
+                <span className="text-muted-foreground">Coupon:</span> {detail.discountCouponCode}
+              </p>
+            )}
+            {detail.merchantCouponCode && (
+              <p className="mt-1">
+                <span className="text-muted-foreground">Mer coupon:</span> {detail.merchantCouponCode}
+              </p>
+            )}
           </div>
           <div>
             <h4 className="mb-1 font-medium text-muted-foreground">Shipping</h4>

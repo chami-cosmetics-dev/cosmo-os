@@ -17,6 +17,7 @@ import {
   isErpSalesInvoiceCreditNoted,
 } from "@/lib/erp-credit-note-order-sync";
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
+import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -334,7 +335,16 @@ export async function POST(request: NextRequest) {
   }
 
   // Read merchant coupon code directly from ERP invoice — stored as-is for display
-  const merCouponCode = data.custom_merchant_coupon_code?.trim() || null;
+  const merCouponCode =
+    data.custom_merchant_coupon_code?.trim() ||
+    data.merchant_coupon_code?.trim() ||
+    null;
+  const erpDiscountCodes = buildErpOrderDiscountCodes({
+    coupon_code: data.coupon_code,
+    custom_coupon_code: data.custom_coupon_code,
+    custom_merchant_coupon_code: data.custom_merchant_coupon_code,
+    merchant_coupon_code: data.merchant_coupon_code,
+  });
 
   // For non-POS ERP orders: if a coupon code is present, try to assign the merchant via
   // coupon code (same logic as Shopify web order assignment in resolveAssignedMerchant).
@@ -399,7 +409,7 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
-      ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
+      ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0
         ? {
             paymentGatewayNames: resolvedPaymentMethods,
@@ -426,7 +436,7 @@ export async function POST(request: NextRequest) {
       customerPhone,
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
-      ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
+      ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0
         ? {
             paymentGatewayNames: resolvedPaymentMethods,

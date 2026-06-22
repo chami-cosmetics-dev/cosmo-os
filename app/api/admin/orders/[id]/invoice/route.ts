@@ -5,7 +5,7 @@ import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
-import { getDiscountCouponCode } from "@/lib/shopify-discount-codes";
+import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
@@ -271,7 +271,14 @@ export async function GET(
     rawPayload: order.rawPayload,
     assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
   });
-  const discountCouponCode = getDiscountCouponCode(order.discountCodes);
+  const discountCouponCode = await resolveOrderDiscountCouponForOrder({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    name: order.name,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    erpnextInstance: order.companyLocation.erpnextInstance,
+  });
 
   function escapeHtml(s: string): string {
     return s
