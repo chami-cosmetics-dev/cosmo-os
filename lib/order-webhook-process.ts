@@ -192,7 +192,16 @@ export async function processOrderWebhook(
   });
   if (isNewOrder && requiresApproval) {
     // Mark as pending_approval so ERP sync is skipped until finance approves
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: "pending_approval" } });
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        erpnextInvoiceId: "pending_approval",
+        erpnextSyncError: null,
+        erpnextSyncFailedAt: null,
+        erpnextSyncNextAutoRetryAt: null,
+        erpnextSyncRetryLeaseExpiresAt: null,
+      },
+    });
     void createOrGetOrderPaymentApproval({
       companyId,
       orderId: order.id,
@@ -249,7 +258,7 @@ export async function processOrderWebhook(
 
   const isVoided = order.financialStatus?.toLowerCase() === "voided";
 
-  if (!isVoided && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
+  if (!isVoided && !requiresApproval && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
     const skipErpSync = shouldSkipShopifyOrderErpSync(order.createdAt, effectiveLocation);
     if (!skipErpSync) {
       // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks
