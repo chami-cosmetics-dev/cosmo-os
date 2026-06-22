@@ -138,11 +138,9 @@ type SummaryData = {
 } | null;
 
 export function DispatchSummaryPage() {
-  const fromRef = useRef<HTMLInputElement | null>(null);
-  const toRef = useRef<HTMLInputElement | null>(null);
+  const dateRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState<"pending" | "completed">("pending");
-  const [dateFrom, setDateFrom] = useState(todayIso());
-  const [dateTo, setDateTo] = useState(todayIso());
+  const [date, setDate] = useState(todayIso());
   const [data, setData] = useState<SummaryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,11 +182,7 @@ export function DispatchSummaryPage() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ status });
-        if (status === "completed" && dateFrom) {
-          params.set("dateFrom", dateFrom);
-          if (dateTo && dateTo >= dateFrom) params.set("dateTo", dateTo);
-        }
+        const params = new URLSearchParams({ status, dateFrom: date });
         const res = await fetch(`/api/admin/fulfillment/dispatch-summary?${params}`, {
           signal: controller.signal,
         });
@@ -202,23 +196,14 @@ export function DispatchSummaryPage() {
       }
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
-  }, [status, dateFrom, dateTo, refreshTick]);
+  }, [status, date, refreshTick]);
 
   function buildDownloadBody() {
-    const body: Record<string, string> = { status };
-    if (status === "completed" && dateFrom) {
-      body.dateFrom = dateFrom;
-      if (dateTo) body.dateTo = dateTo;
-    }
-    return body;
+    return { status, dateFrom: date };
   }
 
   function fileSuffix() {
-    return status === "pending"
-      ? `pending-${todayIso()}`
-      : dateFrom === dateTo
-        ? dateFrom
-        : `${dateFrom}-to-${dateTo}`;
+    return status === "pending" ? `pending-${date}` : date;
   }
 
   async function triggerDownload(format: "pdf" | "csv") {
@@ -270,8 +255,8 @@ export function DispatchSummaryPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isCompleted
-              ? "Completed deliveries grouped by rider, courier, and customer pickup."
-              : "Outstanding dispatches awaiting delivery, grouped by rider and courier."}
+              ? "Completed deliveries for the selected date, grouped by rider, courier, and customer pickup."
+              : "Outstanding dispatches for the selected date, grouped by rider and courier."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -287,44 +272,21 @@ export function DispatchSummaryPage() {
             </select>
           </div>
 
-          {isCompleted && (
-            <>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium text-muted-foreground">From</span>
-                <div className="relative">
-                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    ref={fromRef}
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => {
-                      setDateFrom(e.target.value);
-                      if (dateTo < e.target.value) setDateTo(e.target.value);
-                    }}
-                    onClick={() => fromRef.current?.showPicker?.()}
-                    onFocus={() => fromRef.current?.showPicker?.()}
-                    className="h-10 min-w-44 pl-9"
-                  />
-                </div>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium text-muted-foreground">To</span>
-                <div className="relative">
-                  <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    ref={toRef}
-                    type="date"
-                    value={dateTo}
-                    min={dateFrom}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    onClick={() => toRef.current?.showPicker?.()}
-                    onFocus={() => toRef.current?.showPicker?.()}
-                    className="h-10 min-w-44 pl-9"
-                  />
-                </div>
-              </label>
-            </>
-          )}
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-muted-foreground">Date</span>
+            <div className="relative">
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={dateRef}
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                onClick={() => dateRef.current?.showPicker?.()}
+                onFocus={() => dateRef.current?.showPicker?.()}
+                className="h-10 min-w-44 pl-9"
+              />
+            </div>
+          </label>
 
           <Button
             variant="outline"
@@ -384,8 +346,8 @@ export function DispatchSummaryPage() {
           {data.groups.length === 0 ? (
             <p className="rounded-md border border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
               {isCompleted
-                ? "No completed deliveries found for the selected date range."
-                : "No pending dispatches. All orders have been delivered."}
+                ? `No completed deliveries found for ${date}.`
+                : `No pending dispatches found for ${date}.`}
             </p>
           ) : (
             <div className="space-y-4">
