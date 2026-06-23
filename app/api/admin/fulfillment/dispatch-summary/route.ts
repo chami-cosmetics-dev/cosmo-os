@@ -158,7 +158,18 @@ async function fetchDispatchGroups(
       "—";
 
     const city = typeof addr?.city === "string" && addr.city ? addr.city : null;
-    const address = typeof addr?.address1 === "string" && addr.address1 ? addr.address1 : null;
+    const addressParts = [
+      addr?.address1,
+      addr?.address2,
+      addr?.city,
+      addr?.province,
+      addr?.province_code,
+      addr?.country,
+      addr?.zip,
+    ]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .map((part) => part.trim());
+    const address = addressParts.length > 0 ? Array.from(new Set(addressParts)).join(", ") : null;
     const customerAddress = [address, city].filter(Boolean).join(", ") || null;
 
     const paymentType =
