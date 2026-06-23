@@ -38,19 +38,17 @@ export const fulfillableOrderPipelineWhere = {
 /**
  * Dispatch pipeline — do not filter on Shopify fulfillmentStatus; an order can be
  * marked fulfilled in Shopify while Vault is still at print / dispatch.
+ * OOS is enforced on dispatch API routes, not hidden from the queue.
  */
 export const dispatchPipelineWhere = {
   ...activeFulfillmentStageWhere,
-  ...excludeErpOutOfStockBlockedOrdersWhere,
 } satisfies Prisma.OrderWhereInput;
 
 /**
- * Delivery / invoice pipeline — do not filter on Shopify fulfillmentStatus or Vault
- * terminal stages; the explicit fulfillmentStage filter selects dispatched and later.
+ * Delivery / invoice pipeline — do not filter on Shopify fulfillmentStatus, Vault
+ * terminal stages, or stale ERP sync errors; the explicit stage filter handles inclusion.
  */
-export const deliveryPipelineWhere = {
-  ...excludeErpOutOfStockBlockedOrdersWhere,
-} satisfies Prisma.OrderWhereInput;
+export const deliveryPipelineWhere = {} satisfies Prisma.OrderWhereInput;
 
 export function isDispatchFulfillmentStages(stages: string[]): boolean {
   return (

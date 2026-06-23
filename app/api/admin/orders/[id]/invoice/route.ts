@@ -228,15 +228,25 @@ export async function GET(
   if (shouldIncrementPrint) {
     const userId = auth.context!.user!.id;
     const stage = order.fulfillmentStage;
-    const nextStage =
-      stage === "order_received" || stage === "sample_free_issue" ? "print" : null;
+    const printStageUpdate =
+      stage === "order_received" || stage === "sample_free_issue"
+        ? orderStageUpdate("print", printedAt)
+        : stage === "print"
+          ? {
+              ...orderStageUpdate("ready_to_dispatch", printedAt),
+              packageReadyAt: printedAt,
+              packageReadyById: userId,
+              packageOnHoldAt: null,
+              packageHoldReasonId: null,
+            }
+          : {};
     await prisma.order.update({
       where: { id: order.id },
       data: {
         printCount: { increment: 1 },
         lastPrintedAt: printedAt,
         lastPrintedById: userId,
-        ...(nextStage ? orderStageUpdate("print", printedAt) : {}),
+        ...printStageUpdate,
       },
     });
   }
