@@ -862,10 +862,16 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   );
 }
 
+export type SyncOrderToERPNextOptions = {
+  /** Create a new SI even when a submitted invoice exists for the same po_no (re-correct flow). */
+  forceNewInvoice?: boolean;
+};
+
 export async function syncOrderToERPNext(
   order: Order,
   location: LocationWithErpInstance,
   shopifyData: ShopifyOrderWebhookPayload,
+  options?: SyncOrderToERPNextOptions,
 ): Promise<void> {
   const skipReason = getErpShopifySyncSkipReason(order.createdAt, location);
   if (skipReason) {
@@ -900,27 +906,31 @@ export async function syncOrderToERPNext(
     ]),
   );
   const existingFields = encodeURIComponent(JSON.stringify(["name"]));
-  const existingSI = await erpnextGet<Array<{ name: string }>>(
-    cfg,
-    `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
-  );
-  if (existingSI && existingSI.length > 0) {
-    console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
-    if (order.financialStatus === "paid") {
-      await syncFinanceApprovedPrepaidPaymentToERPNext(
-        {
-          name: order.name,
-          shopifyOrderId: order.shopifyOrderId,
-          paymentGatewayPrimary: order.paymentGatewayPrimary,
-          paymentGatewayNames: order.paymentGatewayNames,
-          financialStatus: order.financialStatus,
-        },
-        location,
-        order.createdAt,
-      );
+  if (!options?.forceNewInvoice) {
+    const existingSI = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Sales Invoice?filters=${existingFilter}&fields=${existingFields}&limit=1`,
+    );
+    if (existingSI && existingSI.length > 0) {
+      console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
+      await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
+      if (order.financialStatus === "paid") {
+        await syncFinanceApprovedPrepaidPaymentToERPNext(
+          {
+            name: order.name,
+            shopifyOrderId: order.shopifyOrderId,
+            paymentGatewayPrimary: order.paymentGatewayPrimary,
+            paymentGatewayNames: order.paymentGatewayNames,
+            financialStatus: order.financialStatus,
+          },
+          location,
+          order.createdAt,
+        );
+      }
+      return;
     }
-    return;
+  } else {
+    console.log(`[ERPNext] forceNewInvoice — creating new SI for po_no="${orderPoNo}"`);
   }
 
   const lineItems = shopifyData.line_items.filter((li) => li.quantity > 0);

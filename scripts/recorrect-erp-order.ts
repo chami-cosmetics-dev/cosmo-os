@@ -111,7 +111,9 @@ async function main() {
   }
 
   console.log("[recorrect] Re-syncing order to ERP with updated coupon mapping...");
-  await syncOrderToERPNext(order, order.companyLocation, parsed.data);
+  await syncOrderToERPNext(order, order.companyLocation, parsed.data, {
+    forceNewInvoice: assumeCancelled,
+  });
 
   const after = await prisma.order.findUnique({
     where: { id: order.id },
