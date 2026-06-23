@@ -500,6 +500,7 @@ model Order {
   dispatchedByRiderId          String?
   dispatchedToCustomer         Boolean                @default(false)
   fulfillmentStage             FulfillmentStage       @default(order_received)
+  fulfillmentStageEnteredAt    DateTime?
   invoiceCompleteAt            DateTime?
   packageHoldReasonId          String?
   packageOnHoldAt              DateTime?

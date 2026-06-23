@@ -18,6 +18,7 @@ import {
   markOrderErpSyncFailed,
   runPostApprovalErpSync,
 } from "@/lib/failed-erp-sync-auto-retry";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -155,7 +156,7 @@ export async function PATCH(
         // Koko/bank orders skip sample — go straight to print (dispatch + print queue).
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: { financialStatus: "paid", fulfillmentStage: "print" },
+          data: { financialStatus: "paid", ...orderStageUpdate("print", now) },
         });
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
         await tx.order.update({
@@ -164,7 +165,7 @@ export async function PATCH(
             ? { financialStatus: "paid" }
             : {
                 financialStatus: "paid",
-                fulfillmentStage: "invoice_complete",
+                ...orderStageUpdate("invoice_complete", now),
                 fulfillmentStatus: "fulfilled",
                 invoiceCompleteAt: now,
                 invoiceCompleteById: reviewerId,
@@ -188,7 +189,7 @@ export async function PATCH(
             financialStatus: "paid",
             paymentGatewayNames: ["bank_transfer"],
             paymentGatewayPrimary: "bank_transfer",
-            fulfillmentStage: "ready_to_dispatch",
+            ...orderStageUpdate("ready_to_dispatch", now),
             fulfillmentStatus: "unfulfilled",
             packageReadyAt: now,
             packageReadyById: reviewerId,

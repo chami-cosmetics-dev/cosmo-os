@@ -27,6 +27,7 @@ import {
   orderRequiresDeliveryPaymentApproval,
 } from "@/lib/approval-workflow";
 import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
+import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -355,7 +356,7 @@ export async function PATCH(
       if (order.fulfillmentStage === "order_received") {
         await prisma.order.update({
           where: { id: order.id },
-          data: { fulfillmentStage: "sample_free_issue" },
+          data: orderStageUpdate("sample_free_issue", now),
         });
       }
 
@@ -421,7 +422,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "print",
+          ...orderStageUpdate("print", now),
           sampleFreeIssueCompleteAt: now,
           sampleFreeIssueCompleteById: auth.context!.user!.id,
         },
@@ -573,7 +574,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "ready_to_dispatch",
+          ...orderStageUpdateIfChanged(order.fulfillmentStage, "ready_to_dispatch", now),
           packageOnHoldAt: now,
           packageHoldReasonId: data.holdReasonId,
           packageReadyAt: null,
@@ -607,7 +608,7 @@ export async function PATCH(
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "ready_to_dispatch",
+          ...orderStageUpdateIfChanged(order.fulfillmentStage, "ready_to_dispatch", now),
           packageReadyAt: now,
           packageReadyById: auth.context!.user!.id,
           packageOnHoldAt: null,
@@ -826,7 +827,7 @@ export async function PATCH(
             packageOnHoldAt: null,
             packageHoldReasonId: null,
           }),
-          fulfillmentStage: "dispatched",
+          ...orderStageUpdate("dispatched", now),
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
           dispatchedByRiderId: dispatchToCustomer ? null : (data.riderId ?? null),
@@ -949,7 +950,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "invoice_complete",
+          ...orderStageUpdate("invoice_complete", now),
           fulfillmentStatus: "fulfilled",
           invoiceCompleteAt: now,
           invoiceCompleteById: auth.context!.user!.id,
@@ -993,7 +994,7 @@ export async function PATCH(
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "delivery_complete",
+          ...orderStageUpdate("delivery_complete", now),
           deliveryCompleteAt: now,
           deliveryCompleteById: userId,
           deliveryOutcome: "delivered",
@@ -1027,7 +1028,7 @@ export async function PATCH(
         await prisma.order.update({
           where: { id: order.id },
           data: {
-            fulfillmentStage: "invoice_complete",
+            ...orderStageUpdate("invoice_complete", now),
             fulfillmentStatus: "fulfilled",
             invoiceCompleteAt: now,
             invoiceCompleteById: postDelivery.financeUserId,
@@ -1106,8 +1107,9 @@ export async function PATCH(
         return NextResponse.json({ error: "Custom remark is required for custom template" }, { status: 400 });
       }
 
+      const revertStage = shouldRecordReturn ? "returned_to_store" : targetStage;
       const updateData: Parameters<typeof prisma.order.update>[0]["data"] = {
-        fulfillmentStage: shouldRecordReturn ? "returned_to_store" : targetStage,
+        ...orderStageUpdate(revertStage, now),
       };
       if (currentStage === "invoice_complete" && targetStage !== "invoice_complete") {
         updateData.fulfillmentStatus = "unfulfilled";
@@ -1255,7 +1257,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "delivery_complete",
+          ...orderStageUpdate("delivery_complete", now),
           fulfillmentStatus: "fulfilled",
           printCount: { increment: 1 },
           packageReadyAt: now,

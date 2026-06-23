@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export async function POST(
   request: NextRequest,
@@ -73,7 +74,7 @@ export async function POST(
     return tx.order.update({
       where: { id: task.orderId },
       data: {
-        fulfillmentStage: "delivery_complete",
+        ...orderStageUpdate("delivery_complete", now),
         deliveryCompleteAt: now,
         deliveryCompleteById: auth.session.userId,
         deliveryOutcome: "delivered",

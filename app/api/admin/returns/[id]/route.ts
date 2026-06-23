@@ -11,6 +11,7 @@ import { isCitypakCourier, isRiderReturn } from "@/lib/courier";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 const returnActionSchema = z.object({
   actionStatus: z.enum(["pending", "solved"]).optional(),
@@ -160,7 +161,7 @@ export async function PUT(
           financialStatus: "pending",
           paymentGatewayNames: ["bank_transfer"],
           paymentGatewayPrimary: "bank_transfer",
-          fulfillmentStage: "returned_to_store",
+          ...orderStageUpdate("returned_to_store", actionDate),
           fulfillmentStatus: "unfulfilled",
           packageReadyAt: null,
           packageReadyById: null,
@@ -194,7 +195,7 @@ export async function PUT(
                 paymentGatewayPrimary: "bank_transfer",
               }
             : {}),
-          fulfillmentStage: "ready_to_dispatch",
+          ...orderStageUpdate("ready_to_dispatch", actionDate),
           fulfillmentStatus: "unfulfilled",
           packageReadyAt: actionDate,
           packageReadyById: viewerUserId,
