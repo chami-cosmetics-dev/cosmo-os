@@ -7,7 +7,7 @@ import {
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import {
-  activeFulfillmentPipelineWhere,
+  fulfillableOrderPipelineWhere,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage-timing";
@@ -87,7 +87,7 @@ function orderInvoiceLabel(order: {
 }
 
 const baseFulfillmentOrderWhere = {
-  ...activeFulfillmentPipelineWhere,
+  ...fulfillableOrderPipelineWhere,
   financialStatus: { not: "voided" },
   packageOnHoldAt: null,
   companyLocation: { fulfillmentBlocked: false },
@@ -383,7 +383,7 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...activeFulfillmentPipelineWhere,
+      ...fulfillableOrderPipelineWhere,
       financialStatus: { not: "voided" },
       fulfillmentStage: "dispatched",
       deliveryCompleteAt: null,
