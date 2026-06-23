@@ -8,6 +8,7 @@ import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/ful
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
             packageOnHoldAt: null,
             packageHoldReasonId: null,
           }),
-          fulfillmentStage: "dispatched",
+          ...orderStageUpdate("dispatched", now),
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
           dispatchedByRiderId: dispatchToCustomer ? null : (riderId ?? null),

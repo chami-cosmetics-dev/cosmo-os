@@ -9,6 +9,7 @@ import {
   isReturnRemarkTemplateCode,
   RETURN_REMARK_TEMPLATE_CODES,
 } from "@/lib/return-remark-templates";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 const bulkReturnEntrySchema = z.object({
   reference: z.string().trim().min(1).max(120),
@@ -405,7 +406,7 @@ export async function POST(request: NextRequest) {
         await tx.order.update({
           where: { id: order.id },
           data: {
-            fulfillmentStage: "returned_to_store",
+            ...orderStageUpdate("returned_to_store", returnDate),
             fulfillmentStatus: "unfulfilled",
             packageReadyAt: null,
             packageReadyById: null,

@@ -18,6 +18,7 @@ import {
 } from "@/lib/erp-credit-note-order-sync";
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
 import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -425,11 +426,11 @@ export async function POST(request: NextRequest) {
       ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       currency: data.currency ?? "LKR",
       financialStatus: isCreditNoted ? "voided" : financialStatus,
-      fulfillmentStage: isPOS
-        ? "delivery_complete"
+      ...(isPOS
+        ? orderStageUpdate("delivery_complete", sampleStageCompletedAt ?? new Date())
         : isCreditNoted
-          ? "returned"
-          : "print",
+          ? orderStageUpdate("returned", sampleStageCompletedAt ?? new Date())
+          : orderStageUpdate("print", sampleStageCompletedAt ?? new Date())),
       ...(sampleStageCompletedAt ? { sampleFreeIssueCompleteAt: sampleStageCompletedAt } : {}),
       customerEmail,
       customerPhone,
@@ -455,9 +456,9 @@ export async function POST(request: NextRequest) {
       erpnextInvoiceId: data.name,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       ...(isPOS
-        ? { fulfillmentStage: "delivery_complete" }
+        ? orderStageUpdate("delivery_complete", new Date())
         : isCreditNoted
-          ? { fulfillmentStage: "returned" }
+          ? orderStageUpdate("returned", new Date())
           : {}),
       customerEmail,
       customerPhone,

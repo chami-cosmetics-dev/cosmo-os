@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { LIMITS } from "@/lib/validation";
 import { sendOrderSms } from "@/lib/order-sms";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 function padSeq(seq: number, padding: number): string {
   return String(seq).padStart(padding, "0");
@@ -203,7 +204,7 @@ export async function createManualOrder(
         discountApplications: Prisma.JsonNull,
         shippingLines: shippingJson,
         rawPayload: Prisma.JsonNull,
-        fulfillmentStage: "order_received",
+        ...orderStageUpdate("order_received", new Date()),
       },
     });
 
