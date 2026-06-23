@@ -1,4 +1,4 @@
-import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
+import { buildCsv, escapeCsvCell, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
   switch (sourceName) {
@@ -10,35 +10,75 @@ function formatSourceName(sourceName: string): string {
   }
 }
 
+function formatIsoTime(value: Date | null | undefined) {
+  if (!value) return "";
+  return value.toISOString().slice(11);
+}
+
+function summarizePaymentGateway(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const normalized = trimmed.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
+
+  if (normalized.includes("koko")) return "KOKO Payment";
+  if (normalized.includes("webxpay") || normalized.includes("web x pay")) return "WEBXPAY";
+  if (normalized.includes("bank")) return "Bank Transfer";
+  if (
+    normalized.includes("card payment on delivery") ||
+    normalized.includes("card on delivery") ||
+    normalized === "cc" ||
+    normalized.includes("credit card") ||
+    normalized.includes("shopify payments") ||
+    normalized.includes("visa") ||
+    normalized.includes("mastercard") ||
+    normalized.includes("amex") ||
+    normalized.includes("card")
+  ) {
+    return "Card Payment";
+  }
+  if (normalized === "cash" || normalized === "cod" || normalized.includes("cash on delivery")) {
+    return "Cash";
+  }
+
+  return trimmed;
+}
+
 export type OrderInvoiceCsvRow = {
-  invoice_id: string;
   invoice_no: string;
   erp_invoice_id: string;
   order_number: string;
   source_name: string;
-  merchant_coupon_code: string;
-  status: string;
-  shipping_service: string;
-  invoice_date: string;
-  location_name: string;
   customer_name: string;
-  customer_email: string;
   customer_phone: string;
+  customer_email: string;
   billing_address: string;
   shipping_address: string;
-  payment_status: string;
   fulfillment_status: string;
-  payment_gateway: string;
-  merchant_name: string;
   subtotal: string;
   discounts: string;
   shipping_total: string;
-  tax_total: string;
   grand_total: string;
-  currency: string;
   item_count: string;
-  invoice_completed_at: string;
-  updated_at: string;
+  invoice_date: string;
+  month: string;
+  merchant: string;
+  coupon_code: string;
+  status: string;
+  payment_gateway: string;
+  payment_status: string;
+  location_name: string;
+  shipping_service: string;
+  dispatched_date: string;
+  dispatched_time: string;
+  dispatched_by: string;
+  printed_on: string;
+  printed_time: string;
+  printed_by: string;
+  completed_date: string;
+  completed_time: string;
+  completed_by: string;
+  pos_sale: string;
 };
 
 export type OrderInvoiceItemCsvRow = {
@@ -55,13 +95,13 @@ export type OrderInvoiceItemCsvRow = {
   customer_phone: string;
   sku: string;
   barcode: string;
+  brand: string;
   product_title: string;
-  variant_title: string;
   quantity: string;
   unit_price: string;
   line_discount_percent: string;
   line_total: string;
-  currency: string;
+  status: string;
   payment_status: string;
   fulfillment_status: string;
   payment_gateway: string;
@@ -69,34 +109,40 @@ export type OrderInvoiceItemCsvRow = {
 };
 
 const ORDER_INVOICE_HEADERS = [
-  "invoice_id",
   "invoice_no",
   "erp_invoice_id",
   "order_number",
   "source_name",
-  "merchant_coupon_code",
-  "status",
-  "shipping_service",
-  "invoice_date",
-  "location_name",
   "customer_name",
-  "customer_email",
   "customer_phone",
-  "billing_address",
-  "shipping_address",
-  "payment_status",
-  "fulfillment_status",
-  "payment_gateway",
-  "merchant_name",
   "subtotal",
   "discounts",
   "shipping_total",
-  "tax_total",
   "grand_total",
-  "currency",
   "item_count",
-  "invoice_completed_at",
-  "updated_at",
+  "customer_email",
+  "invoice_date",
+  "month",
+  "merchant",
+  "coupon_code",
+  "status",
+  "fulfillment_status",
+  "payment_gateway",
+  "payment_status",
+  "location_name",
+  "printed_on",
+  "printed_time",
+  "printed_by",
+  "dispatched_date",
+  "dispatched_time",
+  "dispatched_by",
+  "shipping_service",
+  "completed_date",
+  "completed_time",
+  "completed_by",
+  "pos_sale",
+  "billing_address",
+  "shipping_address",
 ] as const;
 
 const ORDER_INVOICE_ITEM_HEADERS = [
@@ -113,21 +159,21 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "customer_phone",
   "sku",
   "barcode",
+  "brand",
   "product_title",
-  "variant_title",
   "quantity",
   "unit_price",
   "line_discount_percent",
   "line_total",
-  "currency",
-  "payment_status",
+  "status",
   "fulfillment_status",
+  "payment_status",
   "payment_gateway",
   "merchant_name",
 ] as const;
 
 export function buildOrderInvoiceCsv(rows: OrderInvoiceCsvRow[]) {
-  return buildCsv(ORDER_INVOICE_HEADERS, rows);
+  return buildCsvWithUppercaseHeaders(ORDER_INVOICE_HEADERS, rows);
 }
 
 export function buildOrderInvoiceItemCsv(rows: OrderInvoiceItemCsvRow[]) {
@@ -135,20 +181,38 @@ export function buildOrderInvoiceItemCsv(rows: OrderInvoiceItemCsvRow[]) {
 }
 
 export function buildOrderInvoiceCsvWithoutCustomerPhone(rows: OrderInvoiceCsvRow[]) {
-  return buildCsv(ORDER_INVOICE_HEADERS.filter((header) => header !== "customer_phone"), rows);
+  return buildCsvWithUppercaseHeaders(
+    ORDER_INVOICE_HEADERS.filter((header) => header !== "customer_phone" && header !== "customer_email"),
+    rows
+  );
 }
 
 export function buildOrderInvoiceItemCsvWithoutCustomerPhone(rows: OrderInvoiceItemCsvRow[]) {
-  return buildCsv(ORDER_INVOICE_ITEM_HEADERS.filter((header) => header !== "customer_phone"), rows);
+  return buildCsv(
+    ORDER_INVOICE_ITEM_HEADERS.filter((header) => header !== "customer_phone" && header !== "customer_email"),
+    rows
+  );
+}
+
+function buildCsvWithUppercaseHeaders<T extends Record<string, string | number | null | undefined>>(
+  headers: readonly string[],
+  rows: T[]
+) {
+  const lines = [
+    headers.map((header) => header.toUpperCase()).join(","),
+    ...rows.map((row) => headers.map((header) => escapeCsvCell(row[header])).join(",")),
+  ];
+
+  return `\uFEFF${lines.join("\r\n")}`;
 }
 
 export function createOrderInvoiceRow(input: {
-  invoiceId: string;
   invoiceNo: string;
   erpInvoiceId: string | null;
   orderNumber: string | null;
   sourceName: string;
   merchantCouponCode: string | null;
+  merchantName: string;
   fulfillmentStage: string | null;
   financialStatus: string | null;
   shippingService: string;
@@ -161,46 +225,58 @@ export function createOrderInvoiceRow(input: {
   shippingAddress: string;
   fulfillmentStatus: string | null;
   paymentGateway: string;
-  merchantName: string;
   subtotalPrice: string | null;
   discounts: string | null;
   shippingTotal: string | null;
-  taxTotal: string | null;
   grandTotal: string;
-  currency: string | null;
   itemCount: number;
+  dispatchedAt: Date | null;
+  dispatchedBy: string;
+  lastPrintedAt: Date | null;
+  lastPrintedBy: string;
   invoiceCompleteAt: Date | null;
-  updatedAt: Date;
+  invoiceCompleteBy: string;
 }): OrderInvoiceCsvRow {
+  const sourceName = formatSourceName(input.sourceName);
+  const month = input.createdAt.toLocaleString("en-US", {
+    month: "long",
+    timeZone: "UTC",
+  });
   return {
-    invoice_id: input.invoiceId,
     invoice_no: input.invoiceNo,
     erp_invoice_id: input.erpInvoiceId ?? "",
     order_number: input.orderNumber ?? "",
-    source_name: formatSourceName(input.sourceName),
-    merchant_coupon_code: input.merchantCouponCode ?? "",
-    status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
-    shipping_service: input.shippingService,
-    invoice_date: formatIsoDate(input.createdAt),
-    location_name: input.locationName,
+    source_name: sourceName,
     customer_name: input.customerName,
-    customer_email: input.customerEmail ?? "",
     customer_phone: input.customerPhone ?? "",
+    customer_email: input.customerEmail ?? "",
     billing_address: input.billingAddress,
     shipping_address: input.shippingAddress,
-    payment_status: input.financialStatus ?? "",
     fulfillment_status: input.fulfillmentStatus ?? "",
-    payment_gateway: input.paymentGateway,
-    merchant_name: input.merchantName,
     subtotal: input.subtotalPrice ?? "",
     discounts: input.discounts ?? "",
     shipping_total: input.shippingTotal ?? "",
-    tax_total: input.taxTotal ?? "",
     grand_total: input.grandTotal,
-    currency: input.currency ?? "",
     item_count: String(input.itemCount),
-    invoice_completed_at: formatIsoDateTime(input.invoiceCompleteAt),
-    updated_at: formatIsoDateTime(input.updatedAt),
+    invoice_date: formatIsoDate(input.createdAt),
+    month: `${input.createdAt.getUTCFullYear()} : ${month}`,
+    merchant: input.merchantName,
+    coupon_code: input.merchantCouponCode ?? "",
+    status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
+    payment_gateway: summarizePaymentGateway(input.paymentGateway),
+    payment_status: input.financialStatus ?? "",
+    location_name: input.locationName,
+    shipping_service: input.shippingService,
+    dispatched_date: formatIsoDate(input.dispatchedAt),
+    dispatched_time: formatIsoTime(input.dispatchedAt),
+    dispatched_by: input.dispatchedBy,
+    printed_on: formatIsoDate(input.lastPrintedAt),
+    printed_time: formatIsoTime(input.lastPrintedAt),
+    printed_by: input.lastPrintedBy,
+    completed_date: formatIsoDate(input.invoiceCompleteAt),
+    completed_time: formatIsoTime(input.invoiceCompleteAt),
+    completed_by: input.invoiceCompleteBy,
+    pos_sale: sourceName === "ERPNext POS" ? "1" : "0",
   };
 }
 
@@ -218,13 +294,13 @@ export function createOrderInvoiceItemRow(input: {
   customerPhone: string | null;
   sku: string | null;
   barcode: string | null;
+  brand: string | null;
   productTitle: string;
-  variantTitle: string | null;
   quantity: number;
   unitPrice: string;
   lineDiscountPercent: string | null;
   lineTotal: string;
-  currency: string | null;
+  fulfillmentStage: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   paymentGateway: string;
@@ -244,16 +320,16 @@ export function createOrderInvoiceItemRow(input: {
     customer_phone: input.customerPhone ?? "",
     sku: input.sku ?? "",
     barcode: input.barcode ?? "",
+    brand: input.brand ?? "",
     product_title: input.productTitle,
-    variant_title: input.variantTitle ?? "",
     quantity: String(input.quantity),
     unit_price: input.unitPrice,
     line_discount_percent: input.lineDiscountPercent ?? "",
     line_total: input.lineTotal,
-    currency: input.currency ?? "",
+    status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
     payment_status: input.financialStatus ?? "",
     fulfillment_status: input.fulfillmentStatus ?? "",
-    payment_gateway: input.paymentGateway,
+    payment_gateway: summarizePaymentGateway(input.paymentGateway),
     merchant_name: input.merchantName,
   };
 }

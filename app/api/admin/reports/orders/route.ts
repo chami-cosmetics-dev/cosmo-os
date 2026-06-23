@@ -65,20 +65,63 @@ function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
 }
 
+function getUserDisplayName(user: {
+  knownName?: string | null;
+  name?: string | null;
+  email?: string | null;
+} | null | undefined) {
+  return user?.knownName?.trim() || user?.name?.trim() || user?.email?.trim() || "";
+}
+
 function getShippingService(order: {
   sourceName: string;
   locationName: string;
   dispatchedToCustomer?: boolean | null;
-  dispatchedByRider?: { name: string | null; mobile?: string | null } | null;
+  dispatchedByRider?: { knownName?: string | null; name: string | null; mobile?: string | null } | null;
   dispatchedByCourierService?: { name: string } | null;
 }) {
   const source = order.sourceName.toLowerCase();
   if (source.includes("erpnext-pos") || source.includes("erpnext pos")) return order.locationName;
   if (order.dispatchedToCustomer) return "Customer pickup";
   if (order.dispatchedByRider) {
-    return order.dispatchedByRider.name ?? order.dispatchedByRider.mobile ?? "Rider";
+    return getUserDisplayName(order.dispatchedByRider) || order.dispatchedByRider.mobile || "Rider";
   }
   return order.dispatchedByCourierService?.name ?? "";
+}
+
+function buildCouponToMerchantMap(
+  users: Array<{ knownName: string | null; name: string | null; email: string | null; couponCodes: string[] }>
+) {
+  const couponToMerchant = new Map<string, string>();
+  for (const user of users) {
+    const merchantName = getUserDisplayName(user);
+    if (!merchantName) continue;
+    for (const coupon of user.couponCodes) {
+      const normalized = coupon.trim().toLowerCase();
+      if (normalized && !couponToMerchant.has(normalized)) {
+        couponToMerchant.set(normalized, merchantName);
+      }
+    }
+  }
+  return couponToMerchant;
+}
+
+function resolveMerchantName(input: {
+  couponCode: string | null;
+  couponToMerchant: Map<string, string>;
+  assignedMerchant: { knownName: string | null; name: string | null; email: string | null } | null;
+}) {
+  const coupons = (input.couponCode ?? "")
+    .split(",")
+    .map((coupon) => coupon.trim().toLowerCase())
+    .filter(Boolean);
+
+  for (const coupon of coupons) {
+    const merchant = input.couponToMerchant.get(coupon);
+    if (merchant) return merchant;
+  }
+
+  return getUserDisplayName(input.assignedMerchant);
 }
 
 function getReportLabel(report: ReportKind, range: RangeKind) {
@@ -130,9 +173,12 @@ export async function GET(request: NextRequest) {
     orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
     include: {
       companyLocation: { select: { name: true } },
-      assignedMerchant: { select: { name: true } },
-      dispatchedByRider: { select: { name: true, mobile: true } },
+      assignedMerchant: { select: { knownName: true, name: true, email: true, couponCodes: true } },
+      dispatchedBy: { select: { knownName: true, name: true, email: true } },
+      dispatchedByRider: { select: { knownName: true, name: true, mobile: true } },
       dispatchedByCourierService: { select: { name: true } },
+      lastPrintedBy: { select: { knownName: true, name: true, email: true } },
+      invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
       lineItems: {
         include: {
           productItem: {
@@ -140,13 +186,26 @@ export async function GET(request: NextRequest) {
               sku: true,
               barcode: true,
               productTitle: true,
-              variantTitle: true,
+              vendor: { select: { name: true } },
             },
           },
         },
       },
     },
   });
+  const merchantUsers = await prisma.user.findMany({
+    where: {
+      companyId,
+      couponCodes: { isEmpty: false },
+    },
+    select: {
+      knownName: true,
+      name: true,
+      email: true,
+      couponCodes: true,
+    },
+  });
+  const couponToMerchant = buildCouponToMerchantMap(merchantUsers);
 
   const filterParts = [`report=${report}`, `range=${range}`];
   if (range === "historical-year") filterParts.push(`year=${label}`);
@@ -163,14 +222,19 @@ export async function GET(request: NextRequest) {
         order.customerEmail ||
         "";
       const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
-      const merchantName = order.assignedMerchant?.name ?? "";
       const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
 
       const merchantCouponCode = getMerchantCouponCode({
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
+        assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
         joinAllDiscountCodes: true,
+      });
+      const merchantName = resolveMerchantName({
+        couponCode: merchantCouponCode,
+        couponToMerchant,
+        assignedMerchant: order.assignedMerchant,
       });
 
       return order.lineItems.map((item) =>
@@ -188,13 +252,13 @@ export async function GET(request: NextRequest) {
           customerPhone: resolveCustomerPhone(order) ?? null,
           sku: item.productItem.sku,
           barcode: item.productItem.barcode,
+          brand: item.productItem.vendor?.name ?? null,
           productTitle: item.productItem.productTitle,
-          variantTitle: item.productItem.variantTitle,
           quantity: item.quantity,
           unitPrice: item.price.toString(),
           lineDiscountPercent: item.discountPercent?.toString() ?? null,
           lineTotal: new Prisma.Decimal(item.price).mul(item.quantity).toString(),
-          currency: order.currency,
+          fulfillmentStage: order.fulfillmentStage,
           financialStatus: order.financialStatus,
           fulfillmentStatus: order.fulfillmentStatus,
           paymentGateway,
@@ -235,21 +299,27 @@ export async function GET(request: NextRequest) {
       order.customerEmail ||
       "";
     const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
-    const merchantName = order.assignedMerchant?.name ?? "";
+    const merchantCouponCode = getMerchantCouponCode({
+      sourceName: order.sourceName,
+      discountCodes: order.discountCodes,
+      rawPayload: order.rawPayload,
+      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      joinAllDiscountCodes: true,
+    });
+    const merchantName = resolveMerchantName({
+      couponCode: merchantCouponCode,
+      couponToMerchant,
+      assignedMerchant: order.assignedMerchant,
+    });
     const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
 
     return createOrderInvoiceRow({
-      invoiceId: order.id,
       invoiceNo,
       erpInvoiceId: order.erpnextInvoiceId,
       orderNumber: order.orderNumber,
       sourceName: order.sourceName,
-      merchantCouponCode: getMerchantCouponCode({
-        sourceName: order.sourceName,
-        discountCodes: order.discountCodes,
-        rawPayload: order.rawPayload,
-        joinAllDiscountCodes: true,
-      }),
+      merchantCouponCode,
+      merchantName,
       fulfillmentStage: order.fulfillmentStage,
       shippingService: getShippingService({
         ...order,
@@ -265,16 +335,17 @@ export async function GET(request: NextRequest) {
       financialStatus: order.financialStatus,
       fulfillmentStatus: order.fulfillmentStatus,
       paymentGateway,
-      merchantName,
       subtotalPrice: decimalToString(order.subtotalPrice),
       discounts: decimalToString(order.totalDiscounts),
       shippingTotal: decimalToString(order.totalShipping),
-      taxTotal: decimalToString(order.totalTax),
       grandTotal: order.totalPrice.toString(),
-      currency: order.currency,
       itemCount: order.lineItems.length,
+      dispatchedAt: order.dispatchedAt,
+      dispatchedBy: getUserDisplayName(order.dispatchedBy),
+      lastPrintedAt: order.lastPrintedAt,
+      lastPrintedBy: getUserDisplayName(order.lastPrintedBy),
       invoiceCompleteAt: order.invoiceCompleteAt,
-      updatedAt: order.updatedAt,
+      invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
     });
   });
 

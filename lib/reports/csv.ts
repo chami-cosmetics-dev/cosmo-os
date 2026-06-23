@@ -29,7 +29,7 @@ export function formatIsoDate(value: Date | null | undefined) {
 
 export function formatIsoDateTime(value: Date | null | undefined) {
   if (!value) return "";
-  return value.toISOString();
+  return value.toISOString().replace("T", " ");
 }
 
 export function startOfDay(value: Date) {
