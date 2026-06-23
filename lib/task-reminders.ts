@@ -7,6 +7,7 @@ import {
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import {
+  deliveryPipelineWhere,
   fulfillableOrderPipelineWhere,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
@@ -383,7 +384,7 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...fulfillableOrderPipelineWhere,
+      ...deliveryPipelineWhere,
       financialStatus: { not: "voided" },
       fulfillmentStage: "dispatched",
       deliveryCompleteAt: null,

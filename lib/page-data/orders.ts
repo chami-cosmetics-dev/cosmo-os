@@ -12,9 +12,13 @@ import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/l
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
 import { isErpOutOfStockSyncError } from "@/lib/failed-erp-sync-classification";
 import {
+  deliveryPipelineWhere,
+  deliveryStageOrWhere,
   dispatchPipelineWhere,
   dispatchStageOrWhere,
   fulfillableOrderPipelineWhere,
+  isDeliveryFulfillmentStages,
+  isDispatchFulfillmentStages,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 
@@ -80,6 +84,16 @@ function startOfTomorrowUtc() {
   ));
 }
 
+function applyFulfillmentQueueBaseFilters(where: Prisma.OrderWhereInput) {
+  where.financialStatus = { not: "voided" };
+  where.totalPrice = { gte: 0 };
+  where.NOT = {
+    approvalRequests: {
+      some: { type: "order_payment_approval", status: "pending" },
+    },
+  };
+}
+
 async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ name: string }[]>(
     Prisma.sql`
@@ -143,6 +157,8 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   const SORT_FIELDS: Record<string, Prisma.OrderOrderByWithRelationInput> = {
     created: { createdAt: sortOrder },
     updated: { updatedAt: sortOrder },
+    last_printed: { lastPrintedAt: sortOrder },
+    dispatched: { dispatchedAt: sortOrder },
     total: { totalPrice: sortOrder },
     order_number: { orderNumber: sortOrder },
     name: { name: sortOrder },
@@ -240,13 +256,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     };
   } else if (params.dispatchMode) {
     where.OR = dispatchStageOrWhere.OR;
-    where.financialStatus = { not: "voided" };
-    where.totalPrice = { gte: 0 };
-    where.NOT = {
-      approvalRequests: {
-        some: { type: "order_payment_approval", status: "pending" },
-      },
-    };
+    applyFulfillmentQueueBaseFilters(where);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       dispatchPipelineWhere,
@@ -258,16 +268,16 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .map((s) => s.trim())
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
-      const isDispatchQueue =
-        stages.includes("ready_to_dispatch") &&
-        stages.includes("print") &&
-        !stages.includes("order_received") &&
-        !stages.includes("sample_free_issue");
-
-      if (isDispatchQueue) {
+      if (isDispatchFulfillmentStages(stages)) {
         where.OR = dispatchStageOrWhere.OR;
+        applyFulfillmentQueueBaseFilters(where);
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : []),
+          dispatchPipelineWhere,
+        ];
+      } else if (isDeliveryFulfillmentStages(stages)) {
+        where.OR = deliveryStageOrWhere.OR;
         where.financialStatus = { not: "voided" };
-        where.totalPrice = { gte: 0 };
         where.NOT = {
           approvalRequests: {
             some: { type: "order_payment_approval", status: "pending" },
@@ -275,7 +285,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         };
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
-          dispatchPipelineWhere,
+          deliveryPipelineWhere,
         ];
       } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
@@ -330,19 +340,15 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       ?.trim()
       .split(",")
       .map((s) => s.trim()) ?? [];
-    const isDispatchQueue =
-      params.dispatchMode ||
-      (stages.includes("ready_to_dispatch") &&
-        stages.includes("print") &&
-        !stages.includes("order_received") &&
-        !stages.includes("sample_free_issue"));
+    const isDispatchQueue = params.dispatchMode || isDispatchFulfillmentStages(stages);
+    const isDeliveryQueue = isDeliveryFulfillmentStages(stages);
 
     if (params.printMode) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
       ];
-    } else if (!isDispatchQueue) {
+    } else if (!isDispatchQueue && !isDeliveryQueue) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
