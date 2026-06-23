@@ -28,6 +28,7 @@ import {
 } from "@/lib/approval-workflow";
 import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
+import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -297,6 +298,11 @@ export async function PATCH(
 
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
+  }
+
+  const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
+  if (erpOutOfStockBlock) {
+    return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
   }
 
   const data = parsed.data;

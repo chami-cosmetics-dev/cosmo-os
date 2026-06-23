@@ -1,4 +1,5 @@
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
+import { resolveOrderDisplayTotal } from "@/lib/order-shipping-display";
 
 type OrderLineItemsTotalsProps = {
   subtotalOriginal?: string | null;
@@ -25,6 +26,11 @@ export function OrderLineItemsTotals({
 }: OrderLineItemsTotalsProps) {
   const discountAmount = discountTotal != null ? parseFloat(discountTotal) : 0;
   const showDiscount = discountAmount > 0 && (discountCouponCode || subtotalOriginal);
+  const displayTotal = resolveOrderDisplayTotal({
+    totalPrice,
+    subtotalSale: subtotalSale ?? subtotalOriginal,
+    totalShipping,
+  });
 
   return (
     <div className="mt-1 space-y-1 text-right text-sm text-muted-foreground">
@@ -52,7 +58,7 @@ export function OrderLineItemsTotals({
         formatPrice={formatPrice}
       />
       <p className="mt-2 font-medium text-foreground">
-        Total: {formatPrice(totalPrice, currency)}
+        Total: {formatPrice(displayTotal, currency)}
       </p>
     </div>
   );

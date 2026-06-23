@@ -169,6 +169,33 @@ export function formatOrderShippingDetail(
   return `Shipping: ${formatPrice(display.amount!, currency)}`;
 }
 
+/**
+ * Grand total for order summaries when shipping is listed on its own line.
+ * Some stored totals match the discounted subtotal only; add shipping when needed.
+ */
+export function resolveOrderDisplayTotal(input: {
+  totalPrice: string;
+  subtotalSale?: string | null;
+  totalShipping?: string | null;
+}): string {
+  const stored = parseFloat(input.totalPrice);
+  if (!Number.isFinite(stored)) return input.totalPrice;
+
+  const shippingParsed = parseFloat(input.totalShipping ?? "0");
+  const shippingAmt =
+    Number.isFinite(shippingParsed) && shippingParsed > 0 ? shippingParsed : 0;
+  if (shippingAmt === 0) return stored.toFixed(2);
+
+  const saleParsed = parseFloat(input.subtotalSale ?? input.totalPrice);
+  const saleAmt = Number.isFinite(saleParsed) ? saleParsed : stored;
+  const withShipping = saleAmt + shippingAmt;
+
+  if (stored >= withShipping - 0.01) return stored.toFixed(2);
+  if (Math.abs(stored - saleAmt) < 0.01) return withShipping.toFixed(2);
+
+  return stored.toFixed(2);
+}
+
 function resolveErpInvoiceRef(input: {
   name?: string | null;
   erpnextInvoiceId?: string | null;

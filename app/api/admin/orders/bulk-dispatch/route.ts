@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -81,6 +82,7 @@ export async function POST(request: NextRequest) {
           customerPhone: true,
           shippingAddress: true,
           erpnextInvoiceId: true,
+          erpnextSyncError: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -100,6 +102,12 @@ export async function POST(request: NextRequest) {
 
       if (order.packageOnHoldAt) {
         results.push({ orderId, ref, success: false, error: "Package is on hold" });
+        continue;
+      }
+
+      const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
+      if (erpOutOfStockBlock) {
+        results.push({ orderId, ref, success: false, error: erpOutOfStockBlock });
         continue;
       }
 

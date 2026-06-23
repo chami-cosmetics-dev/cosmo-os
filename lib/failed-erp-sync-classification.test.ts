@@ -11,7 +11,7 @@ describe("formatFailedErpSyncErrorMessage", () => {
       'ERPNext POST /api/resource/Sales Invoice [417]: {"exc_type":"NegativeStockError","exception":"erpnext.stock.stock_ledger.NegativeStockError: 1.0 units of <a href=\\"/app/Form/Item/NW005-1\\">Item NW005-1: Now Glutathione 500mg 30 Veg Capsules</a> needed in <a href=\\"/app/Form/Warehouse/Main Warehouse - SV-1\\">Warehouse Main Warehouse - SV-1</a>"}';
 
     expect(formatFailedErpSyncErrorMessage(raw)).toBe(
-      "Out of stock - NW005-1"
+      "Out of stock - NW005-1 (Now Glutathione 500mg 30 Veg Capsules)"
     );
   });
 
