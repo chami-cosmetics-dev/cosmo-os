@@ -1036,17 +1036,8 @@ export async function PATCH(
         });
         afterStage = "invoice_complete";
 
-        if (order.companyLocationId) {
-          const location = await prisma.companyLocation.findUnique({
-            where: { id: order.companyLocationId },
-            include: { erpnextInstance: true },
-          });
-          if (location) {
-            createDeliveryPaymentEntry(order, location, now).catch((err) =>
-              console.error("[ERPNext] delivery PE failed:", err),
-            );
-          }
-        }
+        // ERP Sales Invoice payment is not created on delivery complete — only via
+        // finance delivery-payment approval or explicit mark_invoice_complete.
       }
 
       sendOrderSms(companyId, order.id, "delivery_complete", {

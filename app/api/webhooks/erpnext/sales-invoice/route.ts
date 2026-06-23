@@ -171,7 +171,8 @@ export async function POST(request: NextRequest) {
 
   if (
     data.is_return === 1 ||
-    (data.grand_total != null && data.grand_total < 0)
+    (data.grand_total != null && data.grand_total < 0) ||
+    data.return_against?.trim()
   ) {
     // Return SI without a matching Vault order — void a stray credit-note row if present.
     const existing = await prisma.order.findUnique({
