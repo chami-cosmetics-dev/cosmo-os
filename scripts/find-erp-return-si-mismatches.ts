@@ -11,12 +11,12 @@
 
 import { PrismaClient } from "@prisma/client";
 
-import { reconcileOrderErpCreditNote } from "../lib/erp-credit-note-order-sync.ts";
+import { reconcileOrderErpCreditNote } from "../lib/erp-credit-note-order-sync";
 import {
   findErpReturnSiMismatchesFromErpReturns,
   findErpReturnSiMismatchesFromVaultOrders,
   inspectErpReturnSiMismatch,
-} from "../lib/find-erp-return-si-mismatches.ts";
+} from "../lib/find-erp-return-si-mismatches";
 
 const args = process.argv.slice(2);
 const mode = args.includes("--mode")

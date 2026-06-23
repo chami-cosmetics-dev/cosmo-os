@@ -80,7 +80,13 @@ export async function findOrderForErpInvoiceReference(invoiceRef: string) {
 
   return prisma.order.findFirst({
     where: orderMatchesErpInvoiceReference(trimmed),
-    select: { id: true, name: true, financialStatus: true, fulfillmentStage: true },
+    select: {
+      id: true,
+      name: true,
+      erpnextInvoiceId: true,
+      financialStatus: true,
+      fulfillmentStage: true,
+    },
   });
 }
 

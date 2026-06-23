@@ -11,7 +11,7 @@ describe("find-erp-return-si-mismatches", () => {
       classifyErpReturnSiMismatch({
         originalStatus: "Overdue",
         originalDocstatus: 1,
-        returnInvoices: [{ name: "SV100-0255", docstatus: 1 }],
+        returnInvoices: [{ docstatus: 1 }],
         vaultOrder: {
           financialStatus: "paid",
           fulfillmentStage: "invoice_complete",
@@ -25,7 +25,7 @@ describe("find-erp-return-si-mismatches", () => {
       classifyErpReturnSiMismatch({
         originalStatus: "Credit Note Issued",
         originalDocstatus: 1,
-        returnInvoices: [{ name: "SV100-0255", docstatus: 1 }],
+        returnInvoices: [{ docstatus: 1 }],
         vaultOrder: {
           financialStatus: "paid",
           fulfillmentStage: "dispatched",
@@ -39,7 +39,7 @@ describe("find-erp-return-si-mismatches", () => {
       classifyErpReturnSiMismatch({
         originalStatus: "Overdue",
         originalDocstatus: 1,
-        returnInvoices: [{ name: "SV100-0255", docstatus: 1 }],
+        returnInvoices: [{ docstatus: 1 }],
         vaultOrder: {
           financialStatus: "voided",
           fulfillmentStage: "returned",
