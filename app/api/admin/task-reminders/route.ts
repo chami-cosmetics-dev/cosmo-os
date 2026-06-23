@@ -15,6 +15,7 @@ export async function GET() {
   const result = await fetchTaskReminders(companyId, {
     permissionKeys: (context.permissionKeys ?? []) as string[],
     roleNames: (context.roleNames ?? []) as string[],
+    userId: context.user.id,
   });
 
   return NextResponse.json(result);

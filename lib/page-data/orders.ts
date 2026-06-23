@@ -10,6 +10,10 @@ import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, ORDER_P
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
+import {
+  activeFulfillmentPipelineWhere,
+  sampleQueueWhere,
+} from "@/lib/fulfillment-queue-filters";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -266,6 +270,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         },
       };
       if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : []),
+          sampleQueueWhere,
+        ];
         const sampleSendLater = params.sampleSendLater ?? "available";
         const sendLaterFilter =
           sampleSendLater === "future"
@@ -295,6 +303,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   // Exclude orders from locations that have been temporarily blocked from fulfillment
   if (params.printMode || params.dispatchMode || params.fulfillmentStages?.trim()) {
     where.companyLocation = { fulfillmentBlocked: false };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      activeFulfillmentPipelineWhere,
+    ];
   }
 
   if (params.printHistoryMode) {

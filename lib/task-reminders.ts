@@ -6,8 +6,18 @@ import {
   FINANCE_APPROVAL_TYPES,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
+import {
+  activeFulfillmentPipelineWhere,
+  sampleQueueWhere,
+} from "@/lib/fulfillment-queue-filters";
 import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
+import {
+  canSeeTaskReminderCategory,
+  shouldScopeSampleRemindersToMerchant,
+  type TaskReminderAccessContext,
+} from "@/lib/task-reminder-access";
+import { taskReminderHref } from "@/lib/task-reminder-links";
 
 export const TASK_REMINDER_SLA_MS = 24 * 60 * 60 * 1000;
 const REMINDER_LIMIT_PER_CATEGORY = 20;
@@ -37,10 +47,7 @@ export type TaskRemindersResult = {
   totalCount: number;
 };
 
-type PermissionContext = {
-  permissionKeys: string[];
-  roleNames: string[];
-};
+type PermissionContext = TaskReminderAccessContext;
 
 function startOfTomorrowUtc() {
   const now = new Date();
@@ -80,6 +87,7 @@ function orderInvoiceLabel(order: {
 }
 
 const baseFulfillmentOrderWhere = {
+  ...activeFulfillmentPipelineWhere,
   financialStatus: { not: "voided" },
   packageOnHoldAt: null,
   companyLocation: { fulfillmentBlocked: false },
@@ -153,7 +161,7 @@ async function fetchFinanceApprovalReminders(
       category: "finance_approval" as const,
       title: "Finance approval overdue",
       body: `${invoiceLabel} has been waiting for your approval. Don't keep the customer waiting.`,
-      href: "/dashboard/approvals",
+      href: taskReminderHref("/dashboard/approvals", { orderId: order?.id }),
       waitingHours,
       orderId: order?.id,
       invoiceLabel,
@@ -161,14 +169,22 @@ async function fetchFinanceApprovalReminders(
   });
 }
 
-async function fetchSampleReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
+async function fetchSampleReminders(
+  companyId: string,
+  now: Date,
+  context: PermissionContext,
+): Promise<TaskReminder[]> {
   const tomorrow = startOfTomorrowUtc();
   const orders = await prisma.order.findMany({
     where: {
       companyId,
       ...baseFulfillmentOrderWhere,
+      ...sampleQueueWhere,
       sourceName: { in: ["web", "manual"] },
       fulfillmentStage: { in: ["order_received", "sample_free_issue"] },
+      ...(shouldScopeSampleRemindersToMerchant(context) && context.userId
+        ? { assignedMerchantId: context.userId }
+        : {}),
       OR: [
         { sampleFreeIssueSendLaterDate: null },
         { sampleFreeIssueSendLaterDate: { lt: tomorrow } },
@@ -204,7 +220,7 @@ async function fetchSampleReminders(companyId: string, now: Date): Promise<TaskR
         category: "add_samples" as const,
         title: "Samples needed",
         body: `${invoiceLabel} is waiting for samples (${waitingHours}h). Add samples so fulfillment can continue.`,
-        href: "/dashboard/fulfillment/sample-free-issue",
+        href: taskReminderHref("/dashboard/fulfillment/sample-free-issue", { orderId: order.id }),
         waitingHours,
         orderId: order.id,
         invoiceLabel,
@@ -260,7 +276,7 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<TaskRe
         category: "print" as const,
         title: "Waiting to print",
         body: `${invoiceLabel} has been waiting to print for ${waitingHours}h.`,
-        href: "/dashboard/fulfillment/print",
+        href: taskReminderHref("/dashboard/fulfillment/print", { orderId: order.id }),
         waitingHours,
         orderId: order.id,
         invoiceLabel,
@@ -277,7 +293,6 @@ async function fetchDispatchReminders(
   rearrange: boolean,
 ): Promise<TaskReminder[]> {
   const category: TaskReminderCategory = rearrange ? "rearrange_dispatch" : "ready_dispatch";
-  const href = "/dashboard/fulfillment/dispatch";
   const orders = await prisma.order.findMany({
     where: {
       companyId,
@@ -311,7 +326,10 @@ async function fetchDispatchReminders(
         body: rearrange
           ? `${invoiceLabel} rearrange has been waiting for dispatch (${waitingHours}h). Don't keep the customer waiting.`
           : `${invoiceLabel} is ready to dispatch and has been waiting ${waitingHours}h.`,
-        href,
+        href: taskReminderHref("/dashboard/fulfillment/dispatch", {
+          orderId: order.id,
+          queue: rearrange ? "rearrange" : undefined,
+        }),
         waitingHours,
         orderId: order.id,
         invoiceLabel,
@@ -353,7 +371,7 @@ async function fetchReturnActionReminders(companyId: string, now: Date): Promise
       category: "return_action" as const,
       title: "Return needs action",
       body: `${invoiceLabel} return has been waiting for action (${waitingHours}h). Rearrange or resolve it.`,
-      href: "/dashboard/returns",
+      href: taskReminderHref("/dashboard/returns", { orderId: item.order.id }),
       waitingHours,
       orderId: item.order.id,
       invoiceLabel,
@@ -365,6 +383,7 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
   const orders = await prisma.order.findMany({
     where: {
       companyId,
+      ...activeFulfillmentPipelineWhere,
       financialStatus: { not: "voided" },
       fulfillmentStage: "dispatched",
       deliveryCompleteAt: null,
@@ -390,7 +409,7 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
       category: "delivery_pending" as const,
       title: "Delivery not completed",
       body: `${invoiceLabel} was dispatched ${waitingHours}h ago and delivery is not marked complete.`,
-      href: "/dashboard/fulfillment/delivery-invoice",
+      href: taskReminderHref("/dashboard/fulfillment/delivery-invoice", { orderId: order.id }),
       waitingHours,
       orderId: order.id,
       invoiceLabel,
@@ -406,23 +425,25 @@ export async function fetchTaskReminders(
   // Run sequentially — Neon pooler often has connection_limit=1; parallel queries exhaust the pool.
   const reminders: TaskReminder[] = [];
 
-  if (hasReminderPermission(context, "finance.approvals.manage")) {
+  if (canSeeTaskReminderCategory(context, "finance_approval")) {
     reminders.push(...(await fetchFinanceApprovalReminders(companyId, now)));
   }
-  if (hasReminderPermission(context, "fulfillment.sample_free_issue.read")) {
-    reminders.push(...(await fetchSampleReminders(companyId, now)));
+  if (canSeeTaskReminderCategory(context, "add_samples")) {
+    reminders.push(...(await fetchSampleReminders(companyId, now, context)));
   }
-  if (hasReminderPermission(context, "fulfillment.order_print.read")) {
+  if (canSeeTaskReminderCategory(context, "print")) {
     reminders.push(...(await fetchPrintReminders(companyId, now)));
   }
-  if (hasReminderPermission(context, "fulfillment.ready_dispatch.read")) {
+  if (canSeeTaskReminderCategory(context, "ready_dispatch")) {
     reminders.push(...(await fetchDispatchReminders(companyId, now, false)));
+  }
+  if (canSeeTaskReminderCategory(context, "rearrange_dispatch")) {
     reminders.push(...(await fetchDispatchReminders(companyId, now, true)));
   }
-  if (hasReminderPermission(context, "returns.read")) {
+  if (canSeeTaskReminderCategory(context, "return_action")) {
     reminders.push(...(await fetchReturnActionReminders(companyId, now)));
   }
-  if (hasReminderPermission(context, "fulfillment.delivery_invoice.read")) {
+  if (canSeeTaskReminderCategory(context, "delivery_pending")) {
     reminders.push(...(await fetchDeliveryPendingReminders(companyId, now)));
   }
 

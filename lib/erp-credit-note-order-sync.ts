@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 import { prisma } from "@/lib/prisma";
 
 export const ERP_CREDIT_NOTE_ISSUED_STATUS = "Credit Note Issued";
@@ -27,8 +28,12 @@ export type ErpSalesInvoiceCreditNoteSignal = {
 
 export function isErpReturnSalesInvoice(
   isReturn: number | null | undefined,
-  grandTotal: number | null | undefined
+  grandTotal: number | null | undefined,
+  returnAgainst?: string | null,
 ): boolean {
+  // ERP sometimes posts a separate return SI (return_against set) without flipping
+  // the original invoice to "Credit Note Issued".
+  if (returnAgainst?.trim()) return true;
   return isReturn === 1 || (grandTotal != null && grandTotal < 0);
 }
 
@@ -55,17 +60,18 @@ export function erpInvoiceIndicatesCreditNote(
 }
 
 export function orderMatchesErpInvoiceReference(
-  invoiceRef: string
+  invoiceRef: string,
 ): Prisma.OrderWhereInput {
-  const trimmed = invoiceRef.trim();
-  return {
-    OR: [
-      { erpnextInvoiceId: trimmed },
-      { name: trimmed },
-      { shopifyOrderId: trimmed },
-      { shopifyOrderId: `erp-${trimmed}` },
-    ],
-  };
+  const or: Prisma.OrderWhereInput[] = [];
+  for (const variant of erpInvoiceReferenceLookupValues(invoiceRef)) {
+    or.push(
+      { erpnextInvoiceId: variant },
+      { name: variant },
+      { shopifyOrderId: variant },
+      { shopifyOrderId: `erp-${variant}` },
+    );
+  }
+  return { OR: or };
 }
 
 export async function findOrderForErpInvoiceReference(invoiceRef: string) {
@@ -78,14 +84,51 @@ export async function findOrderForErpInvoiceReference(invoiceRef: string) {
   });
 }
 
+function mergeErpReturnInvoiceNames(
+  existing: unknown,
+  returnInvoiceName: string,
+): Prisma.InputJsonValue {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  const prev = Array.isArray(base.erpReturnSalesInvoiceNames)
+    ? base.erpReturnSalesInvoiceNames.filter((value): value is string => typeof value === "string")
+    : [];
+  if (!prev.includes(returnInvoiceName)) prev.push(returnInvoiceName);
+  base.erpReturnSalesInvoiceNames = prev;
+  return base as Prisma.InputJsonValue;
+}
+
 /** Mark the original Vault OS order voided/returned after ERP issues a credit note. */
-export async function applyErpCreditNoteToOriginalOrder(returnAgainst: string) {
-  const original = await findOrderForErpInvoiceReference(returnAgainst);
+export async function applyErpCreditNoteToOriginalOrder(
+  returnAgainst: string,
+  options?: { returnInvoiceName?: string | null },
+) {
+  const original = await prisma.order.findFirst({
+    where: orderMatchesErpInvoiceReference(returnAgainst),
+    select: {
+      id: true,
+      name: true,
+      financialStatus: true,
+      fulfillmentStage: true,
+      rawPayload: true,
+    },
+  });
   if (!original) return null;
+
+  const returnInvoiceName = options?.returnInvoiceName?.trim() || null;
 
   await prisma.order.update({
     where: { id: original.id },
-    data: ERP_CREDIT_NOTE_ORDER_PATCH,
+    data: {
+      ...ERP_CREDIT_NOTE_ORDER_PATCH,
+      ...(returnInvoiceName
+        ? {
+            rawPayload: mergeErpReturnInvoiceNames(original.rawPayload, returnInvoiceName),
+          }
+        : {}),
+    },
   });
 
   return original;
@@ -98,11 +141,13 @@ export async function applyErpCreditNoteToOriginalOrder(returnAgainst: string) {
 export async function handleErpSalesInvoiceCreditNoteEvent(
   data: ErpSalesInvoiceCreditNoteSignal
 ): Promise<{ handled: boolean; orderId?: string }> {
-  if (isErpReturnSalesInvoice(data.is_return, data.grand_total ?? null)) {
+  if (isErpReturnSalesInvoice(data.is_return, data.grand_total ?? null, data.return_against)) {
     const returnAgainst = data.return_against?.trim() || null;
     if (!returnAgainst) return { handled: false };
 
-    const original = await applyErpCreditNoteToOriginalOrder(returnAgainst);
+    const original = await applyErpCreditNoteToOriginalOrder(returnAgainst, {
+      returnInvoiceName: data.name,
+    });
     if (!original) return { handled: false };
 
     return { handled: true, orderId: original.id };
@@ -129,42 +174,59 @@ type ErpInstanceCreds = {
 
 async function fetchErpSalesInvoice(
   creds: ErpInstanceCreds,
-  invoiceName: string
+  invoiceName: string,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await fetch(
-      `${creds.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}`,
-      {
-        headers: { Authorization: `token ${creds.apiKey}:${creds.apiSecret}` },
-      }
-    );
-    if (!res.ok) return null;
-    const json = (await res.json()) as { data?: Record<string, unknown> };
-    return json.data ?? null;
-  } catch {
-    return null;
+  for (const variant of erpInvoiceReferenceLookupValues(invoiceName)) {
+    try {
+      const res = await fetch(
+        `${creds.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice/${encodeURIComponent(variant)}`,
+        {
+          headers: { Authorization: `token ${creds.apiKey}:${creds.apiSecret}` },
+        },
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as { data?: Record<string, unknown> };
+      if (json.data) return json.data;
+    } catch {
+      // try next variant
+    }
   }
+  return null;
 }
 
 async function fetchErpCreditNotesAgainst(
   creds: ErpInstanceCreds,
-  invoiceName: string
-): Promise<Array<{ docstatus?: number | null }>> {
-  try {
-    const filters = encodeURIComponent(
-      JSON.stringify([["return_against", "=", invoiceName]])
-    );
-    const fields = encodeURIComponent(JSON.stringify(["name", "docstatus"]));
-    const res = await fetch(
-      `${creds.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit_page_length=5`,
-      { headers: { Authorization: `token ${creds.apiKey}:${creds.apiSecret}` } }
-    );
-    if (!res.ok) return [];
-    const json = (await res.json()) as { data?: Array<{ docstatus?: number | null }> };
-    return json.data ?? [];
-  } catch {
-    return [];
+  invoiceName: string,
+): Promise<Array<{ name?: string; docstatus?: number | null }>> {
+  const seen = new Set<string>();
+  const results: Array<{ name?: string; docstatus?: number | null }> = [];
+
+  for (const variant of erpInvoiceReferenceLookupValues(invoiceName)) {
+    try {
+      const filters = encodeURIComponent(
+        JSON.stringify([["return_against", "=", variant]]),
+      );
+      const fields = encodeURIComponent(JSON.stringify(["name", "docstatus"]));
+      const res = await fetch(
+        `${creds.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit_page_length=5`,
+        { headers: { Authorization: `token ${creds.apiKey}:${creds.apiSecret}` } },
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as {
+        data?: Array<{ name?: string; docstatus?: number | null }>;
+      };
+      for (const row of json.data ?? []) {
+        const key = row.name ?? `${variant}:${row.docstatus ?? ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push(row);
+      }
+    } catch {
+      // try next variant
+    }
   }
+
+  return results;
 }
 
 /** Poll ERP when the webhook was missed; apply credit-note state if ERP shows one. */
@@ -180,6 +242,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       erpnextInvoiceId: true,
       financialStatus: true,
       fulfillmentStage: true,
+      rawPayload: true,
       companyLocation: {
         select: {
           erpnextInstance: {
@@ -222,23 +285,22 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     return { updated: false, reason: "no_credit_note_in_erp" };
   }
 
+  const linkedReturnName =
+    creditNotes.find((cn) => cn.docstatus === 1 || cn.docstatus === 2)?.name?.trim() ||
+    null;
+
   await prisma.order.update({
     where: { id: order.id },
-    data: ERP_CREDIT_NOTE_ORDER_PATCH,
+    data: {
+      ...ERP_CREDIT_NOTE_ORDER_PATCH,
+      ...(linkedReturnName
+        ? { rawPayload: mergeErpReturnInvoiceNames(order.rawPayload, linkedReturnName) }
+        : {}),
+    },
   });
 
   return { updated: true, reason: "credit_note_applied" };
 }
-
-const ACTIVE_FULFILLMENT_STAGES = [
-  "order_received",
-  "sample_free_issue",
-  "print",
-  "ready_to_dispatch",
-  "dispatched",
-  "invoice_complete",
-  "delivery_complete",
-] as const;
 
 /** Safety net for missed ERP webhooks — checks a small batch of active ERP-linked orders. */
 export async function reconcileMissedErpCreditNotes(options?: { limit?: number }) {
@@ -247,7 +309,7 @@ export async function reconcileMissedErpCreditNotes(options?: { limit?: number }
   const candidates = await prisma.order.findMany({
     where: {
       financialStatus: { not: "voided" },
-      fulfillmentStage: { in: [...ACTIVE_FULFILLMENT_STAGES] },
+      fulfillmentStage: { not: "returned" },
       erpnextInvoiceId: { not: null },
       NOT: [{ erpnextInvoiceId: "pending" }, { erpnextInvoiceId: "pending_approval" }],
       companyLocation: { erpnextInstanceId: { not: null } },
