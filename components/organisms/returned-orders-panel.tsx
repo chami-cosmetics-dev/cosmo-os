@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Check, ChevronsUpDown, Download, Loader2, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
 } from "@/lib/return-remark-templates";
+import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 type BulkReturnRow = {
   input: string;
@@ -110,6 +112,8 @@ function actionTypeBadge(item: ReturnTrackingItem) {
 }
 
 export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
+  const searchParams = useSearchParams();
+  const appliedDeepLinkRef = useRef<string | null>(null);
   const [items, setItems] = useState(initialData.returns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"__all" | ReturnTrackingItem["actionStatus"]>("pending");
@@ -128,6 +132,16 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
   const [bulkRows, setBulkRows] = useState<BulkReturnRow[]>([]);
   const [bulkCounts, setBulkCounts] = useState<BulkReturnResponse["counts"] | null>(null);
   const [bulkBusyKey, setBulkBusyKey] = useState<"preview" | "confirm" | null>(null);
+
+  useEffect(() => {
+    const orderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim();
+    if (!orderId || appliedDeepLinkRef.current === orderId) return;
+    const match = items.find((item) => item.orderId === orderId);
+    if (!match) return;
+    setStatusFilter("__all");
+    setSelectedId(match.id);
+    appliedDeepLinkRef.current = orderId;
+  }, [items, searchParams]);
 
   const bulkEntries = useMemo(
     () =>

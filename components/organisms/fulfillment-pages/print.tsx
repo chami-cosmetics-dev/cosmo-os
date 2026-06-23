@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Check, Loader2, Printer, RefreshCw, Search } from "lucide-react";
 
 import {
@@ -14,6 +15,8 @@ import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-ref
 import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 import { notify } from "@/lib/notify";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import { mapApiOrderToFulfillmentOrder } from "@/lib/fulfillment-order-map";
+import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 type PrintOrder = {
   id: string;
@@ -61,6 +64,7 @@ function todayStr() {
 
 function PrintQueueInner() {
   const perms = useFulfillmentPermissions();
+  const searchParams = useSearchParams();
 
   const [orders, setOrders] = useState<PrintOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,11 +76,69 @@ function PrintQueueInner() {
   const [historyDate, setHistoryDate] = useState(todayStr());
   const [refreshTick, setRefreshTick] = useState(0);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const appliedDeepLinkRef = useRef<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 400);
     return () => clearTimeout(t);
   }, [search]);
+
+  const deepLinkOrderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim() ?? null;
+
+  useEffect(() => {
+    if (!deepLinkOrderId || appliedDeepLinkRef.current === deepLinkOrderId) return;
+    const inList = orders.find((order) => order.id === deepLinkOrderId);
+    if (inList) {
+      setView("queue");
+      setSelected(new Set([deepLinkOrderId]));
+      appliedDeepLinkRef.current = deepLinkOrderId;
+      return;
+    }
+    if (loading) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/orders/${deepLinkOrderId}`);
+        if (!res.ok) return;
+        const data = mapApiOrderToFulfillmentOrder(await res.json());
+        if (cancelled) return;
+        const printOrder: PrintOrder = {
+          id: data.id,
+          name: data.name,
+          orderNumber: data.orderNumber,
+          shopifyOrderId: data.shopifyOrderId,
+          erpnextInvoiceId: data.erpnextInvoiceId ?? null,
+          sourceName: data.sourceName,
+          totalPrice: data.totalPrice,
+          currency: data.currency,
+          customerPhone: data.customerPhone,
+          printCount: data.printCount ?? 0,
+          lastPrintedAt: null,
+          companyLocation: data.companyLocation,
+          assignedMerchant: data.assignedMerchant,
+          financialStatus: null,
+          paymentGatewayPrimary: data.paymentGatewayPrimary,
+          paymentGatewayNames: data.paymentGatewayNames,
+          createdAt: data.createdAt,
+        };
+        setView("queue");
+        setOrders((current) =>
+          current.some((order) => order.id === printOrder.id)
+            ? current
+            : [printOrder, ...current],
+        );
+        setSelected(new Set([deepLinkOrderId]));
+        appliedDeepLinkRef.current = deepLinkOrderId;
+      } catch {
+        // ignore — user can still pick from queue manually
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deepLinkOrderId, loading, orders]);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -110,14 +172,22 @@ function PrintQueueInner() {
         return;
       }
       const data = (await res.json()) as { orders?: PrintOrder[] };
-      setOrders(data.orders ?? []);
-      setSelected(new Set());
+      const nextOrders = data.orders ?? [];
+      setOrders(nextOrders);
+      if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
+        setView("queue");
+        setSelected(new Set([deepLinkOrderId]));
+        appliedDeepLinkRef.current = deepLinkOrderId;
+      } else {
+        setSelected(new Set());
+        if (deepLinkOrderId) appliedDeepLinkRef.current = null;
+      }
     } catch {
       notify.error("Failed to load print queue");
     } finally {
       setLoading(false);
     }
-  }, [view, historyDate, debouncedSearch]);
+  }, [view, historyDate, debouncedSearch, deepLinkOrderId]);
 
   useEffect(() => {
     void fetchOrders();

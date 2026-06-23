@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CheckCircle2, ExternalLink, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FinanceApprovalItem = {
   id: string;
@@ -113,6 +115,8 @@ export function FinanceApprovalsPanel({
   initialApprovals: FinanceApprovalItem[];
   canRevertPaid?: boolean;
 }) {
+  const searchParams = useSearchParams();
+  const appliedDeepLinkRef = useRef<string | null>(null);
   const [approvals, setApprovals] = useState(initialApprovals);
   const [view, setView] = useState<"pending" | "history">("pending");
   const [selectedId, setSelectedId] = useState(() =>
@@ -129,6 +133,18 @@ export function FinanceApprovalsPanel({
     const t = setTimeout(() => setDebouncedSearch(search), 500);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    const orderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim();
+    if (!orderId || appliedDeepLinkRef.current === orderId) return;
+    const match = approvals.find(
+      (approval) => approval.orderId === orderId && isPendingApproval(approval),
+    );
+    if (!match) return;
+    setView("pending");
+    setSelectedId(match.id);
+    appliedDeepLinkRef.current = orderId;
+  }, [approvals, searchParams]);
 
   const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
@@ -177,6 +193,13 @@ export function FinanceApprovalsPanel({
 
   async function review(action: "approve" | "reject") {
     if (!selected) return;
+    if (
+      action === "approve" &&
+      selected.type === "return_cancel" &&
+      selected.erpAdminInvoiceUrl
+    ) {
+      window.open(selected.erpAdminInvoiceUrl, "_blank", "noopener,noreferrer");
+    }
     setBusy(action);
     try {
       const response = await fetch(`/api/admin/approvals/${selected.id}`, {
@@ -199,7 +222,11 @@ export function FinanceApprovalsPanel({
             "Approval saved but ERP Sales Invoice could not be created. Check Failed ERP syncs."
         );
       } else if (action === "approve" && selected.type === "return_cancel") {
-        notify.success("Cancel request marked processed. Complete cancellation in ERPNext if not done already.");
+        notify.success(
+          selected.erpAdminInvoiceUrl
+            ? "ERP Sales Invoice opened. Complete cancellation in ERPNext, then this request is marked processed."
+            : "Cancel request marked processed. Complete cancellation in ERPNext if not done already.",
+        );
       } else {
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");
       }
@@ -383,19 +410,12 @@ export function FinanceApprovalsPanel({
                     <div className="space-y-3 border-t border-border/60 pt-3">
                       <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-200">
                         Cancellation and credit notes are created in ERPNext only. Cosmo OS does not create credit notes.
-                        Open the Sales Invoice below, process the cancel there, then mark this request as processed.
+                        Use the button below to open the Sales Invoice in ERPNext, cancel it there, and mark this request as processed.
                       </div>
-                      {selected.erpAdminInvoiceUrl ? (
-                        <Button asChild className="w-full gap-2">
-                          <a href={selected.erpAdminInvoiceUrl} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="size-4" aria-hidden />
-                            Open ERP Sales Invoice
-                          </a>
-                        </Button>
-                      ) : (
+                      {!selected.erpAdminInvoiceUrl && (
                         <p className="text-amber-700 text-sm dark:text-amber-300">
-                          ERP Sales Invoice link is unavailable for this order. Open ERPNext manually using invoice{" "}
-                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"}.
+                          ERP Sales Invoice link is unavailable. Open ERPNext manually using invoice{" "}
+                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"}, then mark processed.
                         </p>
                       )}
                       <div className="space-y-1 text-sm text-muted-foreground">
@@ -429,7 +449,13 @@ export function FinanceApprovalsPanel({
                     <div className="grid gap-2">
                       {!selected.orderMissing && (
                         <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
-                          {busy === "approve" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                          {busy === "approve" ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : selected.type === "return_cancel" ? (
+                            <ExternalLink className="size-4" />
+                          ) : (
+                            <CheckCircle2 className="size-4" />
+                          )}
                           {selected.type === "return_cancel"
                             ? "Mark processed (cancel in ERPNext)"
                             : `Approve — ${typeLabel(selected.type)}`}

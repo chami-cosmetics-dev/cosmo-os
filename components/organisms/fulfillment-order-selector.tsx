@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarClock, Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { FulfillmentOrderInvoiceDetails } from "@/components/organisms/fulfillment-order-invoice-details";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { fulfillmentOrderSearchTokens } from "@/lib/fulfillment-order-reference";
+import { useFulfillmentOrderDeepLink } from "@/hooks/use-fulfillment-order-deep-link";
 import { notify } from "@/lib/notify";
+import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FulfillmentOrder = {
   id: string;
@@ -98,6 +101,25 @@ export function FulfillmentOrderSelector({
   const [orderOpen, setOrderOpen] = useState(false);
   const [selectionLoading, setSelectionLoading] = useState(false);
   const [showFutureSendLater, setShowFutureSendLater] = useState(false);
+  const [pinnedOrder, setPinnedOrder] = useState<FulfillmentOrder | null>(null);
+  const searchParams = useSearchParams();
+
+  useFulfillmentOrderDeepLink(selectedOrderId, onSelectOrder, setPinnedOrder);
+
+  useEffect(() => {
+    if (!selectedOrderId) setPinnedOrder(null);
+  }, [selectedOrderId]);
+
+  const resolveSelectedOrder = useCallback(
+    (orderId: string | null) => {
+      if (!orderId) return null;
+      return (
+        orders.find((order) => order.id === orderId) ??
+        (pinnedOrder?.id === orderId ? pinnedOrder : null)
+      );
+    },
+    [orders, pinnedOrder],
+  );
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 500);
@@ -175,13 +197,16 @@ export function FulfillmentOrderSelector({
   }
 
   if (worksheetMode) {
-    const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null;
+    const selectedOrder = resolveSelectedOrder(selectedOrderId);
+    const deepLinkOrderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim() ?? null;
+    const deepLinkPending = Boolean(deepLinkOrderId && selectedOrderId !== deepLinkOrderId);
     const unprintedOrders = bulkPrintUnprinted
       ? orders.filter((order) => (order.printCount ?? 0) === 0)
       : [];
 
     const handleWorksheetSelect = (order: FulfillmentOrder) => {
       setSelectionLoading(true);
+      setPinnedOrder(order);
       onSelectOrder(order);
       setOrderOpen(false);
       window.setTimeout(() => setSelectionLoading(false), 450);
@@ -228,6 +253,8 @@ export function FulfillmentOrderSelector({
                   >
                     {selectedOrder ? (
                       <FulfillmentOrderReference order={selectedOrder} variant="inline" />
+                    ) : deepLinkPending ? (
+                      "Loading order..."
                     ) : (
                       "Please Select an Option"
                     )}
@@ -319,7 +346,7 @@ export function FulfillmentOrderSelector({
 
           {selectedOrderId ? (
             <div className="border-t border-border/70 pt-4">
-              {selectionLoading ? (
+              {selectionLoading || deepLinkPending ? (
                 <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/70 py-12 text-sm text-muted-foreground">
                   <Loader2 className="size-5 animate-spin" aria-hidden />
                   Loading selected order...
