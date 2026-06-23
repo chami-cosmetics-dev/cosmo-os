@@ -5,6 +5,7 @@ import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
+import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
@@ -252,6 +253,17 @@ export async function GET(
   const billingAddr = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
   const shippingCity = getCity(order.shippingAddress);
+  const shippingDisplay = await resolveOrderShippingDisplayForOrder({
+    totalShipping: order.totalShipping?.toString() ?? null,
+    shippingLines: order.shippingLines,
+    rawPayload: order.rawPayload,
+    sourceName: order.sourceName,
+    name: order.name,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    erpnextInstance: order.companyLocation.erpnextInstance,
+  });
+  const pickupDeliveryLabel =
+    shippingDisplay.label?.toLowerCase().includes("pickup") ? shippingDisplay.label : null;
   const customerPhones = await getInvoiceCustomerPhones({
     companyId,
     email: order.customerEmail,
@@ -357,7 +369,7 @@ export async function GET(
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: Arial, Helvetica, sans-serif;
-      font-size: 10px;
+      font-size: 11px;
       line-height: 1.5;
       color: #000;
       max-width: 760px;
@@ -371,7 +383,7 @@ export async function GET(
       background: #fffbeb;
       border: 1.5px solid #f59e0b;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
       letter-spacing: 0.25em;
       color: #92400e;
@@ -407,7 +419,7 @@ export async function GET(
     }
     .brand-fallback {
       display: none;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
       line-height: 1.2;
     }
@@ -416,7 +428,7 @@ export async function GET(
       margin-top: 4px;
     }
     h1 {
-      font-size: 18px;
+      font-size: 20px;
       line-height: 1.2;
       margin: 0 0 16px 0;
       font-weight: 800;
@@ -426,7 +438,7 @@ export async function GET(
       grid-template-columns: 104px 10px 1fr;
       gap: 4px 8px;
       margin-bottom: 34px;
-      font-size: 9px;
+      font-size: 10px;
       max-width: 310px;
     }
     .invoice-details dt { font-weight: 700; }
@@ -438,12 +450,12 @@ export async function GET(
       margin-bottom: 34px;
     }
     .address-block h3 {
-      font-size: 10px;
+      font-size: 14px;
       font-weight: 700;
       margin-bottom: 8px;
     }
     .address-block p {
-      font-size: 9px;
+      font-size: 13px;
       margin: 2px 0;
       line-height: 1.45;
     }
@@ -455,7 +467,7 @@ export async function GET(
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 8px;
+      font-size: 12px;
     }
     th, td {
       padding: 10px 8px;
@@ -465,7 +477,7 @@ export async function GET(
     thead th {
       color: #000;
       font-weight: 800;
-      font-size: 7px;
+      font-size: 11px;
       border-bottom: 1px solid #000;
     }
     tbody td {
@@ -483,7 +495,7 @@ export async function GET(
       border: 1px solid #d8d8d8;
       border-radius: 2px;
       color: #666;
-      font-size: 7px;
+      font-size: 11px;
       overflow-wrap: anywhere;
     }
     .text-right { text-align: right; }
@@ -496,7 +508,7 @@ export async function GET(
     }
     .summary-left,
     .summary-right {
-      font-size: 9px;
+      font-size: 13px;
     }
     .summary-left p,
     .summary-right p {
@@ -514,7 +526,7 @@ export async function GET(
       border-bottom: 1px solid #000;
     }
     .grand {
-      font-size: 11px;
+      font-size: 16px;
       font-weight: 800;
     }
     .notes-box {
@@ -523,29 +535,29 @@ export async function GET(
       min-height: 60px;
       border: 1px dashed #bdbdbd;
       padding: 9px 11px;
-      font-size: 8px;
+      font-size: 12px;
     }
     .notes-box .label {
       display: block;
       margin-bottom: 8px;
-      font-size: 7px;
+      font-size: 11px;
       font-weight: 800;
       letter-spacing: 0.08em;
     }
     .help-line {
       margin-top: 56px;
       text-align: center;
-      font-size: 9px;
+      font-size: 10px;
     }
     .help-line strong { font-weight: 800; }
     .invoice-policy-notes {
       margin-top: 10px;
-      font-size: 8px;
+      font-size: 9px;
       text-align: center;
       line-height: 1.6;
     }
     .invoice-policy-notes p { margin: 6px 0; }
-    @media (max-width: 600px) {
+    @media screen and (max-width: 600px) {
       body { padding: 28px; }
       .addresses,
       .summary { grid-template-columns: 1fr; }
@@ -594,6 +606,7 @@ export async function GET(
         ${customerPhoneDisplay ? `<p>Contact: ${escapeHtml(customerPhoneDisplay)}</p>` : ""}
         ${shippingAddr ? `<p>${escapeHtml(shippingAddr)}</p>` : ""}
         ${shippingCity ? `<p>${escapeHtml(shippingCity)}</p>` : ""}
+        ${pickupDeliveryLabel ? `<p><strong>Delivery:</strong> ${escapeHtml(pickupDeliveryLabel)}</p>` : ""}
       </div>
     </div>
 

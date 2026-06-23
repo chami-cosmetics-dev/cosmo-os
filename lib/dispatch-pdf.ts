@@ -28,7 +28,9 @@ export type DispatchGroupForPdf = {
   dispatchType: "rider" | "courier" | "customer";
   orders: Array<{
     reference: string;
+    erpReference: string | null;
     orderDate: string;
+    dispatchedAt: string;
     customerPhone: string | null;
     merchantName: string | null;
     city: string | null;
@@ -42,166 +44,112 @@ export type DispatchGroupForPdf = {
 
 function formatDate(iso: string) {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? "-"
-    : d.toLocaleDateString("en-LK", { day: "2-digit", month: "short", year: "numeric" });
+  return Number.isNaN(d.getTime()) ? "-" : d.toISOString().slice(0, 10);
 }
 
-function formatAmount(price: string, currency: string) {
+function formatAmount(price: string) {
   const n = parseFloat(price);
-  return Number.isNaN(n)
-    ? price
-    : `${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })} ${currency}`;
+  return Number.isNaN(n) ? price : n.toLocaleString("en-LK", { minimumFractionDigits: 2 });
 }
 
 function formatPayment(raw: string | null) {
-  if (!raw) return "—";
-  return raw.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  if (!raw) return "-";
+  const normalized = raw.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
+  if (normalized === "cod" || normalized.includes("cash on delivery") || normalized.includes("cash")) {
+    return "CASH PAYMENT\nON DEL";
+  }
+  if (
+    normalized.includes("koko") ||
+    normalized.includes("webxpay") ||
+    normalized.includes("bank") ||
+    normalized.includes("card") ||
+    normalized.includes("shopify payments") ||
+    normalized === "paid"
+  ) {
+    return "ONLINE PAID";
+  }
+  return raw.replace(/[_-]+/g, " ").toUpperCase();
 }
-
 export async function generateDispatchGroupPdf(
   group: DispatchGroupForPdf,
   dateFrom: string,
   dateTo: string,
 ): Promise<Buffer> {
-  const typeLabel =
-    group.dispatchType === "rider"
-      ? "Rider"
-      : group.dispatchType === "customer"
-        ? "Customer Pickup"
-        : "Courier";
-  const currency = group.orders[0]?.currency ?? "LKR";
-  const totalAmount = group.orders.reduce((sum, o) => sum + parseFloat(o.totalPrice || "0"), 0);
-  const dateLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} → ${dateTo}`;
-
-  // Location totals
-  const locationMap = new Map<string, { orders: number; total: number }>();
-  for (const order of group.orders) {
-    const loc = order.locationName;
-    const prev = locationMap.get(loc) ?? { orders: 0, total: 0 };
-    locationMap.set(loc, { orders: prev.orders + 1, total: prev.total + parseFloat(order.totalPrice || "0") });
-  }
+  const dateLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
 
   const tableBody: unknown[][] = [
     [
-      { text: "Invoice No", style: "th" },
-      { text: "Location", style: "th" },
-      { text: "Date", style: "th" },
-      { text: "Merchant", style: "th" },
-      { text: "Payment", style: "th" },
-      { text: "Phone", style: "th" },
-      { text: "City", style: "th" },
-      { text: "Address", style: "th" },
-      { text: "Total", style: "th", alignment: "right" },
+      { text: "NO", style: "th", alignment: "center" },
+      { text: "LOCATION", style: "th" },
+      { text: "L.DEL.DATE", style: "th" },
+      { text: "INV. NO", style: "th" },
+      { text: "P.M", style: "th" },
+      { text: "CITY", style: "th" },
+      { text: "ADDRESS", style: "th" },
+      { text: "T/P NO", style: "th" },
+      { text: "MERCHANT", style: "th" },
+      { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
     ],
-    ...group.orders.map((order) => [
-      { text: order.reference, style: "td" },
+    ...group.orders.map((order, index) => [
+      { text: String(index + 1), style: "td", alignment: "center" },
       { text: order.locationName, style: "td" },
-      { text: formatDate(order.orderDate), style: "td" },
-      { text: order.merchantName ?? "—", style: "td" },
+      { text: formatDate(order.dispatchedAt), style: "td" },
+      { text: order.erpReference ?? order.reference, style: "td" },
       { text: formatPayment(order.paymentType), style: "td" },
-      { text: order.customerPhone ?? "—", style: "td" },
-      { text: order.city ?? "—", style: "td" },
-      { text: order.address ?? "—", style: "td" },
-      { text: formatAmount(order.totalPrice, order.currency), style: "td", alignment: "right" },
+      { text: order.city ?? "-", style: "td" },
+      { text: order.address ?? "-", style: "td" },
+      { text: order.customerPhone ?? "-", style: "td" },
+      { text: order.merchantName ?? "-", style: "merchantTd" },
+      { text: formatAmount(order.totalPrice), style: "td", alignment: "right", noWrap: true },
     ]),
-    [
-      { text: `Total: ${group.orders.length} order${group.orders.length !== 1 ? "s" : ""}`, colSpan: 8, style: "total" },
-      { text: "" },
-      { text: "" },
-      { text: "" },
-      { text: "" },
-      { text: "" },
-      { text: "" },
-      { text: "" },
-      { text: formatAmount(totalAmount.toFixed(2), currency), style: "total", alignment: "right" },
-    ],
-  ];
-
-  const locationBody: unknown[][] = [
-    [
-      { text: "Location", style: "th" },
-      { text: "Orders", style: "th" },
-      { text: "Total", style: "th" },
-    ],
-    ...Array.from(locationMap.entries()).map(([loc, stats]) => [
-      { text: loc, style: "td" },
-      { text: String(stats.orders), style: "td" },
-      { text: formatAmount(stats.total.toFixed(2), currency), style: "td" },
-    ]),
-    [
-      { text: "Grand Total", style: "total" },
-      { text: String(group.orders.length), style: "total" },
-      { text: formatAmount(totalAmount.toFixed(2), currency), style: "total" },
-    ],
   ];
 
   const tableLayout = {
     hLineWidth: () => 0.5,
-    vLineWidth: () => 0,
-    hLineColor: () => "#cbd5e1",
-    paddingLeft: () => 6,
-    paddingRight: () => 6,
-    paddingTop: () => 5,
-    paddingBottom: () => 5,
+    vLineWidth: () => 0.5,
+    hLineColor: () => "#000000",
+    vLineColor: () => "#000000",
+    paddingLeft: () => 4,
+    paddingRight: () => 4,
+    paddingTop: () => 4,
+    paddingBottom: () => 4,
   };
 
   const docDef = {
     pageSize: "A4",
     pageOrientation: "landscape",
-    pageMargins: [30, 40, 30, 40],
+    pageMargins: [22, 18, 22, 18],
     content: [
-      {
-        columns: [
-          { text: "Dispatch Summary", style: "title", width: "*" },
-          {
-            stack: [
-              { text: dateLabel, style: "headerSub" },
-              { text: `${typeLabel}: ${group.dispatcherName}`, style: "subtitle" },
-            ],
-            width: "auto",
-          },
-        ],
-        margin: [0, 0, 0, 12],
-      },
+      { text: "Full Delivery Summary", style: "title", margin: [0, 0, 0, 14] },
       {
         table: {
           headerRows: 1,
-          widths: ["auto", "auto", "auto", "auto", "auto", "auto", "auto", "*", "auto"],
+          widths: [22, 78, 62, 54, 76, 66, 132, 68, 72, 82],
           body: tableBody,
         },
         layout: {
           ...tableLayout,
-          fillColor: (i: number) =>
-            i === 0 ? "#1e40af" : i === tableBody.length - 1 ? "#f1f5f9" : i % 2 === 0 ? "#f8fafc" : null,
-        },
-      },
-      { text: "Location Breakdown", style: "sectionHeader", margin: [0, 16, 0, 6] },
-      {
-        table: {
-          headerRows: 1,
-          widths: ["*", "auto", "auto"],
-          body: locationBody,
-        },
-        layout: {
-          ...tableLayout,
-          fillColor: (i: number) =>
-            i === 0 ? "#1e40af" : i === locationBody.length - 1 ? "#f1f5f9" : null,
+          fillColor: (i: number) => (i === 0 ? "#eeeeee" : null),
         },
       },
     ],
     styles: {
-      title: { fontSize: 18, bold: true, color: "#0f172a" },
-      subtitle: { fontSize: 10, bold: true, color: "#1e40af", alignment: "right" },
-      sectionHeader: { fontSize: 10, bold: true, color: "#0f172a" },
-      headerSub: { fontSize: 8, color: "#64748b", alignment: "right" },
-      th: { fontSize: 9, bold: true, color: "#ffffff" },
-      td: { fontSize: 9, color: "#0f172a" },
-      cellSub: { fontSize: 8, color: "#64748b" },
-      total: { fontSize: 9, bold: true, color: "#0f172a" },
+      title: { fontSize: 15, bold: true, color: "#000000" },
+      th: { fontSize: 9, bold: true, color: "#6f6f6f" },
+      td: { fontSize: 9, color: "#777777" },
+      merchantTd: { fontSize: 8, color: "#777777" },
+    },
+    footer: {
+      text: `${dateLabel} | ${group.dispatcherName}`,
+      alignment: "right",
+      margin: [0, 0, 22, 0],
+      fontSize: 7,
+      color: "#777777",
     },
     defaultStyle: { font: "Roboto" },
   };
 
   return pdfMake.createPdf(docDef).getBuffer();
 }
+
+
