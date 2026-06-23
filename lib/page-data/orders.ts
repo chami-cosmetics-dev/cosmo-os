@@ -12,9 +12,12 @@ import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/l
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
 import { isErpOutOfStockSyncError } from "@/lib/failed-erp-sync-classification";
 import {
+  deliveryPipelineWhere,
   dispatchPipelineWhere,
   dispatchStageOrWhere,
   fulfillableOrderPipelineWhere,
+  isDeliveryFulfillmentStages,
+  isDispatchFulfillmentStages,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 
@@ -258,13 +261,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .map((s) => s.trim())
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
-      const isDispatchQueue =
-        stages.includes("ready_to_dispatch") &&
-        stages.includes("print") &&
-        !stages.includes("order_received") &&
-        !stages.includes("sample_free_issue");
-
-      if (isDispatchQueue) {
+      if (isDispatchFulfillmentStages(stages)) {
         where.OR = dispatchStageOrWhere.OR;
         where.financialStatus = { not: "voided" };
         where.totalPrice = { gte: 0 };
@@ -330,17 +327,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       ?.trim()
       .split(",")
       .map((s) => s.trim()) ?? [];
-    const isDispatchQueue =
-      params.dispatchMode ||
-      (stages.includes("ready_to_dispatch") &&
-        stages.includes("print") &&
-        !stages.includes("order_received") &&
-        !stages.includes("sample_free_issue"));
+    const isDispatchQueue = params.dispatchMode || isDispatchFulfillmentStages(stages);
+    const isDeliveryQueue = isDeliveryFulfillmentStages(stages);
 
     if (params.printMode) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
+      ];
+    } else if (isDeliveryQueue) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        deliveryPipelineWhere,
       ];
     } else if (!isDispatchQueue) {
       where.AND = [

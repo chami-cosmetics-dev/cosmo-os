@@ -44,6 +44,34 @@ export const dispatchPipelineWhere = {
   ...excludeErpOutOfStockBlockedOrdersWhere,
 } satisfies Prisma.OrderWhereInput;
 
+/**
+ * Delivery / invoice pipeline — do not filter on Shopify fulfillmentStatus or Vault
+ * terminal stages; the explicit fulfillmentStage filter selects dispatched and later.
+ */
+export const deliveryPipelineWhere = {
+  ...excludeErpOutOfStockBlockedOrdersWhere,
+} satisfies Prisma.OrderWhereInput;
+
+export function isDispatchFulfillmentStages(stages: string[]): boolean {
+  return (
+    stages.includes("ready_to_dispatch") &&
+    stages.includes("print") &&
+    !stages.includes("order_received") &&
+    !stages.includes("sample_free_issue")
+  );
+}
+
+export function isDeliveryFulfillmentStages(stages: string[]): boolean {
+  return (
+    stages.includes("dispatched") &&
+    (stages.includes("delivery_complete") || stages.includes("invoice_complete")) &&
+    !stages.includes("print") &&
+    !stages.includes("ready_to_dispatch") &&
+    !stages.includes("order_received") &&
+    !stages.includes("sample_free_issue")
+  );
+}
+
 /** Dispatch stage OR — matches historical dispatch queue rules. */
 export const dispatchStageOrWhere = {
   OR: [
