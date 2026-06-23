@@ -402,6 +402,58 @@ async function buildErpSalesInvoiceCouponFields(
   return { fields, discountCodeLabel: resolved.discountCodeLabel };
 }
 
+async function erpnextSetDocumentField(
+  cfg: ErpConfig,
+  doctype: string,
+  name: string,
+  fieldname: string,
+  value: string,
+): Promise<boolean> {
+  try {
+    const form = new URLSearchParams({ doctype, name, fieldname, value });
+    const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.set_value`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
+      },
+      body: form.toString(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureErpSalesInvoiceCouponLabels(
+  cfg: ErpConfig,
+  invoiceName: string,
+  couponCode: string,
+): Promise<void> {
+  const trimmed = couponCode.trim();
+  if (!trimmed) return;
+
+  const current = await erpnextGet<{
+    coupon_code?: string | null;
+    custom_coupon_code?: string | null;
+  }>(
+    cfg,
+    `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code", "custom_coupon_code"]))}`,
+  );
+  if (current?.coupon_code?.trim() && current?.custom_coupon_code?.trim()) return;
+
+  for (const field of ["custom_coupon_code", "coupon_code"] as const) {
+    const existing = current?.[field]?.trim();
+    if (existing) continue;
+    const ok = await erpnextSetDocumentField(cfg, "Sales Invoice", invoiceName, field, trimmed);
+    if (ok) {
+      console.log(`[ERPNext] Set ${field}=${trimmed} on Sales Invoice ${invoiceName}`);
+    } else {
+      console.warn(`[ERPNext] Could not set ${field} on Sales Invoice ${invoiceName}`);
+    }
+  }
+}
+
 async function erpnextSetCustomerField(
   cfg: ErpConfig,
   customerId: string,
@@ -1122,6 +1174,11 @@ export async function syncOrderToERPNext(
     netRateItems: useCouponPricing ? netRateItems : undefined,
   });
 
+  const couponLabel = erpCouponFields.coupon_code ?? erpCouponResolved.discountCodeLabel;
+  if (couponLabel) {
+    await ensureErpSalesInvoiceCouponLabels(cfg, si.name, couponLabel);
+  }
+
   await prisma.order.update({
     where: { id: order.id },
     data: { erpnextInvoiceId: si.name, ...ERP_SYNC_SUCCESS_CLEAR },
@@ -1302,6 +1359,11 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     discountFallback: discountAmt > 0 ? discountAmt : undefined,
     couponLabel: erpCouponResolved.discountCodeLabel,
   });
+
+  const couponLabel = erpCouponFields.coupon_code ?? erpCouponResolved.discountCodeLabel;
+  if (couponLabel) {
+    await ensureErpSalesInvoiceCouponLabels(cfg, si.name, couponLabel);
+  }
 
   await prisma.order.update({
     where: { id: order.id },
