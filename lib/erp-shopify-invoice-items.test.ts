@@ -43,4 +43,19 @@ describe("erp-shopify-invoice-items", () => {
     expect(items.every((row) => row.price_list_rate === row.rate)).toBe(true);
     expect(sumErpInvoiceItemsTotal(items)).toBe(18000);
   });
+
+  it("omits rates when ERP should price items for coupon application", () => {
+    const items = buildErpItemsFromShopifyLineItems(
+      [{ id: 1, price: "7600", quantity: 1, total_discount: "1900.00" }],
+      "WH-01",
+      "erp_price_list",
+    );
+    expect(items[0]).toEqual({
+      item_code: "1",
+      item_name: undefined,
+      qty: 1,
+      warehouse: "WH-01",
+    });
+    expect(items[0].rate).toBeUndefined();
+  });
 });

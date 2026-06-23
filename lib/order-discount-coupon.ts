@@ -1,4 +1,5 @@
 import { unwrapErpWebhookPayload } from "@/lib/erpnext-customer-display-name";
+import { resolveErpCouponCodeFromPricingRule } from "@/lib/erp-coupon-resolve";
 import { shouldResolveFromLinkedErpInvoice } from "@/lib/erp-order-link";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getDiscountCouponCode } from "@/lib/shopify-discount-codes";
@@ -106,6 +107,17 @@ async function erpGet<T>(creds: ErpApiCreds, path: string): Promise<T | null> {
   }
 }
 
+function parseItemPricingRules(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
 /** Fetch customer coupon from ERP Sales Invoice when webhook data is missing. */
 export async function fetchErpInvoiceDiscountCoupon(
   creds: ErpApiCreds,
@@ -114,20 +126,30 @@ export async function fetchErpInvoiceDiscountCoupon(
   const ref = invoiceName.trim();
   if (!ref) return null;
 
+  const fields = encodeURIComponent(
+    JSON.stringify(["coupon_code", "custom_coupon_code", "pricing_rules", "items"]),
+  );
   const row = await erpGet<{
     coupon_code?: string | null;
     custom_coupon_code?: string | null;
     pricing_rules?: Array<{ pricing_rule?: string | null }>;
-  }>(creds, `/api/resource/Sales Invoice/${encodeURIComponent(ref)}`);
+    items?: Array<{ pricing_rules?: string | null }>;
+  }>(creds, `/api/resource/Sales Invoice/${encodeURIComponent(ref)}?fields=${fields}`);
 
   if (!row) return null;
 
   const direct = nullIfNone(row.coupon_code) ?? nullIfNone(row.custom_coupon_code);
   if (direct) return direct;
 
-  // Shopify-synced invoices often apply SV20 via Pricing Rule while coupon_code stays empty.
-  const ruleName = row.pricing_rules?.find((r) => r.pricing_rule?.trim())?.pricing_rule?.trim();
+  const headerRule = row.pricing_rules?.find((r) => r.pricing_rule?.trim())?.pricing_rule?.trim();
+  const itemRule = row.items
+    ?.flatMap((item) => parseItemPricingRules(item.pricing_rules))
+    .find(Boolean);
+  const ruleName = headerRule ?? itemRule ?? null;
   if (!ruleName) return null;
+
+  const fromCoupon = await resolveErpCouponCodeFromPricingRule(creds, ruleName);
+  if (fromCoupon) return fromCoupon;
 
   const rule = await erpGet<{ title?: string | null }>(
     creds,
