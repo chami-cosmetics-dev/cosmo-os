@@ -10,8 +10,11 @@ import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, ORDER_P
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
+import { isErpOutOfStockSyncError } from "@/lib/failed-erp-sync-classification";
 import {
-  activeFulfillmentPipelineWhere,
+  dispatchPipelineWhere,
+  dispatchStageOrWhere,
+  fulfillableOrderPipelineWhere,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 
@@ -236,12 +239,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       },
     };
   } else if (params.dispatchMode) {
-    // Shopify direct orders: print or ready_to_dispatch (mirrors single dispatch selector)
-    // ERP non-POS orders: order_received or ready_to_dispatch (skip sample stage)
-    where.OR = [
-      { sourceName: { in: ["web", "manual"] }, fulfillmentStage: { in: ["print", "ready_to_dispatch"] } },
-      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "print", "ready_to_dispatch"] } },
-    ];
+    where.OR = dispatchStageOrWhere.OR;
     where.financialStatus = { not: "voided" };
     where.totalPrice = { gte: 0 };
     where.NOT = {
@@ -249,6 +247,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         some: { type: "order_payment_approval", status: "pending" },
       },
     };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      dispatchPipelineWhere,
+    ];
   } else if (params.fulfillmentStages?.trim()) {
     const stages = params.fulfillmentStages
       .trim()
@@ -256,6 +258,26 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       .map((s) => s.trim())
       .filter((s) => VALID_STAGES.includes(s as (typeof VALID_STAGES)[number]));
     if (stages.length > 0) {
+      const isDispatchQueue =
+        stages.includes("ready_to_dispatch") &&
+        stages.includes("print") &&
+        !stages.includes("order_received") &&
+        !stages.includes("sample_free_issue");
+
+      if (isDispatchQueue) {
+        where.OR = dispatchStageOrWhere.OR;
+        where.financialStatus = { not: "voided" };
+        where.totalPrice = { gte: 0 };
+        where.NOT = {
+          approvalRequests: {
+            some: { type: "order_payment_approval", status: "pending" },
+          },
+        };
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : []),
+          dispatchPipelineWhere,
+        ];
+      } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
       // Sample page (only sample stages) = Shopify only; other pages include ERP non-POS
       const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
@@ -293,6 +315,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
           ];
         }
       }
+      }
     }
   }
 
@@ -303,10 +326,28 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   // Exclude orders from locations that have been temporarily blocked from fulfillment
   if (params.printMode || params.dispatchMode || params.fulfillmentStages?.trim()) {
     where.companyLocation = { fulfillmentBlocked: false };
-    where.AND = [
-      ...(Array.isArray(where.AND) ? where.AND : []),
-      activeFulfillmentPipelineWhere,
-    ];
+    const stages = params.fulfillmentStages
+      ?.trim()
+      .split(",")
+      .map((s) => s.trim()) ?? [];
+    const isDispatchQueue =
+      params.dispatchMode ||
+      (stages.includes("ready_to_dispatch") &&
+        stages.includes("print") &&
+        !stages.includes("order_received") &&
+        !stages.includes("sample_free_issue"));
+
+    if (params.printMode) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        fulfillableOrderPipelineWhere,
+      ];
+    } else if (!isDispatchQueue) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        fulfillableOrderPipelineWhere,
+      ];
+    }
   }
 
   if (params.printHistoryMode) {
@@ -340,6 +381,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     orderNumber: true,
     name: true,
     erpnextInvoiceId: true,
+    erpnextSyncError: true,
     sourceName: true,
     discountCodes: true,
     totalPrice: true,
@@ -441,6 +483,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     pendingDeliveryPaymentApproval:
       DELIVERY_PAYMENT_FINANCE_UI_ENABLED &&
       o.approvalRequests.some((a) => a.type === DELIVERY_PAYMENT_APPROVAL),
+    erpOutOfStockBlocked: isErpOutOfStockSyncError(o.erpnextSyncError),
     merchantCouponCode: getMerchantCouponCode({
       sourceName: o.sourceName,
       discountCodes: o.discountCodes,

@@ -48,6 +48,7 @@ type Order = {
   paymentGatewayPrimary: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
+  erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
 };
@@ -184,6 +185,7 @@ type OrderDetail = {
   paymentGatewayPrimary?: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
+  erpOutOfStockBlocked?: boolean;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
@@ -723,6 +725,14 @@ export function OrdersPanel({
                                 className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
                               >
                                 DP
+                              </span>
+                            )}
+                            {order.erpOutOfStockBlocked && (
+                              <span
+                                title="ERP sync failed — item out of stock in ERP warehouse. Restock and retry sync before fulfillment."
+                                className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                              >
+                                Out of stock
                               </span>
                             )}
                             <FinancialStatusBadge status={order.financialStatus} />

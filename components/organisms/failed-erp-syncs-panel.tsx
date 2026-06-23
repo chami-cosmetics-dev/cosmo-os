@@ -16,7 +16,11 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
-import { formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
+import {
+  classifyFailedErpSyncError,
+  formatFailedErpSyncErrorMessage,
+  parseOutOfStockItemFromError,
+} from "@/lib/failed-erp-sync-classification";
 
 type FailedErpSync = {
   id: string;
@@ -91,6 +95,24 @@ export function FailedErpSyncsPanel() {
 
   function formatSyncError(message: string | null) {
     return message ? formatFailedErpSyncErrorMessage(message) : null;
+  }
+
+  function renderSyncError(message: string | null) {
+    if (!message) return null;
+    const formatted = formatFailedErpSyncErrorMessage(message);
+    const outOfStock = parseOutOfStockItemFromError(message) ?? parseOutOfStockItemFromError(formatted);
+    if (outOfStock) {
+      return (
+        <div className="space-y-0.5">
+          <span className="font-medium text-destructive">Out of stock</span>
+          <div className="font-mono text-[11px] text-destructive/90">SKU: {outOfStock.sku}</div>
+          {outOfStock.itemName ? (
+            <div className="text-[11px] leading-snug text-destructive/80">{outOfStock.itemName}</div>
+          ) : null}
+        </div>
+      );
+    }
+    return <span className="text-destructive">{formatted}</span>;
   }
 
   async function handleRetry(id: string) {
@@ -256,9 +278,9 @@ export function FailedErpSyncsPanel() {
                           <div className="text-xs text-muted-foreground">{item.customerPhone ?? ""}</div>
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
-                        <td className="max-w-[260px] truncate px-4 py-2 text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
+                        <td className="max-w-[280px] px-4 py-2 text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
                           {item.erpnextSyncError ? (
-                            <span className="text-destructive">{formatSyncError(item.erpnextSyncError)}</span>
+                            renderSyncError(item.erpnextSyncError)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
                             <span className="text-amber-500">Awaiting ERP sync — payment was approved</span>
                           ) : "—"}
@@ -354,9 +376,42 @@ export function FailedErpSyncsPanel() {
                 <h4 className="mb-1 text-sm font-medium">
                   {selectedItem.erpnextInvoiceId === "pending_approval" && !selectedItem.erpnextSyncError ? "Status" : "Error"}
                 </h4>
-                <pre className={`max-h-48 overflow-auto rounded-xl border p-3 text-xs whitespace-pre-wrap ${selectedItem.erpnextInvoiceId === "pending_approval" && !selectedItem.erpnextSyncError ? "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
-                  {formatSyncError(selectedItem.erpnextSyncError) ?? (selectedItem.erpnextInvoiceId === "pending_approval" ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now." : "—")}
-                </pre>
+                {selectedItem.erpnextSyncError ? (
+                  <div className="space-y-2 rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
+                    {(() => {
+                      const classification = classifyFailedErpSyncError(selectedItem.erpnextSyncError);
+                      const outOfStock =
+                        parseOutOfStockItemFromError(selectedItem.erpnextSyncError) ??
+                        parseOutOfStockItemFromError(formatFailedErpSyncErrorMessage(selectedItem.erpnextSyncError));
+                      return (
+                        <>
+                          <p className="font-medium">{classification.type}</p>
+                          {outOfStock ? (
+                            <div className="space-y-1">
+                              <p>
+                                <span className="text-muted-foreground">SKU:</span>{" "}
+                                <span className="font-mono">{outOfStock.sku}</span>
+                              </p>
+                              {outOfStock.itemName ? (
+                                <p>
+                                  <span className="text-muted-foreground">Item:</span> {outOfStock.itemName}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <p className="whitespace-pre-wrap">{formatSyncError(selectedItem.erpnextSyncError)}</p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <pre className="max-h-48 overflow-auto rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs whitespace-pre-wrap text-amber-700 dark:text-amber-400">
+                    {selectedItem.erpnextInvoiceId === "pending_approval"
+                      ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now."
+                      : "—"}
+                  </pre>
+                )}
               </div>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" className="border-border/70 bg-background/85 hover:bg-secondary/10" onClick={() => setSelectedItem(null)}>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildErpOrderShippingFields,
   mergeOrderShippingDisplay,
+  resolveOrderDisplayTotal,
   resolveOrderShippingDisplay,
 } from "@/lib/order-shipping-display";
 
@@ -77,5 +78,37 @@ describe("buildErpOrderShippingFields", () => {
         source: "erpnext",
       },
     ]);
+  });
+});
+
+describe("resolveOrderDisplayTotal", () => {
+  it("adds shipping when stored total matches discounted subtotal only", () => {
+    expect(
+      resolveOrderDisplayTotal({
+        totalPrice: "10800.00",
+        subtotalSale: "10800.00",
+        totalShipping: "400.00",
+      }),
+    ).toBe("11200.00");
+  });
+
+  it("keeps stored total when it already includes shipping", () => {
+    expect(
+      resolveOrderDisplayTotal({
+        totalPrice: "11200.00",
+        subtotalSale: "10800.00",
+        totalShipping: "400.00",
+      }),
+    ).toBe("11200.00");
+  });
+
+  it("returns stored total when there is no shipping", () => {
+    expect(
+      resolveOrderDisplayTotal({
+        totalPrice: "10800.00",
+        subtotalSale: "10800.00",
+        totalShipping: null,
+      }),
+    ).toBe("10800.00");
   });
 });

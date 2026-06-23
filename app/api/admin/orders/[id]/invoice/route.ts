@@ -9,6 +9,7 @@ import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-displa
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -235,7 +236,7 @@ export async function GET(
         printCount: { increment: 1 },
         lastPrintedAt: printedAt,
         lastPrintedById: userId,
-        ...(nextStage ? { fulfillmentStage: nextStage } : {}),
+        ...(nextStage ? orderStageUpdate("print", printedAt) : {}),
       },
     });
   }
