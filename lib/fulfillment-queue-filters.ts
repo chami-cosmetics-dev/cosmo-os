@@ -35,18 +35,26 @@ export const fulfillableOrderPipelineWhere = {
   ...excludeErpOutOfStockBlockedOrdersWhere,
 } satisfies Prisma.OrderWhereInput;
 
-/**
- * Dispatch pipeline — do not filter on Shopify fulfillmentStatus; an order can be
- * marked fulfilled in Shopify while Vault is still at print / dispatch.
- * OOS is enforced on dispatch API routes, not hidden from the queue.
- */
-export const dispatchPipelineWhere = {
-  ...activeFulfillmentStageWhere,
-} satisfies Prisma.OrderWhereInput;
+const PRE_DISPATCH_STAGES = [
+  "order_received",
+  "sample_free_issue",
+  "print",
+  "ready_to_dispatch",
+] as const;
+
+const POST_DISPATCH_STAGES = [
+  "dispatched",
+  "delivery_complete",
+  "invoice_complete",
+] as const;
 
 /**
- * Delivery / invoice pipeline — do not filter on Shopify fulfillmentStatus, Vault
- * terminal stages, or stale ERP sync errors; the explicit stage filter handles inclusion.
+ * Dispatch pipeline — no Shopify fulfilled / ERP OOS filters here; stage OR + API guards only.
+ */
+export const dispatchPipelineWhere = {} satisfies Prisma.OrderWhereInput;
+
+/**
+ * Delivery / invoice pipeline — no extra filters; deliveryStageOrWhere defines inclusion.
  */
 export const deliveryPipelineWhere = {} satisfies Prisma.OrderWhereInput;
 
@@ -70,9 +78,15 @@ export function isDeliveryFulfillmentStages(stages: string[]): boolean {
   );
 }
 
-/** Dispatch stage OR — matches historical dispatch queue rules. */
+/**
+ * Dispatch list — printed orders waiting to ship, plus unprinted orders already at dispatch stages.
+ */
 export const dispatchStageOrWhere = {
   OR: [
+    {
+      printCount: { gt: 0 },
+      fulfillmentStage: { in: [...PRE_DISPATCH_STAGES] },
+    },
     {
       sourceName: { in: ["web", "manual"] },
       fulfillmentStage: { in: ["print", "ready_to_dispatch"] },
@@ -80,6 +94,19 @@ export const dispatchStageOrWhere = {
     {
       sourceName: "erpnext",
       fulfillmentStage: { in: ["order_received", "print", "ready_to_dispatch"] },
+    },
+  ],
+} satisfies Prisma.OrderWhereInput;
+
+/**
+ * Delivery list — all dispatched orders (and later invoice stages), including Shopify-fulfilled.
+ */
+export const deliveryStageOrWhere = {
+  OR: [
+    { fulfillmentStage: { in: [...POST_DISPATCH_STAGES] } },
+    {
+      dispatchedAt: { not: null },
+      fulfillmentStage: { notIn: ["returned", "returned_to_store"] },
     },
   ],
 } satisfies Prisma.OrderWhereInput;

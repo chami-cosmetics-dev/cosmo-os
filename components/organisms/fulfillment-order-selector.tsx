@@ -103,13 +103,25 @@ export function FulfillmentOrderSelector({
     () => stages.split(",").map((stage) => stage.trim()).filter(Boolean),
     [stages],
   );
-  const isDispatchOrDeliveryQueue = useMemo(
-    () => isDispatchFulfillmentStages(stageList) || isDeliveryFulfillmentStages(stageList),
+  const isDispatchQueue = useMemo(
+    () => isDispatchFulfillmentStages(stageList),
     [stageList],
   );
+  const isDeliveryQueue = useMemo(
+    () => isDeliveryFulfillmentStages(stageList),
+    [stageList],
+  );
+  const isDispatchOrDeliveryQueue = isDispatchQueue || isDeliveryQueue;
+  const fulfillmentSortBy = printMode
+    ? "updated"
+    : isDeliveryQueue
+      ? "dispatched"
+      : isDispatchQueue
+        ? "last_printed"
+        : "created";
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(
-    bulkPrintUnprinted ? 100 : isDispatchOrDeliveryQueue ? 30 : 5,
+    bulkPrintUnprinted ? 100 : isDispatchOrDeliveryQueue ? 50 : 5,
   );
   const [total, setTotal] = useState(0);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -148,7 +160,7 @@ export function FulfillmentOrderSelector({
     params.set("fulfillment_stages", stages);
     params.set("page", String(page));
     params.set("limit", String(limit));
-    params.set("sort_by", printMode || isDispatchOrDeliveryQueue ? "updated" : "created");
+    params.set("sort_by", fulfillmentSortBy);
     params.set("sort_order", "desc");
     if (allowFutureSendLater) {
       params.set("sample_send_later", showFutureSendLater ? "future" : "available");
@@ -180,6 +192,7 @@ export function FulfillmentOrderSelector({
     allowFutureSendLater,
     effectiveSearch,
     isDispatchOrDeliveryQueue,
+    fulfillmentSortBy,
     returnFilter,
     unprintedOnly,
     printMode,

@@ -13,6 +13,7 @@ import { isValidCustomerDisplayName } from "@/lib/reports/csv";
 import { isErpOutOfStockSyncError } from "@/lib/failed-erp-sync-classification";
 import {
   deliveryPipelineWhere,
+  deliveryStageOrWhere,
   dispatchPipelineWhere,
   dispatchStageOrWhere,
   fulfillableOrderPipelineWhere,
@@ -83,6 +84,16 @@ function startOfTomorrowUtc() {
   ));
 }
 
+function applyFulfillmentQueueBaseFilters(where: Prisma.OrderWhereInput) {
+  where.financialStatus = { not: "voided" };
+  where.totalPrice = { gte: 0 };
+  where.NOT = {
+    approvalRequests: {
+      some: { type: "order_payment_approval", status: "pending" },
+    },
+  };
+}
+
 async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ name: string }[]>(
     Prisma.sql`
@@ -147,6 +158,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     created: { createdAt: sortOrder },
     updated: { updatedAt: sortOrder },
     last_printed: { lastPrintedAt: sortOrder },
+    dispatched: { dispatchedAt: sortOrder },
     total: { totalPrice: sortOrder },
     order_number: { orderNumber: sortOrder },
     name: { name: sortOrder },
@@ -244,13 +256,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     };
   } else if (params.dispatchMode) {
     where.OR = dispatchStageOrWhere.OR;
-    where.financialStatus = { not: "voided" };
-    where.totalPrice = { gte: 0 };
-    where.NOT = {
-      approvalRequests: {
-        some: { type: "order_payment_approval", status: "pending" },
-      },
-    };
+    applyFulfillmentQueueBaseFilters(where);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       dispatchPipelineWhere,
@@ -264,8 +270,14 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     if (stages.length > 0) {
       if (isDispatchFulfillmentStages(stages)) {
         where.OR = dispatchStageOrWhere.OR;
+        applyFulfillmentQueueBaseFilters(where);
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : []),
+          dispatchPipelineWhere,
+        ];
+      } else if (isDeliveryFulfillmentStages(stages)) {
+        where.OR = deliveryStageOrWhere.OR;
         where.financialStatus = { not: "voided" };
-        where.totalPrice = { gte: 0 };
         where.NOT = {
           approvalRequests: {
             some: { type: "order_payment_approval", status: "pending" },
@@ -273,7 +285,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         };
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
-          dispatchPipelineWhere,
+          deliveryPipelineWhere,
         ];
       } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
@@ -336,12 +348,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
       ];
-    } else if (isDeliveryQueue) {
-      where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : []),
-        deliveryPipelineWhere,
-      ];
-    } else if (!isDispatchQueue) {
+    } else if (!isDispatchQueue && !isDeliveryQueue) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
