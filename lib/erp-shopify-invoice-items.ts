@@ -4,12 +4,14 @@ export type ErpSalesInvoiceItem = {
   item_code: string;
   item_name?: string;
   qty: number;
-  rate: number;
+  rate?: number;
   warehouse: string;
   price_list_rate?: number;
 };
 
 type ShopifyLineItem = ShopifyOrderWebhookPayload["line_items"][number];
+
+export type ErpShopifyItemRateMode = "net" | "list" | "erp_price_list";
 
 export function shopifyLineItemUnitDiscount(li: ShopifyLineItem): number {
   const row = li as Record<string, unknown>;
@@ -29,19 +31,24 @@ export function shopifyLineItemListRate(li: ShopifyLineItem): number {
 export function buildErpItemsFromShopifyLineItems(
   lineItems: ShopifyLineItem[],
   warehouse: string,
-  rateMode: "net" | "list",
+  rateMode: ErpShopifyItemRateMode,
 ): ErpSalesInvoiceItem[] {
   return lineItems.map((li) => {
     const netRate = parseFloat(li.price);
     const listRate = shopifyLineItemListRate(li);
-    const useList = rateMode === "list" && listRate > netRate;
     const item: ErpSalesInvoiceItem = {
       item_code: li.sku ?? String(li.variant_id ?? li.id),
       item_name: li.title ?? undefined,
       qty: li.quantity,
-      rate: useList ? listRate : netRate,
       warehouse,
     };
+
+    if (rateMode === "erp_price_list") {
+      return item;
+    }
+
+    const useList = rateMode === "list" && listRate > netRate;
+    item.rate = useList ? listRate : netRate;
     if (useList) item.price_list_rate = listRate;
     return item;
   });
@@ -51,5 +58,5 @@ export function sumErpInvoiceItemsTotal(
   items: ErpSalesInvoiceItem[],
   extraShipping = 0,
 ): number {
-  return items.reduce((sum, li) => sum + li.rate * li.qty, 0) + extraShipping;
+  return items.reduce((sum, li) => sum + (li.rate ?? 0) * li.qty, 0) + extraShipping;
 }

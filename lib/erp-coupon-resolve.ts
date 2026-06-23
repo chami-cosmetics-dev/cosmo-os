@@ -86,6 +86,25 @@ export async function resolveErpCouponCodeDocument(
   return null;
 }
 
+/** Find Coupon Code document linked to a Pricing Rule (e.g. PRLE-0010 → SV20). */
+export async function resolveErpCouponCodeFromPricingRule(
+  cfg: ErpCouponApiConfig,
+  pricingRuleName: string,
+): Promise<string | null> {
+  const rule = pricingRuleName.trim();
+  if (!rule) return null;
+
+  const matches = await listErpDocuments(
+    cfg,
+    "Coupon Code",
+    [["pricing_rule", "=", rule]],
+    ["name"],
+    5,
+  );
+  if (matches.length === 1) return matches[0].name;
+  return null;
+}
+
 /**
  * Shopify sends short MER codes (e.g. MER99); ERP Sales Person uses MER99-Name.
  */
