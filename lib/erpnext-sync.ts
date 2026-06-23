@@ -221,15 +221,51 @@ function withCouponDiscountFallback(
   return retryBody;
 }
 
-async function erpnextSubmitDocument(cfg: ErpConfig, doctype: string, name: string): Promise<void> {
-  const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.submit`, {
-    method: "POST",
+async function erpnextSaveSalesInvoice(
+  cfg: ErpConfig,
+  name: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const doc = await erpnextGet<Record<string, unknown>>(
+    cfg,
+    `/api/resource/Sales Invoice/${encodeURIComponent(name)}`,
+  );
+  if (!doc) throw new Error(`Sales Invoice ${name} not found`);
+
+  const res = await fetch(`${cfg.baseUrl}/api/resource/Sales Invoice/${encodeURIComponent(name)}`, {
+    method: "PUT",
     headers: authHeaders(cfg),
-    body: JSON.stringify({ doc: { doctype, name } }),
+    body: JSON.stringify({ ...doc, ...patch }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`ERPNext submit ${doctype} ${name} [${res.status}]: ${text.slice(0, 500)}`);
+    throw new Error(`ERPNext PUT Sales Invoice ${name} [${res.status}]: ${text.slice(0, 500)}`);
+  }
+}
+
+async function erpnextSubmitSalesInvoice(cfg: ErpConfig, name: string): Promise<void> {
+  const path = `/api/resource/Sales Invoice/${encodeURIComponent(name)}`;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const doc = await erpnextGet<Record<string, unknown>>(cfg, path);
+    if (!doc) throw new Error(`Sales Invoice ${name} not found before submit`);
+
+    const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.submit`, {
+      method: "POST",
+      headers: authHeaders(cfg),
+      body: JSON.stringify({ doc: { ...doc, doctype: "Sales Invoice" } }),
+    });
+
+    if (res.ok) return;
+
+    const text = await res.text().catch(() => "");
+    if (text.includes("TimestampMismatchError") && attempt < 3) {
+      console.warn(`[ERPNext] SI ${name} submit timestamp mismatch — retry ${attempt}/3`);
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+      continue;
+    }
+
+    throw new Error(`ERPNext submit Sales Invoice ${name} [${res.status}]: ${text.slice(0, 500)}`);
   }
 }
 
@@ -305,7 +341,18 @@ async function createErpSalesInvoice(
     console.log(`[ERPNext] Creating draft Sales Invoice with coupon ${couponCode} before submit`);
     try {
       const draft = await postErpSalesInvoiceCreate(cfg, { ...siBody, docstatus: 0 }, opts);
-      await erpnextSubmitDocument(cfg, "Sales Invoice", draft.name);
+      await erpnextSaveSalesInvoice(cfg, draft.name, {
+        coupon_code: couponCode,
+        custom_coupon_code: couponCode,
+      });
+      const draftCheck = await erpnextGet<{ coupon_code?: string | null }>(
+        cfg,
+        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code"]))}`,
+      );
+      console.log(
+        `[ERPNext] Draft ${draft.name} coupon_code before submit: ${draftCheck?.coupon_code?.trim() || "(empty)"}`,
+      );
+      await erpnextSubmitSalesInvoice(cfg, draft.name);
       const submitted = await erpnextGet<{
         name: string;
         debit_to: string;
@@ -326,7 +373,7 @@ async function createErpSalesInvoice(
       };
     } catch (draftErr) {
       const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
-      console.warn("[ERPNext] Draft+submit coupon SI failed — retrying direct submit:", msg.slice(0, 300));
+      throw new Error(`[ERPNext] Draft+submit coupon SI failed: ${msg.slice(0, 400)}`);
     }
   }
 
@@ -346,7 +393,6 @@ async function buildErpSalesInvoiceCouponFields(
   const fields: Record<string, string> = {};
   if (resolved.couponCode) {
     fields.coupon_code = resolved.couponCode;
-    fields.custom_coupon_code = resolved.couponCode;
   } else if (resolved.discountCodeLabel) {
     fields.custom_coupon_code = resolved.discountCodeLabel;
   }
