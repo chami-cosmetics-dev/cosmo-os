@@ -30,14 +30,22 @@ describe("task-reminder-access", () => {
     ).toBe(true);
   });
 
-  it("limits finance users to finance reminders", () => {
+  it("limits finance users to finance reminders only", () => {
     const context = {
       roleNames: ["finance"],
-      permissionKeys: ["finance.approvals.manage", "orders.read"],
+      permissionKeys: [
+        "finance.approvals.manage",
+        "orders.read",
+        "returns.read",
+        "fulfillment.delivery_invoice.read",
+        "fulfillment.ready_dispatch.read",
+      ],
     };
     expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["finance"]));
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
     expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "return_action")).toBe(false);
     expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(false);
   });
 
@@ -75,7 +83,10 @@ describe("task-reminder-access", () => {
   it("does not scope samples for store users", () => {
     const context = {
       roleNames: ["store"],
-      permissionKeys: ["fulfillment.sample_free_issue.read", "fulfillment.ready_dispatch.read"],
+      permissionKeys: [
+        "fulfillment.sample_free_issue.read",
+        "fulfillment.ready_dispatch.read",
+      ],
     };
     expect(shouldScopeSampleRemindersToMerchant(context)).toBe(false);
   });

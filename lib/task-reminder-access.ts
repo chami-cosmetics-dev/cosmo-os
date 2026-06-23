@@ -10,7 +10,6 @@ export type TaskReminderAccessContext = {
 };
 
 const OPS_ADMIN_ROLES = new Set(["super_admin", "admin", "manager"]);
-const FINANCE_ROLES = new Set(["finance", "hod"]);
 
 const STORE_PERMISSION_PREFIXES = [
   "fulfillment.ready_dispatch.",
@@ -35,6 +34,12 @@ function hasSampleFulfillmentAccess(permissionKeys: string[]) {
   return SAMPLE_PERMISSION_KEYS.some((key) => permissionKeys.includes(key));
 }
 
+function isFinanceRoleName(roleNames: string[]) {
+  return roleNames.some(
+    (role) => role === "finance" || role === "hod" || role.includes("finance"),
+  );
+}
+
 function isMerchantRoleName(roleNames: string[]) {
   return roleNames.some(
     (role) => role === "merchant" || role.includes("merchant"),
@@ -54,37 +59,43 @@ function isStoreRoleName(roleNames: string[]) {
 export function resolveTaskReminderAudiences(
   context: TaskReminderAccessContext,
 ): Set<TaskReminderAudience> {
-  const audiences = new Set<TaskReminderAudience>();
   const { roleNames, permissionKeys } = context;
 
   if (roleNames.some((role) => OPS_ADMIN_ROLES.has(role))) {
-    audiences.add("admin");
-    return audiences;
+    return new Set(["admin"]);
   }
 
-  if (roleNames.some((role) => FINANCE_ROLES.has(role))) {
-    audiences.add("finance");
-  } else if (
-    hasReminderPermission(context, "finance.approvals.manage") &&
-    !hasStoreFulfillmentAccess(permissionKeys) &&
-    !hasSampleFulfillmentAccess(permissionKeys)
-  ) {
-    audiences.add("finance");
+  // Named roles are exclusive — finance must not inherit store reminders from extra perms.
+  if (isFinanceRoleName(roleNames)) {
+    return new Set(["finance"]);
   }
 
-  if (isStoreRoleName(roleNames) || hasStoreFulfillmentAccess(permissionKeys)) {
-    audiences.add("store");
+  if (isMerchantRoleName(roleNames)) {
+    return new Set(["merchant"]);
+  }
+
+  if (isStoreRoleName(roleNames)) {
+    return new Set(["store"]);
   }
 
   if (
-    isMerchantRoleName(roleNames) ||
-    (hasSampleFulfillmentAccess(permissionKeys) &&
-      !hasStoreFulfillmentAccess(permissionKeys))
+    hasReminderPermission(context, "finance.approvals.manage") ||
+    hasReminderPermission(context, "finance.approvals.read")
   ) {
-    audiences.add("merchant");
+    if (!hasStoreFulfillmentAccess(permissionKeys) && !hasSampleFulfillmentAccess(permissionKeys)) {
+      return new Set(["finance"]);
+    }
   }
 
-  return audiences;
+  if (hasStoreFulfillmentAccess(permissionKeys)) {
+    return new Set(["store"]);
+  }
+
+  if (hasSampleFulfillmentAccess(permissionKeys)) {
+    return new Set(["merchant"]);
+  }
+
+  return new Set();
 }
 
 function categoryPermission(category: TaskReminderCategory): string {
@@ -103,6 +114,13 @@ function categoryPermission(category: TaskReminderCategory): string {
     case "delivery_pending":
       return "fulfillment.delivery_invoice.read";
   }
+}
+
+function hasFinanceReminderPermission(context: TaskReminderAccessContext) {
+  return (
+    hasReminderPermission(context, "finance.approvals.manage") ||
+    hasReminderPermission(context, "finance.approvals.read")
+  );
 }
 
 function categoryAudience(category: TaskReminderCategory): TaskReminderAudience {
@@ -124,13 +142,36 @@ export function canSeeTaskReminderCategory(
   context: TaskReminderAccessContext,
   category: TaskReminderCategory,
 ): boolean {
-  if (!hasReminderPermission(context, categoryPermission(category))) {
-    return false;
+  const audiences = resolveTaskReminderAudiences(context);
+
+  if (audiences.has("admin")) {
+    return category === "finance_approval"
+      ? hasFinanceReminderPermission(context)
+      : hasReminderPermission(context, categoryPermission(category));
   }
 
-  const audiences = resolveTaskReminderAudiences(context);
-  if (audiences.has("admin")) return true;
-  return audiences.has(categoryAudience(category));
+  if (audiences.size === 1 && audiences.has("finance")) {
+    return category === "finance_approval" && hasFinanceReminderPermission(context);
+  }
+
+  if (audiences.size === 1 && audiences.has("merchant")) {
+    return (
+      category === "add_samples" &&
+      hasReminderPermission(context, "fulfillment.sample_free_issue.read")
+    );
+  }
+
+  if (audiences.size === 1 && audiences.has("store")) {
+    if (category === "finance_approval" || category === "add_samples") return false;
+    return hasReminderPermission(context, categoryPermission(category));
+  }
+
+  return (
+    audiences.has(categoryAudience(category)) &&
+    (category === "finance_approval"
+      ? hasFinanceReminderPermission(context)
+      : hasReminderPermission(context, categoryPermission(category)))
+  );
 }
 
 export function shouldScopeSampleRemindersToMerchant(
