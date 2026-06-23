@@ -9,6 +9,11 @@ import {
 } from "@/lib/erp-shopify-sync-eligibility";
 import { LIMITS } from "@/lib/validation";
 import { resolveErpSalesInvoiceCouponFields } from "@/lib/erp-coupon-resolve";
+import {
+  buildErpItemsFromShopifyLineItems,
+  sumErpInvoiceItemsTotal,
+  type ErpSalesInvoiceItem,
+} from "@/lib/erp-shopify-invoice-items";
 
 export type LocationWithErpInstance = CompanyLocation & {
   erpnextInstance: ErpnextInstance | null;
@@ -194,6 +199,8 @@ type CreateErpSalesInvoiceOpts = {
   discountFallback?: number;
   /** Shopify coupon label to store on custom_coupon_code when coupon_code is stripped. */
   couponLabel?: string | null;
+  /** Net-rate line items for coupon retry after ERP rejects list-rate + coupon_code. */
+  netRateItems?: ErpSalesInvoiceItem[];
 };
 
 function withCouponDiscountFallback(
@@ -250,11 +257,11 @@ async function createErpSalesInvoice(
         null;
       console.warn("[ERPNext] SI creation failed — coupon_code invalid, retrying with discount fallback:", msg.slice(0, 200));
       const { coupon_code: _coupon, ...withoutCoupon } = siBody;
-      return createErpSalesInvoice(
-        cfg,
-        withCouponDiscountFallback(withoutCoupon, opts, couponLabel),
-        opts,
-      );
+      const retryBody = withCouponDiscountFallback(withoutCoupon, opts, couponLabel);
+      if (opts?.netRateItems?.length) {
+        retryBody.items = opts.netRateItems;
+      }
+      return createErpSalesInvoice(cfg, retryBody, opts);
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "custom_coupon_code" in siBody) {
       console.warn("[ERPNext] SI creation failed — custom_coupon_code invalid, retrying without it:", msg.slice(0, 200));
@@ -282,8 +289,8 @@ async function buildErpSalesInvoiceCouponFields(
   const resolved = await resolveErpSalesInvoiceCouponFields(cfg, params);
   const fields: Record<string, string> = {};
   if (resolved.couponCode) {
+    // coupon_code applies ERP pricing rules; custom_coupon_code duplicates can trigger 417.
     fields.coupon_code = resolved.couponCode;
-    fields.custom_coupon_code = resolved.couponCode;
   } else if (resolved.discountCodeLabel) {
     fields.custom_coupon_code = resolved.discountCodeLabel;
   }
@@ -899,14 +906,6 @@ export async function syncOrderToERPNext(
 
   const dateStr = toDateStr(order.createdAt);
 
-  const siItems = lineItems.map((li) => ({
-    item_code: li.sku ?? String(li.variant_id ?? li.id),
-    item_name: li.title ?? undefined,
-    qty: li.quantity,
-    rate: parseFloat(li.price),
-    warehouse: location.erpnextWarehouse,
-  }));
-
   const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
     (sum, line) => sum + parseFloat(line.price ?? "0"), 0,
   );
@@ -916,27 +915,37 @@ export async function syncOrderToERPNext(
   const useShippingTaxRow = shopifyShippingAmt > 0 && !!cfg.shippingChargeAccount;
   const useShippingItem = shopifyShippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
 
-  if (useShippingItem) {
-    siItems.push({
-      item_code: cfg.shippingItem,
-      item_name: "Delivery Charges",
-      qty: 1,
-      rate: shopifyShippingAmt,
-      warehouse: location.erpnextWarehouse,
-    });
-  }
-
-  const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
-  const vaultTotal = parseFloat(order.totalPrice.toString());
-  // When shipping goes to taxes (not items), add it back so the discount calc stays correct
-  const discountAmt = parseFloat((itemsTotal + (useShippingTaxRow ? shopifyShippingAmt : 0) - vaultTotal).toFixed(2));
-
   const erpCouponResolved = await buildErpSalesInvoiceCouponFields(cfg, {
     sourceName: order.sourceName,
     discountCodes: shopifyData.discount_codes,
     rawPayload: shopifyData,
   });
   const erpCouponFields = erpCouponResolved.fields;
+  const useCouponPricing = !!erpCouponFields.coupon_code;
+
+  const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
+  const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
+  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
+  const netRateItems = [...netSiItems];
+
+  if (useShippingItem) {
+    const shippingRow: ErpSalesInvoiceItem = {
+      item_code: cfg.shippingItem,
+      item_name: "Delivery Charges",
+      qty: 1,
+      rate: shopifyShippingAmt,
+      warehouse: location.erpnextWarehouse,
+    };
+    siItems.push(shippingRow);
+    netRateItems.push(shippingRow);
+  }
+
+  const vaultTotal = parseFloat(order.totalPrice.toString());
+  const productItems = useCouponPricing ? listSiItems : netSiItems;
+  const itemsTotal =
+    sumErpInvoiceItemsTotal(productItems) +
+    (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
+  const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
   const billingAddressHtml = formatAddressHtml(billingAddr);
   const shippingAddressHtml = formatAddressHtml(shippingAddr);
@@ -993,6 +1002,7 @@ export async function syncOrderToERPNext(
   const si = await createErpSalesInvoice(cfg, siBody as Record<string, unknown>, {
     discountFallback: discountAmt > 0 ? discountAmt : undefined,
     couponLabel: erpCouponResolved.discountCodeLabel,
+    netRateItems: useCouponPricing ? netRateItems : undefined,
   });
 
   await prisma.order.update({
