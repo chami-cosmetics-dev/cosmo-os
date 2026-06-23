@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentPermissionsProvider } from "@/components/contexts/fulfillment-permissions-context";
@@ -11,6 +12,7 @@ import {
   FulfillmentOrderSelector,
 } from "@/components/organisms/fulfillment-order-selector";
 import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
+import { TASK_REMINDER_ORDER_ID_PARAM, TASK_REMINDER_QUEUE_PARAM } from "@/lib/task-reminder-links";
 
 type DispatchMode = "multiple" | "single";
 type QueueMode = "normal" | "rearrange";
@@ -24,6 +26,15 @@ export function DispatchFulfillmentPage({
   const [selectedOrder, setSelectedOrder] = useState<FulfillmentOrder | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [queueMode, setQueueMode] = useState<QueueMode>("normal");
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const orderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim();
+    const queue = searchParams.get(TASK_REMINDER_QUEUE_PARAM);
+    if (!orderId && queue !== "rearrange") return;
+    setDispatchMode("single");
+    if (queue === "rearrange") setQueueMode("rearrange");
+  }, [searchParams]);
 
   const handleRefresh = useCallback((clearSelection?: boolean) => {
     if (clearSelection) setSelectedOrder(null);

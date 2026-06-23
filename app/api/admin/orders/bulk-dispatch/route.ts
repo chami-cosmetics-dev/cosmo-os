@@ -8,6 +8,8 @@ import { DISPATCHABLE_STAGES, printFieldsOnDispatchIfUnprinted } from "@/lib/ful
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -80,6 +82,7 @@ export async function POST(request: NextRequest) {
           customerPhone: true,
           shippingAddress: true,
           erpnextInvoiceId: true,
+          erpnextSyncError: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -102,6 +105,12 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
+      if (erpOutOfStockBlock) {
+        results.push({ orderId, ref, success: false, error: erpOutOfStockBlock });
+        continue;
+      }
+
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
 
       // Auto-mark ready if not already — same as single dispatch
@@ -117,7 +126,7 @@ export async function POST(request: NextRequest) {
             packageOnHoldAt: null,
             packageHoldReasonId: null,
           }),
-          fulfillmentStage: "dispatched",
+          ...orderStageUpdate("dispatched", now),
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
           dispatchedByRiderId: dispatchToCustomer ? null : (riderId ?? null),

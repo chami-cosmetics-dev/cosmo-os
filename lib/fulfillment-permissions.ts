@@ -132,7 +132,7 @@ export function buildFulfillmentPermissions(
     canRevertHold: hasPermission(context, "fulfillment.ready_dispatch.revert_hold"),
     canDispatch: hasPermission(context, "fulfillment.ready_dispatch.dispatch"),
     canMarkDelivered: hasPermission(context, "fulfillment.delivery_invoice.mark_delivered"),
-    canMarkInvoiceComplete: hasPermission(context, "fulfillment.delivery_invoice.mark_complete"),
+    canMarkInvoiceComplete: hasPermission(context, "finance.approvals.manage"),
     canManageRemarks:
       hasPermission(context, "fulfillment.remarks.manage") ||
       hasPermission(context, "fulfillment.sample_free_issue.manage_remarks") ||

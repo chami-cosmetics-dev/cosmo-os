@@ -16,6 +16,9 @@ import {
   handleErpSalesInvoiceCreditNoteEvent,
   isErpSalesInvoiceCreditNoted,
 } from "@/lib/erp-credit-note-order-sync";
+import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
+import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
+import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -168,7 +171,8 @@ export async function POST(request: NextRequest) {
 
   if (
     data.is_return === 1 ||
-    (data.grand_total != null && data.grand_total < 0)
+    (data.grand_total != null && data.grand_total < 0) ||
+    data.return_against?.trim()
   ) {
     // Return SI without a matching Vault order — void a stray credit-note row if present.
     const existing = await prisma.order.findUnique({
@@ -333,7 +337,16 @@ export async function POST(request: NextRequest) {
   }
 
   // Read merchant coupon code directly from ERP invoice — stored as-is for display
-  const merCouponCode = data.custom_merchant_coupon_code?.trim() || null;
+  const merCouponCode =
+    data.custom_merchant_coupon_code?.trim() ||
+    data.merchant_coupon_code?.trim() ||
+    null;
+  const erpDiscountCodes = buildErpOrderDiscountCodes({
+    coupon_code: data.coupon_code,
+    custom_coupon_code: data.custom_coupon_code,
+    custom_merchant_coupon_code: data.custom_merchant_coupon_code,
+    merchant_coupon_code: data.merchant_coupon_code,
+  });
 
   // For non-POS ERP orders: if a coupon code is present, try to assign the merchant via
   // coupon code (same logic as Shopify web order assignment in resolveAssignedMerchant).
@@ -367,6 +380,36 @@ export async function POST(request: NextRequest) {
 
   const isCreditNoted = isErpSalesInvoiceCreditNoted(data.status, data.docstatus);
 
+  const erpShipping = buildErpOrderShippingFields({
+    shipping_rule: data.shipping_rule,
+    taxes: data.taxes,
+    total_taxes_and_charges: data.total_taxes_and_charges,
+  });
+
+  const lineDiscountSum = data.items.reduce(
+    (acc, item) => acc + (item.discount_amount ?? 0),
+    0,
+  );
+  const totalDiscountsValue =
+    lineDiscountSum > 0
+      ? lineDiscountSum
+      : data.discount_amount != null && data.discount_amount > 0
+        ? data.discount_amount
+        : null;
+  const subtotalPriceValue =
+    data.net_total != null && data.net_total > 0 ? data.net_total : null;
+  const pricingFields = {
+    ...(subtotalPriceValue != null
+      ? { subtotalPrice: new Decimal(subtotalPriceValue) }
+      : {}),
+    ...(totalDiscountsValue != null
+      ? { totalDiscounts: new Decimal(totalDiscountsValue) }
+      : {}),
+  };
+
+  const skipSampleStage = !isCreditNoted;
+  const sampleStageCompletedAt = skipSampleStage ? new Date() : undefined;
+
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
     create: {
@@ -377,18 +420,24 @@ export async function POST(request: NextRequest) {
       name: data.name,
       erpnextInvoiceId: data.name,
       totalPrice: grandTotal,
+      ...pricingFields,
+      ...(erpShipping.totalShipping
+        ? { totalShipping: new Decimal(erpShipping.totalShipping) }
+        : {}),
+      ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       currency: data.currency ?? "LKR",
       financialStatus: isCreditNoted ? "voided" : financialStatus,
-      fulfillmentStage: isPOS
-        ? "delivery_complete"
+      ...(isPOS
+        ? orderStageUpdate("delivery_complete", sampleStageCompletedAt ?? new Date())
         : isCreditNoted
-          ? "returned"
-          : "print",
+          ? orderStageUpdate("returned", sampleStageCompletedAt ?? new Date())
+          : orderStageUpdate("print", sampleStageCompletedAt ?? new Date())),
+      ...(sampleStageCompletedAt ? { sampleFreeIssueCompleteAt: sampleStageCompletedAt } : {}),
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
-      ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
+      ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0
         ? {
             paymentGatewayNames: resolvedPaymentMethods,
@@ -399,19 +448,24 @@ export async function POST(request: NextRequest) {
     },
     update: {
       totalPrice: grandTotal,
+      ...pricingFields,
+      ...(erpShipping.totalShipping
+        ? { totalShipping: new Decimal(erpShipping.totalShipping) }
+        : {}),
+      ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       ...(isPOS
-        ? { fulfillmentStage: "delivery_complete" }
+        ? orderStageUpdate("delivery_complete", new Date())
         : isCreditNoted
-          ? { fulfillmentStage: "returned" }
+          ? orderStageUpdate("returned", new Date())
           : {}),
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
       rawPayload: rawPayload as object,
-      ...(merCouponCode ? { discountCodes: [{ code: merCouponCode }] } : {}),
+      ...(erpDiscountCodes ? { discountCodes: erpDiscountCodes } : {}),
       ...(resolvedPaymentMethods.length > 0
         ? {
             paymentGatewayNames: resolvedPaymentMethods,

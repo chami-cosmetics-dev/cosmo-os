@@ -180,33 +180,28 @@ export async function processOrderWebhook(
     rawPayload: rawPayload as Prisma.InputJsonValue,
   };
 
-  const isPaid = data.financial_status?.toLowerCase() === "paid";
-  // Check approval requirement before upsert so we can conditionally set invoiceCompleteAt
-  const requiresApproval = isOrderPaymentRequiresApproval({ paymentGatewayPrimary: paymentGateways.primary, paymentGatewayNames: paymentGateways.names });
-  // Koko/bank transfer orders must not be marked invoice complete at creation — they need finance approval first
-  const markInvoiceComplete = isPaid && !requiresApproval;
+  const requiresApproval = isOrderPaymentRequiresApproval({
+    paymentGatewayPrimary: paymentGateways.primary,
+    paymentGatewayNames: paymentGateways.names,
+  });
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
-    create: {
-      ...orderData,
-      ...(markInvoiceComplete && { invoiceCompleteAt: orderCreatedAt }),
-    },
-    update: {
-      ...orderData,
-      ...(markInvoiceComplete && { invoiceCompleteAt: orderCreatedAt }),
-    },
+    create: orderData,
+    update: orderData,
   });
-
-  if (markInvoiceComplete && !order.invoiceCompleteAt) {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { invoiceCompleteAt: orderCreatedAt },
-    });
-  }
   if (isNewOrder && requiresApproval) {
     // Mark as pending_approval so ERP sync is skipped until finance approves
-    await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: "pending_approval" } });
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        erpnextInvoiceId: "pending_approval",
+        erpnextSyncError: null,
+        erpnextSyncFailedAt: null,
+        erpnextSyncNextAutoRetryAt: null,
+        erpnextSyncRetryLeaseExpiresAt: null,
+      },
+    });
     void createOrGetOrderPaymentApproval({
       companyId,
       orderId: order.id,
@@ -263,7 +258,7 @@ export async function processOrderWebhook(
 
   const isVoided = order.financialStatus?.toLowerCase() === "voided";
 
-  if (!isVoided && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
+  if (!isVoided && !requiresApproval && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
     const skipErpSync = shouldSkipShopifyOrderErpSync(order.createdAt, effectiveLocation);
     if (!skipErpSync) {
       // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks

@@ -5,6 +5,7 @@ import { Check, Loader2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -16,10 +17,13 @@ type DeliveryOrderDetail = {
   totalPrice: string;
   currency: string | null;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   resolvedCustomerPhone?: string | null;
   shippingAddress: unknown;
+  totalShipping?: string | null;
+  shippingRuleLabel?: string | null;
   dispatchedAt: string | null;
   dispatchedBy: { id: string; name: string | null; email: string | null } | null;
   dispatchedByRider: { id: string; name: string | null; mobile: string | null } | null;
@@ -100,7 +104,7 @@ export function FulfillmentDeliveryInvoicePanel({
       }
       notify.success(
         data.needsPaymentApproval
-          ? "Delivery recorded. Finance will confirm payment before the order is marked paid."
+          ? "Delivery recorded. Finance will confirm before invoice complete."
           : "Updated."
       );
       onRefresh(true);
@@ -166,6 +170,13 @@ export function FulfillmentDeliveryInvoicePanel({
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
           <p><span className="font-medium">Phone:</span> {displayPhone}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
+          <OrderShippingLine
+            prefix="Delivery:"
+            shippingRuleLabel={detail?.shippingRuleLabel}
+            totalShipping={detail?.totalShipping}
+            currency={currency ?? null}
+            formatPrice={formatPrice}
+          />
           <p>
             <span className="font-medium">Dispatched via:</span>{" "}
             {detail
@@ -176,7 +187,12 @@ export function FulfillmentDeliveryInvoicePanel({
         <div className="space-y-1">
           <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
           <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
-          {detail?.merchantCouponCode && <p><span className="font-medium">Coupon:</span> {detail.merchantCouponCode}</p>}
+          {detail?.discountCouponCode && (
+            <p><span className="font-medium">Coupon:</span> {detail.discountCouponCode}</p>
+          )}
+          {detail?.merchantCouponCode && (
+            <p><span className="font-medium">Mer coupon:</span> {detail.merchantCouponCode}</p>
+          )}
           <p><span className="font-medium">Stage:</span> {order?.fulfillmentStage ?? "-"}</p>
           <p>
             <span className="font-medium">Dispatched at:</span>{" "}
@@ -222,7 +238,7 @@ export function FulfillmentDeliveryInvoicePanel({
 
       {awaitingFinancePayment && (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
-          Delivery is complete. Finance must confirm payment received before this order can be marked paid and invoice complete.
+          Delivery is complete. Finance must confirm before invoice complete.
         </p>
       )}
 

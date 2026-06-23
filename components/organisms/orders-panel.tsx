@@ -48,6 +48,7 @@ type Order = {
   paymentGatewayPrimary: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
+  erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
 };
@@ -176,6 +177,7 @@ type OrderDetail = {
   totalDiscounts: string | null;
   totalTax: string | null;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -183,12 +185,14 @@ type OrderDetail = {
   paymentGatewayPrimary?: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
+  erpOutOfStockBlocked?: boolean;
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
   billingAddress: unknown;
   discountCodes: unknown;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -288,6 +292,7 @@ export function OrdersPanel({
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [merchantFilter, setMerchantFilter] = useState<string>("");
   const [paymentGatewayFilter, setPaymentGatewayFilter] = useState<string>("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>("");
   const [page, setPage] = useState(initialData?.page ?? 1);
   const [limit, setLimit] = useState(initialData?.limit ?? 10);
   const [total, setTotal] = useState(initialData?.total ?? 0);
@@ -306,7 +311,7 @@ export function OrdersPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [effectiveSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, sortBy, sortOrder]);
+  }, [effectiveSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
     const perf = createClientPerfLogger("orders.panel.fetch", {
@@ -320,6 +325,7 @@ export function OrdersPanel({
     if (sourceFilter) params.set("source", sourceFilter);
     if (merchantFilter) params.set("merchant_id", merchantFilter);
     if (paymentGatewayFilter) params.set("payment_gateway", paymentGatewayFilter);
+    if (orderStatusFilter) params.set("order_status", orderStatusFilter);
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (sortBy) {
@@ -349,7 +355,7 @@ export function OrdersPanel({
     setMerchants(data.merchants ?? []);
     setPaymentGatewayOptions(data.paymentGatewayOptions ?? []);
     perf.end({ ok: true, total: data.total });
-  }, [effectiveSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, page, limit, sortBy, sortOrder]);
+  }, [effectiveSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, page, limit, sortBy, sortOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -503,12 +509,12 @@ export function OrdersPanel({
             Orders Explorer
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Search and filter orders by location, source, merchant, and payment gateway.
+            Search and filter orders by location, source, merchant, payment, and status.
           </p>
         </CardHeader>
         <CardContent className="min-w-0 max-w-full overflow-x-hidden space-y-4">
           <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(4,minmax(0,1fr))] lg:items-center">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))] lg:items-center">
             <div className="relative min-w-0">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
@@ -578,6 +584,22 @@ export function OrdersPanel({
                     {g}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={orderStatusFilter || ALL_FILTER_VALUE}
+              onValueChange={(value) => setOrderStatusFilter(value === ALL_FILTER_VALUE ? "" : value)}
+            >
+              <SelectTrigger className="w-full min-w-0 border-border/70 bg-background/90">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_FILTER_VALUE}>All statuses</SelectItem>
+                <SelectItem value="pending">Pending payment</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="voided">Voided</SelectItem>
+                <SelectItem value="returned">Returned (ERP)</SelectItem>
+                <SelectItem value="returned_to_store">Returned to Store</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -703,6 +725,14 @@ export function OrdersPanel({
                                 className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
                               >
                                 DP
+                              </span>
+                            )}
+                            {order.erpOutOfStockBlocked && (
+                              <span
+                                title="ERP sync failed — item out of stock in ERP warehouse. Restock and retry sync before fulfillment."
+                                className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                              >
+                                Out of stock
                               </span>
                             )}
                             <FinancialStatusBadge status={order.financialStatus} />

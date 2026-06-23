@@ -14,6 +14,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   posting_date: z.string().optional().nullable(),
   grand_total: z.number().optional().nullable(),
   net_total: z.number().optional().nullable(),
+  discount_amount: z.number().optional().nullable(),
   po_no: z.string().optional().nullable(),
   currency: z.string().optional().nullable(),
   docstatus: z.number().optional().nullable(),
@@ -26,12 +27,27 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   payment_type: z.string().optional().nullable().default(null),
   custom_payment_type: z.string().optional().nullable().default(null),
   custom_merchant_coupon_code: z.string().optional().nullable().default(null),
+  merchant_coupon_code: z.string().optional().nullable().default(null),
+  coupon_code: z.string().optional().nullable().default(null),
+  custom_coupon_code: z.string().optional().nullable().default(null),
   posa_pos_opening_shift: z.string().optional().nullable().default(null),
   owner: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   contact_mobile: z.string().optional().nullable(),
   address_display: z.string().optional().nullable(),
   shipping_address: z.string().optional().nullable(),
+  shipping_rule: z.string().optional().nullable(),
+  total_taxes_and_charges: z.number().optional().nullable(),
+  taxes: z
+    .array(
+      z.object({
+        description: z.string().optional().nullable(),
+        tax_amount: z.number().optional().nullable(),
+        account_head: z.string().optional().nullable(),
+      }),
+    )
+    .optional()
+    .default([]),
   items: z
     .array(
       z.object({
@@ -40,6 +56,8 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
         qty: z.number(),
         rate: z.number(),
         amount: z.number().optional().nullable(),
+        price_list_rate: z.number().optional().nullable(),
+        discount_amount: z.number().optional().nullable(),
       }),
     )
     .optional()

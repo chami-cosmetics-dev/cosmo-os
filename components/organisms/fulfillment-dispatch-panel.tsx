@@ -5,6 +5,7 @@ import { Loader2, Truck } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
 import {
@@ -29,6 +30,8 @@ type DispatchOrderDetail = {
   customerEmail: string | null;
   customerPhone: string | null;
   shippingAddress: unknown;
+  totalShipping?: string | null;
+  shippingRuleLabel?: string | null;
   lineItems: Array<{
     id: string;
     productTitle: string;
@@ -206,6 +209,13 @@ export function FulfillmentDispatchPanel({
           <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
           <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? (detail?.shippingAddress as Record<string, string> | null)?.phone ?? "-"}</p>
           <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
+          <OrderShippingLine
+            prefix="Delivery:"
+            shippingRuleLabel={detail?.shippingRuleLabel}
+            totalShipping={detail?.totalShipping}
+            currency={currency}
+            formatPrice={formatPrice}
+          />
         </div>
         <div className="space-y-1">
           <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>

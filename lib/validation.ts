@@ -157,6 +157,19 @@ export const orderPaymentGatewayFilterSchema = z
     return t ? t : undefined;
   });
 
+/** Orders list: financial / return status filter. */
+export const ORDER_STATUS_FILTER_VALUES = [
+  "pending",
+  "paid",
+  "voided",
+  "returned",
+  "returned_to_store",
+] as const;
+
+export type OrderStatusFilter = (typeof ORDER_STATUS_FILTER_VALUES)[number];
+
+export const orderStatusFilterSchema = z.enum(ORDER_STATUS_FILTER_VALUES).optional();
+
 /** CUID format - Prisma default ID format (c + 24 alphanumeric) */
 const cuidRegex = /^c[a-z0-9]{24,30}$/;
 export const cuidSchema = z.string().regex(cuidRegex, "Invalid ID format");

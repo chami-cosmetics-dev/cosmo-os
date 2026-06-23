@@ -1,6 +1,9 @@
 /** Select value for in-store customer pickup dispatch. */
 export const DISPATCH_CUSTOMER_PICKUP = "customer:pickup";
 
+/** When false, Invoice Completed is hidden on order detail views until re-enabled. */
+export const SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS = false;
+
 export type DispatchServiceSelection =
   | { type: "rider"; id: string }
   | { type: "courier"; id: string }
@@ -41,4 +44,43 @@ export function getOrderDispatchLabel(order: {
   }
   if (order.dispatchedByCourierService) return order.dispatchedByCourierService.name;
   return "—";
+}
+
+type UserLabel = { name?: string | null; email?: string | null } | null | undefined;
+
+function userDisplayName(user: UserLabel): string | null {
+  if (!user) return null;
+  return user.name?.trim() || user.email?.trim() || null;
+}
+
+/** Delivered row: only show courier/store after delivery is marked. */
+export function formatDeliveredTimelineWho(params: {
+  deliveryCompleteAt: string | null | undefined;
+  deliveryCompleteBy: UserLabel;
+  dispatchLabel: string;
+}): string {
+  if (!params.deliveryCompleteAt) return "-";
+  const markedBy = userDisplayName(params.deliveryCompleteBy);
+  const dispatch = params.dispatchLabel !== "—" ? params.dispatchLabel : null;
+  if (dispatch && markedBy) return `${dispatch} · marked by ${markedBy}`;
+  return markedBy ?? dispatch ?? "-";
+}
+
+/** Invoice complete row: finance approver when payment was confirmed after delivery. */
+export function formatInvoiceCompleteTimelineWho(params: {
+  invoiceCompleteBy: UserLabel;
+  deliveryPaymentApproval?: {
+    status?: string;
+    reviewedBy?: UserLabel;
+  } | null;
+}): string {
+  const fromOrder = userDisplayName(params.invoiceCompleteBy);
+  if (fromOrder) return fromOrder;
+  if (
+    params.deliveryPaymentApproval?.status === "approved" &&
+    params.deliveryPaymentApproval.reviewedBy
+  ) {
+    return userDisplayName(params.deliveryPaymentApproval.reviewedBy) ?? "-";
+  }
+  return "-";
 }

@@ -163,3 +163,139 @@
     cursor: pointer;
   }
 }
+
+@keyframes reminder-holo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes reminder-holo-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes reminder-holo-particle {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes reminder-holo-orbit {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes reminder-holo-scan {
+  0% {
+    top: 8%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.85;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    top: 88%;
+    opacity: 0;
+  }
+}
+
+@keyframes reminder-holo-clock {
+  0%,
+  100% {
+    text-shadow: 0 0 6px rgba(34, 211, 238, 0.8);
+  }
+  50% {
+    text-shadow:
+      0 0 10px rgba(34, 211, 238, 1),
+      0 0 18px rgba(59, 130, 246, 0.6);
+  }
+}
+
+@keyframes reminder-holo-badge-red {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 14px rgba(239, 68, 68, 0.75),
+      0 0 24px rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    transform: scale(1.12);
+    box-shadow:
+      0 0 22px rgba(239, 68, 68, 1),
+      0 0 36px rgba(248, 113, 113, 0.65);
+  }
+}
+
+@keyframes reminder-holo-alert-ring {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+.reminder-holo-float {
+  animation: reminder-holo-float 3.5s ease-in-out infinite;
+}
+
+.reminder-holo-pulse {
+  animation: reminder-holo-pulse 2.8s ease-in-out infinite;
+}
+
+.reminder-holo-particle {
+  animation: reminder-holo-particle 2.4s ease-in-out infinite;
+}
+
+.reminder-holo-orbit {
+  animation: reminder-holo-orbit 10s linear infinite;
+}
+
+.reminder-holo-orbit-reverse {
+  animation: reminder-holo-orbit 14s linear infinite reverse;
+}
+
+.reminder-holo-scan {
+  animation: reminder-holo-scan 2.8s ease-in-out infinite;
+}
+
+.reminder-holo-clock {
+  animation: reminder-holo-clock 2.2s ease-in-out infinite;
+}
+
+.reminder-holo-badge-red {
+  animation: reminder-holo-badge-red 1.4s ease-in-out infinite;
+}
+
+.reminder-holo-alert-ring {
+  animation: reminder-holo-alert-ring 2s ease-in-out infinite;
+}

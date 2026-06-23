@@ -8,6 +8,7 @@ import {
   limitSchema,
   optionalIsoDateTimeQuerySchema,
   orderPaymentGatewayFilterSchema,
+  orderStatusFilterSchema,
   pageSchema,
   sortOrderSchema,
 } from "@/lib/validation";
@@ -64,6 +65,9 @@ export async function GET(request: NextRequest) {
   const paymentGatewayResult = orderPaymentGatewayFilterSchema.safeParse(
     searchParams.get("payment_gateway") ?? undefined
   );
+  const orderStatusResult = orderStatusFilterSchema.safeParse(
+    searchParams.get("order_status") ?? undefined
+  );
   const sampleSendLaterParam = searchParams.get("sample_send_later");
   const sampleSendLater =
     sampleSendLaterParam === "future" || sampleSendLaterParam === "all"
@@ -96,6 +100,7 @@ export async function GET(request: NextRequest) {
     lastPrintedFrom: lastPrintedFromResult.success ? lastPrintedFromResult.data : undefined,
     lastPrintedTo: lastPrintedToResult.success ? lastPrintedToResult.data : undefined,
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
+    orderStatusFilter: orderStatusResult.success ? orderStatusResult.data : undefined,
     sampleSendLater,
     returnFilter,
   });

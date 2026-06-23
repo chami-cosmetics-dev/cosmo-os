@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2, ExternalLink, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FinanceApprovalItem = {
   id: string;
@@ -73,6 +75,29 @@ function isPendingApproval(approval: FinanceApprovalItem) {
   return approval.status === "pending";
 }
 
+function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
+  const q = term.toLowerCase();
+  const haystack = [
+    approval.invoiceNo,
+    approval.customerPhone,
+    approval.customerEmail,
+    approval.shopifyOrderId,
+    approval.erpnextInvoiceId,
+    approval.paymentTypeLabel,
+    typeLabel(approval.type),
+    approval.status,
+    approval.requestNote,
+    approval.reviewNote,
+    approval.returnedByName,
+    approval.returnedByEmail,
+    approval.cancelRequestedByName,
+    approval.cancelRequestedByEmail,
+    approval.returnRemark,
+    approval.cancelRemark,
+  ];
+  return haystack.some((value) => value?.toLowerCase().includes(q));
+}
+
 function selectFirstInView(
   approvals: FinanceApprovalItem[],
   view: "pending" | "history",
@@ -90,6 +115,8 @@ export function FinanceApprovalsPanel({
   initialApprovals: FinanceApprovalItem[];
   canRevertPaid?: boolean;
 }) {
+  const searchParams = useSearchParams();
+  const appliedDeepLinkRef = useRef<string | null>(null);
   const [approvals, setApprovals] = useState(initialApprovals);
   const [view, setView] = useState<"pending" | "history">("pending");
   const [selectedId, setSelectedId] = useState(() =>
@@ -99,11 +126,46 @@ export function FinanceApprovalsPanel({
   const [hodPassword, setHodPassword] = useState("");
   const [revertReason, setRevertReason] = useState("");
   const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | null>(null);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 500);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => {
+    const orderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim();
+    if (!orderId || appliedDeepLinkRef.current === orderId) return;
+    const match = approvals.find(
+      (approval) => approval.orderId === orderId && isPendingApproval(approval),
+    );
+    if (!match) return;
+    setView("pending");
+    setSelectedId(match.id);
+    appliedDeepLinkRef.current = orderId;
+  }, [approvals, searchParams]);
+
+  const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
 
   const pendingApprovals = approvals.filter(isPendingApproval);
   const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
   const visibleApprovals = view === "pending" ? pendingApprovals : historyApprovals;
-  const selected = visibleApprovals.find((item) => item.id === selectedId) ?? null;
+  const searchedApprovals = useMemo(() => {
+    if (!effectiveSearch) return visibleApprovals;
+    return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
+  }, [visibleApprovals, effectiveSearch]);
+  const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (searchedApprovals.length === 0) {
+      setSelectedId("");
+      return;
+    }
+    if (!searchedApprovals.some((item) => item.id === selectedId)) {
+      setSelectedId(searchedApprovals[0].id);
+    }
+  }, [searchedApprovals, selectedId]);
 
   function switchView(next: "pending" | "history") {
     setView(next);
@@ -131,6 +193,13 @@ export function FinanceApprovalsPanel({
 
   async function review(action: "approve" | "reject") {
     if (!selected) return;
+    if (
+      action === "approve" &&
+      selected.type === "return_cancel" &&
+      selected.erpAdminInvoiceUrl
+    ) {
+      window.open(selected.erpAdminInvoiceUrl, "_blank", "noopener,noreferrer");
+    }
     setBusy(action);
     try {
       const response = await fetch(`/api/admin/approvals/${selected.id}`, {
@@ -153,7 +222,11 @@ export function FinanceApprovalsPanel({
             "Approval saved but ERP Sales Invoice could not be created. Check Failed ERP syncs."
         );
       } else if (action === "approve" && selected.type === "return_cancel") {
-        notify.success("Cancel request marked processed. Complete cancellation in ERPNext if not done already.");
+        notify.success(
+          selected.erpAdminInvoiceUrl
+            ? "ERP Sales Invoice opened. Complete cancellation in ERPNext, then this request is marked processed."
+            : "Cancel request marked processed. Complete cancellation in ERPNext if not done already.",
+        );
       } else {
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");
       }
@@ -244,6 +317,17 @@ export function FinanceApprovalsPanel({
             <CardTitle>{view === "pending" ? "Pending Requests" : "History"}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            <div className="border-b border-border/50 px-4 py-3">
+              <div className="relative max-w-md">
+                <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                <Input
+                  placeholder="Search by invoice, customer, ERP SI, or payment type..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="border-border/70 bg-background/90 pl-9"
+                />
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-sm">
                 <thead className="border-b bg-muted/35 text-left text-muted-foreground">
@@ -257,7 +341,7 @@ export function FinanceApprovalsPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleApprovals.map((approval) => (
+                  {searchedApprovals.map((approval) => (
                     <tr
                       key={approval.id}
                       className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
@@ -285,10 +369,14 @@ export function FinanceApprovalsPanel({
                       <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
                     </tr>
                   ))}
-                  {visibleApprovals.length === 0 && (
+                  {searchedApprovals.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
-                        {view === "pending" ? "No pending approval requests." : "No approval history yet."}
+                        {effectiveSearch
+                          ? "No approval requests match your search."
+                          : view === "pending"
+                            ? "No pending approval requests."
+                            : "No approval history yet."}
                       </td>
                     </tr>
                   )}
@@ -322,19 +410,12 @@ export function FinanceApprovalsPanel({
                     <div className="space-y-3 border-t border-border/60 pt-3">
                       <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-200">
                         Cancellation and credit notes are created in ERPNext only. Cosmo OS does not create credit notes.
-                        Open the Sales Invoice below, process the cancel there, then mark this request as processed.
+                        Use the button below to open the Sales Invoice in ERPNext, cancel it there, and mark this request as processed.
                       </div>
-                      {selected.erpAdminInvoiceUrl ? (
-                        <Button asChild className="w-full gap-2">
-                          <a href={selected.erpAdminInvoiceUrl} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="size-4" aria-hidden />
-                            Open ERP Sales Invoice
-                          </a>
-                        </Button>
-                      ) : (
+                      {!selected.erpAdminInvoiceUrl && (
                         <p className="text-amber-700 text-sm dark:text-amber-300">
-                          ERP Sales Invoice link is unavailable for this order. Open ERPNext manually using invoice{" "}
-                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"}.
+                          ERP Sales Invoice link is unavailable. Open ERPNext manually using invoice{" "}
+                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"}, then mark processed.
                         </p>
                       )}
                       <div className="space-y-1 text-sm text-muted-foreground">
@@ -368,7 +449,13 @@ export function FinanceApprovalsPanel({
                     <div className="grid gap-2">
                       {!selected.orderMissing && (
                         <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
-                          {busy === "approve" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                          {busy === "approve" ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : selected.type === "return_cancel" ? (
+                            <ExternalLink className="size-4" />
+                          ) : (
+                            <CheckCircle2 className="size-4" />
+                          )}
                           {selected.type === "return_cancel"
                             ? "Mark processed (cancel in ERPNext)"
                             : `Approve — ${typeLabel(selected.type)}`}

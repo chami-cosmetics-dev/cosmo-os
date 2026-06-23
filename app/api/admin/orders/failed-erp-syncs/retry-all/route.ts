@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
   buildFailedErpSyncWhere,
+  isAwaitingFinancePaymentApprovalError,
   markOrderErpSyncFailed,
   retryOrderErpSync,
 } from "@/lib/failed-erp-sync-auto-retry";
@@ -50,7 +51,7 @@ export async function POST() {
       succeeded += 1;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("awaiting finance approval")) {
+      if (isAwaitingFinancePaymentApprovalError(errorMessage)) {
         skippedApproval += 1;
         continue;
       }

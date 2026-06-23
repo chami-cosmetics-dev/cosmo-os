@@ -10,8 +10,13 @@ import {
   Truck,
 } from "lucide-react";
 
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
+import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
+import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
 import { Button } from "@/components/ui/button";
+import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho, SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS } from "@/lib/order-dispatch";
 import {
   Dialog,
   DialogContent,
@@ -61,9 +66,13 @@ type OrderDetail = {
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
+  subtotalOriginal?: string | null;
+  subtotalSale?: string | null;
+  discountTotal?: string | null;
   totalDiscounts: string | null;
   totalTax: string | null;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -75,6 +84,7 @@ type OrderDetail = {
   billingAddress: unknown;
   discountCodes: unknown;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -86,6 +96,9 @@ type OrderDetail = {
     quantity: number;
     price: string;
     total: string;
+    originalPrice?: string | null;
+    originalTotal?: string | null;
+    lineDiscount?: string | null;
   }>;
   shopifyAdminOrderUrl: string | null;
   erpAdminInvoiceUrl?: string | null;
@@ -95,10 +108,19 @@ type OrderDetail = {
   packageOnHoldAt?: string | null;
   packageHoldReason?: { id: string; name: string } | null;
   dispatchedAt?: string | null;
+  dispatchedBy?: { id: string; name: string | null; email: string | null } | null;
   dispatchedByRider?: { id: string; name: string | null; mobile: string | null } | null;
   dispatchedByCourierService?: { id: string; name: string } | null;
+  dispatchedToCustomer?: boolean | null;
   invoiceCompleteAt?: string | null;
+  invoiceCompleteBy?: { id: string; name: string | null; email: string | null } | null;
   deliveryCompleteAt?: string | null;
+  deliveryCompleteBy?: { id: string; name: string | null; email: string | null } | null;
+  deliveryPaymentApproval?: {
+    id: string;
+    status: string;
+    reviewedBy?: { id: string; name: string | null; email: string | null } | null;
+  } | null;
   lastRiderUpdateAt?: string | null;
   riderDeliveryTask?: {
     id: string;
@@ -179,6 +201,7 @@ export function OrderFulfillmentDetail({
   addressesEqual: _addressesEqual,
 }: OrderFulfillmentDetailProps) {
   void _addressesEqual;
+  const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<FulfillmentLookups | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedSamples, setSelectedSamples] = useState<Array<{ id: string; qty: number }>>([]);
@@ -289,7 +312,12 @@ export function OrderFulfillmentDetail({
             })()}
           </DialogTitle>
           <DialogDescription>
-            {orderDetail && formatDate(orderDetail.createdAt)}{orderDetail?.merchantCouponCode ? ` · Coupon: ${orderDetail.merchantCouponCode}` : ""}
+            {orderDetail && formatDate(orderDetail.createdAt)}
+            {orderDetail?.discountCouponCode
+              ? ` · Coupon: ${orderDetail.discountCouponCode}`
+              : orderDetail?.merchantCouponCode
+                ? ` · Mer coupon: ${orderDetail.merchantCouponCode}`
+                : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -604,12 +632,17 @@ export function OrderFulfillmentDetail({
                 <h4 className="mb-2 text-sm font-medium">Delivery Complete</h4>
                 {orderDetail.deliveryCompleteAt ? (
                   <p className="text-muted-foreground text-sm">
-                    Delivered {formatDate(orderDetail.deliveryCompleteAt)}
+                    {formatDeliveredTimelineWho({
+                      deliveryCompleteAt: orderDetail.deliveryCompleteAt,
+                      deliveryCompleteBy: orderDetail.deliveryCompleteBy,
+                      dispatchLabel: getOrderDispatchLabel(orderDetail),
+                    })}{" "}
+                    · {formatDate(orderDetail.deliveryCompleteAt)}
                   </p>
                 ) : (
                   <Button
                     onClick={() => doFulfillmentAction("mark_delivered")}
-                    disabled={isBusy}
+                    disabled={isBusy || stage !== "dispatched"}
                   >
                     {busyKey === "mark_delivered" ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
                     Mark Delivered
@@ -618,22 +651,34 @@ export function OrderFulfillmentDetail({
               </div>
             )}
 
-            {/* Invoice Complete (2nd: after delivery) */}
-            {!isPos && (stage === "delivery_complete" || stage === "invoice_complete") && (
+            {/* Invoice Complete (2nd: after finance confirms COD payment) */}
+            {SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS && !isPos && (stage === "delivery_complete" || stage === "invoice_complete") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">Invoice Complete</h4>
                 {orderDetail.invoiceCompleteAt ? (
                   <p className="text-muted-foreground text-sm">
-                    Completed {formatDate(orderDetail.invoiceCompleteAt)}
+                    {formatInvoiceCompleteTimelineWho({
+                      invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+                      deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
+                    })}{" "}
+                    · {formatDate(orderDetail.invoiceCompleteAt)}
                   </p>
-                ) : (
+                ) : orderDetail.deliveryPaymentApproval?.status === "pending" ? (
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    Awaiting finance confirmation before invoice complete.
+                  </p>
+                ) : perms.canMarkInvoiceComplete ? (
                   <Button
                     variant="outline"
                     onClick={() => doFulfillmentAction("mark_invoice_complete")}
-                    disabled={isBusy}
+                    disabled={isBusy || stage !== "delivery_complete"}
                   >
                     Mark Invoice Complete
                   </Button>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Awaiting finance to confirm invoice complete.
+                  </p>
                 )}
               </div>
             )}
@@ -779,24 +824,27 @@ export function OrderFulfillmentDetail({
                   <div>
                     <h4 className="mb-1 text-muted-foreground">Shipping</h4>
                     <p>{formatAddress(orderDetail.shippingAddress)}</p>
+                    <OrderShippingLine
+                      className="mt-1 text-muted-foreground"
+                      prefix="Delivery:"
+                      shippingRuleLabel={orderDetail.shippingRuleLabel}
+                      totalShipping={orderDetail.totalShipping}
+                      currency={orderDetail.currency}
+                      formatPrice={formatPrice}
+                    />
                   </div>
-                  {(() => {
-                    const merCoupon = Array.isArray(orderDetail.discountCodes)
-                      ? ((orderDetail.discountCodes as Array<{ code?: string }>)
-                          .map((d) => d?.code?.trim())
-                          .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
-                          .join(", ") || null)
-                      : null;
-                    const merchant = orderDetail.assignedMerchant?.name ?? orderDetail.assignedMerchant?.email ?? null;
-                    const display = merCoupon ?? merchant;
-                    if (!display) return null;
-                    return (
-                      <div>
-                        <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
-                        <p>{display}</p>
-                      </div>
-                    );
-                  })()}
+                  {orderDetail.discountCouponCode && (
+                    <div>
+                      <h4 className="mb-1 text-muted-foreground">Coupon</h4>
+                      <p>{orderDetail.discountCouponCode}</p>
+                    </div>
+                  )}
+                  {orderDetail.merchantCouponCode && (
+                    <div>
+                      <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
+                      <p>{orderDetail.merchantCouponCode}</p>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <h4 className="mb-2 text-sm font-medium">Line Items</h4>
@@ -815,26 +863,50 @@ export function OrderFulfillmentDetail({
                           <tr key={li.id} className="border-b last:border-0">
                             <td className="px-3 py-2">{li.productTitle}</td>
                             <td className="px-3 py-2 text-right">{li.quantity}</td>
-                            <td className="px-3 py-2 text-right">{formatPrice(li.price, orderDetail.currency)}</td>
-                            <td className="px-3 py-2 text-right">{formatPrice(li.total, orderDetail.currency)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <OrderLineItemPrice
+                                salePrice={li.price}
+                                originalPrice={li.originalPrice}
+                                formatPrice={formatPrice}
+                                currency={orderDetail.currency}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {li.originalTotal &&
+                              parseFloat(li.originalTotal) > parseFloat(li.total) ? (
+                                <span>
+                                  <span className="block text-muted-foreground line-through">
+                                    {formatPrice(li.originalTotal, orderDetail.currency)}
+                                  </span>
+                                  <span className="block">
+                                    {formatPrice(li.total, orderDetail.currency)}
+                                  </span>
+                                </span>
+                              ) : (
+                                formatPrice(li.total, orderDetail.currency)
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                  <OrderLineItemsTotals
+                    subtotalOriginal={orderDetail.subtotalOriginal}
+                    subtotalSale={orderDetail.subtotalSale ?? orderDetail.subtotalPrice}
+                    discountCouponCode={orderDetail.discountCouponCode}
+                    discountTotal={orderDetail.discountTotal ?? orderDetail.totalDiscounts}
+                    totalShipping={orderDetail.totalShipping}
+                    shippingRuleLabel={orderDetail.shippingRuleLabel}
+                    totalPrice={orderDetail.totalPrice}
+                    currency={orderDetail.currency}
+                    formatPrice={formatPrice}
+                  />
                   {orderDetail.merchantCouponCode && (
                     <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Coupon ({orderDetail.merchantCouponCode}){orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? `: -${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)}` : ""}
+                      Mer coupon: {orderDetail.merchantCouponCode}
                     </p>
                   )}
-                  {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}
-                    </p>
-                  )}
-                  <p className="mt-1 text-right font-medium">
-                    Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
-                  </p>
                 </div>
               </div>
             </details>

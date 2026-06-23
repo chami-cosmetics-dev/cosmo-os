@@ -4,12 +4,17 @@ import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
 import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
+import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { buildCsv, formatDispatchOrderReference } from "@/lib/reports/csv";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function parseDateRange(from: string | null, to: string | null) {
   const re = /^\d{4}-\d{2}-\d{2}$/;
@@ -22,6 +27,20 @@ function parseDateRange(from: string | null, to: string | null) {
     to: new Date(ty, tm - 1, td, 23, 59, 59, 999),
     dateFrom: from,
     dateTo: toStr,
+  };
+}
+
+function resolveDateRange(from: string | null, to: string | null): DateRange {
+  const parsed = parseDateRange(from ?? todayIso(), to ?? from ?? todayIso());
+  if (parsed) return parsed;
+
+  const today = todayIso();
+  const [y, m, d] = today.split("-").map(Number);
+  return {
+    from: new Date(y, m - 1, d, 0, 0, 0, 0),
+    to: new Date(y, m - 1, d, 23, 59, 59, 999),
+    dateFrom: today,
+    dateTo: today,
   };
 }
 
@@ -66,10 +85,7 @@ async function fetchDispatchGroups(
         status === "pending"
           ? "dispatched"
           : { in: ["delivery_complete", "invoice_complete"] },
-      dispatchedAt:
-        status === "completed" && range
-          ? { gte: range.from, lte: range.to }
-          : undefined,
+      dispatchedAt: range ? { gte: range.from, lte: range.to } : undefined,
       OR: [
         { dispatchedByRiderId: { not: null } },
         { dispatchedByCourierServiceId: { not: null } },
@@ -97,10 +113,12 @@ async function fetchDispatchGroups(
       dispatchedToCustomer: true,
       deliveryCompleteAt: true,
       deliveryOutcome: true,
+      sourceName: true,
+      discountCodes: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
-      assignedMerchant: { select: { name: true } },
+      assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
     },
   });
 
@@ -140,7 +158,18 @@ async function fetchDispatchGroups(
       "—";
 
     const city = typeof addr?.city === "string" && addr.city ? addr.city : null;
-    const address = typeof addr?.address1 === "string" && addr.address1 ? addr.address1 : null;
+    const addressParts = [
+      addr?.address1,
+      addr?.address2,
+      addr?.city,
+      addr?.province,
+      addr?.province_code,
+      addr?.country,
+      addr?.zip,
+    ]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .map((part) => part.trim());
+    const address = addressParts.length > 0 ? Array.from(new Set(addressParts)).join(", ") : null;
     const customerAddress = [address, city].filter(Boolean).join(", ") || null;
 
     const paymentType =
@@ -178,7 +207,13 @@ async function fetchDispatchGroups(
       customerAddress,
       city,
       address,
-      merchantName: order.assignedMerchant?.name ?? null,
+      merchantName: resolveOrderMerchantLabel({
+        assignedMerchant: order.assignedMerchant,
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+        assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      }),
       totalPrice: order.totalPrice.toString(),
       currency: order.currency ?? "LKR",
       paymentType,
@@ -216,14 +251,7 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("status") === "completed" ? "completed" : "pending";
   const dateFrom = request.nextUrl.searchParams.get("dateFrom");
   const dateTo = request.nextUrl.searchParams.get("dateTo");
-  const range = parseDateRange(dateFrom, dateTo);
-
-  if (status === "completed" && !range) {
-    return NextResponse.json(
-      { error: "Provide a valid dateFrom (YYYY-MM-DD) for completed view." },
-      { status: 400 },
-    );
-  }
+  const range = resolveDateRange(dateFrom, dateTo);
 
   const [data, company] = await Promise.all([
     fetchDispatchGroups(companyId, status, range),
@@ -232,8 +260,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     status,
-    dateFrom: range?.dateFrom ?? null,
-    dateTo: range?.dateTo ?? null,
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
     companyName: company?.name ?? null,
     ...data,
   });
@@ -256,26 +284,18 @@ export async function POST(request: NextRequest) {
 
   const status = body.status === "completed" ? "completed" : "pending";
   const format = body.format === "csv" ? "csv" : "pdf";
-  const range = parseDateRange(body.dateFrom ?? null, body.dateTo ?? null);
-
-  if (status === "completed" && !range) {
-    return NextResponse.json(
-      { error: "Provide a valid dateFrom (YYYY-MM-DD)." },
-      { status: 400 },
-    );
-  }
+  const range = resolveDateRange(body.dateFrom ?? null, body.dateTo ?? null);
 
   const { groups } = await fetchDispatchGroups(companyId, status, range);
   if (groups.length === 0)
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
-  const today = new Date().toISOString().slice(0, 10);
   const fileSuffix =
     status === "pending"
-      ? `pending-${today}`
-      : range!.dateFrom === range!.dateTo
-        ? range!.dateFrom
-        : `${range!.dateFrom}_to_${range!.dateTo}`;
+      ? `pending-${range.dateFrom}`
+      : range.dateFrom === range.dateTo
+        ? range.dateFrom
+        : `${range.dateFrom}_to_${range.dateTo}`;
 
   if (format === "csv") {
     const headers = [
@@ -354,8 +374,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const pdfDateFrom = range?.dateFrom ?? today;
-  const pdfDateTo = range?.dateTo ?? today;
+  const pdfDateFrom = range.dateFrom;
+  const pdfDateTo = range.dateTo;
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {

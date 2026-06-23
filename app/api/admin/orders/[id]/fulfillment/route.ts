@@ -26,7 +26,9 @@ import {
   isOrderPaymentRequiresApproval,
   orderRequiresDeliveryPaymentApproval,
 } from "@/lib/approval-workflow";
-import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
+import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
+import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
+import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -118,7 +120,7 @@ function getRequiredPermissionsForAction(action: string): string[] {
     case "mark_delivered":
       return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
-      return ["fulfillment.delivery_invoice.mark_complete"];
+      return ["finance.approvals.manage"];
     case "complete_pos":
       return ["orders.manage"];
     case "revert_to_stage":
@@ -298,6 +300,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
+  const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
+  if (erpOutOfStockBlock) {
+    return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
+  }
+
   const data = parsed.data;
   const now = new Date();
 
@@ -355,7 +362,7 @@ export async function PATCH(
       if (order.fulfillmentStage === "order_received") {
         await prisma.order.update({
           where: { id: order.id },
-          data: { fulfillmentStage: "sample_free_issue" },
+          data: orderStageUpdate("sample_free_issue", now),
         });
       }
 
@@ -421,7 +428,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "print",
+          ...orderStageUpdate("print", now),
           sampleFreeIssueCompleteAt: now,
           sampleFreeIssueCompleteById: auth.context!.user!.id,
         },
@@ -573,7 +580,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "ready_to_dispatch",
+          ...orderStageUpdateIfChanged(order.fulfillmentStage, "ready_to_dispatch", now),
           packageOnHoldAt: now,
           packageHoldReasonId: data.holdReasonId,
           packageReadyAt: null,
@@ -607,7 +614,7 @@ export async function PATCH(
       const updated = await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "ready_to_dispatch",
+          ...orderStageUpdateIfChanged(order.fulfillmentStage, "ready_to_dispatch", now),
           packageReadyAt: now,
           packageReadyById: auth.context!.user!.id,
           packageOnHoldAt: null,
@@ -826,7 +833,7 @@ export async function PATCH(
             packageOnHoldAt: null,
             packageHoldReasonId: null,
           }),
-          fulfillmentStage: "dispatched",
+          ...orderStageUpdate("dispatched", now),
           dispatchedAt: now,
           dispatchedById: auth.context!.user!.id,
           dispatchedByRiderId: dispatchToCustomer ? null : (data.riderId ?? null),
@@ -949,7 +956,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "invoice_complete",
+          ...orderStageUpdate("invoice_complete", now),
           fulfillmentStatus: "fulfilled",
           invoiceCompleteAt: now,
           invoiceCompleteById: auth.context!.user!.id,
@@ -988,33 +995,19 @@ export async function PATCH(
         );
       }
 
-      const needsPaymentApproval = orderRequiresDeliveryPaymentApproval(order);
       const userId = auth.context!.user!.id;
 
       const updated = await prisma.order.update({
         where: { id: order.id },
-        data: needsPaymentApproval
-          ? {
-              fulfillmentStage: "delivery_complete",
-              deliveryCompleteAt: now,
-              deliveryCompleteById: userId,
-              deliveryOutcome: "delivered",
-              deliveryFailedReason: null,
-              lastRiderUpdateAt: now,
-              riderDeliveryToken: null,
-            }
-          : {
-              fulfillmentStage: "invoice_complete",
-              fulfillmentStatus: "fulfilled",
-              deliveryCompleteAt: now,
-              deliveryCompleteById: userId,
-              invoiceCompleteAt: now,
-              invoiceCompleteById: userId,
-              deliveryOutcome: "delivered",
-              deliveryFailedReason: null,
-              lastRiderUpdateAt: now,
-              riderDeliveryToken: null,
-            },
+        data: {
+          ...orderStageUpdate("delivery_complete", now),
+          deliveryCompleteAt: now,
+          deliveryCompleteById: userId,
+          deliveryOutcome: "delivered",
+          deliveryFailedReason: null,
+          lastRiderUpdateAt: now,
+          riderDeliveryToken: null,
+        },
         include: { companyLocation: true },
       });
       await prisma.riderDeliveryTask.updateMany({
@@ -1028,12 +1021,29 @@ export async function PATCH(
         },
       });
 
-      if (needsPaymentApproval) {
-        await triggerDeliveryPaymentApprovalIfNeeded({
-          companyId,
-          orderId: order.id,
-          requestedById: userId,
+      const postDelivery = await resolvePostDeliveryInvoiceComplete({
+        companyId,
+        orderId: order.id,
+        requestedById: userId,
+      });
+
+      let afterStage: FulfillmentStage = "delivery_complete";
+      const needsPaymentApproval = postDelivery.kind === "awaiting_finance";
+
+      if (postDelivery.kind === "invoice_complete") {
+        await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            ...orderStageUpdate("invoice_complete", now),
+            fulfillmentStatus: "fulfilled",
+            invoiceCompleteAt: now,
+            invoiceCompleteById: postDelivery.financeUserId,
+          },
         });
+        afterStage = "invoice_complete";
+
+        // ERP Sales Invoice payment is not created on delivery complete — only via
+        // finance delivery-payment approval or explicit mark_invoice_complete.
       }
 
       sendOrderSms(companyId, order.id, "delivery_complete", {
@@ -1046,25 +1056,17 @@ export async function PATCH(
         companyId,
         actorUserId: userId,
         orderId: order.id,
-        summary: needsPaymentApproval
-          ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — awaiting finance payment confirmation`
-          : `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered and invoice complete`,
+        summary:
+          afterStage === "invoice_complete"
+            ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — invoice complete (finance payment approval)`
+            : needsPaymentApproval
+              ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — awaiting finance confirmation`
+              : `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered`,
         beforeStage: order.fulfillmentStage,
-        afterStage: needsPaymentApproval ? "delivery_complete" : "invoice_complete",
+        afterStage,
         metadata: { action: data.action, needsPaymentApproval },
       });
 
-      if (!needsPaymentApproval && order.companyLocationId) {
-        const location = await prisma.companyLocation.findUnique({
-          where: { id: order.companyLocationId },
-          include: { erpnextInstance: true },
-        });
-        if (location) {
-          createDeliveryPaymentEntry(order, location, now).catch((err) =>
-            console.error("[ERPNext] delivery PE failed:", err),
-          );
-        }
-      }
       return NextResponse.json({ success: true, needsPaymentApproval });
     }
 
@@ -1102,8 +1104,9 @@ export async function PATCH(
         return NextResponse.json({ error: "Custom remark is required for custom template" }, { status: 400 });
       }
 
+      const revertStage = shouldRecordReturn ? "returned_to_store" : targetStage;
       const updateData: Parameters<typeof prisma.order.update>[0]["data"] = {
-        fulfillmentStage: shouldRecordReturn ? "returned_to_store" : targetStage,
+        ...orderStageUpdate(revertStage, now),
       };
       if (currentStage === "invoice_complete" && targetStage !== "invoice_complete") {
         updateData.fulfillmentStatus = "unfulfilled";
@@ -1251,7 +1254,7 @@ export async function PATCH(
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          fulfillmentStage: "delivery_complete",
+          ...orderStageUpdate("delivery_complete", now),
           fulfillmentStatus: "fulfilled",
           printCount: { increment: 1 },
           packageReadyAt: now,

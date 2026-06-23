@@ -16,6 +16,9 @@ import {
   Truck,
 } from "lucide-react";
 
+import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
+import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
+import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -36,7 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getOrderDispatchLabel } from "@/lib/order-dispatch";
+import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho, SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS } from "@/lib/order-dispatch";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
 import {
@@ -67,9 +70,13 @@ type OrderDetail = {
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
+  subtotalOriginal?: string | null;
+  subtotalSale?: string | null;
+  discountTotal?: string | null;
   totalDiscounts: string | null;
   totalTax: string | null;
   totalShipping: string | null;
+  shippingRuleLabel?: string | null;
   currency: string | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -86,6 +93,7 @@ type OrderDetail = {
   billingAddress: unknown;
   discountCodes: unknown;
   merchantCouponCode: string | null;
+  discountCouponCode?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -97,6 +105,9 @@ type OrderDetail = {
     quantity: number;
     price: string;
     total: string;
+    originalPrice?: string | null;
+    originalTotal?: string | null;
+    lineDiscount?: string | null;
   }>;
   shopifyAdminOrderUrl: string | null;
   erpAdminInvoiceUrl?: string | null;
@@ -217,7 +228,28 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
-function getMerchantCouponCode(discountCodes: unknown): string | null {
+function isErpOrderSource(sourceName: string): boolean {
+  return sourceName === "erpnext" || sourceName === "erpnext-pos";
+}
+
+function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
+  if (!fulfillmentStage) return false;
+  const printIdx = FULFILLMENT_STAGE_ORDER.indexOf("print");
+  const stageIdx = FULFILLMENT_STAGE_ORDER.indexOf(
+    fulfillmentStage as (typeof FULFILLMENT_STAGE_ORDER)[number],
+  );
+  if (stageIdx >= 0) return stageIdx >= printIdx;
+  return fulfillmentStage === "returned";
+}
+
+function erpOrderSkippedSampleStage(orderDetail: OrderDetail): boolean {
+  return (
+    isErpOrderSource(orderDetail.sourceName) &&
+    isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage)
+  );
+}
+
+function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
   if (!Array.isArray(discountCodes) || discountCodes.length === 0) return null;
   const codes = discountCodes
     .map((entry) => {
@@ -310,6 +342,15 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       done: true,
       icon: <Package className="size-4" />,
     });
+  } else if (erpOrderSkippedSampleStage(orderDetail)) {
+    items.push({
+      id: "sample_free_issue",
+      label: "Sample / Free Issue",
+      date: orderDetail.sampleFreeIssueCompleteAt ?? orderDetail.createdAt,
+      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
+      done: true,
+      icon: <Package className="size-4" />,
+    });
   } else {
     items.push({
       id: "sample_free_issue",
@@ -361,32 +402,34 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     icon: <Truck className="size-4" />,
   });
 
-  // 6. Delivered
-  const courierOrRider = getOrderDispatchLabel(orderDetail);
-  const deliveredByUser = orderDetail.deliveryCompleteBy
-    ? userName(orderDetail.deliveryCompleteBy)
-    : null;
-  const deliveredWho = courierOrRider && deliveredByUser
-    ? `${courierOrRider} · marked by ${deliveredByUser}`
-    : deliveredByUser ?? courierOrRider ?? "-";
+  // 6. Delivered — store marks after dispatch; courier name only once delivered
   items.push({
     id: "invoice_delivered",
     label: "Delivered",
     date: orderDetail.deliveryCompleteAt ?? null,
-    who: deliveredWho,
+    who: formatDeliveredTimelineWho({
+      deliveryCompleteAt: orderDetail.deliveryCompleteAt,
+      deliveryCompleteBy: orderDetail.deliveryCompleteBy,
+      dispatchLabel: getOrderDispatchLabel(orderDetail),
+    }),
     done: !!orderDetail.deliveryCompleteAt,
     icon: <PackageCheck className="size-4" />,
   });
 
-  // 7. Invoice Completed
-  items.push({
-    id: "invoice_complete",
-    label: "Invoice Completed",
-    date: orderDetail.invoiceCompleteAt ?? null,
-    who: orderDetail.invoiceCompleteBy ? userName(orderDetail.invoiceCompleteBy) : "-",
-    done: !!orderDetail.invoiceCompleteAt,
-    icon: <Check className="size-4" />,
-  });
+  // 7. Invoice Completed — finance approver after delivery payment confirmation (COD)
+  if (SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS) {
+    items.push({
+      id: "invoice_complete",
+      label: "Invoice Completed",
+      date: orderDetail.invoiceCompleteAt ?? null,
+      who: formatInvoiceCompleteTimelineWho({
+        invoiceCompleteBy: orderDetail.invoiceCompleteBy,
+        deliveryPaymentApproval: orderDetail.deliveryPaymentApproval,
+      }),
+      done: !!orderDetail.invoiceCompleteAt,
+      icon: <Check className="size-4" />,
+    });
+  }
 
   return items;
 }
@@ -531,6 +574,7 @@ export function OrderInvoiceViewModal({
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
+    window.setTimeout(() => onRefresh?.(), 2000);
   }
 
   function handleRevertClick(targetStage: string, label: string) {
@@ -583,7 +627,10 @@ export function OrderInvoiceViewModal({
           <DialogTitle className="flex items-baseline gap-2 flex-wrap">
             <span>Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}</span>
             {(() => {
-              const coupon = getMerchantCouponCode(orderDetail?.discountCodes);
+              const coupon =
+                orderDetail?.discountCouponCode ??
+                orderDetail?.merchantCouponCode ??
+                formatAllDiscountCodeLabels(orderDetail?.discountCodes);
               if (!coupon) return null;
               return <span className="text-sm font-normal text-muted-foreground">{coupon}</span>;
             })()}
@@ -973,6 +1020,14 @@ export function OrderInvoiceViewModal({
                     <div>
                       <span className="text-muted-foreground text-xs">Shipping address</span>
                       <p>{formatAddress(orderDetail.shippingAddress)}</p>
+                      <OrderShippingLine
+                        className="mt-1 text-muted-foreground"
+                        prefix="Delivery:"
+                        shippingRuleLabel={orderDetail.shippingRuleLabel}
+                        totalShipping={orderDetail.totalShipping}
+                        currency={orderDetail.currency}
+                        formatPrice={formatPrice}
+                      />
                     </div>
                   </div>
 
@@ -1001,8 +1056,14 @@ export function OrderInvoiceViewModal({
                         </p>
                       )}
                     </div>
+                    {orderDetail.discountCouponCode && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Coupon</span>
+                        <p>{orderDetail.discountCouponCode}</p>
+                      </div>
+                    )}
                     {(() => {
-                      const coupon = getMerchantCouponCode(orderDetail.discountCodes);
+                      const coupon = orderDetail.merchantCouponCode;
                       if (coupon) return (
                         <div>
                           <span className="text-muted-foreground text-xs">Mer Coupon</span>
@@ -1037,29 +1098,44 @@ export function OrderInvoiceViewModal({
                             <td className="px-3 py-2">{li.productTitle}</td>
                             <td className="px-3 py-2 text-right">{li.quantity}</td>
                             <td className="px-3 py-2 text-right">
-                              {formatPrice(li.price, orderDetail.currency)}
+                              <OrderLineItemPrice
+                                salePrice={li.price}
+                                originalPrice={li.originalPrice}
+                                formatPrice={formatPrice}
+                                currency={orderDetail.currency}
+                              />
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {formatPrice(li.total, orderDetail.currency)}
+                              {li.originalTotal &&
+                              parseFloat(li.originalTotal) > parseFloat(li.total) ? (
+                                <span>
+                                  <span className="block text-muted-foreground line-through">
+                                    {formatPrice(li.originalTotal, orderDetail.currency)}
+                                  </span>
+                                  <span className="block">
+                                    {formatPrice(li.total, orderDetail.currency)}
+                                  </span>
+                                </span>
+                              ) : (
+                                formatPrice(li.total, orderDetail.currency)
+                              )}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  {orderDetail.merchantCouponCode && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Coupon: {orderDetail.merchantCouponCode}{orderDetail.totalDiscounts && parseFloat(orderDetail.totalDiscounts) > 0 ? ` (−${formatPrice(orderDetail.totalDiscounts, orderDetail.currency)})` : ""}
-                    </p>
-                  )}
-                  {orderDetail.totalShipping != null && parseFloat(orderDetail.totalShipping) > 0 && (
-                    <p className="mt-1 text-right text-sm text-muted-foreground">
-                      Shipping: {formatPrice(orderDetail.totalShipping, orderDetail.currency)}
-                    </p>
-                  )}
-                  <p className="mt-2 text-right font-medium">
-                    Total: {formatPrice(orderDetail.totalPrice, orderDetail.currency)}
-                  </p>
+                  <OrderLineItemsTotals
+                    subtotalOriginal={orderDetail.subtotalOriginal}
+                    subtotalSale={orderDetail.subtotalSale ?? orderDetail.subtotalPrice}
+                    discountCouponCode={orderDetail.discountCouponCode}
+                    discountTotal={orderDetail.discountTotal ?? orderDetail.totalDiscounts}
+                    totalShipping={orderDetail.totalShipping}
+                    shippingRuleLabel={orderDetail.shippingRuleLabel}
+                    totalPrice={orderDetail.totalPrice}
+                    currency={orderDetail.currency}
+                    formatPrice={formatPrice}
+                  />
                 </div>
               </div>
             </details>
