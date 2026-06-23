@@ -221,7 +221,19 @@ function withCouponDiscountFallback(
   return retryBody;
 }
 
-async function createErpSalesInvoice(
+async function erpnextSubmitDocument(cfg: ErpConfig, doctype: string, name: string): Promise<void> {
+  const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.submit`, {
+    method: "POST",
+    headers: authHeaders(cfg),
+    body: JSON.stringify({ doc: { doctype, name } }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`ERPNext submit ${doctype} ${name} [${res.status}]: ${text.slice(0, 500)}`);
+  }
+}
+
+async function postErpSalesInvoiceCreate(
   cfg: ErpConfig,
   siBody: Record<string, unknown>,
   opts?: CreateErpSalesInvoiceOpts,
@@ -241,10 +253,10 @@ async function createErpSalesInvoice(
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
       try {
-        return await createErpSalesInvoice(cfg, withoutMerchant, opts);
+        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, opts);
       } catch (retryErr) {
         console.warn("[ERPNext] SI retry without merchant failed — falling back to SHOPIFY Sales Person");
-        return createErpSalesInvoice(cfg, {
+        return postErpSalesInvoiceCreate(cfg, {
           ...withoutMerchant,
           custom_merchant_coupon_code: "SHOPIFY",
         }, opts);
@@ -261,12 +273,16 @@ async function createErpSalesInvoice(
       if (opts?.netRateItems?.length) {
         retryBody.items = opts.netRateItems;
       }
-      return createErpSalesInvoice(cfg, retryBody, opts);
+      return postErpSalesInvoiceCreate(cfg, retryBody, opts);
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "custom_coupon_code" in siBody) {
       console.warn("[ERPNext] SI creation failed — custom_coupon_code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_coupon_code: _custom, ...withoutCustom } = siBody;
-      return createErpSalesInvoice(cfg, withCouponDiscountFallback(withoutCustom, opts, null), opts);
+      return postErpSalesInvoiceCreate(
+        cfg,
+        withCouponDiscountFallback(withoutCustom, opts, opts?.couponLabel ?? null),
+        opts,
+      );
     }
     if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
@@ -275,6 +291,46 @@ async function createErpSalesInvoice(
     }
     throw err;
   }
+}
+
+async function createErpSalesInvoice(
+  cfg: ErpConfig,
+  siBody: Record<string, unknown>,
+  opts?: CreateErpSalesInvoiceOpts,
+): Promise<ErpSalesInvoiceCreateResult> {
+  const submitNow = siBody.docstatus === 1;
+  const couponCode = typeof siBody.coupon_code === "string" ? siBody.coupon_code.trim() : "";
+
+  if (submitNow && couponCode) {
+    console.log(`[ERPNext] Creating draft Sales Invoice with coupon ${couponCode} before submit`);
+    try {
+      const draft = await postErpSalesInvoiceCreate(cfg, { ...siBody, docstatus: 0 }, opts);
+      await erpnextSubmitDocument(cfg, "Sales Invoice", draft.name);
+      const submitted = await erpnextGet<{
+        name: string;
+        debit_to: string;
+        grand_total: number;
+        coupon_code?: string | null;
+      }>(
+        cfg,
+        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["name", "debit_to", "grand_total", "coupon_code"]))}`,
+      );
+      if (!submitted) throw new Error(`Sales Invoice ${draft.name} missing after submit`);
+      if (!submitted.coupon_code) {
+        console.warn(`[ERPNext] SI ${draft.name} submitted but coupon_code is still empty`);
+      }
+      return {
+        name: submitted.name,
+        debit_to: submitted.debit_to,
+        grand_total: submitted.grand_total,
+      };
+    } catch (draftErr) {
+      const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
+      console.warn("[ERPNext] Draft+submit coupon SI failed — retrying direct submit:", msg.slice(0, 300));
+    }
+  }
+
+  return postErpSalesInvoiceCreate(cfg, siBody, opts);
 }
 
 async function buildErpSalesInvoiceCouponFields(
@@ -289,8 +345,8 @@ async function buildErpSalesInvoiceCouponFields(
   const resolved = await resolveErpSalesInvoiceCouponFields(cfg, params);
   const fields: Record<string, string> = {};
   if (resolved.couponCode) {
-    // coupon_code applies ERP pricing rules; custom_coupon_code duplicates can trigger 417.
     fields.coupon_code = resolved.couponCode;
+    fields.custom_coupon_code = resolved.couponCode;
   } else if (resolved.discountCodeLabel) {
     fields.custom_coupon_code = resolved.discountCodeLabel;
   }
@@ -925,7 +981,12 @@ export async function syncOrderToERPNext(
 
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
-  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
+  const couponSiItems = buildErpItemsFromShopifyLineItems(
+    lineItems,
+    location.erpnextWarehouse,
+    "erp_price_list",
+  );
+  const siItems = useCouponPricing ? [...couponSiItems] : [...netSiItems];
   const netRateItems = [...netSiItems];
 
   if (useShippingItem) {
