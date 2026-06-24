@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { buildPickListAggregationForOrders } from "@/lib/pick-list-data";
+import { getPickListTodayBounds } from "@/lib/pick-list-date";
 
 export const PICK_LIST_GROUP_MAX_ORDERS = 100;
 
@@ -79,10 +80,13 @@ export async function createPickListGroup(
 }
 
 export async function listPickListGroups(companyId: string, downloaded: boolean) {
+  const { from, to } = getPickListTodayBounds();
+
   const groups = await prisma.pickListGroup.findMany({
     where: {
       companyId,
       downloadedAt: downloaded ? { not: null } : null,
+      ...(!downloaded ? { createdAt: { gte: from, lte: to } } : {}),
     },
     include: {
       printedBy: { select: { name: true, knownName: true, email: true } },
