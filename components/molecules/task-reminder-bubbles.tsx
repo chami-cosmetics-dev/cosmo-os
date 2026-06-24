@@ -6,8 +6,7 @@ import Link from "next/link";
 
 import { TaskReminderBubbleIcon } from "@/components/molecules/task-reminder-bubble-icon";
 import { Button } from "@/components/ui/button";
-import { useTaskReminderSafeArea } from "@/components/providers/task-reminder-safe-area-provider";
-import { useIdleScreenBounce } from "@/hooks/use-idle-screen-bounce";
+import { useVerticalDragPosition } from "@/hooks/use-vertical-drag-position";
 import { cn } from "@/lib/utils";
 
 type TaskReminder = {
@@ -212,12 +211,21 @@ function NodeConnectors({ nodeCount }: { nodeCount: number }) {
 }
 
 export function TaskReminderBubbles() {
-  const { setReminderHudVisible } = useTaskReminderSafeArea();
   const [reminders, setReminders] = useState<TaskReminder[]>([]);
   const [nodesOpen, setNodesOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showAllPanel, setShowAllPanel] = useState(false);
   const [loading, setLoading] = useState(true);
+  const hudVisible = !loading && reminders.length > 0;
+  const {
+    containerRef,
+    bottomPx,
+    isDragging,
+    onDragHandlePointerDown,
+    onDragHandlePointerMove,
+    onDragHandlePointerUp,
+    onDragHandlePointerCancel,
+  } = useVerticalDragPosition(hudVisible);
 
   const loadReminders = useCallback(async () => {
     try {
@@ -262,23 +270,10 @@ export function TaskReminderBubbles() {
     setNodesOpen(false);
   }, []);
 
-  const panelsOpen = nodesOpen || showAllPanel || activeCategory !== null;
-  const { containerRef, isBouncing, position } = useIdleScreenBounce({
-    enabled: !panelsOpen && reminders.length > 0 && !loading,
-    idleMs: 60_000,
-  });
-
   const toggleCategory = useCallback((category: string) => {
     setShowAllPanel(false);
     setActiveCategory((current) => (current === category ? null : category));
   }, []);
-
-  const hudVisible = !loading && reminders.length > 0;
-
-  useEffect(() => {
-    setReminderHudVisible(hudVisible);
-    return () => setReminderHudVisible(false);
-  }, [hudVisible, setReminderHudVisible]);
 
   if (!hudVisible) {
     return null;
@@ -292,16 +287,8 @@ export function TaskReminderBubbles() {
   return (
     <div
       ref={containerRef}
-      className={cn(
-        "pointer-events-none fixed z-40 flex flex-col items-end gap-0",
-        !isBouncing && "bottom-6 right-6",
-        isBouncing && "reminder-idle-bounce-active",
-      )}
-      style={
-        isBouncing && position
-          ? { left: position.x, top: position.y, right: "auto", bottom: "auto" }
-          : undefined
-      }
+      className="pointer-events-none fixed right-6 z-40 flex flex-col items-end gap-0"
+      style={{ bottom: bottomPx }}
     >
       {showAllPanel && (
         <ReminderListPanel title="All overdue tasks" items={reminders} onClose={() => setShowAllPanel(false)} />
@@ -349,12 +336,18 @@ export function TaskReminderBubbles() {
           <button
             type="button"
             className={cn(
-              "group relative rounded-full pb-7 transition-transform duration-300",
-              "hover:scale-110 active:scale-95",
+              "group relative touch-none rounded-full pb-7 transition-transform duration-300 select-none",
+              !isDragging && "hover:scale-110 active:scale-95",
+              isDragging && "scale-105 cursor-grabbing",
+              !isDragging && "cursor-grab",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2",
-              "reminder-idle-bounce-target",
             )}
-            onClick={() => {
+            title="Drag up or down to move · Click to open"
+            onPointerDown={onDragHandlePointerDown}
+            onPointerMove={onDragHandlePointerMove}
+            onPointerUp={(event) => {
+              const result = onDragHandlePointerUp(event);
+              if (result?.dragged) return;
               setNodesOpen((open) => {
                 if (open) {
                   setActiveCategory(null);
@@ -363,8 +356,9 @@ export function TaskReminderBubbles() {
                 return !open;
               });
             }}
+            onPointerCancel={onDragHandlePointerCancel}
             aria-expanded={nodesOpen}
-            aria-label={`${reminders.length} overdue tasks. ${nodesOpen ? "Hide categories" : "Show categories"}`}
+            aria-label={`${reminders.length} overdue tasks. Drag vertically to move. ${nodesOpen ? "Hide categories" : "Show categories"}`}
           >
             <span className="absolute inset-[-12px] -z-10 rounded-full bg-[radial-gradient(circle,rgba(239,68,68,0.25),rgba(34,211,238,0.3)_45%,transparent_72%)] blur-xl" />
             <TaskReminderBubbleIcon count={reminders.length} active={nodesOpen} />
