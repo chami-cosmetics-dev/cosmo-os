@@ -38,6 +38,8 @@ type Order = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   fulfillmentStage?: string | null;
+  printCount?: number;
+  packageReadyAt?: string | null;
   sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -723,6 +725,8 @@ export function OrdersPanel({
                               fulfillmentStage: order.fulfillmentStage,
                               pendingPaymentApproval: order.pendingPaymentApproval,
                               totalPrice: order.totalPrice,
+                              printCount: order.printCount,
+                              packageReadyAt: order.packageReadyAt,
                             }).map((badge) => (
                               <span
                                 key={badge.key}

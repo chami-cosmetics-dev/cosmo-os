@@ -283,18 +283,33 @@ function PrintQueueInner() {
   }
 
   async function doPrint(ids: string[]) {
-    const idsParam = encodeURIComponent(ids.join(","));
-    window.open(`/api/admin/orders/bulk-print?ids=${idsParam}`, "_blank", "noopener");
-    window.open(
-      `/api/admin/orders/location-pick-list?download=1&ids=${idsParam}`,
-      "_blank",
-      "noopener"
-    );
-    notify.success(`Opened ${ids.length} invoice${ids.length !== 1 ? "s" : ""} for printing`);
-    setTimeout(() => {
-      setRefreshTick((t) => t + 1);
+    setPrinting(true);
+    try {
+      const groupRes = await fetch("/api/admin/fulfillment/pick-list/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: ids }),
+      });
+      if (!groupRes.ok) {
+        const json = (await groupRes.json().catch(() => ({}))) as { error?: string };
+        notify.error(json.error ?? "Failed to create pick list group");
+        setPrinting(false);
+        return;
+      }
+
+      const idsParam = encodeURIComponent(ids.join(","));
+      window.open(`/api/admin/orders/bulk-print?ids=${idsParam}`, "_blank", "noopener");
+      notify.success(
+        `Printing ${ids.length} invoice${ids.length !== 1 ? "s" : ""}. Download the pick list from Inventory Pick List.`,
+      );
+      setTimeout(() => {
+        setRefreshTick((t) => t + 1);
+        setPrinting(false);
+      }, 1500);
+    } catch {
+      notify.error("Bulk print failed");
       setPrinting(false);
-    }, 1500);
+    }
   }
 
   function handlePrintSelected() {
@@ -326,7 +341,7 @@ function PrintQueueInner() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Order Print</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Select invoices to print. Printed orders automatically advance to dispatch.
+            Select invoices to print. Printed orders move to dispatch as &ldquo;Printed&rdquo; — use Package Ready on single dispatch when needed.
           </p>
         </div>
         <Button

@@ -501,56 +501,6 @@ export function OrderFulfillmentDetail({
               </div>
             )}
 
-            {/* Ready to Dispatch — optional early package-ready SMS */}
-            {!isPos && (stage === "print" || stage === "ready_to_dispatch") && !orderDetail.packageReadyAt && !orderDetail.packageOnHoldAt && (
-              <div className="rounded-lg border p-4">
-                <h4 className="mb-2 text-sm font-medium">Ready to Dispatch</h4>
-                <p className="text-muted-foreground mb-3 text-sm">
-                  Optional: notify the customer early. Dispatch below also marks package ready automatically.
-                </p>
-                <div className="flex gap-2">
-                  {lookups && (
-                    <>
-                      <select
-                        value={holdReasonId}
-                        onChange={(e) => setHoldReasonId(e.target.value)}
-                        className="h-9 w-[200px] rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        <option value="">Put on hold...</option>
-                        {lookups.packageHoldReasons.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          doFulfillmentAction("put_on_hold", {
-                            action: "put_on_hold",
-                            holdReasonId,
-                          })
-                        }
-                        disabled={isBusy || !holdReasonId}
-                      >
-                        Put on Hold
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    onClick={() => doFulfillmentAction("mark_ready")}
-                    disabled={isBusy}
-                  >
-                    {busyKey === "mark_ready" ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      "Package is Ready"
-                    )}
-                  </Button>
-                </div>
-              </div>
-            )}
-
             {orderDetail.packageOnHoldAt && orderDetail.packageHoldReason && (stage === "print" || stage === "ready_to_dispatch") && (
               <div className="rounded-lg border p-4">
                 <h4 className="mb-2 text-sm font-medium">On Hold</h4>
