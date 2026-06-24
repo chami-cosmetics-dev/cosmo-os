@@ -76,4 +76,16 @@ describe("getOrderListFulfillmentStageBadges", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]?.label).toBe("Ready to Dispatch");
   });
+
+  it("shows dispatched when dispatchedAt is set even if stage lags", () => {
+    const badges = getOrderListFulfillmentStageBadges({
+      fulfillmentStage: "ready_to_dispatch",
+      printCount: 1,
+      packageReadyAt: "2026-06-24T10:00:00.000Z",
+      lastPrintedAt: "2026-06-24T10:00:00.000Z",
+      dispatchedAt: "2026-06-24T16:00:00.000Z",
+    });
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.label).toBe("Dispatched");
+  });
 });

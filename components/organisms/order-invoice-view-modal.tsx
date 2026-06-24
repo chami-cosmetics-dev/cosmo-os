@@ -46,6 +46,10 @@ import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
 } from "@/lib/return-remark-templates";
+import {
+  isPackageReadyMilestoneComplete,
+  resolvePackageReadyMilestoneDate,
+} from "@/lib/fulfillment-stage-display";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -399,14 +403,30 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
         : undefined,
   });
 
-  // 4. Package Ready
+  // 4. Package Ready — only after manual mark or dispatch (not auto on print)
   const onHold = !!orderDetail.packageOnHoldAt;
-  const packageReady = !!orderDetail.packageReadyAt;
+  const packageReady = isPackageReadyMilestoneComplete({
+    packageReadyAt: orderDetail.packageReadyAt,
+    lastPrintedAt: orderDetail.lastPrintedAt,
+    dispatchedAt: orderDetail.dispatchedAt,
+    packageOnHoldAt: orderDetail.packageOnHoldAt,
+  });
   items.push({
     id: "package_ready",
     label: "Package Ready",
-    date: orderDetail.packageReadyAt ?? orderDetail.packageOnHoldAt ?? null,
-    who: orderDetail.packageReadyBy ? userName(orderDetail.packageReadyBy) : "-",
+    date: packageReady
+      ? resolvePackageReadyMilestoneDate({
+          packageReadyAt: orderDetail.packageReadyAt,
+          lastPrintedAt: orderDetail.lastPrintedAt,
+          dispatchedAt: orderDetail.dispatchedAt,
+          packageOnHoldAt: orderDetail.packageOnHoldAt,
+        })
+      : orderDetail.packageOnHoldAt ?? null,
+    who: packageReady && orderDetail.packageReadyBy
+      ? userName(orderDetail.packageReadyBy)
+      : packageReady && orderDetail.dispatchedAt
+        ? userName(orderDetail.dispatchedBy ?? null)
+        : "-",
     done: packageReady || onHold,
     icon: onHold ? <AlertTriangle className="size-4" /> : <Package className="size-4" />,
     detail: onHold ? `On hold: ${orderDetail.packageHoldReason?.name ?? "-"}` : undefined,
