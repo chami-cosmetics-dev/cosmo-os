@@ -3,9 +3,14 @@ import type { Prisma } from "@prisma/client";
 /** Exclude orders blocked because ERP sync failed with out-of-stock. */
 export const excludeErpOutOfStockBlockedOrdersWhere = {
   NOT: {
-    OR: [
-      { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
-      { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+    AND: [
+      { erpnextSyncError: { not: null } },
+      {
+        OR: [
+          { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
+          { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+        ],
+      },
     ],
   },
 } satisfies Prisma.OrderWhereInput;
@@ -32,6 +37,15 @@ export const activeFulfillmentPipelineWhere = {
 /** Active fulfillment queues — also block ERP out-of-stock sync failures. */
 export const fulfillableOrderPipelineWhere = {
   ...activeFulfillmentPipelineWhere,
+  ...excludeErpOutOfStockBlockedOrdersWhere,
+} satisfies Prisma.OrderWhereInput;
+
+/**
+ * Sample / free-issue pipeline — keep Shopify-fulfilled orders visible while still at
+ * order_received / sample_free_issue (Vault stage is source of truth for this step).
+ */
+export const sampleFulfillmentPipelineWhere = {
+  ...activeFulfillmentStageWhere,
   ...excludeErpOutOfStockBlockedOrdersWhere,
 } satisfies Prisma.OrderWhereInput;
 
@@ -119,7 +133,7 @@ export const dispatchQueueWhere = {
 
 /** Sample / free-issue queue — still waiting for merchant samples. */
 export const sampleQueueWhere = {
-  ...fulfillableOrderPipelineWhere,
+  ...sampleFulfillmentPipelineWhere,
   sampleFreeIssueCompleteAt: null,
   dispatchedAt: null,
   deliveryCompleteAt: null,

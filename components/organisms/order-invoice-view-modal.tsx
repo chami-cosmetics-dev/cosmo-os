@@ -381,23 +381,13 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
   // 3. Print
   const printed = (orderDetail.printCount ?? 0) > 0;
   const reachedPrintQueue = isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage);
-  const approval = approvedPaymentApproval(orderDetail);
   items.push({
     id: "print",
     label: printed ? "Printed" : "Print",
     date:
       orderDetail.lastPrintedAt ??
-      (reachedPrintQueue && !printed
-        ? orderDetail.fulfillmentStageEnteredAt ??
-          orderDetail.sampleFreeIssueCompleteAt ??
-          approval?.reviewedAt ??
-          null
-        : null),
-    who: orderDetail.lastPrintedBy
-      ? userName(orderDetail.lastPrintedBy)
-      : reachedPrintQueue && !printed && approval?.reviewedBy
-        ? userName(approval.reviewedBy)
-        : "-",
+      (reachedPrintQueue && !printed ? orderDetail.fulfillmentStageEnteredAt ?? null : null),
+    who: orderDetail.lastPrintedBy ? userName(orderDetail.lastPrintedBy) : "-",
     done: printed || reachedPrintQueue,
     icon: <Printer className="size-4" />,
     detail: printed
