@@ -366,12 +366,16 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
   const printed = (orderDetail.printCount ?? 0) > 0;
   items.push({
     id: "print",
-    label: "Print",
+    label: printed ? "Printed" : "Print",
     date: orderDetail.lastPrintedAt ?? null,
     who: orderDetail.lastPrintedBy ? userName(orderDetail.lastPrintedBy) : "-",
     done: printed,
     icon: <Printer className="size-4" />,
-    detail: printed ? `Printed ${orderDetail.printCount} time(s)` : undefined,
+    detail: printed
+      ? orderDetail.printCount === 1
+        ? undefined
+        : `Printed ${orderDetail.printCount} times`
+      : undefined,
   });
 
   // 4. Package Ready
@@ -886,7 +890,12 @@ export function OrderInvoiceViewModal({
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => handleRevertClick(targetDbStage, item.label)}
+                                onClick={() =>
+                                  handleRevertClick(
+                                    targetDbStage,
+                                    item.id === "print" ? "Print" : item.label,
+                                  )
+                                }
                                 disabled={revertingToStage !== null}
                               >
                                 {isReverting ? (

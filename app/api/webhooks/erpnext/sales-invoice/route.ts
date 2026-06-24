@@ -14,6 +14,7 @@ import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-na
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
 import {
   handleErpSalesInvoiceCreditNoteEvent,
+  isErpReturnSalesInvoice,
   isErpSalesInvoiceCreditNoted,
 } from "@/lib/erp-credit-note-order-sync";
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
@@ -273,6 +274,11 @@ export async function POST(request: NextRequest) {
   }
 
   const grandTotal = new Decimal(data.grand_total ?? 0);
+  const isReturnCreditNote = isErpReturnSalesInvoice(
+    data.is_return,
+    data.grand_total ?? null,
+    data.return_against,
+  );
   const nullIfNone = (v: string | null | undefined) => {
     const s = v?.trim();
     return !s || s.toLowerCase() === "none" ? null : s;
@@ -378,7 +384,8 @@ export async function POST(request: NextRequest) {
         ? [cleanPaymentType]
         : [];
 
-  const isCreditNoted = isErpSalesInvoiceCreditNoted(data.status, data.docstatus);
+  const isCreditNoted =
+    isErpSalesInvoiceCreditNoted(data.status, data.docstatus) || isReturnCreditNote || grandTotal.lt(0);
 
   const erpShipping = buildErpOrderShippingFields({
     shipping_rule: data.shipping_rule,
