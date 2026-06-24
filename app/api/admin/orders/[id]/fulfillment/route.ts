@@ -21,6 +21,7 @@ import {
 import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
 import {
   createOrGetOrderPaymentApproval,
+  getFinancePaymentApprovalBlockReason,
   getOrderPaymentApproval,
   getPendingDeliveryPaymentApproval,
   isOrderPaymentRequiresApproval,
@@ -305,6 +306,13 @@ export async function PATCH(
     return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
   }
 
+  const financeFulfillmentBlock = await getFinancePaymentApprovalBlockReason({
+    id: order.id,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+    erpnextInvoiceId: order.erpnextInvoiceId,
+  });
+
   const data = parsed.data;
   const now = new Date();
 
@@ -395,6 +403,9 @@ export async function PATCH(
     }
 
     if (data.action === "advance_to_print") {
+      if (financeFulfillmentBlock) {
+        return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
+      }
       if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
         return NextResponse.json(
           { error: "Sample/print stage does not apply to ERPNext orders" },
@@ -406,23 +417,6 @@ export async function PATCH(
           { error: "Can only advance to print from sample/free issue stage" },
           { status: 400 }
         );
-      }
-
-      // Block KOKO / bank transfer orders until finance team approves
-      if (isOrderPaymentRequiresApproval(order)) {
-        const approval = await getOrderPaymentApproval(order.id);
-        if (!approval || approval.status === "pending") {
-          return NextResponse.json(
-            { error: "Finance approval is pending for this order. Please wait for the finance team to approve." },
-            { status: 409 }
-          );
-        }
-        if (approval.status === "rejected") {
-          return NextResponse.json(
-            { error: "Finance approval was rejected. Please contact the finance team." },
-            { status: 409 }
-          );
-        }
       }
 
       await prisma.order.update({
@@ -599,6 +593,9 @@ export async function PATCH(
     }
 
     if (data.action === "mark_ready") {
+      if (financeFulfillmentBlock) {
+        return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
+      }
       if (order.fulfillmentStage !== "print" && order.fulfillmentStage !== "ready_to_dispatch") {
         return NextResponse.json(
           { error: "Can only mark ready at print or ready to dispatch stage" },
@@ -673,6 +670,9 @@ export async function PATCH(
     }
 
     if (data.action === "dispatch") {
+      if (financeFulfillmentBlock) {
+        return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
+      }
       const dispatchable = DISPATCHABLE_STAGES as readonly string[];
       if (!dispatchable.includes(order.fulfillmentStage)) {
         return NextResponse.json(

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { resolveErpOrderRef } from "@/lib/fulfillment-order-reference";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -630,7 +631,10 @@ export function OrdersPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.map((order) => (
+                    {orders.map((order) => {
+                      const erpRef = resolveErpOrderRef(order);
+                      const orderLabel = order.name ?? order.orderNumber ?? "—";
+                      return (
                       <tr
                         key={order.id}
                         className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/10 focus-visible:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 last:border-0"
@@ -641,11 +645,11 @@ export function OrdersPanel({
                       >
                         <td className="px-4 py-2">
                           <div className="truncate font-medium" title={order.name ?? order.orderNumber ?? undefined}>
-                            {order.name ?? order.orderNumber ?? "—"}
+                            {orderLabel}
                           </div>
-                          {order.erpnextInvoiceId && order.erpnextInvoiceId !== order.name && (
-                            <div className="truncate text-xs text-muted-foreground" title={order.erpnextInvoiceId}>
-                              {order.erpnextInvoiceId}
+                          {erpRef && erpRef !== orderLabel && (
+                            <div className="truncate text-xs text-muted-foreground" title={erpRef}>
+                              {erpRef}
                             </div>
                           )}
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -727,6 +731,7 @@ export function OrdersPanel({
                               totalPrice: order.totalPrice,
                               printCount: order.printCount,
                               packageReadyAt: order.packageReadyAt,
+                              lastPrintedAt: order.lastPrintedAt,
                             }).map((badge) => (
                               <span
                                 key={badge.key}
@@ -788,7 +793,8 @@ export function OrdersPanel({
                           </Button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

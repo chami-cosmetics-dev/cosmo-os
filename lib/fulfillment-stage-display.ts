@@ -32,6 +32,19 @@ export type FulfillmentStageBadge = {
   className: string;
 };
 
+/** Package ready only counts when it happened after the last invoice print. */
+export function isExplicitlyPackageReady(input: {
+  packageReadyAt?: string | Date | null;
+  lastPrintedAt?: string | Date | null;
+}): boolean {
+  if (!input.packageReadyAt) return false;
+  if (!input.lastPrintedAt) return true;
+  const readyAt = new Date(input.packageReadyAt).getTime();
+  const printedAt = new Date(input.lastPrintedAt).getTime();
+  if (!Number.isFinite(readyAt) || !Number.isFinite(printedAt)) return true;
+  return readyAt > printedAt + 1000;
+}
+
 /** Orders list shows the current fulfillment stage only. Sample completion is tracked in order details timeline. */
 export function getOrderListFulfillmentStageBadges(input: {
   fulfillmentStage?: string | null;
@@ -39,6 +52,7 @@ export function getOrderListFulfillmentStageBadges(input: {
   totalPrice?: string | number | null;
   printCount?: number | null;
   packageReadyAt?: string | Date | null;
+  lastPrintedAt?: string | Date | null;
 }): FulfillmentStageBadge[] {
   const total = Number(input.totalPrice ?? 0);
   if (Number.isFinite(total) && total < 0) {
@@ -63,7 +77,7 @@ export function getOrderListFulfillmentStageBadges(input: {
 
   const stage = input.fulfillmentStage ?? "order_received";
   const printed = (input.printCount ?? 0) > 0;
-  const packageReady = !!input.packageReadyAt;
+  const packageReady = isExplicitlyPackageReady(input);
 
   if (
     stage === "ready_to_dispatch" &&
