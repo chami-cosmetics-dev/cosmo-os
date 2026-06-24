@@ -30,6 +30,7 @@ import {
 import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
+import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -820,7 +821,11 @@ export async function PATCH(
             };
 
       const needsMarkReady =
-        order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
+        order.fulfillmentStage !== "ready_to_dispatch" ||
+        !isExplicitlyPackageReady({
+          packageReadyAt: order.packageReadyAt,
+          lastPrintedAt: order.lastPrintedAt,
+        });
       const userId = auth.context!.user!.id;
 
       const updated = await prisma.order.update({

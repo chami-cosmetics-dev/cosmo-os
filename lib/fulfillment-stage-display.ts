@@ -45,6 +45,46 @@ export function isExplicitlyPackageReady(input: {
   return readyAt > printedAt + 1000;
 }
 
+/** Package Ready milestone: manual mark after print, or implied once dispatched — not on print. */
+export function isPackageReadyMilestoneComplete(input: {
+  packageReadyAt?: string | Date | null;
+  lastPrintedAt?: string | Date | null;
+  dispatchedAt?: string | Date | null;
+  packageOnHoldAt?: string | Date | null;
+}): boolean {
+  if (input.packageOnHoldAt) return true;
+  if (isExplicitlyPackageReady(input)) return true;
+  return !!input.dispatchedAt;
+}
+
+export function resolvePackageReadyMilestoneDate(input: {
+  packageReadyAt?: string | Date | null;
+  lastPrintedAt?: string | Date | null;
+  dispatchedAt?: string | Date | null;
+  packageOnHoldAt?: string | Date | null;
+}): string | Date | null {
+  if (input.packageOnHoldAt) return input.packageOnHoldAt;
+  if (isExplicitlyPackageReady(input)) return input.packageReadyAt ?? null;
+  if (input.dispatchedAt) return input.dispatchedAt;
+  return null;
+}
+
+function resolveListFulfillmentStage(input: {
+  fulfillmentStage?: string | null;
+  dispatchedAt?: string | Date | null;
+}): string {
+  const stage = input.fulfillmentStage ?? "order_received";
+  if (
+    input.dispatchedAt &&
+    stage !== "dispatched" &&
+    stage !== "delivery_complete" &&
+    stage !== "invoice_complete"
+  ) {
+    return "dispatched";
+  }
+  return stage;
+}
+
 /** Orders list shows the current fulfillment stage only. Sample completion is tracked in order details timeline. */
 export function getOrderListFulfillmentStageBadges(input: {
   fulfillmentStage?: string | null;
@@ -53,6 +93,7 @@ export function getOrderListFulfillmentStageBadges(input: {
   printCount?: number | null;
   packageReadyAt?: string | Date | null;
   lastPrintedAt?: string | Date | null;
+  dispatchedAt?: string | Date | null;
 }): FulfillmentStageBadge[] {
   const total = Number(input.totalPrice ?? 0);
   if (Number.isFinite(total) && total < 0) {
@@ -75,7 +116,7 @@ export function getOrderListFulfillmentStageBadges(input: {
     ];
   }
 
-  const stage = input.fulfillmentStage ?? "order_received";
+  const stage = resolveListFulfillmentStage(input);
   const printed = (input.printCount ?? 0) > 0;
   const packageReady = isExplicitlyPackageReady(input);
 

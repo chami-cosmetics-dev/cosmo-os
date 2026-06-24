@@ -10,6 +10,7 @@ import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
+import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest) {
           shopifyOrderId: true,
           fulfillmentStage: true,
           printCount: true,
+          lastPrintedAt: true,
           packageReadyAt: true,
           packageOnHoldAt: true,
           customerPhone: true,
@@ -114,7 +116,12 @@ export async function POST(request: NextRequest) {
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
 
       // Auto-mark ready if not already — same as single dispatch
-      const needsMarkReady = order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
+      const needsMarkReady =
+        order.fulfillmentStage !== "ready_to_dispatch" ||
+        !isExplicitlyPackageReady({
+          packageReadyAt: order.packageReadyAt,
+          lastPrintedAt: order.lastPrintedAt,
+        });
 
       await prisma.order.update({
         where: { id: orderId },
