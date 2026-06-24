@@ -401,6 +401,8 @@ async function buildErpSalesInvoiceCouponFields(
     discountCodes: unknown;
     rawPayload?: unknown;
     assignedMerchantCouponCodes?: string[] | null;
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
   },
 ): Promise<{ fields: Record<string, string>; discountCodeLabel: string | null }> {
   const resolved = await resolveErpSalesInvoiceCouponFields(cfg, params);
@@ -1098,6 +1100,7 @@ export async function syncOrderToERPNext(
     sourceName: order.sourceName,
     discountCodes: shopifyData.discount_codes,
     rawPayload: shopifyData,
+    paymentGatewayNames: shopifyData.payment_gateway_names ?? [],
   });
   const erpCouponFields = erpCouponResolved.fields;
   const useCouponPricing = !!erpCouponFields.coupon_code;
@@ -1346,6 +1349,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
   });
   const erpCouponFields = erpCouponResolved.fields;
 
