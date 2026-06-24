@@ -38,6 +38,8 @@ type Order = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   fulfillmentStage?: string | null;
+  printCount?: number;
+  packageReadyAt?: string | null;
   sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
