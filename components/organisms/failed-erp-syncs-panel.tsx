@@ -19,7 +19,8 @@ import { notify } from "@/lib/notify";
 import {
   classifyFailedErpSyncError,
   formatFailedErpSyncErrorMessage,
-  parseOutOfStockItemFromError,
+  resolveOutOfStockItemFromError,
+  type OutOfStockLineItemHint,
 } from "@/lib/failed-erp-sync-classification";
 
 type FailedErpSync = {
@@ -37,6 +38,7 @@ type FailedErpSync = {
   erpnextInvoiceId: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string };
+  lineItems: OutOfStockLineItemHint[];
 };
 
 export function FailedErpSyncsPanel() {
@@ -97,11 +99,16 @@ export function FailedErpSyncsPanel() {
     return message ? formatFailedErpSyncErrorMessage(message) : null;
   }
 
-  function renderSyncError(message: string | null) {
+  function resolveOutOfStock(message: string | null, lineItems: OutOfStockLineItemHint[] = []) {
+    if (!message) return null;
+    return resolveOutOfStockItemFromError(message, lineItems);
+  }
+
+  function renderSyncError(message: string | null, lineItems: OutOfStockLineItemHint[] = []) {
     if (!message) return null;
     const formatted = formatFailedErpSyncErrorMessage(message);
-    const outOfStock = parseOutOfStockItemFromError(message) ?? parseOutOfStockItemFromError(formatted);
-    if (outOfStock) {
+    const outOfStock = resolveOutOfStock(message, lineItems);
+    if (outOfStock?.sku) {
       return (
         <div className="space-y-0.5">
           <span className="font-medium text-destructive">Out of stock</span>
@@ -280,7 +287,7 @@ export function FailedErpSyncsPanel() {
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
                         <td className="max-w-[280px] px-4 py-2 text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
                           {item.erpnextSyncError ? (
-                            renderSyncError(item.erpnextSyncError)
+                            renderSyncError(item.erpnextSyncError, item.lineItems)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
                             <span className="text-amber-500">Awaiting ERP sync — payment was approved</span>
                           ) : "—"}
@@ -380,13 +387,14 @@ export function FailedErpSyncsPanel() {
                   <div className="space-y-2 rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-xs text-destructive">
                     {(() => {
                       const classification = classifyFailedErpSyncError(selectedItem.erpnextSyncError);
-                      const outOfStock =
-                        parseOutOfStockItemFromError(selectedItem.erpnextSyncError) ??
-                        parseOutOfStockItemFromError(formatFailedErpSyncErrorMessage(selectedItem.erpnextSyncError));
+                      const outOfStock = resolveOutOfStock(
+                        selectedItem.erpnextSyncError,
+                        selectedItem.lineItems,
+                      );
                       return (
                         <>
                           <p className="font-medium">{classification.type}</p>
-                          {outOfStock ? (
+                          {outOfStock?.sku ? (
                             <div className="space-y-1">
                               <p>
                                 <span className="text-muted-foreground">SKU:</span>{" "}
