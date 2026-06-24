@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { sendFinanceApprovalEmail } from "@/lib/maileroo";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
+export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
+  "Order voided — approval no longer required";
 export const RETURN_REARRANGE_PAYMENT_APPROVAL = "return_rearrange_payment";
 export const RETURN_CANCEL_APPROVAL = "return_cancel";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
@@ -102,6 +104,70 @@ export function isOrderPaymentRequiresApproval(order: {
     .map((g) => g?.toLowerCase().trim() ?? "")
     .filter(Boolean);
   return gateways.some((g) => g.includes("koko") || g.includes("bank"));
+}
+
+const voidedOrderFinancialStatusFilter = {
+  equals: "voided",
+  mode: "insensitive" as const,
+};
+
+/** Cancel open finance approvals when an order is voided (KOKO, bank transfer, etc.). */
+export async function cancelPendingApprovalsForOrder(orderId: string) {
+  const now = new Date();
+  const data = {
+    status: "cancelled" as const,
+    reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
+    updatedAt: now,
+  };
+
+  const [direct, viaReturn] = await Promise.all([
+    prisma.approvalRequest.updateMany({
+      where: { status: "pending", orderId },
+      data,
+    }),
+    prisma.approvalRequest.updateMany({
+      where: {
+        status: "pending",
+        orderReturn: { orderId },
+      },
+      data,
+    }),
+  ]);
+
+  return direct.count + viaReturn.count;
+}
+
+/** Clear stale pending approvals left on orders already voided in Vault. */
+export async function reconcilePendingApprovalsForVoidedOrders(companyId: string) {
+  const now = new Date();
+  const data = {
+    status: "cancelled" as const,
+    reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
+    updatedAt: now,
+  };
+
+  const [direct, viaReturn] = await Promise.all([
+    prisma.approvalRequest.updateMany({
+      where: {
+        companyId,
+        status: "pending",
+        order: { financialStatus: voidedOrderFinancialStatusFilter },
+      },
+      data,
+    }),
+    prisma.approvalRequest.updateMany({
+      where: {
+        companyId,
+        status: "pending",
+        orderReturn: {
+          order: { financialStatus: voidedOrderFinancialStatusFilter },
+        },
+      },
+      data,
+    }),
+  ]);
+
+  return direct.count + viaReturn.count;
 }
 
 export async function getOrderPaymentApproval(orderId: string) {
