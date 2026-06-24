@@ -1,4 +1,4 @@
-import { buildCsv, escapeCsvCell, formatIsoDate } from "@/lib/reports/csv";
+import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
   switch (sourceName) {
@@ -47,7 +47,6 @@ function summarizePaymentGateway(value: string) {
 export type OrderInvoiceCsvRow = {
   invoice_no: string;
   erp_invoice_id: string;
-  order_number: string;
   source_name: string;
   customer_name: string;
   customer_phone: string;
@@ -79,13 +78,12 @@ export type OrderInvoiceCsvRow = {
   completed_time: string;
   completed_by: string;
   pos_sale: string;
+  shipping_rule: string;
 };
 
 export type OrderInvoiceItemCsvRow = {
-  invoice_id: string;
   invoice_no: string;
   erp_invoice_id: string;
-  order_number: string;
   source_name: string;
   merchant_coupon_code: string;
   invoice_date: string;
@@ -111,7 +109,6 @@ export type OrderInvoiceItemCsvRow = {
 const ORDER_INVOICE_HEADERS = [
   "invoice_no",
   "erp_invoice_id",
-  "order_number",
   "source_name",
   "customer_name",
   "customer_phone",
@@ -141,15 +138,14 @@ const ORDER_INVOICE_HEADERS = [
   "completed_time",
   "completed_by",
   "pos_sale",
+  "shipping_rule",
   "billing_address",
   "shipping_address",
 ] as const;
 
 const ORDER_INVOICE_ITEM_HEADERS = [
-  "invoice_id",
   "invoice_no",
   "erp_invoice_id",
-  "order_number",
   "source_name",
   "merchant_coupon_code",
   "invoice_date",
@@ -199,7 +195,7 @@ function buildCsvWithUppercaseHeaders<T extends Record<string, string | number |
   rows: T[]
 ) {
   const lines = [
-    headers.map((header) => header.toUpperCase()).join(","),
+    headers.map(formatCsvHeader).join(","),
     ...rows.map((row) => headers.map((header) => escapeCsvCell(row[header])).join(",")),
   ];
 
@@ -209,7 +205,6 @@ function buildCsvWithUppercaseHeaders<T extends Record<string, string | number |
 export function createOrderInvoiceRow(input: {
   invoiceNo: string;
   erpInvoiceId: string | null;
-  orderNumber: string | null;
   sourceName: string;
   merchantCouponCode: string | null;
   merchantName: string;
@@ -236,6 +231,7 @@ export function createOrderInvoiceRow(input: {
   lastPrintedBy: string;
   invoiceCompleteAt: Date | null;
   invoiceCompleteBy: string;
+  shippingRule: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const month = input.createdAt.toLocaleString("en-US", {
@@ -245,7 +241,6 @@ export function createOrderInvoiceRow(input: {
   return {
     invoice_no: input.invoiceNo,
     erp_invoice_id: input.erpInvoiceId ?? "",
-    order_number: input.orderNumber ?? "",
     source_name: sourceName,
     customer_name: input.customerName,
     customer_phone: input.customerPhone ?? "",
@@ -277,14 +272,13 @@ export function createOrderInvoiceRow(input: {
     completed_time: formatIsoTime(input.invoiceCompleteAt),
     completed_by: input.invoiceCompleteBy,
     pos_sale: sourceName === "ERPNext POS" ? "1" : "0",
+    shipping_rule: input.shippingRule ?? "",
   };
 }
 
 export function createOrderInvoiceItemRow(input: {
-  invoiceId: string;
   invoiceNo: string;
   erpInvoiceId: string | null;
-  orderNumber: string | null;
   sourceName: string;
   merchantCouponCode: string | null;
   createdAt: Date;
@@ -307,10 +301,8 @@ export function createOrderInvoiceItemRow(input: {
   merchantName: string;
 }): OrderInvoiceItemCsvRow {
   return {
-    invoice_id: input.invoiceId,
     invoice_no: input.invoiceNo,
     erp_invoice_id: input.erpInvoiceId ?? "",
-    order_number: input.orderNumber ?? "",
     source_name: formatSourceName(input.sourceName),
     merchant_coupon_code: input.merchantCouponCode ?? "",
     invoice_date: formatIsoDate(input.createdAt),

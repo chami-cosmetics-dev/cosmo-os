@@ -19,6 +19,7 @@ import {
   createOrderInvoiceRow,
 } from "@/lib/reports/order-dump";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
@@ -239,10 +240,8 @@ export async function GET(request: NextRequest) {
 
       return order.lineItems.map((item) =>
         createOrderInvoiceItemRow({
-          invoiceId: order.id,
           invoiceNo,
           erpInvoiceId: order.erpnextInvoiceId,
-          orderNumber: order.orderNumber,
           sourceName: order.sourceName,
           merchantCouponCode,
           createdAt: order.createdAt,
@@ -312,11 +311,16 @@ export async function GET(request: NextRequest) {
       assignedMerchant: order.assignedMerchant,
     });
     const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+    const shippingRule = resolveOrderShippingDisplay({
+      totalShipping: decimalToString(order.totalShipping),
+      shippingLines: order.shippingLines,
+      rawPayload: order.rawPayload,
+      sourceName: order.sourceName,
+    }).label;
 
     return createOrderInvoiceRow({
       invoiceNo,
       erpInvoiceId: order.erpnextInvoiceId,
-      orderNumber: order.orderNumber,
       sourceName: order.sourceName,
       merchantCouponCode,
       merchantName,
@@ -346,6 +350,7 @@ export async function GET(request: NextRequest) {
       lastPrintedBy: getUserDisplayName(order.lastPrintedBy),
       invoiceCompleteAt: order.invoiceCompleteAt,
       invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
+      shippingRule,
     });
   });
 
