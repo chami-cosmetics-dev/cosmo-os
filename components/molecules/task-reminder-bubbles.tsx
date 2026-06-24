@@ -8,7 +8,7 @@ import { TaskReminderBubbleIcon } from "@/components/molecules/task-reminder-bub
 import { Button } from "@/components/ui/button";
 import { useVerticalDragPosition } from "@/hooks/use-vertical-drag-position";
 import { cn } from "@/lib/utils";
-import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminders";
+import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminder-sla";
 
 type TaskReminder = {
   id: string;

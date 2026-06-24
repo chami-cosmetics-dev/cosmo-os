@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   hasReminderPermission,
   isTaskReminderOverdue,
-  TASK_REMINDER_SLA_MS,
 } from "@/lib/task-reminders";
+import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 
 describe("isTaskReminderOverdue", () => {
   const now = new Date("2026-06-22T12:00:00Z");

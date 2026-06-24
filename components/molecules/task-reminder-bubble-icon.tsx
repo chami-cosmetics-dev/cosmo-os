@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
-import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminders";
+import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminder-sla";
 
 const HUD_PARTICLES = [
   { className: "left-[4%] top-[20%]", delay: "0s" },
