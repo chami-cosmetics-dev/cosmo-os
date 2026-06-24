@@ -10,6 +10,7 @@ import {
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
+  reconcilePendingApprovalsForVoidedOrders,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -143,6 +144,8 @@ export default async function FinanceApprovalsPage() {
 
   const companyId = auth.context?.user?.companyId;
   if (!companyId) return <PermissionDeniedCard message="No company associated with your account." />;
+
+  await reconcilePendingApprovalsForVoidedOrders(companyId);
 
   const approvals = await fetchInitialApprovals(companyId);
   const canRevertPaid = hasPermission(auth.context!, "finance.hod.revert_paid_to_unpaid");

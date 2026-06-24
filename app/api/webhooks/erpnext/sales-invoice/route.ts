@@ -7,6 +7,7 @@ import { erpnextSalesInvoiceWebhookSchema } from "@/lib/validation/erpnext-sales
 import {
   isOrderPaymentRequiresApproval,
   createOrGetOrderPaymentApproval,
+  cancelPendingApprovalsForOrder,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
@@ -185,6 +186,7 @@ export async function POST(request: NextRequest) {
         where: { id: existing.id },
         data: { financialStatus: "voided" },
       });
+      await cancelPendingApprovalsForOrder(existing.id);
       console.log(
         `[ERPNext webhook] Credit note ${data.name} — voided existing order ${existing.id}`,
       );
@@ -222,9 +224,24 @@ export async function POST(request: NextRequest) {
         ],
         sourceName: { not: "erpnext" },
       },
-      select: { id: true },
+      select: { id: true, name: true, orderNumber: true },
     });
     if (shopifyOrder) {
+      if (data.docstatus === 2) {
+        await prisma.order.update({
+          where: { id: shopifyOrder.id },
+          data: { financialStatus: "voided" },
+        });
+        await cancelPendingApprovalsForOrder(shopifyOrder.id);
+        console.log(
+          `[ERPNext webhook] Cancelled invoice ${data.name} — voided Vault order ${shopifyOrder.name ?? shopifyOrder.orderNumber ?? shopifyOrder.id}`,
+        );
+        return NextResponse.json({
+          ok: true,
+          voided: true,
+          orderId: shopifyOrder.id,
+        });
+      }
       console.log(
         `[ERPNext webhook] Invoice ${data.name} matches Shopify order (po_no=${data.po_no}) — skipping`,
       );
@@ -484,10 +501,14 @@ export async function POST(request: NextRequest) {
     select: { id: true, name: true },
   });
 
+  if (financialStatus === "voided" || isCreditNoted) {
+    await cancelPendingApprovalsForOrder(order.id);
+  }
+
   // For non-POS ERP orders: if payment requires approval and is unpaid, create an approval
   // request. The print/dispatch queue filters already exclude orders with pending approvals,
   // so no stage change is needed — the order is blocked automatically until finance approves.
-  if (!isPOS && financialStatus !== "paid") {
+  if (!isPOS && financialStatus !== "paid" && financialStatus !== "voided") {
     const needsApproval = isOrderPaymentRequiresApproval({
       paymentGatewayPrimary: resolvedPaymentMethods[0] ?? null,
       paymentGatewayNames: resolvedPaymentMethods,

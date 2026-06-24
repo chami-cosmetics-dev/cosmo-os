@@ -125,6 +125,16 @@ async function fetchFinanceApprovalReminders(
       status: "pending",
       type: { in: approvalTypes },
       createdAt: { lte: slaCutoff(now) },
+      NOT: {
+        OR: [
+          { order: { financialStatus: { equals: "voided", mode: "insensitive" } } },
+          {
+            orderReturn: {
+              order: { financialStatus: { equals: "voided", mode: "insensitive" } },
+            },
+          },
+        ],
+      },
     },
     orderBy: { createdAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,

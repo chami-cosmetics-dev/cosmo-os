@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
+import { cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 
 export const ERP_CREDIT_NOTE_ISSUED_STATUS = "Credit Note Issued";
@@ -136,6 +137,8 @@ export async function applyErpCreditNoteToOriginalOrder(
         : {}),
     },
   });
+
+  await cancelPendingApprovalsForOrder(original.id);
 
   return original;
 }

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import {
   DELIVERY_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
+  reconcilePendingApprovalsForVoidedOrders,
 } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext } from "@/lib/rbac";
@@ -56,6 +57,7 @@ export async function GET() {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  await reconcilePendingApprovalsForVoidedOrders(companyId);
   await dismissStaleApprovalNotifications(companyId, userId);
   await dismissDeliveryPaymentApprovalNotifications(companyId, userId);
 
