@@ -32,6 +32,7 @@ type PrintOrder = {
   lastPrintedAt: string | null;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  merchantCouponCode?: string | null;
   financialStatus: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -40,6 +41,17 @@ type PrintOrder = {
 
 function orderLabel(order: PrintOrder): string {
   return formatFulfillmentOrderReferenceText(order);
+}
+
+function printMerchantLabel(order: PrintOrder): string {
+  const assigned =
+    order.assignedMerchant?.name?.trim() ||
+    order.assignedMerchant?.email?.trim() ||
+    null;
+  if (assigned) return assigned;
+  const coupon = order.merchantCouponCode?.trim();
+  if (coupon) return coupon;
+  return "—";
 }
 
 function fmtDate(iso: string) {
@@ -101,7 +113,10 @@ function PrintQueueInner() {
       try {
         const res = await fetch(`/api/admin/orders/${deepLinkOrderId}`);
         if (!res.ok) return;
-        const data = mapApiOrderToFulfillmentOrder(await res.json());
+        const payload = (await res.json()) as {
+          merchantCouponCode?: string | null;
+        } & Parameters<typeof mapApiOrderToFulfillmentOrder>[0];
+        const data = mapApiOrderToFulfillmentOrder(payload);
         if (cancelled) return;
         const printOrder: PrintOrder = {
           id: data.id,
@@ -117,6 +132,7 @@ function PrintQueueInner() {
           lastPrintedAt: null,
           companyLocation: data.companyLocation,
           assignedMerchant: data.assignedMerchant,
+          merchantCouponCode: payload.merchantCouponCode ?? null,
           financialStatus: null,
           paymentGatewayPrimary: data.paymentGatewayPrimary,
           paymentGatewayNames: data.paymentGatewayNames,
@@ -492,7 +508,7 @@ function PrintQueueInner() {
                         {order.companyLocation?.name ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {order.assignedMerchant?.name ?? "—"}
+                        {printMerchantLabel(order)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {order.customerPhone ?? "—"}
