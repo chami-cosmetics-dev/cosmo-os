@@ -30,8 +30,11 @@ function parseDateRange(from: string | null, to: string | null) {
   };
 }
 
-function resolveDateRange(from: string | null, to: string | null): DateRange {
-  const parsed = parseDateRange(from ?? todayIso(), to ?? from ?? todayIso());
+function resolveDateRange(from: string | null, to: string | null): DateRange | null {
+  const fromTrimmed = from?.trim() ?? "";
+  if (!fromTrimmed) return null;
+
+  const parsed = parseDateRange(fromTrimmed, to?.trim() || fromTrimmed);
   if (parsed) return parsed;
 
   const today = todayIso();
@@ -42,6 +45,19 @@ function resolveDateRange(from: string | null, to: string | null): DateRange {
     dateFrom: today,
     dateTo: today,
   };
+}
+
+function dispatchSummaryFileSuffix(
+  status: "pending" | "completed",
+  range: DateRange | null,
+): string {
+  if (!range) {
+    return status === "pending" ? "pending-all" : "all";
+  }
+  if (status === "pending") return `pending-${range.dateFrom}`;
+  return range.dateFrom === range.dateTo
+    ? range.dateFrom
+    : `${range.dateFrom}_to_${range.dateTo}`;
 }
 
 type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
@@ -260,8 +276,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     status,
-    dateFrom: range.dateFrom,
-    dateTo: range.dateTo,
+    dateFrom: range?.dateFrom ?? null,
+    dateTo: range?.dateTo ?? null,
     companyName: company?.name ?? null,
     ...data,
   });
@@ -290,12 +306,7 @@ export async function POST(request: NextRequest) {
   if (groups.length === 0)
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
-  const fileSuffix =
-    status === "pending"
-      ? `pending-${range.dateFrom}`
-      : range.dateFrom === range.dateTo
-        ? range.dateFrom
-        : `${range.dateFrom}_to_${range.dateTo}`;
+  const fileSuffix = dispatchSummaryFileSuffix(status, range);
 
   if (format === "csv") {
     const headers = [
@@ -374,8 +385,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const pdfDateFrom = range.dateFrom;
-  const pdfDateTo = range.dateTo;
+  const pdfDateFrom = range?.dateFrom ?? "All dates";
+  const pdfDateTo = range?.dateTo ?? "All dates";
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {
