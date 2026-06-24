@@ -94,19 +94,26 @@ async function fetchDispatchGroups(
   status: "pending" | "completed",
   range: DateRange | null,
 ) {
+  const dispatchedAtFilter = range
+    ? { gte: range.from, lte: range.to }
+    : undefined;
+
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      fulfillmentStage:
-        status === "pending"
-          ? "dispatched"
-          : { in: ["delivery_complete", "invoice_complete"] },
-      dispatchedAt: range ? { gte: range.from, lte: range.to } : undefined,
-      OR: [
-        { dispatchedByRiderId: { not: null } },
-        { dispatchedByCourierServiceId: { not: null } },
-        { dispatchedToCustomer: true },
-      ],
+      ...(status === "pending"
+        ? {
+            dispatchedAt: dispatchedAtFilter ?? { not: null },
+            deliveryCompleteAt: null,
+            fulfillmentStage: { notIn: ["returned", "returned_to_store"] },
+          }
+        : {
+            OR: [
+              { fulfillmentStage: { in: ["delivery_complete", "invoice_complete"] } },
+              { deliveryCompleteAt: { not: null } },
+            ],
+            ...(dispatchedAtFilter ? { dispatchedAt: dispatchedAtFilter } : {}),
+          }),
     },
     orderBy: { dispatchedAt: "asc" },
     select: {
@@ -133,6 +140,7 @@ async function fetchDispatchGroups(
       discountCodes: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
+      dispatchedBy: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
       assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
     },
@@ -143,16 +151,21 @@ async function fetchDispatchGroups(
   for (const order of orders) {
     const isCustomerPickup = order.dispatchedToCustomer;
     const isRider = !isCustomerPickup && !!order.dispatchedByRider;
+    const isCourier = !isCustomerPickup && !isRider && !!order.dispatchedByCourierService;
     const dispatcherId = isCustomerPickup
       ? "customer-pickup"
       : isRider
         ? order.dispatchedByRider!.id
-        : order.dispatchedByCourierService!.id;
+        : isCourier
+          ? order.dispatchedByCourierService!.id
+          : order.dispatchedBy?.id ?? "unspecified-dispatch";
     const dispatcherName = isCustomerPickup
       ? "Customer pickup"
       : isRider
         ? (order.dispatchedByRider!.name ?? "Unknown Rider")
-        : (order.dispatchedByCourierService!.name ?? "Unknown Courier");
+        : isCourier
+          ? (order.dispatchedByCourierService!.name ?? "Unknown Courier")
+          : (order.dispatchedBy?.name ?? "Unspecified dispatch");
     const dispatchType: "rider" | "courier" | "customer" = isCustomerPickup
       ? "customer"
       : isRider
@@ -250,8 +263,8 @@ async function fetchDispatchGroups(
   return {
     groups,
     totalOrders: orders.length,
-    riderOrders: orders.filter((o) => o.dispatchedByRider).length,
-    courierOrders: orders.filter((o) => o.dispatchedByCourierService && !o.dispatchedByRider).length,
+    riderOrders: orders.filter((o) => o.dispatchedByRider && !o.dispatchedToCustomer).length,
+    courierOrders: orders.filter((o) => !o.dispatchedToCustomer && !o.dispatchedByRider).length,
   };
 }
 
