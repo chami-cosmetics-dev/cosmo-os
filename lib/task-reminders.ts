@@ -179,13 +179,24 @@ async function fetchSampleReminders(
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...baseFulfillmentOrderWhere,
-      ...sampleQueueWhere,
+      financialStatus: { not: "voided" },
+      packageOnHoldAt: null,
+      companyLocation: { fulfillmentBlocked: false },
       sourceName: { in: ["web", "manual"] },
       fulfillmentStage: { in: ["order_received", "sample_free_issue"] },
       ...(shouldScopeSampleRemindersToMerchant(context) && context.userId
         ? { assignedMerchantId: context.userId }
         : {}),
+      AND: [
+        sampleQueueWhere,
+        {
+          NOT: {
+            approvalRequests: {
+              some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+            },
+          },
+        },
+      ],
       OR: [
         { sampleFreeIssueSendLaterDate: null },
         { sampleFreeIssueSendLaterDate: { lt: tomorrow } },
