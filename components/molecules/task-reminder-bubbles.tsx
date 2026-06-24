@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { TaskReminderBubbleIcon } from "@/components/molecules/task-reminder-bubble-icon";
 import { Button } from "@/components/ui/button";
+import { useIdleScreenBounce } from "@/hooks/use-idle-screen-bounce";
 import { cn } from "@/lib/utils";
 
 type TaskReminder = {
@@ -259,6 +260,12 @@ export function TaskReminderBubbles() {
     setNodesOpen(false);
   }, []);
 
+  const panelsOpen = nodesOpen || showAllPanel || activeCategory !== null;
+  const { containerRef, isBouncing, position } = useIdleScreenBounce({
+    enabled: !panelsOpen && reminders.length > 0 && !loading,
+    idleMs: 60_000,
+  });
+
   const toggleCategory = useCallback((category: string) => {
     setShowAllPanel(false);
     setActiveCategory((current) => (current === category ? null : category));
@@ -274,7 +281,19 @@ export function TaskReminderBubbles() {
     : "All overdue tasks";
 
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-40 flex flex-col items-end gap-0">
+    <div
+      ref={containerRef}
+      className={cn(
+        "pointer-events-none fixed z-40 flex flex-col items-end gap-0",
+        !isBouncing && "bottom-6 right-6",
+        isBouncing && "reminder-idle-bounce-active",
+      )}
+      style={
+        isBouncing && position
+          ? { left: position.x, top: position.y, right: "auto", bottom: "auto" }
+          : undefined
+      }
+    >
       {showAllPanel && (
         <ReminderListPanel title="All overdue tasks" items={reminders} onClose={() => setShowAllPanel(false)} />
       )}
@@ -324,6 +343,7 @@ export function TaskReminderBubbles() {
               "group relative rounded-full pb-7 transition-transform duration-300",
               "hover:scale-110 active:scale-95",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2",
+              "reminder-idle-bounce-target",
             )}
             onClick={() => {
               setNodesOpen((open) => {
