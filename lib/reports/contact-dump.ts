@@ -1,3 +1,5 @@
+import { formatCsvHeader } from "@/lib/reports/csv";
+
 type ContactDumpRow = {
   id: string;
   name: string;
@@ -75,7 +77,7 @@ function escapeCsvCell(value: string) {
 
 export function buildContactDumpCsv(rows: ContactDumpRow[]) {
   const lines = [
-    CONTACT_DUMP_HEADERS.join(","),
+    CONTACT_DUMP_HEADERS.map(formatCsvHeader).join(","),
     ...rows.map((contact, index) => {
       const record: Record<(typeof CONTACT_DUMP_HEADERS)[number], string> = {
         id: String(index + 1),

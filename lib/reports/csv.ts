@@ -10,12 +10,16 @@ export function escapeCsvCell(value: CsvPrimitive) {
   return normalized;
 }
 
+export function formatCsvHeader(header: string) {
+  return header === "shipping_rule" ? "SHIPPING RULE" : header.toUpperCase();
+}
+
 export function buildCsv<T extends Record<string, CsvPrimitive>>(
   headers: readonly string[],
   rows: T[]
 ) {
   const lines = [
-    headers.join(","),
+    headers.map(formatCsvHeader).join(","),
     ...rows.map((row) => headers.map((header) => escapeCsvCell(row[header])).join(",")),
   ];
 
@@ -29,7 +33,7 @@ export function formatIsoDate(value: Date | null | undefined) {
 
 export function formatIsoDateTime(value: Date | null | undefined) {
   if (!value) return "";
-  return value.toISOString();
+  return value.toISOString().replace("T", " ");
 }
 
 export function startOfDay(value: Date) {
