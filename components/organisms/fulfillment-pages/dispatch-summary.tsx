@@ -254,7 +254,7 @@ export function DispatchSummaryPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {isCompleted
               ? "Completed deliveries grouped by rider, courier, and customer pickup. Optionally filter by dispatch date."
-              : "All outstanding dispatches grouped by rider and courier. Optionally filter by dispatch date."}
+              : "All outstanding dispatches (riders, couriers, and pickup) grouped by handler. Optionally filter by dispatch date."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
