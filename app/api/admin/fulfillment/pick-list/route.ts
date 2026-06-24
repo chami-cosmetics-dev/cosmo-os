@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { fetchSinglePrintPickList, toPdfLocations } from "@/lib/pick-list-data";
+import { fetchSinglePrintPickList, fetchTodayUngroupedPrintOrderIds, toPdfLocations } from "@/lib/pick-list-data";
+import { formatPickListTodayLabel } from "@/lib/pick-list-date";
 import { generatePickListPdf } from "@/lib/pick-list-pdf";
-import { listPickListGroups } from "@/lib/pick-list-groups";
+import { createPickListGroup, listPickListGroups } from "@/lib/pick-list-groups";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -31,17 +32,46 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     activeGroups,
     singlePrints,
+    todayLabel: formatPickListTodayLabel(),
   });
 }
 
 export async function POST(request: NextRequest) {
+  const body = (await request.json().catch(() => ({}))) as { scope?: string };
+
+  if (body.scope === "create_today_batch") {
+    const auth = await requireAnyPermission(["fulfillment.order_print.print"]);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+    const companyId = auth.context?.user?.companyId;
+    const userId = auth.context?.user?.id;
+    if (!companyId || !userId) {
+      return NextResponse.json({ error: "No company" }, { status: 404 });
+    }
+
+    const orderIds = await fetchTodayUngroupedPrintOrderIds(companyId);
+    if (orderIds.length === 0) {
+      return NextResponse.json(
+        { error: "No ungrouped orders printed today to add to a bulk batch." },
+        { status: 404 },
+      );
+    }
+
+    try {
+      const group = await createPickListGroup(companyId, userId, orderIds);
+      return NextResponse.json(group);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create bulk batch";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+  }
+
   const auth = await requireAnyPermission(["fulfillment.order_print.read"]);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const companyId = auth.context?.user?.companyId;
   if (!companyId) return NextResponse.json({ error: "No company" }, { status: 404 });
 
-  const body = (await request.json().catch(() => ({}))) as { scope?: string };
   if (body.scope !== "singles") {
     return NextResponse.json({ error: "Unsupported download scope" }, { status: 400 });
   }
@@ -55,12 +85,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No single-print orders found." }, { status: 404 });
   }
 
-  const dateLabel = new Date().toISOString().slice(0, 10);
+  const dateLabel = formatPickListTodayLabel();
   const pdf = await generatePickListPdf(
     toPdfLocations(data.locationGroups),
     dateLabel,
     company?.name ?? null,
-    "Single-print orders",
+    "Single-print orders (today)",
   );
 
   return new NextResponse(new Uint8Array(pdf), {

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getPickListTodayBounds } from "@/lib/pick-list-date";
 import { resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
 
@@ -137,10 +138,13 @@ export async function buildPickListAggregationForOrders(
 }
 
 export async function fetchSinglePrintPickList(companyId: string): Promise<PickListAggregation> {
+  const { from, to } = getPickListTodayBounds();
+
   const orders = await prisma.order.findMany({
     where: {
       companyId,
       printCount: { gt: 0 },
+      lastPrintedAt: { gte: from, lte: to },
       financialStatus: { not: "voided" },
       pickListGroupOrders: { none: {} },
     },
@@ -163,6 +167,22 @@ export async function fetchSinglePrintPickList(companyId: string): Promise<PickL
     totalUnits: locationGroups.reduce((s, g) => s + g.totalUnits, 0),
     locationGroups,
   };
+}
+
+export async function fetchTodayUngroupedPrintOrderIds(companyId: string): Promise<string[]> {
+  const { from, to } = getPickListTodayBounds();
+  const rows = await prisma.order.findMany({
+    where: {
+      companyId,
+      printCount: { gt: 0 },
+      lastPrintedAt: { gte: from, lte: to },
+      financialStatus: { not: "voided" },
+      pickListGroupOrders: { none: {} },
+    },
+    select: { id: true },
+    orderBy: { lastPrintedAt: "asc" },
+  });
+  return rows.map((row) => row.id);
 }
 
 export function toPdfLocations(locationGroups: PickListLocationGroup[]) {

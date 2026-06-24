@@ -42,6 +42,7 @@ type ActivePickListData = {
     totalUnits: number;
     locationGroups: LocationGroup[];
   };
+  todayLabel?: string;
 };
 
 type HistoryPickListData = {
@@ -129,6 +130,7 @@ export function PickListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [creatingBatch, setCreatingBatch] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
   const fetchedRef = useRef(false);
 
@@ -220,6 +222,28 @@ export function PickListPage() {
     }
   }
 
+  async function createTodayBulkBatch() {
+    setCreatingBatch(true);
+    try {
+      const res = await fetch("/api/admin/fulfillment/pick-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: "create_today_batch" }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        notify.error(json.error ?? "Failed to create bulk batch");
+        return;
+      }
+      notify.success("Today's prints grouped as a bulk pick list batch.");
+      setRefreshTick((t) => t + 1);
+    } catch {
+      notify.error("Failed to create bulk batch");
+    } finally {
+      setCreatingBatch(false);
+    }
+  }
+
   const activeGroups = activeData?.activeGroups ?? [];
   const singles = activeData?.singlePrints;
   const historyGroups = historyData?.historyGroups ?? [];
@@ -230,7 +254,8 @@ export function PickListPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Inventory Pick List</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bulk print batches and single-print orders grouped by location.
+            Today&apos;s bulk print batches and single-print orders grouped by location
+            {activeData?.todayLabel ? ` (${activeData.todayLabel})` : ""}.
           </p>
         </div>
         <Button
@@ -272,13 +297,31 @@ export function PickListPage() {
       {!loading && !error && view === "active" && activeData && (
         <div className="space-y-8">
           <section className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Printer className="size-5 text-muted-foreground" />
-              <h2 className="text-lg font-semibold">Bulk print batches</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Printer className="size-5 text-muted-foreground" />
+                <h2 className="text-lg font-semibold">Bulk print batches</h2>
+              </div>
+              {singles && singles.orderCount > 0 && (
+                <Button
+                  size="sm"
+                  className="ml-auto gap-2"
+                  disabled={creatingBatch}
+                  onClick={() => void createTodayBulkBatch()}
+                >
+                  {creatingBatch ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Printer className="size-4" />
+                  )}
+                  Create bulk batch from today ({singles.orderCount} orders)
+                </Button>
+              )}
             </div>
             {activeGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No active bulk pick lists. Use Print All on Order Print to create a batch.
+                No active bulk pick lists for today. Use Print All on Order Print, or create a batch
+                from today&apos;s printed orders below.
               </p>
             ) : (
               activeGroups.map((group) => (
@@ -317,9 +360,9 @@ export function PickListPage() {
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <Users className="size-5 text-muted-foreground" />
                 <div>
-                  <h2 className="text-lg font-semibold">Single-print orders</h2>
+                  <h2 className="text-lg font-semibold">Single-print orders (today)</h2>
                   <p className="text-xs text-muted-foreground">
-                    Individually printed orders, grouped by location (company-wise).
+                    Individually printed today, not part of a bulk batch — grouped by location.
                   </p>
                 </div>
               </div>
