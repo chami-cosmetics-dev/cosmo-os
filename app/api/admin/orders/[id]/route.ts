@@ -223,6 +223,7 @@ export async function GET(
     name: details.name,
     erpnextInvoiceId: details.erpnextInvoiceId,
     erpnextInstance: details.companyLocation.erpnextInstance,
+    discountCodes: details.discountCodes,
   });
 
   const discountCouponCode = await resolveOrderDiscountCouponForOrder({

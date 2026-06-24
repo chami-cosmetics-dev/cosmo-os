@@ -14,6 +14,20 @@ import {
   sumErpInvoiceItemsTotal,
   type ErpSalesInvoiceItem,
 } from "@/lib/erp-shopify-invoice-items";
+import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
+import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
+
+function resolveOrderShippingAmountForErp(input: {
+  discountCodes?: unknown;
+  shippingLines?: unknown;
+  totalShipping?: { toString(): string } | string | number | null;
+}): number {
+  if (orderHasFreeShippingCoupon(input.discountCodes)) return 0;
+  const fromLines = resolveShopifyShippingLineTotal(input.shippingLines);
+  if (fromLines > 0) return fromLines;
+  const stored = input.totalShipping != null ? parseFloat(String(input.totalShipping)) : 0;
+  return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
 
 export type LocationWithErpInstance = CompanyLocation & {
   erpnextInstance: ErpnextInstance | null;
@@ -1070,9 +1084,10 @@ export async function syncOrderToERPNext(
 
   const dateStr = toDateStr(order.createdAt);
 
-  const shopifyShippingAmt = (shopifyData.shipping_lines ?? []).reduce(
-    (sum, line) => sum + parseFloat(line.price ?? "0"), 0,
-  );
+  const shopifyShippingAmt = resolveOrderShippingAmountForErp({
+    discountCodes: shopifyData.discount_codes,
+    shippingLines: shopifyData.shipping_lines,
+  });
 
   // Two ways to add shipping: as a line item (shippingItem) or as a taxes row (shippingChargeAccount).
   // shippingChargeAccount takes priority over shippingItem when both are configured.
@@ -1147,7 +1162,9 @@ export async function syncOrderToERPNext(
         : {}),
     // Always include shipping_rule when configured — excluded only when using the taxes-row approach
     // since that injects an exact amount into taxes directly (shipping_rule would override it).
-    ...(cfg.shippingRule && !useShippingTaxRow ? { shipping_rule: cfg.shippingRule } : {}),
+    ...(cfg.shippingRule && !useShippingTaxRow && shopifyShippingAmt > 0
+      ? { shipping_rule: cfg.shippingRule }
+      : {}),
     ...(useShippingTaxRow
       ? {
           taxes: [
@@ -1307,7 +1324,11 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     warehouse: erpnextWarehouse,
   }));
 
-  const shippingAmt = order.totalShipping ? parseFloat(order.totalShipping.toString()) : 0;
+  const shippingAmt = resolveOrderShippingAmountForErp({
+    discountCodes: order.discountCodes,
+    shippingLines: order.shippingLines,
+    totalShipping: order.totalShipping,
+  });
   const useShippingTaxRow = shippingAmt > 0 && !!cfg.shippingChargeAccount;
   const useShippingItem = shippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
 
@@ -1344,7 +1365,9 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
     ...(billingAddressName ? { customer_address: billingAddressName } : addrHtml ? { address_display: addrHtml } : {}),
     ...(shippingAddressName ? { shipping_address_name: shippingAddressName } : addrHtml ? { shipping_address: addrHtml } : {}),
-    ...(cfg.shippingRule && !useShippingTaxRow ? { shipping_rule: cfg.shippingRule } : {}),
+    ...(cfg.shippingRule && !useShippingTaxRow && shippingAmt > 0
+      ? { shipping_rule: cfg.shippingRule }
+      : {}),
     ...(useShippingTaxRow
       ? { taxes: [{ charge_type: "Actual", account_head: cfg.shippingChargeAccount, description: "Shipping Fee", tax_amount: shippingAmt }] }
       : cfg.taxesAndCharges

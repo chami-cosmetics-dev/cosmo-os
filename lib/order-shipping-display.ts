@@ -1,4 +1,5 @@
 import { shouldResolveFromLinkedErpInvoice } from "@/lib/erp-order-link";
+import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
 
 type ErpTaxRow = {
   description?: string | null;
@@ -52,6 +53,25 @@ function readShippingLines(shippingLines: unknown): ShippingLineRow[] {
   return shippingLines.filter((row): row is ShippingLineRow => !!row && typeof row === "object");
 }
 
+/** Sum Shopify shipping_lines using discounted_price when FREESP / shipping discounts apply. */
+export function resolveShopifyShippingLineTotal(shippingLines: unknown): number {
+  const lines = readShippingLines(shippingLines);
+  return lines.reduce((sum, line) => {
+    const discountedRaw = line.discounted_price;
+    if (discountedRaw != null && String(discountedRaw).trim() !== "") {
+      const discounted = parseFloat(String(discountedRaw));
+      if (Number.isFinite(discounted)) return sum + Math.max(0, discounted);
+    }
+    const price = parseFloat(String(line.price ?? "0"));
+    return sum + (Number.isFinite(price) ? Math.max(0, price) : 0);
+  }, 0);
+}
+
+function resolveAmountFromShippingLines(lines: ShippingLineRow[]): string | null {
+  const total = resolveShopifyShippingLineTotal(lines);
+  return total > 0 ? total.toFixed(2) : null;
+}
+
 function extractErpShippingFromPayload(rawPayload: unknown): OrderShippingDisplay {
   const payload = unwrapErpPayload(rawPayload);
   if (!payload) return { label: null, amount: null };
@@ -88,20 +108,22 @@ export function resolveOrderShippingDisplay(input: {
   shippingLines?: unknown;
   rawPayload?: unknown;
   sourceName?: string | null;
+  discountCodes?: unknown;
 }): OrderShippingDisplay {
-  const storedAmount = parseAmount(input.totalShipping ?? null);
+  if (orderHasFreeShippingCoupon(input.discountCodes)) {
+    return { label: null, amount: null };
+  }
 
   const lines = readShippingLines(input.shippingLines);
   if (lines.length > 0) {
     const primary = lines[0];
     const label = (primary.title ?? primary.code ?? "").trim() || null;
-    const lineAmount =
-      parseAmount(primary.discounted_price ?? null) ?? parseAmount(primary.price ?? null);
-    return {
-      label,
-      amount: storedAmount ?? lineAmount,
-    };
+    const lineAmount = resolveAmountFromShippingLines(lines);
+    if (!lineAmount) return { label: null, amount: null };
+    return { label, amount: lineAmount };
   }
+
+  const storedAmount = parseAmount(input.totalShipping ?? null);
 
   const source = input.sourceName?.toLowerCase() ?? "";
   if (source === "erpnext" || source === "erpnext-pos") {
@@ -271,8 +293,11 @@ export async function resolveOrderShippingDisplayForOrder(input: {
   name?: string | null;
   erpnextInvoiceId?: string | null;
   erpnextInstance?: ErpInstanceLike;
+  discountCodes?: unknown;
 }): Promise<OrderShippingDisplay> {
   const stored = resolveOrderShippingDisplay(input);
+  if (orderHasFreeShippingCoupon(input.discountCodes)) return stored;
+
   const needsLabel = !stored.label?.trim();
   const needsAmount = !stored.amount;
   if (!needsLabel && !needsAmount) return stored;

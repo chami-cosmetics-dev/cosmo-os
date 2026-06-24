@@ -40,6 +40,27 @@ describe("resolveOrderShippingDisplay", () => {
 
     expect(display).toEqual({ label: "Standard Shipping", amount: "350.00" });
   });
+
+  it("hides shipping when FREESP zeroes discounted_price", () => {
+    const display = resolveOrderShippingDisplay({
+      sourceName: "web",
+      totalShipping: "400",
+      discountCodes: [
+        { code: "SV20", amount: "2700.00" },
+        { code: "FREESP", type: "shipping", amount: "400.00" },
+      ],
+      shippingLines: [
+        {
+          title: "Shipping Zone B",
+          code: "Shipping Zone B",
+          price: "400.00",
+          discounted_price: "0.00",
+        },
+      ],
+    });
+
+    expect(display).toEqual({ label: null, amount: null });
+  });
 });
 
 describe("mergeOrderShippingDisplay", () => {
