@@ -9,6 +9,7 @@ export const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
   invoice_complete: "Invoice Complete",
   delivery_complete: "Delivery Complete",
   pending_approval: "Pending Approval",
+  printed: "Printed",
 };
 
 export const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
@@ -22,6 +23,7 @@ export const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
   delivery_complete: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
   invoice_complete: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
   pending_approval: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  printed: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
 };
 
 export type FulfillmentStageBadge = {
@@ -35,6 +37,8 @@ export function getOrderListFulfillmentStageBadges(input: {
   fulfillmentStage?: string | null;
   pendingPaymentApproval?: boolean;
   totalPrice?: string | number | null;
+  printCount?: number | null;
+  packageReadyAt?: string | Date | null;
 }): FulfillmentStageBadge[] {
   const total = Number(input.totalPrice ?? 0);
   if (Number.isFinite(total) && total < 0) {
@@ -58,6 +62,22 @@ export function getOrderListFulfillmentStageBadges(input: {
   }
 
   const stage = input.fulfillmentStage ?? "order_received";
+  const printed = (input.printCount ?? 0) > 0;
+  const packageReady = !!input.packageReadyAt;
+
+  if (
+    stage === "ready_to_dispatch" &&
+    printed &&
+    !packageReady
+  ) {
+    return [
+      {
+        key: "printed",
+        label: FULFILLMENT_STAGE_LABELS.printed,
+        className: FULFILLMENT_STAGE_COLORS.printed,
+      },
+    ];
+  }
 
   return [
     {
