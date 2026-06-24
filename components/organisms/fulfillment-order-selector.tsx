@@ -259,16 +259,24 @@ export function FulfillmentOrderSelector({
       return unprintedOrders.map((order) => order.id).join(",");
     }
 
-    const handleBulkPrintUnprinted = () => {
+    const handleBulkPrintUnprinted = async () => {
       const ids = getUnprintedOrderIds();
       if (!ids) return;
+      const orderIds = ids.split(",");
+      const groupRes = await fetch("/api/admin/fulfillment/pick-list/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds }),
+      });
+      if (!groupRes.ok) {
+        const json = (await groupRes.json().catch(() => ({}))) as { error?: string };
+        notify.error(json.error ?? "Failed to create pick list group");
+        return;
+      }
       window.open(`/api/admin/orders/bulk-print?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-      window.open(
-        `/api/admin/orders/location-pick-list?download=1&ids=${encodeURIComponent(ids)}`,
-        "_blank",
-        "noopener"
+      notify.success(
+        `Opened invoices for ${unprintedOrders.length} order(s). Download pick list from Inventory Pick List.`,
       );
-      notify.success(`Opened invoices and downloading location files for ${unprintedOrders.length} order(s).`);
       window.setTimeout(() => {
         void fetchOrders();
       }, 1500);
