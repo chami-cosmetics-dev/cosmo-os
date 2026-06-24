@@ -12,7 +12,7 @@ import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
 import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
-import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
+import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
@@ -255,6 +255,10 @@ export async function processOrderWebhook(
   }
 
   const isVoided = order.financialStatus?.toLowerCase() === "voided";
+
+  if (isVoided) {
+    await cancelPendingApprovalsForOrder(order.id);
+  }
 
   if (!isVoided && !requiresApproval && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
     const skipErpSync = shouldSkipShopifyOrderErpSync(order.createdAt, effectiveLocation);

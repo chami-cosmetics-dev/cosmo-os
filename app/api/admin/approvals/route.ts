@@ -8,6 +8,7 @@ import {
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
+  reconcilePendingApprovalsForVoidedOrders,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -29,6 +30,8 @@ export async function GET() {
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
+
+  await reconcilePendingApprovalsForVoidedOrders(companyId);
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;
