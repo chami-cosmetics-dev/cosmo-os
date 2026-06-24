@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   getDiscountCouponCode,
+  isFreeShippingDiscountCode,
   isMerchantTrackingDiscountCode,
+  orderHasFreeShippingCoupon,
   parseShopifyDiscountCodes,
   splitShopifyDiscountCodes,
 } from "@/lib/shopify-discount-codes";
@@ -55,5 +57,15 @@ describe("shopify-discount-codes", () => {
       merchantCode: "MER99",
       discountCode: "SV20",
     });
+  });
+
+  it("detects FREESP free-shipping coupons", () => {
+    expect(isFreeShippingDiscountCode("FREESP")).toBe(true);
+    expect(
+      orderHasFreeShippingCoupon([
+        { code: "SV20", amount: "2700.00" },
+        { code: "FREESP", amount: "400.00" },
+      ]),
+    ).toBe(true);
   });
 });

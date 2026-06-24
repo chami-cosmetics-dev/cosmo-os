@@ -37,6 +37,17 @@ export function isMerchantTrackingDiscountCode(entry: ParsedShopifyDiscountCode)
   return entry.amount === 0;
 }
 
+/** Shopify free-shipping coupon codes (e.g. FREESP). */
+export function isFreeShippingDiscountCode(code: string): boolean {
+  return code.trim().toUpperCase().startsWith("FREESP");
+}
+
+export function orderHasFreeShippingCoupon(discountCodes: unknown): boolean {
+  return parseShopifyDiscountCodes(discountCodes).some((entry) =>
+    isFreeShippingDiscountCode(entry.code),
+  );
+}
+
 function isMerchantTrackingRow(row: Record<string, unknown>): boolean {
   const code =
     typeof row.code === "string"

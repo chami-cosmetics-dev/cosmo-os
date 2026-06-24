@@ -14,6 +14,8 @@ import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInst
 import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval } from "@/lib/approval-workflow";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
+import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
+import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
 import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
 
@@ -115,13 +117,9 @@ export async function processOrderWebhook(
   const orderCreatedAt = getShopifyOrderCreatedAt(data);
 
   let totalShipping: Decimal | null = null;
-  if (data.shipping_lines && data.shipping_lines.length > 0) {
-    const sum = data.shipping_lines.reduce(
-      (acc, line) =>
-        acc + parseFloat(line.price ?? line.discounted_price ?? "0"),
-      0
-    );
-    totalShipping = new Decimal(sum);
+  if (data.shipping_lines && data.shipping_lines.length > 0 && !orderHasFreeShippingCoupon(data.discount_codes)) {
+    const sum = resolveShopifyShippingLineTotal(data.shipping_lines);
+    if (sum > 0) totalShipping = new Decimal(sum.toFixed(2));
   }
 
   const customerEmail =

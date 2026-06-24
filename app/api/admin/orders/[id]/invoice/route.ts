@@ -272,6 +272,7 @@ export async function GET(
     name: order.name,
     erpnextInvoiceId: order.erpnextInvoiceId,
     erpnextInstance: order.companyLocation.erpnextInstance,
+    discountCodes: order.discountCodes,
   });
   const pickupDeliveryLabel =
     shippingDisplay.label?.toLowerCase().includes("pickup") ? shippingDisplay.label : null;
