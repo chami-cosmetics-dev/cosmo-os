@@ -74,6 +74,39 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+const PRINT_QUEUE_PAGE_SIZE = 100;
+
+async function fetchAllPrintQueueOrders(search: string): Promise<PrintOrder[]> {
+  const allOrders: PrintOrder[] = [];
+  let page = 1;
+  let total = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      sort_by: "updated",
+      sort_order: "desc",
+      limit: String(PRINT_QUEUE_PAGE_SIZE),
+      page: String(page),
+      print_mode: "true",
+      unprinted_only: "true",
+    });
+    if (search.trim()) params.set("search", search.trim());
+
+    const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to load print queue");
+
+    const data = (await res.json()) as { orders?: PrintOrder[]; total?: number };
+    const batch = data.orders ?? [];
+    total = data.total ?? batch.length;
+    allOrders.push(...batch);
+
+    if (allOrders.length >= total || batch.length < PRINT_QUEUE_PAGE_SIZE) break;
+    page += 1;
+  }
+
+  return allOrders;
+}
+
 function PrintQueueInner() {
   const perms = useFulfillmentPermissions();
   const searchParams = useSearchParams();
@@ -159,28 +192,37 @@ function PrintQueueInner() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      if (view === "queue") {
+        const nextOrders = await fetchAllPrintQueueOrders(debouncedSearch);
+        setOrders(nextOrders);
+        if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
+          setView("queue");
+          setSelected(new Set([deepLinkOrderId]));
+          appliedDeepLinkRef.current = deepLinkOrderId;
+        } else {
+          setSelected(new Set());
+          if (deepLinkOrderId) appliedDeepLinkRef.current = null;
+        }
+        return;
+      }
+
       const params = new URLSearchParams({
         sort_by: "updated",
         sort_order: "desc",
-        limit: "200",
+        limit: String(PRINT_QUEUE_PAGE_SIZE),
       });
 
       if (debouncedSearch.trim()) {
         params.set("search", debouncedSearch.trim());
       }
 
-      if (view === "queue") {
-        params.set("print_mode", "true");
-        params.set("unprinted_only", "true");
-      } else {
-        params.set("print_history_mode", "true");
-        const start = new Date(historyDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(historyDate);
-        end.setHours(23, 59, 59, 999);
-        params.set("last_printed_from", start.toISOString());
-        params.set("last_printed_to", end.toISOString());
-      }
+      params.set("print_history_mode", "true");
+      const start = new Date(historyDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(historyDate);
+      end.setHours(23, 59, 59, 999);
+      params.set("last_printed_from", start.toISOString());
+      params.set("last_printed_to", end.toISOString());
 
       const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`);
       if (!res.ok) {
@@ -190,14 +232,8 @@ function PrintQueueInner() {
       const data = (await res.json()) as { orders?: PrintOrder[] };
       const nextOrders = data.orders ?? [];
       setOrders(nextOrders);
-      if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
-        setView("queue");
-        setSelected(new Set([deepLinkOrderId]));
-        appliedDeepLinkRef.current = deepLinkOrderId;
-      } else {
-        setSelected(new Set());
-        if (deepLinkOrderId) appliedDeepLinkRef.current = null;
-      }
+      setSelected(new Set());
+      if (deepLinkOrderId) appliedDeepLinkRef.current = null;
     } catch {
       notify.error("Failed to load print queue");
     } finally {
