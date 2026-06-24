@@ -16,10 +16,6 @@ import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { formatOrderShippingDetail } from "@/lib/order-shipping-display";
 import { notify } from "@/lib/notify";
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function formatPaymentType(raw: string | null) {
   if (!raw) return "—";
   return raw.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -140,7 +136,7 @@ type SummaryData = {
 export function DispatchSummaryPage() {
   const dateRef = useRef<HTMLInputElement | null>(null);
   const [status, setStatus] = useState<"pending" | "completed">("pending");
-  const [date, setDate] = useState(todayIso());
+  const [date, setDate] = useState("");
   const [data, setData] = useState<SummaryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -182,7 +178,8 @@ export function DispatchSummaryPage() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ status, dateFrom: date });
+        const params = new URLSearchParams({ status });
+        if (date) params.set("dateFrom", date);
         const res = await fetch(`/api/admin/fulfillment/dispatch-summary?${params}`, {
           signal: controller.signal,
         });
@@ -199,10 +196,11 @@ export function DispatchSummaryPage() {
   }, [status, date, refreshTick]);
 
   function buildDownloadBody() {
-    return { status, dateFrom: date };
+    return date ? { status, dateFrom: date } : { status };
   }
 
   function fileSuffix() {
+    if (!date) return status === "pending" ? "pending-all" : "all";
     return status === "pending" ? `pending-${date}` : date;
   }
 
@@ -255,8 +253,8 @@ export function DispatchSummaryPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isCompleted
-              ? "Completed deliveries for the selected date, grouped by rider, courier, and customer pickup."
-              : "Outstanding dispatches for the selected date, grouped by rider and courier."}
+              ? "Completed deliveries grouped by rider, courier, and customer pickup. Optionally filter by dispatch date."
+              : "All outstanding dispatches grouped by rider and courier. Optionally filter by dispatch date."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -273,8 +271,8 @@ export function DispatchSummaryPage() {
           </div>
 
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">Date</span>
-            <div className="relative">
+            <span className="font-medium text-muted-foreground">Date (optional)</span>
+            <div className="relative flex items-center gap-1">
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={dateRef}
@@ -285,6 +283,17 @@ export function DispatchSummaryPage() {
                 onFocus={() => dateRef.current?.showPicker?.()}
                 className="h-10 min-w-44 pl-9"
               />
+              {date ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 shrink-0 px-2 text-muted-foreground"
+                  onClick={() => setDate("")}
+                >
+                  All
+                </Button>
+              ) : null}
             </div>
           </label>
 
@@ -346,8 +355,12 @@ export function DispatchSummaryPage() {
           {data.groups.length === 0 ? (
             <p className="rounded-md border border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
               {isCompleted
-                ? `No completed deliveries found for ${date}.`
-                : `No pending dispatches found for ${date}.`}
+                ? date
+                  ? `No completed deliveries found for ${date}.`
+                  : "No completed deliveries found."
+                : date
+                  ? `No pending dispatches found for ${date}.`
+                  : "No pending dispatches found."}
             </p>
           ) : (
             <div className="space-y-4">
