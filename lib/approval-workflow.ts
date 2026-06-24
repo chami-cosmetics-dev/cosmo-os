@@ -106,6 +106,25 @@ export function isOrderPaymentRequiresApproval(order: {
   return gateways.some((g) => g.includes("koko") || g.includes("bank"));
 }
 
+export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
+  const trimmed = id?.trim();
+  return !trimmed || trimmed === "pending" || trimmed === "pending_approval";
+}
+
+/** Keep finance-pending KOKO/bank orders out of fulfillment queues. */
+export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
+  NOT: {
+    OR: [
+      {
+        approvalRequests: {
+          some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+        },
+      },
+      { erpnextInvoiceId: "pending_approval" },
+    ],
+  },
+} satisfies Prisma.OrderWhereInput;
+
 const voidedOrderFinancialStatusFilter = {
   equals: "voided",
   mode: "insensitive" as const,
@@ -182,6 +201,28 @@ export async function getOrderPaymentApproval(orderId: string) {
     `
   );
   return rows[0] ?? null;
+}
+
+/** Block fulfillment actions until finance approves KOKO/bank payment. */
+export async function getFinancePaymentApprovalBlockReason(order: {
+  id: string;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+  erpnextInvoiceId?: string | null;
+}): Promise<string | null> {
+  if (order.erpnextInvoiceId === "pending_approval") {
+    return "Finance approval is pending for this order. Please wait for the finance team to approve.";
+  }
+  if (!isOrderPaymentRequiresApproval(order)) return null;
+
+  const approval = await getOrderPaymentApproval(order.id);
+  if (!approval || approval.status === "pending") {
+    return "Finance approval is pending for this order. Please wait for the finance team to approve.";
+  }
+  if (approval.status === "rejected") {
+    return "Finance approval was rejected. Please contact the finance team.";
+  }
+  return null;
 }
 
 /** Finance user who approved KOKO/bank payment before fulfillment. */

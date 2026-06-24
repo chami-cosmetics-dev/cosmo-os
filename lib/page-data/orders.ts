@@ -6,7 +6,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
-import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
@@ -88,11 +88,10 @@ function startOfTomorrowUtc() {
 function applyFulfillmentQueueBaseFilters(where: Prisma.OrderWhereInput) {
   where.financialStatus = { not: "voided" };
   where.totalPrice = { gte: 0 };
-  where.NOT = {
-    approvalRequests: {
-      some: { type: "order_payment_approval", status: "pending" },
-    },
-  };
+  where.AND = [
+    ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+    FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+  ];
 }
 
 async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<string[]> {
@@ -249,11 +248,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     ];
     where.financialStatus = { not: "voided" };
     where.totalPrice = { gte: 0 };
-    where.NOT = {
-      approvalRequests: {
-        some: { type: "order_payment_approval", status: "pending" },
-      },
-    };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+    ];
   } else if (params.dispatchMode) {
     where.OR = dispatchStageOrWhere.OR;
     applyFulfillmentQueueBaseFilters(where);
@@ -278,11 +276,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       } else if (isDeliveryFulfillmentStages(stages)) {
         where.OR = deliveryStageOrWhere.OR;
         where.financialStatus = { not: "voided" };
-        where.NOT = {
-          approvalRequests: {
-            some: { type: "order_payment_approval", status: "pending" },
-          },
-        };
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+          FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+        ];
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
           deliveryPipelineWhere,
@@ -296,11 +293,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ? { in: ["web", "manual"] }
         : { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
-      where.NOT = {
-        approvalRequests: {
-          some: { type: "order_payment_approval", status: "pending" },
-        },
-      };
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+      ];
       if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
