@@ -40,6 +40,7 @@ type Order = {
   fulfillmentStatus: string | null;
   fulfillmentStage?: string | null;
   printCount?: number;
+  lastPrintedAt?: string | null;
   packageReadyAt?: string | null;
   sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
