@@ -9,6 +9,7 @@ import {
   isDispatchFulfillmentStages,
   sampleFulfillmentPipelineWhere,
   sampleQueueWhere,
+  printFulfillmentPipelineWhere,
 } from "@/lib/fulfillment-queue-filters";
 
 describe("isDispatchFulfillmentStages", () => {
@@ -53,11 +54,24 @@ describe("deliveryStageOrWhere", () => {
 });
 
 describe("sampleFulfillmentPipelineWhere", () => {
-  it("does not hide Shopify-fulfilled orders at early Vault stages", () => {
+  it("does not filter on Shopify fulfillmentStatus", () => {
     expect(fulfillableOrderPipelineWhere).toMatchObject({
-      fulfillmentStatus: { not: "fulfilled" },
+      AND: [
+        {
+          OR: [
+            { fulfillmentStatus: null },
+            { fulfillmentStatus: { not: "fulfilled" } },
+          ],
+        },
+      ],
     });
     expect(sampleFulfillmentPipelineWhere).not.toHaveProperty("fulfillmentStatus");
+  });
+});
+
+describe("printFulfillmentPipelineWhere", () => {
+  it("matches vault stage pipeline without Shopify fulfillmentStatus filter", () => {
+    expect(printFulfillmentPipelineWhere).toEqual(sampleFulfillmentPipelineWhere);
   });
 });
 
