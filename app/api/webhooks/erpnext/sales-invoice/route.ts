@@ -12,6 +12,7 @@ import {
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { resolveErpWebhookCustomerName } from "@/lib/erpnext-customer-display-name";
 import { findBarcodeForSku } from "@/lib/product-item-barcode.server";
+import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 import {
   handleErpSalesInvoiceCreditNoteEvent,
   isErpReturnSalesInvoice,
@@ -23,6 +24,30 @@ import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+/** Vault order linked to this ERP SI via po_no or erpnextInvoiceId (Shopify/web/manual — not erpnext-native rows). */
+async function findLinkedVaultOrderForErpInvoice(data: {
+  name: string;
+  po_no?: string | null;
+}) {
+  const poNo = data.po_no?.trim();
+  const invoiceRef = data.name.trim();
+  const invoiceRefs = erpInvoiceReferenceLookupValues(invoiceRef);
+
+  return prisma.order.findFirst({
+    where: {
+      OR: [
+        ...(poNo
+          ? [{ name: poNo }, { shopifyOrderId: poNo }, { orderNumber: poNo }]
+          : []),
+        { erpnextInvoiceId: invoiceRef },
+        ...invoiceRefs.map((ref) => ({ erpnextInvoiceId: ref })),
+      ],
+      sourceName: { notIn: ["erpnext", "erpnext-pos"] },
+    },
+    select: { id: true, name: true, orderNumber: true },
+  });
+}
 
 async function fetchOutstandingAmount(
   invoiceName: string,
@@ -212,24 +237,27 @@ export async function POST(request: NextRequest) {
     financialStatus = "pending";
   }
 
-  // Skip if po_no matches a Shopify-originated order (not our own ERP order)
-  if (data.po_no?.trim()) {
-    const shopifyOrder = await prisma.order.findFirst({
-      where: {
-        OR: [
-          { name: data.po_no.trim() },
-          { shopifyOrderId: data.po_no.trim() },
-        ],
-        sourceName: { not: "erpnext" },
-      },
-      select: { id: true },
-    });
-    if (shopifyOrder) {
+  // Shopify/web orders already live in Vault — skip ERP-native upsert, but honour cancellations.
+  const linkedVaultOrder = await findLinkedVaultOrderForErpInvoice(data);
+  if (linkedVaultOrder) {
+    if (data.docstatus === 2) {
+      await prisma.order.update({
+        where: { id: linkedVaultOrder.id },
+        data: { financialStatus: "voided" },
+      });
       console.log(
-        `[ERPNext webhook] Invoice ${data.name} matches Shopify order (po_no=${data.po_no}) — skipping`,
+        `[ERPNext webhook] Cancelled invoice ${data.name} — voided Vault order ${linkedVaultOrder.name ?? linkedVaultOrder.orderNumber ?? linkedVaultOrder.id}`,
       );
-      return NextResponse.json({ ok: true, skipped: true });
+      return NextResponse.json({
+        ok: true,
+        voided: true,
+        orderId: linkedVaultOrder.id,
+      });
     }
+    console.log(
+      `[ERPNext webhook] Invoice ${data.name} matches Vault order (po_no=${data.po_no ?? "—"}) — skipping ERP upsert`,
+    );
+    return NextResponse.json({ ok: true, skipped: true });
   }
 
   // Find location — prefer warehouse match, fall back to company match
