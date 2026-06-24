@@ -112,6 +112,7 @@ type OrderDetail = {
   shopifyAdminOrderUrl: string | null;
   erpAdminInvoiceUrl?: string | null;
   fulfillmentStage?: string;
+  fulfillmentStageEnteredAt?: string | null;
   printCount?: number;
   packageReadyAt?: string | null;
   packageReadyBy?: UserRef;
@@ -228,10 +229,6 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
-function isErpOrderSource(sourceName: string): boolean {
-  return sourceName === "erpnext" || sourceName === "erpnext-pos";
-}
-
 function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
   if (!fulfillmentStage) return false;
   const printIdx = FULFILLMENT_STAGE_ORDER.indexOf("print");
@@ -242,11 +239,38 @@ function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
   return fulfillmentStage === "returned";
 }
 
-function erpOrderSkippedSampleStage(orderDetail: OrderDetail): boolean {
-  return (
-    isErpOrderSource(orderDetail.sourceName) &&
-    isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage)
-  );
+function approvedPaymentApproval(orderDetail: OrderDetail) {
+  return orderDetail.paymentApproval?.status === "approved" ? orderDetail.paymentApproval : null;
+}
+
+/** Sample step done: items added, explicitly completed, or order advanced to print (ERP / finance-approved). */
+function isSampleStageComplete(orderDetail: OrderDetail): boolean {
+  if ((orderDetail.sampleFreeIssues ?? []).length > 0) return true;
+  if (orderDetail.sampleFreeIssueCompleteAt || orderDetail.sampleFreeIssueCompleteBy) return true;
+  return isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage);
+}
+
+function sampleStageCompletionMeta(orderDetail: OrderDetail) {
+  const approval = approvedPaymentApproval(orderDetail);
+  const autoCompleted =
+    isSampleStageComplete(orderDetail) &&
+    (orderDetail.sampleFreeIssues ?? []).length === 0 &&
+    !orderDetail.sampleFreeIssueCompleteAt;
+
+  return {
+    date:
+      orderDetail.sampleFreeIssueCompleteAt ??
+      approval?.reviewedAt ??
+      (isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage)
+        ? orderDetail.fulfillmentStageEnteredAt ?? null
+        : null),
+    who: orderDetail.sampleFreeIssueCompleteBy
+      ? userName(orderDetail.sampleFreeIssueCompleteBy)
+      : approval?.reviewedBy
+        ? userName(approval.reviewedBy)
+        : "-",
+    detail: autoCompleted && approval ? "Completed on finance approval" : undefined,
+  };
 }
 
 function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
@@ -332,24 +356,16 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       icon: <Package className="size-4" />,
       detail: [itemsList, addedByLine].filter(Boolean).join(" | "),
     });
-  } else if (orderDetail.sampleFreeIssueCompleteAt || orderDetail.sampleFreeIssueCompleteBy) {
-    // Stage completed without adding samples (Finish Samples & Extras clicked)
+  } else if (isSampleStageComplete(orderDetail)) {
+    const completion = sampleStageCompletionMeta(orderDetail);
     items.push({
       id: "sample_free_issue",
       label: "Sample / Free Issue",
-      date: orderDetail.sampleFreeIssueCompleteAt ?? null,
-      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
+      date: completion.date,
+      who: completion.who,
       done: true,
       icon: <Package className="size-4" />,
-    });
-  } else if (erpOrderSkippedSampleStage(orderDetail)) {
-    items.push({
-      id: "sample_free_issue",
-      label: "Sample / Free Issue",
-      date: orderDetail.sampleFreeIssueCompleteAt ?? orderDetail.createdAt,
-      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
-      done: true,
-      icon: <Package className="size-4" />,
+      detail: completion.detail,
     });
   } else {
     items.push({
@@ -364,18 +380,33 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
 
   // 3. Print
   const printed = (orderDetail.printCount ?? 0) > 0;
+  const reachedPrintQueue = isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage);
+  const approval = approvedPaymentApproval(orderDetail);
   items.push({
     id: "print",
     label: printed ? "Printed" : "Print",
-    date: orderDetail.lastPrintedAt ?? null,
-    who: orderDetail.lastPrintedBy ? userName(orderDetail.lastPrintedBy) : "-",
-    done: printed,
+    date:
+      orderDetail.lastPrintedAt ??
+      (reachedPrintQueue && !printed
+        ? orderDetail.fulfillmentStageEnteredAt ??
+          orderDetail.sampleFreeIssueCompleteAt ??
+          approval?.reviewedAt ??
+          null
+        : null),
+    who: orderDetail.lastPrintedBy
+      ? userName(orderDetail.lastPrintedBy)
+      : reachedPrintQueue && !printed && approval?.reviewedBy
+        ? userName(approval.reviewedBy)
+        : "-",
+    done: printed || reachedPrintQueue,
     icon: <Printer className="size-4" />,
     detail: printed
       ? orderDetail.printCount === 1
         ? undefined
         : `Printed ${orderDetail.printCount} times`
-      : undefined,
+      : reachedPrintQueue && !printed
+        ? "In print queue"
+        : undefined,
   });
 
   // 4. Package Ready

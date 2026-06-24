@@ -722,7 +722,6 @@ export function OrdersPanel({
                             {getOrderListFulfillmentStageBadges({
                               fulfillmentStage: order.fulfillmentStage,
                               pendingPaymentApproval: order.pendingPaymentApproval,
-                              sampleFreeIssueCompleteAt: order.sampleFreeIssueCompleteAt,
                               totalPrice: order.totalPrice,
                             }).map((badge) => (
                               <span
