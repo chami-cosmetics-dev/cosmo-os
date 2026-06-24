@@ -20,8 +20,9 @@ import {
   type TaskReminderAccessContext,
 } from "@/lib/task-reminder-access";
 import { taskReminderHref } from "@/lib/task-reminder-links";
+import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 
-export const TASK_REMINDER_SLA_MS = 24 * 60 * 60 * 1000;
+export { TASK_REMINDER_SLA_HOURS, TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 const REMINDER_LIMIT_PER_CATEGORY = 20;
 
 export type TaskReminderCategory =

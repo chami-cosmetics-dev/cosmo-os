@@ -32,6 +32,7 @@ type PrintOrder = {
   lastPrintedAt: string | null;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  merchantCouponCode?: string | null;
   financialStatus: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -40,6 +41,17 @@ type PrintOrder = {
 
 function orderLabel(order: PrintOrder): string {
   return formatFulfillmentOrderReferenceText(order);
+}
+
+function printMerchantLabel(order: PrintOrder): string {
+  const assigned =
+    order.assignedMerchant?.name?.trim() ||
+    order.assignedMerchant?.email?.trim() ||
+    null;
+  if (assigned) return assigned;
+  const coupon = order.merchantCouponCode?.trim();
+  if (coupon) return coupon;
+  return "—";
 }
 
 function fmtDate(iso: string) {
@@ -60,6 +72,39 @@ function fmtTime(iso: string) {
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const PRINT_QUEUE_PAGE_SIZE = 100;
+
+async function fetchAllPrintQueueOrders(search: string): Promise<PrintOrder[]> {
+  const allOrders: PrintOrder[] = [];
+  let page = 1;
+  let total = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      sort_by: "updated",
+      sort_order: "desc",
+      limit: String(PRINT_QUEUE_PAGE_SIZE),
+      page: String(page),
+      print_mode: "true",
+      unprinted_only: "true",
+    });
+    if (search.trim()) params.set("search", search.trim());
+
+    const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to load print queue");
+
+    const data = (await res.json()) as { orders?: PrintOrder[]; total?: number };
+    const batch = data.orders ?? [];
+    total = data.total ?? batch.length;
+    allOrders.push(...batch);
+
+    if (allOrders.length >= total || batch.length < PRINT_QUEUE_PAGE_SIZE) break;
+    page += 1;
+  }
+
+  return allOrders;
 }
 
 function PrintQueueInner() {
@@ -101,7 +146,10 @@ function PrintQueueInner() {
       try {
         const res = await fetch(`/api/admin/orders/${deepLinkOrderId}`);
         if (!res.ok) return;
-        const data = mapApiOrderToFulfillmentOrder(await res.json());
+        const payload = (await res.json()) as {
+          merchantCouponCode?: string | null;
+        } & Parameters<typeof mapApiOrderToFulfillmentOrder>[0];
+        const data = mapApiOrderToFulfillmentOrder(payload);
         if (cancelled) return;
         const printOrder: PrintOrder = {
           id: data.id,
@@ -117,6 +165,7 @@ function PrintQueueInner() {
           lastPrintedAt: null,
           companyLocation: data.companyLocation,
           assignedMerchant: data.assignedMerchant,
+          merchantCouponCode: payload.merchantCouponCode ?? null,
           financialStatus: null,
           paymentGatewayPrimary: data.paymentGatewayPrimary,
           paymentGatewayNames: data.paymentGatewayNames,
@@ -143,28 +192,37 @@ function PrintQueueInner() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      if (view === "queue") {
+        const nextOrders = await fetchAllPrintQueueOrders(debouncedSearch);
+        setOrders(nextOrders);
+        if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
+          setView("queue");
+          setSelected(new Set([deepLinkOrderId]));
+          appliedDeepLinkRef.current = deepLinkOrderId;
+        } else {
+          setSelected(new Set());
+          if (deepLinkOrderId) appliedDeepLinkRef.current = null;
+        }
+        return;
+      }
+
       const params = new URLSearchParams({
         sort_by: "updated",
         sort_order: "desc",
-        limit: "200",
+        limit: String(PRINT_QUEUE_PAGE_SIZE),
       });
 
       if (debouncedSearch.trim()) {
         params.set("search", debouncedSearch.trim());
       }
 
-      if (view === "queue") {
-        params.set("print_mode", "true");
-        params.set("unprinted_only", "true");
-      } else {
-        params.set("print_history_mode", "true");
-        const start = new Date(historyDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(historyDate);
-        end.setHours(23, 59, 59, 999);
-        params.set("last_printed_from", start.toISOString());
-        params.set("last_printed_to", end.toISOString());
-      }
+      params.set("print_history_mode", "true");
+      const start = new Date(historyDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(historyDate);
+      end.setHours(23, 59, 59, 999);
+      params.set("last_printed_from", start.toISOString());
+      params.set("last_printed_to", end.toISOString());
 
       const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`);
       if (!res.ok) {
@@ -174,14 +232,8 @@ function PrintQueueInner() {
       const data = (await res.json()) as { orders?: PrintOrder[] };
       const nextOrders = data.orders ?? [];
       setOrders(nextOrders);
-      if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
-        setView("queue");
-        setSelected(new Set([deepLinkOrderId]));
-        appliedDeepLinkRef.current = deepLinkOrderId;
-      } else {
-        setSelected(new Set());
-        if (deepLinkOrderId) appliedDeepLinkRef.current = null;
-      }
+      setSelected(new Set());
+      if (deepLinkOrderId) appliedDeepLinkRef.current = null;
     } catch {
       notify.error("Failed to load print queue");
     } finally {
@@ -492,7 +544,7 @@ function PrintQueueInner() {
                         {order.companyLocation?.name ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {order.assignedMerchant?.name ?? "—"}
+                        {printMerchantLabel(order)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {order.customerPhone ?? "—"}
