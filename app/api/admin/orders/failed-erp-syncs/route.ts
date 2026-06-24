@@ -73,6 +73,17 @@ export async function GET(request: NextRequest) {
         erpnextInvoiceId: true,
         createdAt: true,
         companyLocation: { select: { id: true, name: true } },
+        lineItems: {
+          select: {
+            productItem: {
+              select: {
+                sku: true,
+                productTitle: true,
+                variantTitle: true,
+              },
+            },
+          },
+        },
       },
     }),
   ]);
@@ -92,6 +103,11 @@ export async function GET(request: NextRequest) {
     erpnextInvoiceId: o.erpnextInvoiceId,
     createdAt: o.createdAt.toISOString(),
     companyLocation: o.companyLocation,
+    lineItems: o.lineItems.map((li) => ({
+      sku: li.productItem.sku,
+      productTitle: li.productItem.productTitle,
+      variantTitle: li.productItem.variantTitle,
+    })),
   }));
 
   return NextResponse.json({ items, total, page, limit });
