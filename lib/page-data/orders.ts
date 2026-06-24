@@ -20,6 +20,7 @@ import {
   isDeliveryFulfillmentStages,
   isDispatchFulfillmentStages,
   sampleQueueWhere,
+  printFulfillmentPipelineWhere,
 } from "@/lib/fulfillment-queue-filters";
 
 function pickOrderListCustomerName(order: {
@@ -349,7 +350,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     if (params.printMode) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
-        fulfillableOrderPipelineWhere,
+        printFulfillmentPipelineWhere,
       ];
     } else if (!isDispatchQueue && !isDeliveryQueue && !hasSampleQueueStage) {
       where.AND = [

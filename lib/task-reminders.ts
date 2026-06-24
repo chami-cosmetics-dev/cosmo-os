@@ -9,6 +9,7 @@ import {
 import {
   deliveryPipelineWhere,
   fulfillableOrderPipelineWhere,
+  printFulfillmentPipelineWhere,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage-timing";
@@ -247,9 +248,21 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<TaskRe
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...baseFulfillmentOrderWhere,
+      financialStatus: { not: "voided" },
+      packageOnHoldAt: null,
+      companyLocation: { fulfillmentBlocked: false },
       printCount: 0,
       totalPrice: { gte: 0 },
+      AND: [
+        printFulfillmentPipelineWhere,
+        {
+          NOT: {
+            approvalRequests: {
+              some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+            },
+          },
+        },
+      ],
       OR: [
         { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "print" },
         {
