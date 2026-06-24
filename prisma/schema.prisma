@@ -63,6 +63,7 @@ model Company {
   // in the allocation panel — drives the dashboard performance analysis chart
   contactAllocationUpdates ContactAllocationUpdate[]
   erpnextInstances         ErpnextInstance[]
+  pickListGroups           PickListGroup[]
 }
 
 model ErpnextInstance {
@@ -291,6 +292,7 @@ model User {
   productItemAssets               ProductItemAsset[]
   // Call center performance tracking: records updates made by this merchant user
   contactAllocationUpdates        ContactAllocationUpdate[]
+  pickListGroupsPrinted           PickListGroup[]         @relation("PickListGroupPrintedBy")
 }
 
 model CosmoAcademyExplanation {
@@ -541,6 +543,7 @@ model Order {
   approvalRequests             ApprovalRequest[]
   sampleFreeIssues             OrderSampleFreeIssue[]
   waybills                     OrderWaybill[]
+  pickListGroupOrders          PickListGroupOrder[]
 
   erpnextInvoiceId             String?
   erpnextSyncError             String?
@@ -559,6 +562,32 @@ model Order {
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
   @@index([erpnextInvoiceId])
   @@index([companyId, erpnextSyncNextAutoRetryAt])
+}
+
+model PickListGroup {
+  id           String    @id @default(cuid())
+  companyId    String
+  printedById  String
+  createdAt    DateTime  @default(now())
+  downloadedAt DateTime?
+
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  printedBy User                 @relation("PickListGroupPrintedBy", fields: [printedById], references: [id])
+  orders    PickListGroupOrder[]
+
+  @@index([companyId, downloadedAt, createdAt(sort: Desc)])
+}
+
+model PickListGroupOrder {
+  id              String @id @default(cuid())
+  pickListGroupId String
+  orderId         String
+
+  pickListGroup PickListGroup @relation(fields: [pickListGroupId], references: [id], onDelete: Cascade)
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([pickListGroupId, orderId])
+  @@index([orderId])
 }
 
 model OrderWaybill {
