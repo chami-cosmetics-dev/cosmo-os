@@ -30,16 +30,10 @@ export type FulfillmentStageBadge = {
   className: string;
 };
 
-/**
- * Orders list fulfillment badges:
- * - Shopify/manual: order_received → Order Received; sample work → Sample/Free Issue; then Print onward.
- * - Bank/KOKO pending approval → Pending Approval (not in sample queue until approved).
- * - ERP + approved bank/KOKO after sample step: Sample/Free Issue + current stage (usually Print).
- */
+/** Orders list shows the current fulfillment stage only. Sample completion is tracked in order details timeline. */
 export function getOrderListFulfillmentStageBadges(input: {
   fulfillmentStage?: string | null;
   pendingPaymentApproval?: boolean;
-  sampleFreeIssueCompleteAt?: string | null;
   totalPrice?: string | number | null;
 }): FulfillmentStageBadge[] {
   const total = Number(input.totalPrice ?? 0);
@@ -65,41 +59,11 @@ export function getOrderListFulfillmentStageBadges(input: {
 
   const stage = input.fulfillmentStage ?? "order_received";
 
-  if (stage === "order_received") {
-    return [
-      {
-        key: "order_received",
-        label: FULFILLMENT_STAGE_LABELS.order_received,
-        className: FULFILLMENT_STAGE_COLORS.order_received,
-      },
-    ];
-  }
-
-  if (stage === "sample_free_issue") {
-    return [
-      {
-        key: "sample_free_issue",
-        label: FULFILLMENT_STAGE_LABELS.sample_free_issue,
-        className: FULFILLMENT_STAGE_COLORS.sample_free_issue,
-      },
-    ];
-  }
-
-  const badges: FulfillmentStageBadge[] = [];
-
-  if (input.sampleFreeIssueCompleteAt) {
-    badges.push({
-      key: "sample_free_issue_done",
-      label: FULFILLMENT_STAGE_LABELS.sample_free_issue,
-      className: FULFILLMENT_STAGE_COLORS.sample_free_issue,
-    });
-  }
-
-  badges.push({
-    key: stage,
-    label: FULFILLMENT_STAGE_LABELS[stage] ?? stage,
-    className: FULFILLMENT_STAGE_COLORS[stage] ?? "bg-secondary text-secondary-foreground",
-  });
-
-  return badges;
+  return [
+    {
+      key: stage,
+      label: FULFILLMENT_STAGE_LABELS[stage] ?? stage,
+      className: FULFILLMENT_STAGE_COLORS[stage] ?? "bg-secondary text-secondary-foreground",
+    },
+  ];
 }

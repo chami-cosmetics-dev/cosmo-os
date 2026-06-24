@@ -28,11 +28,19 @@ describe("getOrderListFulfillmentStageBadges", () => {
     expect(badges[0]?.label).toBe("Sample/Free Issue");
   });
 
-  it("shows sample and print after sample step is complete", () => {
+  it("shows only the current stage after sample is marked complete", () => {
+    const badges = getOrderListFulfillmentStageBadges({
+      fulfillmentStage: "dispatched",
+    });
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.label).toBe("Dispatched");
+  });
+
+  it("shows only print when order is in print queue", () => {
     const badges = getOrderListFulfillmentStageBadges({
       fulfillmentStage: "print",
-      sampleFreeIssueCompleteAt: "2026-06-24T10:00:00.000Z",
     });
-    expect(badges.map((b) => b.label)).toEqual(["Sample/Free Issue", "Print"]);
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.label).toBe("Print");
   });
 });

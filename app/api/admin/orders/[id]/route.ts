@@ -46,6 +46,7 @@ const orderSelect = {
   rawPayload: true,
   createdAt: true,
   fulfillmentStage: true,
+  fulfillmentStageEnteredAt: true,
   printCount: true,
   packageReadyAt: true,
   packageOnHoldAt: true,
@@ -359,6 +360,7 @@ export async function GET(
       return null;
     })(),
     fulfillmentStage: details.fulfillmentStage,
+    fulfillmentStageEnteredAt: details.fulfillmentStageEnteredAt?.toISOString() ?? null,
     printCount: details.printCount,
     packageReadyAt: details.packageReadyAt?.toISOString() ?? null,
     packageReadyBy: details.packageReadyBy
