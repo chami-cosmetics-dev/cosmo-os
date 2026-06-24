@@ -13,10 +13,12 @@ import {
   dispatchSelectionToApiBody,
   parseDispatchService,
 } from "@/lib/order-dispatch";
+import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
 type OrderPackageStatus = {
   packageReadyAt: string | null;
+  lastPrintedAt: string | null;
   packageOnHoldAt: string | null;
   packageHoldReason: { id: string; name: string } | null;
 };
@@ -69,7 +71,12 @@ export function FulfillmentDispatchPanel({
 
   const isBusy = busyKey !== null;
   const isOnHold = !!packageStatus?.packageOnHoldAt;
-  const isPackageReady = !!packageStatus?.packageReadyAt;
+  const isPackageReady = packageStatus
+    ? isExplicitlyPackageReady({
+        packageReadyAt: packageStatus.packageReadyAt,
+        lastPrintedAt: packageStatus.lastPrintedAt,
+      })
+    : false;
 
   useEffect(() => {
     fetch("/api/admin/orders/fulfillment-lookups")
@@ -91,6 +98,7 @@ export function FulfillmentDispatchPanel({
         setDetail(data);
         setPackageStatus({
           packageReadyAt: data.packageReadyAt ?? null,
+          lastPrintedAt: data.lastPrintedAt ?? null,
           packageOnHoldAt: data.packageOnHoldAt ?? null,
           packageHoldReason: data.packageHoldReason ?? null,
         });
@@ -132,13 +140,24 @@ export function FulfillmentDispatchPanel({
         const reason = lookups.packageHoldReasons.find((r) => r.id === body.holdReasonId);
         setPackageStatus({
           packageReadyAt: null,
+          lastPrintedAt: packageStatus?.lastPrintedAt ?? null,
           packageOnHoldAt: now,
           packageHoldReason: reason ? { id: reason.id, name: reason.name } : null,
         });
       } else if (action === "revert_hold") {
-        setPackageStatus({ packageReadyAt: null, packageOnHoldAt: null, packageHoldReason: null });
+        setPackageStatus({
+          packageReadyAt: null,
+          lastPrintedAt: packageStatus?.lastPrintedAt ?? null,
+          packageOnHoldAt: null,
+          packageHoldReason: null,
+        });
       } else if (action === "mark_ready") {
-        setPackageStatus({ packageReadyAt: now, packageOnHoldAt: null, packageHoldReason: null });
+        setPackageStatus({
+          packageReadyAt: now,
+          lastPrintedAt: packageStatus?.lastPrintedAt ?? null,
+          packageOnHoldAt: null,
+          packageHoldReason: null,
+        });
       }
       return true;
     } catch {
