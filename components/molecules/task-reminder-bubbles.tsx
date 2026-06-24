@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { TaskReminderBubbleIcon } from "@/components/molecules/task-reminder-bubble-icon";
 import { Button } from "@/components/ui/button";
+import { useTaskReminderSafeArea } from "@/components/providers/task-reminder-safe-area-provider";
 import { useIdleScreenBounce } from "@/hooks/use-idle-screen-bounce";
 import { cn } from "@/lib/utils";
 
@@ -211,6 +212,7 @@ function NodeConnectors({ nodeCount }: { nodeCount: number }) {
 }
 
 export function TaskReminderBubbles() {
+  const { setReminderHudVisible } = useTaskReminderSafeArea();
   const [reminders, setReminders] = useState<TaskReminder[]>([]);
   const [nodesOpen, setNodesOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -271,7 +273,14 @@ export function TaskReminderBubbles() {
     setActiveCategory((current) => (current === category ? null : category));
   }, []);
 
-  if (loading || reminders.length === 0) {
+  const hudVisible = !loading && reminders.length > 0;
+
+  useEffect(() => {
+    setReminderHudVisible(hudVisible);
+    return () => setReminderHudVisible(false);
+  }, [hudVisible, setReminderHudVisible]);
+
+  if (!hudVisible) {
     return null;
   }
 
