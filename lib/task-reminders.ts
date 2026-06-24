@@ -179,7 +179,14 @@ async function fetchSampleReminders(
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...baseFulfillmentOrderWhere,
+      financialStatus: { not: "voided" },
+      packageOnHoldAt: null,
+      companyLocation: { fulfillmentBlocked: false },
+      NOT: {
+        approvalRequests: {
+          some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+        },
+      },
       ...sampleQueueWhere,
       sourceName: { in: ["web", "manual"] },
       fulfillmentStage: { in: ["order_received", "sample_free_issue"] },

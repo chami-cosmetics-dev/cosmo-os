@@ -342,12 +342,16 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     const isDispatchQueue = params.dispatchMode || isDispatchFulfillmentStages(stages);
     const isDeliveryQueue = isDeliveryFulfillmentStages(stages);
 
+    const hasSampleQueueStage = stages.some(
+      (s) => s === "order_received" || s === "sample_free_issue",
+    );
+
     if (params.printMode) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
       ];
-    } else if (!isDispatchQueue && !isDeliveryQueue) {
+    } else if (!isDispatchQueue && !isDeliveryQueue && !hasSampleQueueStage) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,

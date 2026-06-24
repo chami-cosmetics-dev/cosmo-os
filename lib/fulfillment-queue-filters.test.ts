@@ -3,8 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   deliveryStageOrWhere,
   dispatchStageOrWhere,
+  excludeErpOutOfStockBlockedOrdersWhere,
+  fulfillableOrderPipelineWhere,
   isDeliveryFulfillmentStages,
   isDispatchFulfillmentStages,
+  sampleFulfillmentPipelineWhere,
+  sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 
 describe("isDispatchFulfillmentStages", () => {
@@ -45,5 +49,44 @@ describe("dispatchStageOrWhere", () => {
 describe("deliveryStageOrWhere", () => {
   it("includes dispatched orders by stage and dispatchedAt", () => {
     expect(deliveryStageOrWhere.OR).toHaveLength(2);
+  });
+});
+
+describe("sampleFulfillmentPipelineWhere", () => {
+  it("does not hide Shopify-fulfilled orders at early Vault stages", () => {
+    expect(fulfillableOrderPipelineWhere).toMatchObject({
+      fulfillmentStatus: { not: "fulfilled" },
+    });
+    expect(sampleFulfillmentPipelineWhere).not.toHaveProperty("fulfillmentStatus");
+  });
+});
+
+describe("sampleQueueWhere", () => {
+  it("requires sample step incomplete and no dispatch milestones", () => {
+    expect(sampleQueueWhere).toMatchObject({
+      sampleFreeIssueCompleteAt: null,
+      dispatchedAt: null,
+      deliveryCompleteAt: null,
+      invoiceCompleteAt: null,
+    });
+    expect(sampleQueueWhere).not.toHaveProperty("fulfillmentStatus");
+  });
+});
+
+describe("excludeErpOutOfStockBlockedOrdersWhere", () => {
+  it("only blocks when sync error is present and matches OOS patterns", () => {
+    expect(excludeErpOutOfStockBlockedOrdersWhere).toEqual({
+      NOT: {
+        AND: [
+          { erpnextSyncError: { not: null } },
+          {
+            OR: [
+              { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
+              { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+            ],
+          },
+        ],
+      },
+    });
   });
 });
