@@ -62,11 +62,14 @@ export function resolvePackageReadyMilestoneDate(input: {
   lastPrintedAt?: string | Date | null;
   dispatchedAt?: string | Date | null;
   packageOnHoldAt?: string | Date | null;
-}): string | Date | null {
-  if (input.packageOnHoldAt) return input.packageOnHoldAt;
-  if (isExplicitlyPackageReady(input)) return input.packageReadyAt ?? null;
-  if (input.dispatchedAt) return input.dispatchedAt;
-  return null;
+}): string | null {
+  const raw = input.packageOnHoldAt
+    ? input.packageOnHoldAt
+    : isExplicitlyPackageReady(input)
+      ? input.packageReadyAt ?? null
+      : input.dispatchedAt ?? null;
+  if (!raw) return null;
+  return typeof raw === "string" ? raw : raw.toISOString();
 }
 
 function resolveListFulfillmentStage(input: {

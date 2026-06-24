@@ -140,13 +140,24 @@ export function FulfillmentDispatchPanel({
         const reason = lookups.packageHoldReasons.find((r) => r.id === body.holdReasonId);
         setPackageStatus({
           packageReadyAt: null,
+          lastPrintedAt: packageStatus?.lastPrintedAt ?? null,
           packageOnHoldAt: now,
           packageHoldReason: reason ? { id: reason.id, name: reason.name } : null,
         });
       } else if (action === "revert_hold") {
-        setPackageStatus({ packageReadyAt: null, packageOnHoldAt: null, packageHoldReason: null });
+        setPackageStatus({
+          packageReadyAt: null,
+          lastPrintedAt: packageStatus?.lastPrintedAt ?? null,
+          packageOnHoldAt: null,
+          packageHoldReason: null,
+        });
       } else if (action === "mark_ready") {
-        setPackageStatus({ packageReadyAt: now, packageOnHoldAt: null, packageHoldReason: null });
+        setPackageStatus({
+          packageReadyAt: now,
+          lastPrintedAt: packageStatus?.lastPrintedAt ?? null,
+          packageOnHoldAt: null,
+          packageHoldReason: null,
+        });
       }
       return true;
     } catch {
