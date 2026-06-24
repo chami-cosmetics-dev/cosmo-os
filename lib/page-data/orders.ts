@@ -241,11 +241,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   ] as const;
 
   if (params.printMode) {
-    // Shopify: only at print stage, unprinted
-    // ERP: at order_received / ready_to_dispatch / print, unprinted (covers old and new orders)
+    // Shopify/manual: advance to print after samples; ERP: import marks sample done + print.
     where.OR = [
       { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "print", printCount: 0 },
-      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch", "print"] }, printCount: 0 },
+      { sourceName: "erpnext", fulfillmentStage: "print", printCount: 0 },
     ];
     where.financialStatus = { not: "voided" };
     where.totalPrice = { gte: 0 };
@@ -289,7 +288,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ];
       } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      // Sample page (only sample stages) = Shopify only; other pages include ERP non-POS
+      // Sample / free-issue queue — Shopify & manual only (ERP skips this step).
       const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
       const hasDispatchStage = stages.includes("ready_to_dispatch");
       where.sourceName = (hasSampleStage && !hasDispatchStage)
@@ -402,6 +401,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     createdAt: true,
     customer: { select: { firstName: true, lastName: true } },
     fulfillmentStage: true,
+    sampleFreeIssueCompleteAt: true,
     printCount: true,
     lastPrintedAt: true,
     packageOnHoldAt: true,
@@ -483,6 +483,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     sampleFreeIssueSendLaterDate: o.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
     packageHoldReason: o.packageHoldReason,
     fulfillmentStage: o.fulfillmentStage,
+    sampleFreeIssueCompleteAt: o.sampleFreeIssueCompleteAt?.toISOString() ?? null,
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
     pendingPaymentApproval: o.approvalRequests.some((a) => a.type === ORDER_PAYMENT_APPROVAL),

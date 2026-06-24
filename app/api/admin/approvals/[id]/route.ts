@@ -153,10 +153,15 @@ export async function PATCH(
 
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
-        // Koko/bank orders skip sample — go straight to print (dispatch + print queue).
+        // Bank / KOKO: mark sample step complete and advance to print queue.
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: { financialStatus: "paid", ...orderStageUpdate("print", now) },
+          data: {
+            financialStatus: "paid",
+            ...orderStageUpdate("print", now),
+            sampleFreeIssueCompleteAt: now,
+            sampleFreeIssueCompleteById: reviewerId,
+          },
         });
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
         await tx.order.update({
