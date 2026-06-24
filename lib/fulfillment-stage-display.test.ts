@@ -43,4 +43,24 @@ describe("getOrderListFulfillmentStageBadges", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]?.label).toBe("Print");
   });
+
+  it("shows printed after invoice print before package ready", () => {
+    const badges = getOrderListFulfillmentStageBadges({
+      fulfillmentStage: "ready_to_dispatch",
+      printCount: 1,
+      packageReadyAt: null,
+    });
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.label).toBe("Printed");
+  });
+
+  it("shows ready to dispatch after package ready", () => {
+    const badges = getOrderListFulfillmentStageBadges({
+      fulfillmentStage: "ready_to_dispatch",
+      printCount: 1,
+      packageReadyAt: "2026-06-24T00:00:00.000Z",
+    });
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.label).toBe("Ready to Dispatch");
+  });
 });

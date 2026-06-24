@@ -92,7 +92,7 @@ export function DispatchFulfillmentPage({
               description={
                 queueMode === "rearrange"
                   ? "Returned orders that are ready to dispatch again after sales action."
-                  : "Select an order to put on hold, mark ready, or dispatch via rider or courier."
+                  : "Select an order to put on hold, mark package ready, or dispatch via rider or courier."
               }
               stages="print,ready_to_dispatch"
               selectedOrderId={selectedOrder?.id ?? null}

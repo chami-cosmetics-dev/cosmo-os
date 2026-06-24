@@ -123,6 +123,9 @@ export function FulfillmentDispatchPanel({
         onRefresh(true);
         return true;
       }
+      if (action === "mark_ready") {
+        onRefresh(false);
+      }
 
       const now = new Date().toISOString();
       if (action === "put_on_hold" && body?.holdReasonId) {
@@ -336,19 +339,37 @@ export function FulfillmentDispatchPanel({
                 >
                   {busyKey === "put_on_hold" ? <Loader2 className="size-4 animate-spin" /> : "Put on Hold"}
                 </Button>
-              ) : perms.canDispatch ? (
-                <Button
-                  onClick={() => void handleDispatch()}
-                  disabled={!orderId || isBusy || !selectedDispatchService}
-                  className="gap-2"
-                >
-                  {busyKey === "dispatch"
-                    ? <Loader2 className="size-4 animate-spin" />
-                    : <Truck className="size-4" />}
-                  Dispatch
-                </Button>
               ) : (
-                <p className="text-sm text-muted-foreground">You do not have permission to dispatch orders.</p>
+                <>
+                  {!isPackageReady && perms.canMarkReady && (
+                    <Button
+                      variant="outline"
+                      onClick={() => void doAction("mark_ready", { action: "mark_ready" })}
+                      disabled={!orderId || isBusy}
+                    >
+                      {busyKey === "mark_ready" ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        "Package Ready"
+                      )}
+                    </Button>
+                  )}
+                  {perms.canDispatch && (
+                    <Button
+                      onClick={() => void handleDispatch()}
+                      disabled={!orderId || isBusy || !selectedDispatchService}
+                      className="gap-2"
+                    >
+                      {busyKey === "dispatch"
+                        ? <Loader2 className="size-4 animate-spin" />
+                        : <Truck className="size-4" />}
+                      Dispatch
+                    </Button>
+                  )}
+                  {!perms.canDispatch && (
+                    <p className="text-sm text-muted-foreground">You do not have permission to dispatch orders.</p>
+                  )}
+                </>
               )}
             </>
           )}

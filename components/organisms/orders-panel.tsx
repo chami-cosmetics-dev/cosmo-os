@@ -723,6 +723,8 @@ export function OrdersPanel({
                               fulfillmentStage: order.fulfillmentStage,
                               pendingPaymentApproval: order.pendingPaymentApproval,
                               totalPrice: order.totalPrice,
+                              printCount: order.printCount,
+                              packageReadyAt: order.packageReadyAt,
                             }).map((badge) => (
                               <span
                                 key={badge.key}

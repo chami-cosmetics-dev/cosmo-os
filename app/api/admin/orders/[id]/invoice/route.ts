@@ -232,13 +232,7 @@ export async function GET(
       stage === "order_received" || stage === "sample_free_issue"
         ? orderStageUpdate("print", printedAt)
         : stage === "print"
-          ? {
-              ...orderStageUpdate("ready_to_dispatch", printedAt),
-              packageReadyAt: printedAt,
-              packageReadyById: userId,
-              packageOnHoldAt: null,
-              packageHoldReasonId: null,
-            }
+          ? orderStageUpdate("ready_to_dispatch", printedAt)
           : {};
     await prisma.order.update({
       where: { id: order.id },

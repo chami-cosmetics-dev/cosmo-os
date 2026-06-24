@@ -326,7 +326,7 @@ function PrintQueueInner() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Order Print</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Select invoices to print. Printed orders automatically advance to dispatch.
+            Select invoices to print. Printed orders move to dispatch as &ldquo;Printed&rdquo; — use Package Ready on single dispatch when needed.
           </p>
         </div>
         <Button
