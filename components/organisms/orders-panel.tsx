@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
+import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -37,6 +38,7 @@ type Order = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   fulfillmentStage?: string | null;
+  sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   customerName: string | null;
@@ -51,30 +53,6 @@ type Order = {
   erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
-};
-
-const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
-  order_received: "Order Received",
-  sample_free_issue: "Sample/Free Issue",
-  print: "Print",
-  returned_to_store: "Returned to Store",
-  returned: "Returned",
-  ready_to_dispatch: "Ready to Dispatch",
-  dispatched: "Dispatched",
-  invoice_complete: "Invoice Complete",
-  delivery_complete: "Delivery Complete",
-};
-
-const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
-  order_received:    "bg-slate-100  text-slate-700  dark:bg-slate-800      dark:text-slate-300",
-  sample_free_issue: "bg-purple-100 text-purple-800 dark:bg-purple-900/30  dark:text-purple-300",
-  print:             "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-300",
-  returned_to_store: "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-300",
-  returned:          "bg-rose-100   text-rose-800   dark:bg-rose-900/30    dark:text-rose-300",
-  ready_to_dispatch: "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-300",
-  dispatched:        "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30  dark:text-indigo-300",
-  delivery_complete: "bg-teal-100   text-teal-800   dark:bg-teal-900/30    dark:text-teal-300",
-  invoice_complete:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
 };
 
 const ALL_FILTER_VALUE = "__all";
@@ -741,17 +719,19 @@ export function OrdersPanel({
                         </td>
                         <td className="hidden lg:table-cell px-4 py-2">
                           <div className="flex flex-col gap-1">
-                            {parseFloat(order.totalPrice) < 0 ? (
-                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                Credit Note
+                            {getOrderListFulfillmentStageBadges({
+                              fulfillmentStage: order.fulfillmentStage,
+                              pendingPaymentApproval: order.pendingPaymentApproval,
+                              sampleFreeIssueCompleteAt: order.sampleFreeIssueCompleteAt,
+                              totalPrice: order.totalPrice,
+                            }).map((badge) => (
+                              <span
+                                key={badge.key}
+                                className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                              >
+                                {badge.label}
                               </span>
-                            ) : order.fulfillmentStage ? (
-                              <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${FULFILLMENT_STAGE_COLORS[order.fulfillmentStage] ?? "bg-secondary text-secondary-foreground"}`}>
-                                {FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
+                            ))}
                             {(() => {
                               const allCodes = Array.isArray(order.discountCodes)
                                 ? (order.discountCodes as Array<{ code?: string }>)
