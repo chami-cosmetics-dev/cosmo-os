@@ -17,6 +17,7 @@ export default async function FulfillmentIndexPage() {
   if (permissions.canViewOrderPrint) redirect("/dashboard/fulfillment/print");
   if (permissions.canViewReadyDispatch) redirect("/dashboard/fulfillment/dispatch");
   if (permissions.canViewDeliveryInvoice) redirect("/dashboard/fulfillment/delivery-invoice");
+  if (permissions.canViewInvoiceComplete) redirect("/dashboard/fulfillment/invoice-complete");
   if (permissions.canViewFalconUpload) redirect("/dashboard/fulfillment/falcon-upload");
 
   return <PermissionDeniedCard />;

@@ -553,6 +553,10 @@ model Order {
   erpnextSyncNextAutoRetryAt   DateTime?
   erpnextSyncRetryLeaseExpiresAt DateTime?
 
+  erpPeSyncError                 String?
+  erpPeSyncFailedAt              DateTime?
+  erpPeSyncMop                   String?
+
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, sampleFreeIssueSendLaterDate])
