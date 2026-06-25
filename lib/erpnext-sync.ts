@@ -681,6 +681,11 @@ function detectDeliveryMop(
   return null;
 }
 
+export type CreateDeliveryPaymentEntryOptions = {
+  /** Explicit ERP Mode of Payment name (finance invoice-complete / PE retry). */
+  mopNameOverride?: string;
+};
+
 export async function createDeliveryPaymentEntry(
   order: {
     name: string | null;
@@ -691,19 +696,35 @@ export async function createDeliveryPaymentEntry(
   },
   location: LocationWithErpInstance,
   completedAt: Date,
+  options?: CreateDeliveryPaymentEntryOptions,
 ): Promise<void> {
   const cfg = getErpConfig(location.erpnextInstance);
-  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
-  if (!location.erpnextCompany) return;
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    if (options?.mopNameOverride) {
+      throw new Error("ERPNext credentials are not configured for this location");
+    }
+    return;
+  }
+  if (!location.erpnextCompany) {
+    if (options?.mopNameOverride) {
+      throw new Error("ERPNext company is not configured for this location");
+    }
+    return;
+  }
 
   const isErpOrder = order.sourceName?.startsWith("erpnext") ?? false;
 
-  // For ERP2 delivery orders there are no Shopify payment gateways — fall back to codMop
-  let mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
-  if (!mopName && isErpOrder) {
-    mopName = cfg.codMop || null;
+  let mopName: string | null = options?.mopNameOverride?.trim() || null;
+  if (!mopName) {
+    mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+    if (!mopName && isErpOrder) {
+      mopName = cfg.codMop || null;
+    }
   }
   if (!mopName) {
+    if (options?.mopNameOverride) {
+      throw new Error(`ERPNext Mode of Payment "${options.mopNameOverride}" is not configured`);
+    }
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return;
   }

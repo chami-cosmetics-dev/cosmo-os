@@ -18,20 +18,20 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
-import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
+import { markOrderDelivered } from "@/lib/mark-order-delivered";
+import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
+import {
+  isAllowedCompanyErpPaymentMode,
+  listCompanyErpPaymentModes,
+} from "@/lib/erp-payment-modes";
 import {
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
-  getOrderPaymentApproval,
-  getPendingDeliveryPaymentApproval,
   isOrderPaymentRequiresApproval,
-  orderRequiresDeliveryPaymentApproval,
 } from "@/lib/approval-workflow";
-import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
-import { markOrderDelivered } from "@/lib/mark-order-delivered";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -74,6 +74,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("mark_invoice_complete"),
+    modeOfPayment: z.string().trim().min(1).max(200),
   }),
   z.object({
     action: z.literal("mark_delivered"),
@@ -123,7 +124,7 @@ function getRequiredPermissionsForAction(action: string): string[] {
     case "mark_delivered":
       return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
-      return ["finance.approvals.manage"];
+      return ["fulfillment.delivery_invoice.mark_complete"];
     case "complete_pos":
       return ["orders.manage"];
     case "revert_to_stage":
@@ -940,57 +941,23 @@ export async function PATCH(
     }
 
     if (data.action === "mark_invoice_complete") {
-      if (order.fulfillmentStage !== "delivery_complete") {
-        return NextResponse.json(
-          { error: "Delivery must be marked complete before invoice complete" },
-          { status: 400 }
-        );
+      const paymentModes = await listCompanyErpPaymentModes(companyId);
+      if (!isAllowedCompanyErpPaymentMode(paymentModes, data.modeOfPayment)) {
+        return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
       }
-      if (orderRequiresDeliveryPaymentApproval(order)) {
-        const pendingDeliveryApproval = await getPendingDeliveryPaymentApproval(order.id);
-        if (pendingDeliveryApproval) {
-          return NextResponse.json(
-            { error: "Finance must confirm delivery payment before marking invoice complete." },
-            { status: 409 }
-          );
-        }
-        return NextResponse.json(
-          { error: "Order payment is not confirmed. Finance must mark this order as paid first." },
-          { status: 409 }
-        );
-      }
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          ...orderStageUpdate("invoice_complete", now),
-          fulfillmentStatus: "fulfilled",
-          invoiceCompleteAt: now,
-          invoiceCompleteById: auth.context!.user!.id,
-        },
-      });
-      await logOrderFulfillmentAudit({
+      const outcome = await markOrderInvoiceComplete({
         companyId,
-        actorUserId: auth.context!.user!.id,
         orderId: order.id,
-        summary: `Marked invoice complete for order ${order.orderNumber ?? order.name ?? order.id}`,
-        beforeStage: order.fulfillmentStage,
-        afterStage: "invoice_complete",
-        metadata: { action: data.action },
+        userId: auth.context!.user!.id,
+        modeOfPayment: data.modeOfPayment,
       });
-
-      if (order.companyLocationId) {
-        const location = await prisma.companyLocation.findUnique({
-          where: { id: order.companyLocationId },
-          include: { erpnextInstance: true },
-        });
-        if (location) {
-          createDeliveryPaymentEntry(order, location, now).catch((err) =>
-            console.error("[ERPNext] delivery PE failed:", err),
-          );
-        }
+      if (!outcome.success) {
+        return NextResponse.json({ error: outcome.error }, { status: 400 });
       }
-
-      return NextResponse.json({ success: true });
+      return NextResponse.json({
+        success: true,
+        ...(outcome.erpPeError ? { erpPeError: outcome.erpPeError } : {}),
+      });
     }
 
     if (data.action === "mark_delivered") {

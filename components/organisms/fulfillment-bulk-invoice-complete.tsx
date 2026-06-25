@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronsUpDown, Loader2, X } from "lucide-react";
+import { Check, ChevronsUpDown, FileCheck, Loader2, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
+import { ErpPaymentModeSelect } from "@/components/molecules/erp-payment-mode-select";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,7 +24,7 @@ import {
 } from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
 
-type DispatchedOrder = {
+type AwaitingInvoiceOrder = {
   id: string;
   name: string | null;
   orderNumber: string | null;
@@ -42,39 +43,35 @@ type DispatchedOrder = {
   createdAt: string;
 };
 
-type DeliveryResult = {
+type InvoiceResult = {
   orderId: string;
   ref: string;
   success: boolean;
   error?: string;
-  needsPaymentApproval?: boolean;
-};
-
-type ShippingAddress = {
-  name?: string | null;
-  address1?: string | null;
-  address2?: string | null;
-  city?: string | null;
-  phone?: string | null;
+  erpPeError?: string;
 };
 
 type OrderDetail = {
   id: string;
-  name: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   resolvedCustomerPhone?: string | null;
-  shippingAddress: ShippingAddress | null;
+  shippingAddress: {
+    name?: string | null;
+    address1?: string | null;
+    address2?: string | null;
+    city?: string | null;
+    phone?: string | null;
+  } | null;
   createdAt: string;
   totalShipping: string | null;
   shippingRuleLabel?: string | null;
   currency?: string | null;
-  totalPrice: string;
   dispatchedAt: string | null;
+  deliveryCompleteAt?: string | null;
   dispatchedBy: { name: string | null } | null;
   dispatchedByRider: { name: string | null } | null;
   dispatchedByCourierService: { name: string } | null;
-  discountCodes: Array<{ code: string }> | null;
   lineItems: Array<{
     id: string;
     productTitle: string | null;
@@ -89,26 +86,27 @@ type OrderDetail = {
   }>;
 };
 
-interface FulfillmentBulkDeliveryProps {
+interface FulfillmentBulkInvoiceCompleteProps {
   onRefresh: () => void;
   initialOrderId?: string;
 }
 
-export function FulfillmentBulkDelivery({
+export function FulfillmentBulkInvoiceComplete({
   onRefresh,
   initialOrderId,
-}: FulfillmentBulkDeliveryProps) {
+}: FulfillmentBulkInvoiceCompleteProps) {
   const perms = useFulfillmentPermissions();
   const [comboOpen, setComboOpen] = useState(false);
   const [comboSearch, setComboSearch] = useState("");
-  const [comboOptions, setComboOptions] = useState<DispatchedOrder[]>([]);
+  const [comboOptions, setComboOptions] = useState<AwaitingInvoiceOrder[]>([]);
   const [comboLoading, setComboLoading] = useState(false);
-  const [selectedOrders, setSelectedOrders] = useState<DispatchedOrder[]>([]);
+  const [selectedOrders, setSelectedOrders] = useState<AwaitingInvoiceOrder[]>([]);
   const [completing, setCompleting] = useState(false);
-  const [results, setResults] = useState<DeliveryResult[] | null>(null);
+  const [results, setResults] = useState<InvoiceResult[] | null>(null);
   const [orderDetails, setOrderDetails] = useState<Record<string, OrderDetail>>({});
   const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [modeOfPayment, setModeOfPayment] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -116,9 +114,9 @@ export function FulfillmentBulkDelivery({
       setComboLoading(true);
       try {
         const params = new URLSearchParams({
-          delivery_mode: "true",
+          invoice_complete_mode: "true",
           limit: "50",
-          sort_by: "dispatched",
+          sort_by: "delivery_complete",
           sort_order: "desc",
         });
         if (comboSearch.trim()) params.set("search", comboSearch.trim());
@@ -127,7 +125,7 @@ export function FulfillmentBulkDelivery({
           if (!cancelled) setComboOptions([]);
           return;
         }
-        const data = (await res.json()) as { orders?: DispatchedOrder[] };
+        const data = (await res.json()) as { orders?: AwaitingInvoiceOrder[] };
         if (!cancelled) setComboOptions(data.orders ?? []);
       } catch {
         if (!cancelled) setComboOptions([]);
@@ -141,7 +139,7 @@ export function FulfillmentBulkDelivery({
     };
   }, [comboSearch]);
 
-  function orderLabel(order: DispatchedOrder) {
+  function orderLabel(order: AwaitingInvoiceOrder) {
     return formatFulfillmentOrderReferenceText(order);
   }
 
@@ -155,7 +153,7 @@ export function FulfillmentBulkDelivery({
       .finally(() => setDetailLoading((prev) => ({ ...prev, [orderId]: false })));
   }
 
-  function addOrder(order: DispatchedOrder) {
+  function addOrder(order: AwaitingInvoiceOrder) {
     if (selectedOrders.some((o) => o.id === order.id)) {
       setActiveOrderId(order.id);
       return;
@@ -182,17 +180,14 @@ export function FulfillmentBulkDelivery({
     setResults(null);
   }
 
-  function selectActive(id: string) {
-    setActiveOrderId(id);
-    fetchDetail(id);
-  }
+  const readyToComplete = selectedOrders.filter((o) => o.fulfillmentStage === "delivery_complete");
 
   useEffect(() => {
     if (!initialOrderId || selectedOrders.some((o) => o.id === initialOrderId)) return;
     let cancelled = false;
     fetch(`/api/admin/orders/${initialOrderId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((data: DispatchedOrder | null) => {
+      .then((data: AwaitingInvoiceOrder | null) => {
         if (!cancelled && data?.id) addOrder(data);
       })
       .catch(() => {});
@@ -202,45 +197,48 @@ export function FulfillmentBulkDelivery({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed deep-link order once
   }, [initialOrderId]);
 
-  const readyToComplete = selectedOrders.filter((o) => o.fulfillmentStage === "dispatched");
-
-  async function handleCompleteDelivery() {
-    if (readyToComplete.length === 0) return;
+  async function handleInvoiceComplete() {
+    if (readyToComplete.length === 0 || !modeOfPayment.trim()) return;
     setCompleting(true);
     setResults(null);
+    const mop = modeOfPayment.trim();
     try {
       if (readyToComplete.length === 1) {
         const order = readyToComplete[0]!;
         const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "mark_delivered" }),
+          body: JSON.stringify({ action: "mark_invoice_complete", modeOfPayment: mop }),
         });
-        const data = (await res.json()) as { error?: string; needsPaymentApproval?: boolean };
+        const data = (await res.json()) as { error?: string; erpPeError?: string };
         const ref = orderLabel(order);
         if (!res.ok) {
           setResults([{ orderId: order.id, ref, success: false, error: data.error }]);
-          notify.error(data.error ?? "Delivery complete failed.");
+          notify.error(data.error ?? "Invoice complete failed.");
           return;
         }
-        notify.success(
-          data.needsPaymentApproval
-            ? "Delivery recorded. Finance can invoice complete from the Invoice Complete tab."
-            : "Marked delivered."
-        );
-        setSelectedOrders((prev) => prev.filter((o) => o.id !== order.id));
+        if (data.erpPeError) {
+          notify.info(`Invoice complete for ${ref}. ERP PE failed — check Failed ERP Syncs → Payment Entry.`);
+          setResults([{ orderId: order.id, ref, success: true, erpPeError: data.erpPeError }]);
+        } else {
+          notify.success(`Invoice complete for ${ref}. ERP payment entry created.`);
+          setSelectedOrders((prev) => prev.filter((o) => o.id !== order.id));
+        }
         onRefresh();
         return;
       }
 
-      const res = await fetch("/api/admin/orders/bulk-delivery-complete", {
+      const res = await fetch("/api/admin/orders/bulk-invoice-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderIds: readyToComplete.map((o) => o.id) }),
+        body: JSON.stringify({
+          orderIds: readyToComplete.map((o) => o.id),
+          modeOfPayment: mop,
+        }),
       });
-      const data = (await res.json()) as { results?: DeliveryResult[]; error?: string };
+      const data = (await res.json()) as { results?: InvoiceResult[]; error?: string };
       if (!res.ok) {
-        notify.error(data.error ?? "Bulk delivery complete failed.");
+        notify.error(data.error ?? "Bulk invoice complete failed.");
         return;
       }
 
@@ -248,30 +246,36 @@ export function FulfillmentBulkDelivery({
       setResults(all);
       const succeeded = all.filter((r) => r.success).length;
       const failed = all.filter((r) => !r.success).length;
-      const awaitingFinance = all.filter((r) => r.success && r.needsPaymentApproval).length;
+      const erpWarnings = all.filter((r) => r.success && r.erpPeError).length;
 
       if (succeeded > 0) {
         const parts = [
-          `Marked ${succeeded} order${succeeded > 1 ? "s" : ""} delivered`,
+          `Invoice complete for ${succeeded} order${succeeded > 1 ? "s" : ""}`,
           failed > 0 ? `${failed} failed` : null,
-          awaitingFinance > 0 ? `${awaitingFinance} awaiting finance` : null,
+          erpWarnings > 0 ? `${erpWarnings} ERP PE warning${erpWarnings > 1 ? "s" : ""}` : null,
         ].filter(Boolean);
         notify.success(parts.join(", ") + ".");
         setSelectedOrders((prev) =>
-          prev.filter((o) => !all.find((r) => r.orderId === o.id && r.success))
+          prev.filter((o) => !all.find((r) => r.orderId === o.id && r.success && !r.erpPeError)),
         );
         onRefresh();
       } else {
-        notify.error(`All ${failed} delivery completion${failed > 1 ? "s" : ""} failed.`);
+        notify.error(`All ${failed} invoice completion${failed > 1 ? "s" : ""} failed.`);
       }
     } catch {
-      notify.error("Bulk delivery complete failed.");
+      notify.error("Bulk invoice complete failed.");
     } finally {
       setCompleting(false);
     }
   }
 
-  if (!perms.canMarkDelivered) return null;
+  if (!perms.canMarkInvoiceComplete) {
+    return (
+      <div className="rounded-md border border-border/70 p-4 text-sm text-muted-foreground">
+        You can view this page but need the <span className="font-medium">Mark invoice complete</span> permission to process orders.
+      </div>
+    );
+  }
 
   const activeOrder = selectedOrders.find((o) => o.id === activeOrderId) ?? null;
   const detail = activeOrderId ? (orderDetails[activeOrderId] ?? null) : null;
@@ -291,8 +295,18 @@ export function FulfillmentBulkDelivery({
 
   return (
     <div className="space-y-3 rounded-md border border-border/70 p-3">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div className="space-y-1.5">
+      <div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <FileCheck className="size-5 text-muted-foreground" aria-hidden />
+          Invoice complete (finance)
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Mark delivered orders as invoice complete. Vault payment mode stays unchanged; ERP payment entry uses the mode you select below.
+        </p>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+        <div className="space-y-1.5 lg:col-span-2">
           <p className="text-sm font-medium">Add orders</p>
           <Popover open={comboOpen} onOpenChange={setComboOpen}>
             <PopoverTrigger asChild>
@@ -304,7 +318,7 @@ export function FulfillmentBulkDelivery({
                 disabled={completing}
                 className="h-9 w-full justify-between border-border/70 bg-background font-normal"
               >
-                Search dispatched orders…
+                Search delivered orders awaiting invoice…
                 <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden />
               </Button>
             </PopoverTrigger>
@@ -321,7 +335,7 @@ export function FulfillmentBulkDelivery({
                       ? "Loading…"
                       : comboSearch.trim()
                         ? `No order found for "${comboSearch.trim()}".`
-                        : "No dispatched orders found."}
+                        : "No delivered orders awaiting invoice complete."}
                   </CommandEmpty>
                   <CommandGroup>
                     {comboLoading && (
@@ -358,19 +372,28 @@ export function FulfillmentBulkDelivery({
           </Popover>
         </div>
 
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium">ERP payment mode</p>
+          <ErpPaymentModeSelect
+            value={modeOfPayment}
+            onChange={setModeOfPayment}
+            disabled={completing}
+          />
+        </div>
+
         <Button
-          disabled={readyToComplete.length === 0 || completing}
-          onClick={() => void handleCompleteDelivery()}
+          disabled={readyToComplete.length === 0 || completing || !modeOfPayment.trim()}
+          onClick={() => void handleInvoiceComplete()}
           className="h-9 gap-2"
         >
           {completing ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
-            <Check className="size-4" />
+            <FileCheck className="size-4" />
           )}
           {readyToComplete.length > 0
-            ? `Complete ${readyToComplete.length} deliver${readyToComplete.length > 1 ? "ies" : "y"}`
-            : "Complete delivery"}
+            ? `Invoice complete (${readyToComplete.length})`
+            : "Invoice complete"}
         </Button>
       </div>
 
@@ -396,7 +419,10 @@ export function FulfillmentBulkDelivery({
             return (
               <span
                 key={order.id}
-                onClick={() => selectActive(order.id)}
+                onClick={() => {
+                  setActiveOrderId(order.id);
+                  fetchDetail(order.id);
+                }}
                 className={`inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 text-xs transition-colors ${
                   isActive
                     ? "border-primary bg-primary/10 font-medium text-primary"
@@ -404,8 +430,16 @@ export function FulfillmentBulkDelivery({
                 }`}
               >
                 {resultForOrder && (
-                  <span className={resultForOrder.success ? "text-emerald-500" : "text-destructive"}>
-                    {resultForOrder.success ? "✓" : "✗"}
+                  <span
+                    className={
+                      resultForOrder.success
+                        ? resultForOrder.erpPeError
+                          ? "text-amber-500"
+                          : "text-emerald-500"
+                        : "text-destructive"
+                    }
+                  >
+                    {resultForOrder.success ? (resultForOrder.erpPeError ? "!" : "✓") : "✗"}
                   </span>
                 )}
                 {orderLabel(order)}
@@ -427,23 +461,7 @@ export function FulfillmentBulkDelivery({
         </div>
       )}
 
-      <div className="space-y-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold">
-            <Check className="size-5 text-muted-foreground" aria-hidden />
-            Delivery & Invoice
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {activeOrder ? (
-              <>
-                Order <FulfillmentOrderReference order={activeOrder} variant="inline" />
-              </>
-            ) : (
-              "Add one or more dispatched orders, then complete delivery."
-            )}
-          </p>
-        </div>
-
+      {activeOrder && (
         <div className="relative grid gap-3 rounded-md border border-border/70 p-3 text-sm lg:grid-cols-2">
           {loading && (
             <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/70">
@@ -456,32 +474,20 @@ export function FulfillmentBulkDelivery({
           <div className="space-y-1">
             <FulfillmentOrderReference order={activeOrder} variant="labeled" />
             <p>
-              <span className="font-medium">Email:</span> {activeOrder?.customerEmail ?? "-"}
-            </p>
-            <p>
               <span className="font-medium">Phone:</span>{" "}
-              {detail?.resolvedCustomerPhone ??
-                activeOrder?.customerPhone ??
-                activeOrder?.shippingAddress?.phone ??
-                "-"}
+              {detail?.resolvedCustomerPhone ?? activeOrder.customerPhone ?? "-"}
             </p>
             <p>
               <span className="font-medium">Address:</span> {addrLine || "-"}
             </p>
             <p>
-              <span className="font-medium">Name:</span> {addr?.name ?? "-"}
+              <span className="font-medium">Payment:</span> {payment.label}
             </p>
           </div>
           <div className="space-y-1">
             <p>
-              <span className="font-medium">Order Date:</span>{" "}
-              {detail ? new Date(detail.createdAt).toLocaleDateString("en-LK") : "-"}
-            </p>
-            <p>
               <span className="font-medium">Total:</span>{" "}
-              {activeOrder
-                ? Number(activeOrder.totalPrice).toLocaleString("en-LK", { minimumFractionDigits: 2 })
-                : "-"}
+              {Number(activeOrder.totalPrice).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
             </p>
             <OrderShippingLine
               prefix="Delivery:"
@@ -494,84 +500,28 @@ export function FulfillmentBulkDelivery({
               }
             />
             <p>
-              <span className="font-medium">Payment:</span> {activeOrder ? payment.label : "-"}
+              <span className="font-medium">Dispatched via:</span> {dispatchVia}
             </p>
             <p>
-              <span className="font-medium">Dispatched via:</span> {activeOrder ? dispatchVia : "-"}
-            </p>
-            <p>
-              <span className="font-medium">Dispatched at:</span>{" "}
-              {detail?.dispatchedAt
-                ? new Date(detail.dispatchedAt).toLocaleString("en-LK")
+              <span className="font-medium">Delivered at:</span>{" "}
+              {detail?.deliveryCompleteAt
+                ? new Date(detail.deliveryCompleteAt).toLocaleString("en-LK")
                 : "-"}
             </p>
+          </div>
         </div>
-      </div>
-
-      {activeOrder?.fulfillmentStage === "delivery_complete" && (
-        <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-          This order is already delivered. Use Invoice complete (finance) below.
-        </p>
       )}
 
       {selectedOrders.length > 0 && readyToComplete.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          Selected order(s) are not awaiting delivery completion.
+          Selected order(s) are not awaiting invoice complete.
         </p>
       )}
 
-      <div className="overflow-hidden rounded-md border border-border/70">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="border-b border-border/70">
-                <th className="px-3 py-2 text-left font-medium">Brand</th>
-                <th className="px-3 py-2 text-left font-medium">Category</th>
-                <th className="px-3 py-2 text-left font-medium">Sub Category</th>
-                <th className="px-3 py-2 text-left font-medium">Code</th>
-                <th className="px-3 py-2 text-left font-medium">Item</th>
-                <th className="px-3 py-2 text-right font-medium">Qty</th>
-                <th className="px-3 py-2 text-right font-medium">U.Price</th>
-                <th className="px-3 py-2 text-right font-medium">Sub Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail?.lineItems?.map((li) => (
-                <tr key={li.id} className="border-b border-border/50 last:border-0">
-                  <td className="px-3 py-2 text-muted-foreground">{li.brand ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{li.category ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{li.subCategory ?? "—"}</td>
-                  <td className="px-3 py-2 font-mono text-xs">{li.sku ?? "—"}</td>
-                  <td className="px-3 py-2 font-medium">
-                    {li.productTitle}
-                    {li.variantTitle && li.variantTitle !== "Default Title" && (
-                      <span className="text-muted-foreground"> / {li.variantTitle}</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{li.quantity}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {Number(li.price).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums font-medium">
-                    {Number(li.total).toLocaleString("en-LK", { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              ))}
-              {(!detail || !detail.lineItems?.length) && (
-                <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
-                    {activeOrder ? "Loading items…" : "Select an order to view items."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {results && results.some((r) => !r.success) && (
+      {results && (results.some((r) => !r.success) || results.some((r) => r.erpPeError)) && (
         <div className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
           <div className="mb-1.5 flex items-center justify-between">
-            <p className="font-medium text-destructive">Failed deliveries</p>
+            <p className="font-medium text-destructive">Invoice complete issues</p>
             <button
               type="button"
               onClick={() => setResults(null)}
@@ -581,11 +531,12 @@ export function FulfillmentBulkDelivery({
             </button>
           </div>
           {results
-            .filter((r) => !r.success)
+            .filter((r) => !r.success || r.erpPeError)
             .map((r) => (
-              <p key={r.orderId} className="text-destructive">
-                ✗ {r.ref}
+              <p key={r.orderId} className={r.success ? "text-amber-700 dark:text-amber-300" : "text-destructive"}>
+                {r.success ? "!" : "✗"} {r.ref}
                 {r.error ? ` — ${r.error}` : ""}
+                {r.erpPeError ? ` — ERP PE: ${r.erpPeError}` : ""}
               </p>
             ))}
         </div>

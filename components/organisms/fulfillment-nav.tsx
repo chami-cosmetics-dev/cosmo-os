@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ClipboardList, FileSpreadsheet, ListChecks, Package, PackageCheck, PackageSearch, Printer, Truck } from "lucide-react";
+import { ClipboardList, FileCheck, FileSpreadsheet, ListChecks, Package, PackageCheck, PackageSearch, Printer, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FulfillmentNavPermissions } from "@/lib/fulfillment-permissions";
 
@@ -39,9 +39,15 @@ const NAV_ITEMS: Array<{
   },
   {
     href: "/dashboard/fulfillment/delivery-invoice",
-    label: "Delivery & Invoice",
+    label: "Delivery",
     icon: PackageCheck,
     permissionKey: "canViewDeliveryInvoice",
+  },
+  {
+    href: "/dashboard/fulfillment/invoice-complete",
+    label: "Invoice Complete",
+    icon: FileCheck,
+    permissionKey: "canViewInvoiceComplete",
   },
   {
     href: "/dashboard/fulfillment/waybill-lookup",
