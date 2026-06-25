@@ -5,7 +5,7 @@ import { Check, ChevronsUpDown, FileCheck, Loader2, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
-import { ErpPaymentModeSelect } from "@/components/molecules/erp-payment-mode-select";
+import { ErpPaymentModeSelect, ERP_PAYMENT_MODE_ORDER_DEFAULT, resolveErpPaymentModeForApi } from "@/components/molecules/erp-payment-mode-select";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import {
@@ -106,7 +106,7 @@ export function FulfillmentBulkInvoiceComplete({
   const [orderDetails, setOrderDetails] = useState<Record<string, OrderDetail>>({});
   const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
-  const [modeOfPayment, setModeOfPayment] = useState("");
+  const [modeOfPayment, setModeOfPayment] = useState(ERP_PAYMENT_MODE_ORDER_DEFAULT);
 
   useEffect(() => {
     let cancelled = false;
@@ -198,17 +198,18 @@ export function FulfillmentBulkInvoiceComplete({
   }, [initialOrderId]);
 
   async function handleInvoiceComplete() {
-    if (readyToComplete.length === 0 || !modeOfPayment.trim()) return;
+    if (readyToComplete.length === 0) return;
     setCompleting(true);
     setResults(null);
-    const mop = modeOfPayment.trim();
+    const mop = resolveErpPaymentModeForApi(modeOfPayment);
+    const payload = mop ? { modeOfPayment: mop } : {};
     try {
       if (readyToComplete.length === 1) {
         const order = readyToComplete[0]!;
         const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "mark_invoice_complete", modeOfPayment: mop }),
+          body: JSON.stringify({ action: "mark_invoice_complete", ...payload }),
         });
         const data = (await res.json()) as { error?: string; erpPeError?: string };
         const ref = orderLabel(order);
@@ -233,7 +234,7 @@ export function FulfillmentBulkInvoiceComplete({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderIds: readyToComplete.map((o) => o.id),
-          modeOfPayment: mop,
+          ...payload,
         }),
       });
       const data = (await res.json()) as { results?: InvoiceResult[]; error?: string };
@@ -301,7 +302,7 @@ export function FulfillmentBulkInvoiceComplete({
           Invoice complete (finance)
         </h2>
         <p className="text-sm text-muted-foreground">
-          Mark delivered orders as invoice complete. Vault payment mode stays unchanged; ERP payment entry uses the mode you select below.
+          Mark delivered orders as invoice complete. By default, each order&apos;s ERP payment entry uses its Vault payment mode (e.g. Cash → Cash). Override below only for special cases.
         </p>
       </div>
 
@@ -373,16 +374,17 @@ export function FulfillmentBulkInvoiceComplete({
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-sm font-medium">ERP payment mode</p>
+          <p className="text-sm font-medium">ERP payment mode override (optional)</p>
           <ErpPaymentModeSelect
             value={modeOfPayment}
             onChange={setModeOfPayment}
             disabled={completing}
+            allowOrderDefault
           />
         </div>
 
         <Button
-          disabled={readyToComplete.length === 0 || completing || !modeOfPayment.trim()}
+          disabled={readyToComplete.length === 0 || completing}
           onClick={() => void handleInvoiceComplete()}
           className="h-9 gap-2"
         >

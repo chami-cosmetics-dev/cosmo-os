@@ -16,7 +16,7 @@ import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-to
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
-import { ErpPaymentModeSelect } from "@/components/molecules/erp-payment-mode-select";
+import { ErpPaymentModeSelect, ERP_PAYMENT_MODE_ORDER_DEFAULT, resolveErpPaymentModeForApi } from "@/components/molecules/erp-payment-mode-select";
 import {
   getOrderDispatchLabel,
   formatDeliveredTimelineWho,
@@ -214,7 +214,7 @@ export function OrderFulfillmentDetail({
   const [holdReasonId, setHoldReasonId] = useState("");
   const [dispatchService, setDispatchService] = useState("");
   const [remarkContent, setRemarkContent] = useState("");
-  const [invoiceCompleteMop, setInvoiceCompleteMop] = useState("");
+  const [invoiceCompleteMop, setInvoiceCompleteMop] = useState(ERP_PAYMENT_MODE_ORDER_DEFAULT);
   const [remarkType, setRemarkType] = useState<"internal" | "external">("internal");
   const [remarkStage, setRemarkStage] = useState<FulfillmentStage>("order_received");
 
@@ -626,16 +626,18 @@ export function OrderFulfillmentDetail({
                       value={invoiceCompleteMop}
                       onChange={setInvoiceCompleteMop}
                       disabled={isBusy}
+                      allowOrderDefault
                     />
                     <Button
                       variant="outline"
-                      onClick={() =>
+                      onClick={() => {
+                        const mop = resolveErpPaymentModeForApi(invoiceCompleteMop);
                         doFulfillmentAction("mark_invoice_complete", {
                           action: "mark_invoice_complete",
-                          modeOfPayment: invoiceCompleteMop,
-                        })
-                      }
-                      disabled={isBusy || !invoiceCompleteMop.trim()}
+                          ...(mop ? { modeOfPayment: mop } : {}),
+                        });
+                      }}
+                      disabled={isBusy}
                     >
                       Mark Invoice Complete
                     </Button>
