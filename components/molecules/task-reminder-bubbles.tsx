@@ -10,10 +10,11 @@ import { useIdleScreenBounce } from "@/hooks/use-idle-screen-bounce";
 import { useVerticalDragPosition } from "@/hooks/use-vertical-drag-position";
 import { cn } from "@/lib/utils";
 import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminder-sla";
+import type { TaskReminderCategory } from "@/lib/task-reminders";
 
 type TaskReminder = {
   id: string;
-  category: string;
+  category: TaskReminderCategory;
   title: string;
   body: string;
   href: string;
@@ -25,7 +26,7 @@ type TaskReminder = {
 type TaskRemindersResponse = {
   reminders?: TaskReminder[];
   totalCount?: number;
-  visibleCategories?: string[];
+  visibleCategories?: TaskReminderCategory[];
 };
 
 const CATEGORY_ORDER = [
@@ -287,9 +288,9 @@ function useComposeRefs<T>(refA: React.Ref<T>, refB: React.Ref<T>) {
 
 export function TaskReminderBubbles() {
   const [reminders, setReminders] = useState<TaskReminder[]>([]);
-  const [visibleCategories, setVisibleCategories] = useState<string[]>([]);
+  const [visibleCategories, setVisibleCategories] = useState<TaskReminderCategory[]>([]);
   const [nodesOpen, setNodesOpen] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<TaskReminderCategory | null>(null);
   const [showAllPanel, setShowAllPanel] = useState(false);
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
@@ -360,7 +361,7 @@ export function TaskReminderBubbles() {
     setNodesOpen(false);
   }, []);
 
-  const toggleCategory = useCallback((category: string) => {
+  const toggleCategory = useCallback((category: TaskReminderCategory) => {
     setShowAllPanel(false);
     setActiveCategory((current) => (current === category ? null : category));
   }, []);
