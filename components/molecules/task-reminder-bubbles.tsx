@@ -25,6 +25,7 @@ type TaskReminder = {
 type TaskRemindersResponse = {
   reminders?: TaskReminder[];
   totalCount?: number;
+  visibleCategories?: string[];
 };
 
 const CATEGORY_ORDER = [
@@ -105,23 +106,29 @@ function ReminderListPanel({
       </div>
 
       <ul className="max-h-[min(24rem,55vh)] space-y-2 overflow-y-auto px-3 py-3">
-        {items.map((item) => (
-          <li key={item.id}>
-            <Link
-              href={item.href}
-              className={cn(
-                "block rounded-md border border-cyan-500/20 bg-slate-950/50 px-3 py-2.5 transition-all",
-                "hover:-translate-y-0.5 hover:border-cyan-400/45 hover:bg-cyan-950/40 hover:shadow-[0_0_16px_rgba(34,211,238,0.15)]",
-              )}
-            >
-              <span className="block text-sm font-medium text-cyan-50">{item.title}</span>
-              <span className="mt-1 block text-xs leading-relaxed text-cyan-100/65">{item.body}</span>
-              <span className="mt-2 inline-flex rounded border border-red-500/50 bg-red-950/50 px-2 py-0.5 font-mono text-[10px] font-bold text-red-300">
-                {item.waitingHours}h · OPEN_QUEUE
-              </span>
-            </Link>
+        {items.length === 0 ? (
+          <li className="rounded-md border border-dashed border-cyan-500/25 bg-slate-950/30 px-4 py-8 text-center text-sm text-cyan-200/70">
+            No overdue tasks in this queue ({TASK_REMINDER_SLA_HOURS}h+ SLA).
           </li>
-        ))}
+        ) : (
+          items.map((item) => (
+            <li key={item.id}>
+              <Link
+                href={item.href}
+                className={cn(
+                  "block rounded-md border border-cyan-500/20 bg-slate-950/50 px-3 py-2.5 transition-all",
+                  "hover:-translate-y-0.5 hover:border-cyan-400/45 hover:bg-cyan-950/40 hover:shadow-[0_0_16px_rgba(34,211,238,0.15)]",
+                )}
+              >
+                <span className="block text-sm font-medium text-cyan-50">{item.title}</span>
+                <span className="mt-1 block text-xs leading-relaxed text-cyan-100/65">{item.body}</span>
+                <span className="mt-2 inline-flex rounded border border-red-500/50 bg-red-950/50 px-2 py-0.5 font-mono text-[10px] font-bold text-red-300">
+                  {item.waitingHours}h · OPEN_QUEUE
+                </span>
+              </Link>
+            </li>
+          ))
+        )}
       </ul>
 
       <div className="border-t border-cyan-500/25 px-3 py-2">
@@ -151,6 +158,7 @@ function CategoryNode({
   active: boolean;
   onClick: () => void;
 }) {
+  const hasOverdue = count > 0;
   return (
     <button
       type="button"
@@ -159,8 +167,12 @@ function CategoryNode({
         "pointer-events-auto relative flex min-w-[9.5rem] items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all",
         "shadow-[0_4px_18px_rgba(0,0,0,0.35)]",
         active
-          ? "border-emerald-300/80 bg-[linear-gradient(135deg,#22c55e,#15803d)] text-white shadow-[0_0_20px_rgba(34,197,94,0.45)]"
-          : "border-emerald-500/40 bg-[linear-gradient(135deg,#16a34a,#166534)] text-emerald-50 hover:scale-[1.02] hover:border-emerald-300/70 hover:shadow-[0_0_16px_rgba(34,197,94,0.35)]",
+          ? hasOverdue
+            ? "border-emerald-300/80 bg-[linear-gradient(135deg,#22c55e,#15803d)] text-white shadow-[0_0_20px_rgba(34,197,94,0.45)]"
+            : "border-cyan-300/60 bg-[linear-gradient(135deg,#0e7490,#164e63)] text-cyan-50 shadow-[0_0_16px_rgba(34,211,238,0.25)]"
+          : hasOverdue
+            ? "border-emerald-500/40 bg-[linear-gradient(135deg,#16a34a,#166534)] text-emerald-50 hover:scale-[1.02] hover:border-emerald-300/70 hover:shadow-[0_0_16px_rgba(34,197,94,0.35)]"
+            : "border-cyan-500/30 bg-[linear-gradient(135deg,#0c4a6e,#082f49)] text-cyan-100/80 hover:scale-[1.02] hover:border-cyan-400/50",
       )}
     >
       <span className="text-sm font-semibold">{label}</span>
@@ -275,11 +287,14 @@ function useComposeRefs<T>(refA: React.Ref<T>, refB: React.Ref<T>) {
 
 export function TaskReminderBubbles() {
   const [reminders, setReminders] = useState<TaskReminder[]>([]);
+  const [visibleCategories, setVisibleCategories] = useState<string[]>([]);
   const [nodesOpen, setNodesOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showAllPanel, setShowAllPanel] = useState(false);
   const [loading, setLoading] = useState(true);
-  const hudVisible = !loading && reminders.length > 0;
+  const [authenticated, setAuthenticated] = useState(false);
+  const hudVisible = !loading && authenticated;
+  const hasOverdue = reminders.length > 0;
   const panelsOpen = nodesOpen || showAllPanel || activeCategory !== null;
   const {
     containerRef: dragContainerRef,
@@ -291,7 +306,7 @@ export function TaskReminderBubbles() {
     onDragHandlePointerCancel,
   } = useVerticalDragPosition(hudVisible);
   const { containerRef: bounceContainerRef, isBouncing, position } = useIdleScreenBounce({
-    enabled: hudVisible && !panelsOpen && !isDragging,
+    enabled: hudVisible && hasOverdue && !panelsOpen && !isDragging,
     idleMs: 60_000,
   });
   const containerRef = useComposeRefs(dragContainerRef, bounceContainerRef);
@@ -300,13 +315,19 @@ export function TaskReminderBubbles() {
     try {
       const response = await fetch("/api/admin/task-reminders", { cache: "no-store" });
       if (!response.ok) {
+        setAuthenticated(false);
         setReminders([]);
+        setVisibleCategories([]);
         return;
       }
+      setAuthenticated(true);
       const data = (await response.json()) as TaskRemindersResponse;
       setReminders(data.reminders ?? []);
+      setVisibleCategories(data.visibleCategories ?? []);
     } catch {
+      setAuthenticated(false);
       setReminders([]);
+      setVisibleCategories([]);
     }
   }, []);
 
@@ -322,16 +343,16 @@ export function TaskReminderBubbles() {
   }, [loadReminders]);
 
   const grouped = useMemo(() => groupReminders(reminders), [reminders]);
-  const visibleCategories = useMemo(
-    () => CATEGORY_ORDER.filter((category) => (grouped.get(category)?.length ?? 0) > 0),
-    [grouped],
+  const userCategories = useMemo(
+    () => CATEGORY_ORDER.filter((category) => visibleCategories.includes(category)),
+    [visibleCategories],
   );
 
   useEffect(() => {
-    if (activeCategory && !grouped.has(activeCategory)) {
+    if (activeCategory && !userCategories.includes(activeCategory)) {
       setActiveCategory(null);
     }
-  }, [activeCategory, grouped]);
+  }, [activeCategory, userCategories]);
 
   const closePanels = useCallback(() => {
     setActiveCategory(null);
@@ -370,20 +391,24 @@ export function TaskReminderBubbles() {
         <ReminderListPanel title="All overdue tasks" items={reminders} onClose={() => setShowAllPanel(false)} />
       )}
 
-      {activeCategory && activeItems.length > 0 && !showAllPanel && (
-        <ReminderListPanel title={panelTitle} items={activeItems} onClose={() => setActiveCategory(null)} />
+      {activeCategory && !showAllPanel && (
+        <ReminderListPanel
+          title={panelTitle}
+          items={activeItems}
+          onClose={() => setActiveCategory(null)}
+        />
       )}
 
       <div ref={hudRowRef} className="pointer-events-auto relative flex items-center">
-        {nodesOpen && visibleCategories.length > 0 && (
+        {nodesOpen && userCategories.length > 0 && (
           <>
             <NodeConnectors
               containerRef={hudRowRef}
               anchorRef={bubbleAnchorRef}
-              nodeCount={visibleCategories.length}
+              nodeCount={userCategories.length}
             />
             <div className="relative mr-14 flex flex-col gap-2 py-1">
-              {visibleCategories.map((category) => (
+              {userCategories.map((category) => (
                 <CategoryNode
                   key={category}
                   label={CATEGORY_NODE_LABELS[category] ?? CATEGORY_LABELS[category] ?? category}
@@ -394,6 +419,13 @@ export function TaskReminderBubbles() {
               ))}
             </div>
           </>
+        )}
+
+        {nodesOpen && userCategories.length === 0 && (
+          <div className="pointer-events-auto mr-14 max-w-[14rem] rounded-lg border border-cyan-500/30 bg-slate-950/90 px-3 py-3 text-xs text-cyan-200/75">
+            No reminder queues are assigned to your role. Ask an admin to add fulfillment or finance
+            permissions.
+          </div>
         )}
 
         <div className="flex flex-col items-center">
@@ -447,13 +479,27 @@ export function TaskReminderBubbles() {
             aria-expanded={nodesOpen}
             aria-label={`${reminders.length} overdue tasks. Drag vertically to move. ${nodesOpen ? "Hide categories" : "Show categories"}`}
           >
-            <span className="absolute inset-[-12px] -z-10 rounded-full bg-[radial-gradient(circle,rgba(239,68,68,0.25),rgba(34,211,238,0.3)_45%,transparent_72%)] blur-xl" />
+            <span
+              className={cn(
+                "absolute inset-[-12px] -z-10 rounded-full blur-xl",
+                hasOverdue
+                  ? "bg-[radial-gradient(circle,rgba(239,68,68,0.25),rgba(34,211,238,0.3)_45%,transparent_72%)]"
+                  : "bg-[radial-gradient(circle,rgba(34,211,238,0.15),rgba(15,23,42,0.2)_45%,transparent_72%)]",
+              )}
+            />
             <span ref={bubbleAnchorRef} className="inline-flex">
               <TaskReminderBubbleIcon count={reminders.length} active={nodesOpen} />
             </span>
             {!nodesOpen && (
-              <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-red-500/50 bg-slate-950/95 px-2.5 py-1 font-mono text-[10px] font-semibold tracking-wider text-red-400 shadow-[0_0_14px_rgba(239,68,68,0.35)]">
-                {reminders.length} OVERDUE
+              <span
+                className={cn(
+                  "absolute -bottom-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded border px-2.5 py-1 font-mono text-[10px] font-semibold tracking-wider shadow-[0_0_14px_rgba(34,211,238,0.2)]",
+                  hasOverdue
+                    ? "border-red-500/50 bg-slate-950/95 text-red-400 shadow-[0_0_14px_rgba(239,68,68,0.35)]"
+                    : "border-cyan-500/40 bg-slate-950/95 text-cyan-300",
+                )}
+              >
+                {hasOverdue ? `${reminders.length} OVERDUE` : "ALL CLEAR"}
               </span>
             )}
           </button>
@@ -462,9 +508,14 @@ export function TaskReminderBubbles() {
             <button
               type="button"
               onClick={closePanels}
-              className="mt-2 whitespace-nowrap rounded border border-red-500/45 bg-slate-950/95 px-2.5 py-1 font-mono text-[10px] font-semibold tracking-wider text-red-400 shadow-[0_0_14px_rgba(239,68,68,0.35)]"
+              className={cn(
+                "mt-2 whitespace-nowrap rounded border px-2.5 py-1 font-mono text-[10px] font-semibold tracking-wider",
+                hasOverdue
+                  ? "border-red-500/45 bg-slate-950/95 text-red-400 shadow-[0_0_14px_rgba(239,68,68,0.35)]"
+                  : "border-cyan-500/40 bg-slate-950/95 text-cyan-300",
+              )}
             >
-              {reminders.length} OVERDUE
+              {hasOverdue ? `${reminders.length} OVERDUE` : "ALL CLEAR"}
             </button>
           )}
         </div>

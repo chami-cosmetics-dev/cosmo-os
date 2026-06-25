@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canSeeTaskReminderCategory,
+  listVisibleTaskReminderCategories,
   resolveTaskReminderAudiences,
   shouldScopeSampleRemindersToMerchant,
 } from "@/lib/task-reminder-access";
@@ -89,5 +90,28 @@ describe("task-reminder-access", () => {
       ],
     };
     expect(shouldScopeSampleRemindersToMerchant(context)).toBe(false);
+  });
+
+  it("lists only categories the user may access", () => {
+    const financeContext = {
+      roleNames: ["finance"],
+      permissionKeys: ["finance.approvals.manage", "fulfillment.order_print.read"],
+    };
+    expect(listVisibleTaskReminderCategories(financeContext)).toEqual(["finance_approval"]);
+
+    const storeContext = {
+      roleNames: ["store"],
+      permissionKeys: [
+        "fulfillment.ready_dispatch.read",
+        "fulfillment.order_print.read",
+        "returns.read",
+      ],
+    };
+    expect(listVisibleTaskReminderCategories(storeContext)).toEqual([
+      "print",
+      "ready_dispatch",
+      "rearrange_dispatch",
+      "return_action",
+    ]);
   });
 });
