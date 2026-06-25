@@ -16,7 +16,13 @@ import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-to
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
-import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho, SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS } from "@/lib/order-dispatch";
+import { ErpPaymentModeSelect } from "@/components/molecules/erp-payment-mode-select";
+import {
+  getOrderDispatchLabel,
+  formatDeliveredTimelineWho,
+  formatInvoiceCompleteTimelineWho,
+  SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS,
+} from "@/lib/order-dispatch";
 import {
   Dialog,
   DialogContent,
@@ -208,6 +214,7 @@ export function OrderFulfillmentDetail({
   const [holdReasonId, setHoldReasonId] = useState("");
   const [dispatchService, setDispatchService] = useState("");
   const [remarkContent, setRemarkContent] = useState("");
+  const [invoiceCompleteMop, setInvoiceCompleteMop] = useState("");
   const [remarkType, setRemarkType] = useState<"internal" | "external">("internal");
   const [remarkStage, setRemarkStage] = useState<FulfillmentStage>("order_received");
 
@@ -613,23 +620,31 @@ export function OrderFulfillmentDetail({
                     })}{" "}
                     · {formatDate(orderDetail.invoiceCompleteAt)}
                   </p>
-                ) : orderDetail.deliveryPaymentApproval?.status === "pending" ? (
-                  <p className="text-sm text-amber-800 dark:text-amber-200">
-                    Awaiting finance confirmation before invoice complete.
-                  </p>
-                ) : perms.canMarkInvoiceComplete ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => doFulfillmentAction("mark_invoice_complete")}
-                    disabled={isBusy || stage !== "delivery_complete"}
-                  >
-                    Mark Invoice Complete
-                  </Button>
-                ) : (
+                ) : perms.canMarkInvoiceComplete && stage === "delivery_complete" ? (
+                  <div className="space-y-3">
+                    <ErpPaymentModeSelect
+                      value={invoiceCompleteMop}
+                      onChange={setInvoiceCompleteMop}
+                      disabled={isBusy}
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        doFulfillmentAction("mark_invoice_complete", {
+                          action: "mark_invoice_complete",
+                          modeOfPayment: invoiceCompleteMop,
+                        })
+                      }
+                      disabled={isBusy || !invoiceCompleteMop.trim()}
+                    >
+                      Mark Invoice Complete
+                    </Button>
+                  </div>
+                ) : stage === "delivery_complete" ? (
                   <p className="text-sm text-muted-foreground">
-                    Awaiting finance to confirm invoice complete.
+                    Awaiting finance invoice complete.
                   </p>
-                )}
+                ) : null}
               </div>
             )}
 

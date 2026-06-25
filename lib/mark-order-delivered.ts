@@ -116,7 +116,7 @@ export async function markOrderDelivered(input: {
       afterStage === "invoice_complete"
         ? `Marked order ${orderNum} as delivered — invoice complete (finance payment approval)`
         : needsPaymentApproval
-          ? `Marked order ${orderNum} as delivered — awaiting finance confirmation`
+          ? `Marked order ${orderNum} as delivered — awaiting finance invoice complete`
           : `Marked order ${orderNum} as delivered`,
     beforeData: { fulfillmentStage: order.fulfillmentStage },
     afterData: { fulfillmentStage: afterStage },

@@ -9,8 +9,10 @@ import {
   runDueFailedErpSyncRetries,
   scheduleUnscheduledFailedErpSyncs,
 } from "@/lib/failed-erp-sync-auto-retry";
+import { buildFailedErpPeSyncWhere } from "@/lib/failed-erp-pe-sync";
 
 const failedErpSyncSearchSchema = z.string().trim().max(100).optional();
+const failedErpSyncKindSchema = z.enum(["sales_invoice", "payment_entry"]).optional();
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("failed_webhooks.read");
@@ -29,9 +31,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
+  const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
+  const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
+  const searchResult = failedErpSyncSearchSchema.safeParse(
+    request.nextUrl.searchParams.get("search") ?? undefined
+  );
+  const kindResult = failedErpSyncKindSchema.safeParse(
+    request.nextUrl.searchParams.get("kind") ?? undefined
+  );
+  const kind = kindResult.success ? kindResult.data ?? "sales_invoice" : "sales_invoice";
+
   try {
-    await scheduleUnscheduledFailedErpSyncs(companyId, 50);
-    await runDueFailedErpSyncRetries({ companyId, limit: 5 });
+    if (kind === "sales_invoice") {
+      await scheduleUnscheduledFailedErpSyncs(companyId, 50);
+      await runDueFailedErpSyncRetries({ companyId, limit: 5 });
+    }
   } catch (error) {
     console.error("[Failed ERP sync auto-retry] Sweep failed during list request", {
       companyId,
@@ -39,15 +53,54 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const pageResult = pageSchema.safeParse(request.nextUrl.searchParams.get("page"));
-  const limitResult = limitSchema.safeParse(request.nextUrl.searchParams.get("limit"));
-  const searchResult = failedErpSyncSearchSchema.safeParse(
-    request.nextUrl.searchParams.get("search") ?? undefined
-  );
   const page = pageResult.success ? pageResult.data : 1;
   const limit = limitResult.success ? limitResult.data : 20;
   const skip = (page - 1) * limit;
   const search = searchResult.success ? searchResult.data : undefined;
+
+  if (kind === "payment_entry") {
+    const where = buildFailedErpPeSyncWhere(companyId, search);
+    const [total, orders] = await Promise.all([
+      prisma.order.count({ where }),
+      prisma.order.findMany({
+        where,
+        orderBy: { erpPeSyncFailedAt: "desc" },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          shopifyOrderId: true,
+          customerEmail: true,
+          customerPhone: true,
+          erpPeSyncError: true,
+          erpPeSyncFailedAt: true,
+          erpPeSyncMop: true,
+          erpnextInvoiceId: true,
+          createdAt: true,
+          companyLocation: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    const items = orders.map((o) => ({
+      id: o.id,
+      name: o.name,
+      orderNumber: o.orderNumber,
+      shopifyOrderId: o.shopifyOrderId,
+      customerEmail: o.customerEmail,
+      customerPhone: o.customerPhone,
+      erpPeSyncError: o.erpPeSyncError,
+      erpPeSyncFailedAt: o.erpPeSyncFailedAt?.toISOString() ?? null,
+      erpPeSyncMop: o.erpPeSyncMop,
+      erpnextInvoiceId: o.erpnextInvoiceId,
+      createdAt: o.createdAt.toISOString(),
+      companyLocation: o.companyLocation,
+    }));
+
+    return NextResponse.json({ items, total, page, limit, kind });
+  }
 
   const where = buildFailedErpSyncWhere(companyId, search);
 
@@ -110,5 +163,5 @@ export async function GET(request: NextRequest) {
     })),
   }));
 
-  return NextResponse.json({ items, total, page, limit });
+  return NextResponse.json({ items, total, page, limit, kind: "sales_invoice" });
 }
