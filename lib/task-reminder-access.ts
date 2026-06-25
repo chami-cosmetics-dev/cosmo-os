@@ -174,6 +174,24 @@ export function canSeeTaskReminderCategory(
   );
 }
 
+const ALL_TASK_REMINDER_CATEGORIES = [
+  "finance_approval",
+  "add_samples",
+  "print",
+  "ready_dispatch",
+  "rearrange_dispatch",
+  "delivery_pending",
+  "return_action",
+] as const satisfies readonly TaskReminderCategory[];
+
+export function listVisibleTaskReminderCategories(
+  context: TaskReminderAccessContext,
+): TaskReminderCategory[] {
+  return ALL_TASK_REMINDER_CATEGORIES.filter((category) =>
+    canSeeTaskReminderCategory(context, category),
+  );
+}
+
 export function shouldScopeSampleRemindersToMerchant(
   context: TaskReminderAccessContext,
 ): boolean {
