@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
+  ArrowLeftRight,
   Check,
   Loader2,
   MessageSquare,
@@ -59,6 +60,12 @@ const STAGE_LABELS: Record<string, string> = {
   dispatched: "Dispatched",
   invoice_complete: "Invoice Complete",
   delivery_complete: "Delivery Complete",
+};
+
+const EXCHANGE_REASON_LABELS: Record<string, string> = {
+  damaged_item: "Damaged Item",
+  wrong_item: "Wrong Item",
+  other: "Other",
 };
 
 type FulfillmentStage = (typeof STAGES)[number];
@@ -169,6 +176,20 @@ type OrderDetail = {
     createdAt: string;
     showOnInvoice?: boolean;
     addedBy?: { id: string; name: string | null; email: string | null } | null;
+  }>;
+  exchanges?: Array<{
+    id: string;
+    role: "original" | "replacement";
+    reason: string;
+    status: "pending" | "solved";
+    remark: string | null;
+    actionDate: string | null;
+    createdAt: string;
+    originalReference: string;
+    replacementReference: string;
+    linkedOrderId: string | null;
+    linkedOrderName: string | null;
+    replacementErpAdminInvoiceUrl: string | null;
   }>;
 };
 
@@ -700,6 +721,64 @@ export function OrderFulfillmentDetail({
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Exchange */}
+            {orderDetail.exchanges && orderDetail.exchanges.length > 0 && (
+              <div className="rounded-lg border p-4">
+                <h4 className="mb-3 text-sm font-medium flex items-center gap-2">
+                  <ArrowLeftRight className="size-4" />
+                  Exchange
+                </h4>
+                <ul className="space-y-3">
+                  {orderDetail.exchanges.map((ex) => (
+                    <li key={ex.id} className="rounded border border-dashed p-3 text-sm space-y-1.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${ex.role === "original" ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"}`}>
+                          {ex.role === "original" ? "Original Order" : "Replacement Order"}
+                        </span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${ex.status === "solved" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+                          {ex.status === "solved" ? "Solved" : "Pending"}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground">
+                        Reason: <span className="text-foreground">{EXCHANGE_REASON_LABELS[ex.reason] ?? ex.reason}</span>
+                      </p>
+                      {ex.role === "original" ? (
+                        <p className="text-muted-foreground">
+                          Replacement:{" "}
+                          <span className="text-foreground font-medium">{ex.linkedOrderName ?? ex.replacementReference}</span>
+                          {ex.replacementErpAdminInvoiceUrl && (
+                            <a
+                              href={ex.replacementErpAdminInvoiceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-2 text-xs text-blue-600 underline"
+                            >
+                              View SI
+                            </a>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          Original:{" "}
+                          <span className="text-foreground font-medium">{ex.linkedOrderName ?? ex.originalReference}</span>
+                        </p>
+                      )}
+                      {ex.remark && (
+                        <p className="text-muted-foreground">
+                          Note: <span className="text-foreground">{ex.remark}</span>
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {ex.actionDate
+                          ? `Resolved ${formatDate(ex.actionDate)}`
+                          : `Created ${formatDate(ex.createdAt)}`}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
