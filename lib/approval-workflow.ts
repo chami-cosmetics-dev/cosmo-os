@@ -100,8 +100,15 @@ export function isOrderPaymentRequiresApproval(order: {
   paymentGatewayPrimary: string | null;
   paymentGatewayNames: string[];
 }): boolean {
-  const gateways = [order.paymentGatewayPrimary, ...order.paymentGatewayNames]
-    .map((g) => g?.toLowerCase().trim() ?? "")
+  // When primary is known, check only that — paymentGatewayNames includes all
+  // payment methods available at checkout, not just the one the customer used,
+  // which causes false positives (e.g. "Bank Deposit" alongside a COD order).
+  if (order.paymentGatewayPrimary) {
+    const g = order.paymentGatewayPrimary.toLowerCase().trim();
+    return g.includes("koko") || g.includes("bank");
+  }
+  const gateways = order.paymentGatewayNames
+    .map((g) => g.toLowerCase().trim())
     .filter(Boolean);
   return gateways.some((g) => g.includes("koko") || g.includes("bank"));
 }
