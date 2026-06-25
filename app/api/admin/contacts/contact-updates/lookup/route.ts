@@ -20,7 +20,7 @@ const querySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAnyPermission(["contacts.allocation.read", "contacts.read"]);
+  const auth = await requireAnyPermission(["contacts.updates.read", "contacts.read"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -131,30 +131,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ found: false });
   }
 
-  const allocationRows = await prisma.$queryRaw<Array<{
-    assignedMerchant: string | null;
-    source: string | null;
-    country: string | null;
-    zone: string | null;
-    area: string | null;
-    exWebCustomer: boolean | null;
-    exOffCustomer: boolean | null;
-  }>>`
-    SELECT
-      "assignedMerchant",
-      "source",
-      "country",
-      "zone",
-      "area",
-      "exWebCustomer",
-      "exOffCustomer"
-    FROM "ContactMaster"
-    WHERE "id" = ${contact.id}
-      AND "companyId" = ${companyId}
-    LIMIT 1
-  `;
-  const allocationFields = allocationRows[0] ?? null;
-
   return NextResponse.json({
     found: true,
     contact: {
@@ -163,13 +139,6 @@ export async function GET(request: NextRequest) {
       email: contact.email,
       phoneNumber: contact.phoneNumber,
       recentMerchant: contact.recentMerchant,
-      assignedMerchant: allocationFields?.assignedMerchant ?? null,
-      source: allocationFields?.source ?? null,
-      country: allocationFields?.country ?? null,
-      zone: allocationFields?.zone ?? null,
-      area: allocationFields?.area ?? null,
-      exWebCustomer: allocationFields?.exWebCustomer ?? null,
-      exOffCustomer: allocationFields?.exOffCustomer ?? null,
       lastPurchaseAt: contact.lastPurchaseAt?.toISOString() ?? null,
       status: deriveStatus(contact.lastPurchaseAt),
       updatedAt: contact.updatedAt.toISOString(),

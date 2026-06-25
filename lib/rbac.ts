@@ -75,11 +75,35 @@ const DEFAULT_PERMISSIONS = [
   // Contacts
   {
     key: "contacts.read",
-    description: "View contact master list, allocation data, and performance",
+    description: "Legacy broad contact access: view contact master, updates, allocation, and performance",
   },
   {
     key: "contacts.manage",
-    description: "Create, import, backfill, and allocate contacts",
+    description: "Legacy broad contact management: create, import, backfill, update, and allocate contacts",
+  },
+  {
+    key: "contacts.master.read",
+    description: "View Contact Master",
+  },
+  {
+    key: "contacts.master.manage",
+    description: "Create, import, backfill, and edit Contact Master records",
+  },
+  {
+    key: "contacts.updates.read",
+    description: "View Contact Updates",
+  },
+  {
+    key: "contacts.updates.manage",
+    description: "Update contacts and follow-up status from Contact Updates",
+  },
+  {
+    key: "contacts.allocation.read",
+    description: "View Contact Allocation",
+  },
+  {
+    key: "contacts.allocation.manage",
+    description: "Allocate contacts to assigned merchants",
   },
   {
     key: "contacts.allocation.settings",
@@ -395,6 +419,12 @@ const DEFAULT_ROLES = [
       "products.storage.manage",
       "contacts.read",
       "contacts.manage",
+      "contacts.master.read",
+      "contacts.master.manage",
+      "contacts.updates.read",
+      "contacts.updates.manage",
+      "contacts.allocation.read",
+      "contacts.allocation.manage",
       "contacts.allocation.settings",
       "orders.read",
       "orders.manage",
@@ -488,6 +518,9 @@ const DEFAULT_ROLES = [
       "staff.read",
       "roles.read",
       "contacts.read",
+      "contacts.master.read",
+      "contacts.updates.read",
+      "contacts.allocation.read",
       "products.read",
       "academy.learn",
       "products.storage.read",

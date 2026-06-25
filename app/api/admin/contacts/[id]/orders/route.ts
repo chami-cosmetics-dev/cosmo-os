@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -28,7 +28,11 @@ function uniqueDisplayPhones(values: Array<string | null>) {
 }
 
 export async function GET(_request: NextRequest, { params }: Params) {
-  const auth = await requirePermission("contacts.read");
+  const auth = await requireAnyPermission([
+    "contacts.master.read",
+    "contacts.updates.read",
+    "contacts.read",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
