@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
     search: searchParams.get("search")?.trim() ?? undefined,
     fulfillmentStages: searchParams.get("fulfillment_stages")?.trim() ?? undefined,
     dispatchMode: searchParams.get("dispatch_mode") === "true",
+    deliveryMode: searchParams.get("delivery_mode") === "true",
     printMode: searchParams.get("print_mode") === "true",
     unprintedOnly: searchParams.get("unprinted_only") === "true",
     createdFrom: createdFromResult.success ? createdFromResult.data : undefined,

@@ -49,12 +49,15 @@ interface FulfillmentDispatchPanelProps {
   orderId: string | null;
   order: FulfillmentOrder | null;
   onRefresh: (clearSelection?: boolean) => void;
+  /** When true, only show hold / package-ready / dispatch actions (no duplicate detail worksheet). */
+  actionsOnly?: boolean;
 }
 
 export function FulfillmentDispatchPanel({
   orderId,
   order,
   onRefresh,
+  actionsOnly = false,
 }: FulfillmentDispatchPanelProps) {
   const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<{
@@ -199,6 +202,124 @@ export function FulfillmentDispatchPanel({
   const currency = detail?.currency ?? order?.currency;
   const selectedDispatchService = parseDispatchService(dispatchService);
 
+  const actionBar = lookups && (!orderId || packageStatus !== null) ? (
+    <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/70 p-3">
+      {isOnHold ? (
+        <>
+          <p className="flex-1 text-sm text-muted-foreground">
+            On hold: {packageStatus?.packageHoldReason?.name ?? "-"}
+          </p>
+          {perms.canRevertHold && (
+            <Button
+              variant="outline"
+              onClick={() => void doAction("revert_hold", { action: "revert_hold" })}
+              disabled={isBusy}
+            >
+              {busyKey === "revert_hold" ? <Loader2 className="size-4 animate-spin" /> : "Revert Hold"}
+            </Button>
+          )}
+        </>
+      ) : (
+        <>
+          {perms.canPutOnHold && lookups.packageHoldReasons.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Put on hold (optional)</p>
+              <select
+                value={holdReasonId}
+                onChange={(e) => setHoldReasonId(e.target.value)}
+                disabled={!orderId || isBusy}
+                className="h-9 w-50 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+              >
+                <option value="">No hold</option>
+                {lookups.packageHoldReasons.map((reason) => (
+                  <option key={reason.id} value={reason.id}>{reason.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {!holdReasonId && perms.canDispatch && !actionsOnly && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Dispatch via</p>
+              <select
+                value={dispatchService}
+                onChange={(e) => setDispatchService(e.target.value)}
+                disabled={!orderId || isBusy}
+                className="h-9 w-60 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
+              >
+                <option value="">Select rider, courier, or pickup</option>
+                <option value={DISPATCH_CUSTOMER_PICKUP}>Customer pickup (in-store)</option>
+                {lookups.riders.length > 0 && (
+                  <optgroup label="Riders">
+                    {lookups.riders.map((rider) => (
+                      <option key={rider.id} value={`rider:${rider.id}`}>
+                        {rider.name ?? rider.mobile ?? rider.id}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {lookups.courierServices.length > 0 && (
+                  <optgroup label="Courier services">
+                    {lookups.courierServices.map((courier) => (
+                      <option key={courier.id} value={`courier:${courier.id}`}>
+                        {courier.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+          )}
+
+          {holdReasonId && perms.canPutOnHold ? (
+            <Button
+              variant="outline"
+              onClick={() => void doAction("put_on_hold", { action: "put_on_hold", holdReasonId })}
+              disabled={!orderId || isBusy}
+            >
+              {busyKey === "put_on_hold" ? <Loader2 className="size-4 animate-spin" /> : "Put on Hold"}
+            </Button>
+          ) : (
+            <>
+              {!actionsOnly && !isPackageReady && perms.canMarkReady && (
+                <Button
+                  variant="outline"
+                  onClick={() => void doAction("mark_ready", { action: "mark_ready" })}
+                  disabled={!orderId || isBusy}
+                >
+                  {busyKey === "mark_ready" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    "Package Ready"
+                  )}
+                </Button>
+              )}
+              {!actionsOnly && perms.canDispatch && (
+                <Button
+                  onClick={() => void handleDispatch()}
+                  disabled={!orderId || isBusy || !selectedDispatchService}
+                  className="gap-2"
+                >
+                  {busyKey === "dispatch"
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : <Truck className="size-4" />}
+                  Dispatch
+                </Button>
+              )}
+              {!actionsOnly && !perms.canDispatch && (
+                <p className="text-sm text-muted-foreground">You do not have permission to dispatch orders.</p>
+              )}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  ) : null;
+
+  if (actionsOnly) {
+    return actionBar;
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -281,119 +402,7 @@ export function FulfillmentDispatchPanel({
         </table>
       </div>
 
-      {lookups && (!orderId || packageStatus !== null) && (
-        <div className="flex flex-wrap items-end gap-3 rounded-md border border-border/70 p-3">
-          {isOnHold ? (
-            <>
-              <p className="flex-1 text-sm text-muted-foreground">
-                On hold: {packageStatus.packageHoldReason?.name ?? "-"}
-              </p>
-              {perms.canRevertHold && (
-                <Button
-                  variant="outline"
-                  onClick={() => void doAction("revert_hold", { action: "revert_hold" })}
-                  disabled={isBusy}
-                >
-                  {busyKey === "revert_hold" ? <Loader2 className="size-4 animate-spin" /> : "Revert Hold"}
-                </Button>
-              )}
-            </>
-          ) : (
-            <>
-              {perms.canPutOnHold && lookups.packageHoldReasons.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Put on hold (optional)</p>
-                  <select
-                    value={holdReasonId}
-                    onChange={(e) => setHoldReasonId(e.target.value)}
-                    disabled={!orderId || isBusy}
-                    className="h-9 w-50 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                  >
-                    <option value="">No hold</option>
-                    {lookups.packageHoldReasons.map((reason) => (
-                      <option key={reason.id} value={reason.id}>{reason.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {!holdReasonId && perms.canDispatch && (
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">Dispatch via</p>
-                  <select
-                    value={dispatchService}
-                    onChange={(e) => setDispatchService(e.target.value)}
-                    disabled={!orderId || isBusy}
-                    className="h-9 w-60 rounded-md border border-border/70 bg-background/90 px-3 text-sm"
-                  >
-                    <option value="">Select rider, courier, or pickup</option>
-                    <option value={DISPATCH_CUSTOMER_PICKUP}>Customer pickup (in-store)</option>
-                    {lookups.riders.length > 0 && (
-                      <optgroup label="Riders">
-                        {lookups.riders.map((rider) => (
-                          <option key={rider.id} value={`rider:${rider.id}`}>
-                            {rider.name ?? rider.mobile ?? rider.id}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {lookups.courierServices.length > 0 && (
-                      <optgroup label="Courier services">
-                        {lookups.courierServices.map((courier) => (
-                          <option key={courier.id} value={`courier:${courier.id}`}>
-                            {courier.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
-                </div>
-              )}
-
-              {holdReasonId && perms.canPutOnHold ? (
-                <Button
-                  variant="outline"
-                  onClick={() => void doAction("put_on_hold", { action: "put_on_hold", holdReasonId })}
-                  disabled={!orderId || isBusy}
-                >
-                  {busyKey === "put_on_hold" ? <Loader2 className="size-4 animate-spin" /> : "Put on Hold"}
-                </Button>
-              ) : (
-                <>
-                  {!isPackageReady && perms.canMarkReady && (
-                    <Button
-                      variant="outline"
-                      onClick={() => void doAction("mark_ready", { action: "mark_ready" })}
-                      disabled={!orderId || isBusy}
-                    >
-                      {busyKey === "mark_ready" ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        "Package Ready"
-                      )}
-                    </Button>
-                  )}
-                  {perms.canDispatch && (
-                    <Button
-                      onClick={() => void handleDispatch()}
-                      disabled={!orderId || isBusy || !selectedDispatchService}
-                      className="gap-2"
-                    >
-                      {busyKey === "dispatch"
-                        ? <Loader2 className="size-4 animate-spin" />
-                        : <Truck className="size-4" />}
-                      Dispatch
-                    </Button>
-                  )}
-                  {!perms.canDispatch && (
-                    <p className="text-sm text-muted-foreground">You do not have permission to dispatch orders.</p>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      {actionBar}
     </div>
   );
 }

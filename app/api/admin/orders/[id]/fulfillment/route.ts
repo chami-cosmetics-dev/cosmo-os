@@ -31,6 +31,7 @@ import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-appro
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { markOrderDelivered } from "@/lib/mark-order-delivered";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -993,86 +994,19 @@ export async function PATCH(
     }
 
     if (data.action === "mark_delivered") {
-      if (order.fulfillmentStage !== "dispatched") {
-        return NextResponse.json(
-          { error: "Can only mark delivered when order is dispatched" },
-          { status: 400 }
-        );
-      }
-
       const userId = auth.context!.user!.id;
-
-      const updated = await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          ...orderStageUpdate("delivery_complete", now),
-          deliveryCompleteAt: now,
-          deliveryCompleteById: userId,
-          deliveryOutcome: "delivered",
-          deliveryFailedReason: null,
-          lastRiderUpdateAt: now,
-          riderDeliveryToken: null,
-        },
-        include: { companyLocation: true },
-      });
-      await prisma.riderDeliveryTask.updateMany({
-        where: { orderId: order.id },
-        data: {
-          status: "completed",
-          completedAt: now,
-          failedAt: null,
-          failureReason: null,
-          latestSyncAt: now,
-        },
-      });
-
-      const postDelivery = await resolvePostDeliveryInvoiceComplete({
+      const outcome = await markOrderDelivered({
         companyId,
         orderId: order.id,
-        requestedById: userId,
+        userId,
       });
-
-      let afterStage: FulfillmentStage = "delivery_complete";
-      const needsPaymentApproval = postDelivery.kind === "awaiting_finance";
-
-      if (postDelivery.kind === "invoice_complete") {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: {
-            ...orderStageUpdate("invoice_complete", now),
-            fulfillmentStatus: "fulfilled",
-            invoiceCompleteAt: now,
-            invoiceCompleteById: postDelivery.financeUserId,
-          },
-        });
-        afterStage = "invoice_complete";
-
-        // ERP Sales Invoice payment is not created on delivery complete — only via
-        // finance delivery-payment approval or explicit mark_invoice_complete.
+      if (!outcome.success) {
+        return NextResponse.json({ error: outcome.error }, { status: 400 });
       }
-
-      sendOrderSms(companyId, order.id, "delivery_complete", {
-        orderNumber: resolveOrderNumber(updated),
-        invoiceNumber: resolveOrderInvoiceNumber(updated),
-        customerPhone: resolveCustomerPhone(updated),
-        locationName: updated.companyLocation.name,
-      }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
-      await logOrderFulfillmentAudit({
-        companyId,
-        actorUserId: userId,
-        orderId: order.id,
-        summary:
-          afterStage === "invoice_complete"
-            ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — invoice complete (finance payment approval)`
-            : needsPaymentApproval
-              ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — awaiting finance confirmation`
-              : `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered`,
-        beforeStage: order.fulfillmentStage,
-        afterStage,
-        metadata: { action: data.action, needsPaymentApproval },
+      return NextResponse.json({
+        success: true,
+        needsPaymentApproval: outcome.needsPaymentApproval,
       });
-
-      return NextResponse.json({ success: true, needsPaymentApproval });
     }
 
     if (data.action === "revert_to_stage") {
