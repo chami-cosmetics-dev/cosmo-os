@@ -27,6 +27,12 @@ import {
 
 type BaseRow = { label: string; value: number; count: number };
 type ChartMode = "bar" | "line" | "area";
+type SalesTooltipPayload = {
+  name?: string;
+  value?: number;
+  color?: string;
+  dataKey?: string;
+};
 
 interface DashboardSalesChartsProps {
   stats: Array<{
@@ -112,37 +118,44 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
     data: rows,
     margin: { top: 16, right: 24, left: 12, bottom: 56 },
   };
+  const axisTick = { fontSize: 12, fill: "#dbeafe", fontWeight: 700 };
+  const axisLine = { stroke: "rgba(219, 234, 254, 0.52)" };
+  const gridStroke = "rgba(219, 234, 254, 0.38)";
+  const legendFormatter = (value: string) => (
+    <span className="font-semibold text-blue-50">{value}</span>
+  );
 
   if (mode === "line") {
     return (
       <LineChart {...sharedProps}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <CartesianGrid stroke={gridStroke} strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="label"
           angle={-20}
           textAnchor="end"
           height={70}
           interval={0}
-          tick={{ fontSize: 12 }}
+          tick={axisTick}
+          axisLine={axisLine}
+          tickLine={axisLine}
         />
         <YAxis
           yAxisId="value"
           tickFormatter={(value) => formatCompact(Number(value))}
-          tick={{ fontSize: 12 }}
+          tick={axisTick}
+          axisLine={axisLine}
+          tickLine={axisLine}
         />
         <YAxis
           yAxisId="count"
           orientation="right"
-          tick={{ fontSize: 12 }}
+          tick={axisTick}
+          axisLine={axisLine}
+          tickLine={axisLine}
           allowDecimals={false}
         />
-        <Tooltip
-          formatter={(value: number, name: string) => [
-            name === "Invoice Value" ? formatWithSpaces(Number(value)) : Number(value),
-            name,
-          ]}
-        />
-        <Legend />
+        <Tooltip content={<SalesTooltip />} cursor={{ stroke: "rgba(255,255,255,0.42)", strokeWidth: 1.5 }} />
+        <Legend formatter={legendFormatter} />
         <Line
           yAxisId="value"
           type="monotone"
@@ -180,33 +193,34 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
             <stop offset="95%" stopColor="var(--chart-3)" stopOpacity={0.05} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <CartesianGrid stroke={gridStroke} strokeDasharray="3 3" vertical={false} />
         <XAxis
           dataKey="label"
           angle={-20}
           textAnchor="end"
           height={70}
           interval={0}
-          tick={{ fontSize: 12 }}
+          tick={axisTick}
+          axisLine={axisLine}
+          tickLine={axisLine}
         />
         <YAxis
           yAxisId="value"
           tickFormatter={(value) => formatCompact(Number(value))}
-          tick={{ fontSize: 12 }}
+          tick={axisTick}
+          axisLine={axisLine}
+          tickLine={axisLine}
         />
         <YAxis
           yAxisId="count"
           orientation="right"
-          tick={{ fontSize: 12 }}
+          tick={axisTick}
+          axisLine={axisLine}
+          tickLine={axisLine}
           allowDecimals={false}
         />
-        <Tooltip
-          formatter={(value: number, name: string) => [
-            name === "Invoice Value" ? formatWithSpaces(Number(value)) : Number(value),
-            name,
-          ]}
-        />
-        <Legend />
+        <Tooltip content={<SalesTooltip />} cursor={{ stroke: "rgba(255,255,255,0.42)", strokeWidth: 1.5 }} />
+        <Legend formatter={legendFormatter} />
         <Area
           yAxisId="value"
           type="monotone"
@@ -231,33 +245,37 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
 
   return (
     <BarChart {...sharedProps}>
-      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+      <CartesianGrid stroke={gridStroke} strokeDasharray="3 3" vertical={false} />
       <XAxis
         dataKey="label"
         angle={-20}
         textAnchor="end"
         height={70}
         interval={0}
-        tick={{ fontSize: 12 }}
+        tick={axisTick}
+        axisLine={axisLine}
+        tickLine={axisLine}
       />
       <YAxis
         yAxisId="value"
         tickFormatter={(value) => formatCompact(Number(value))}
-        tick={{ fontSize: 12 }}
+        tick={axisTick}
+        axisLine={axisLine}
+        tickLine={axisLine}
       />
       <YAxis
         yAxisId="count"
         orientation="right"
-        tick={{ fontSize: 12 }}
+        tick={axisTick}
+        axisLine={axisLine}
+        tickLine={axisLine}
         allowDecimals={false}
       />
       <Tooltip
-        formatter={(value: number, name: string) => [
-          name === "Invoice Value" ? formatWithSpaces(Number(value)) : Number(value),
-          name,
-        ]}
+        content={<SalesTooltip />}
+        cursor={{ fill: "rgba(255,255,255,0.16)" }}
       />
-      <Legend />
+      <Legend formatter={legendFormatter} />
       <Bar
         yAxisId="value"
         dataKey="value"
@@ -273,6 +291,43 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
         radius={[6, 6, 0, 0]}
       />
     </BarChart>
+  );
+}
+
+function SalesTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: SalesTooltipPayload[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+
+  return (
+    <div className="min-w-[15rem] rounded-lg border border-white/25 bg-slate-950 px-4 py-3 text-white shadow-2xl ring-1 ring-cyan-200/20 dark:bg-slate-950">
+      <p className="mb-2 text-sm font-bold leading-5 text-white">{label}</p>
+      <div className="space-y-1.5">
+        {payload.map((item) => {
+          const isValue = item.name === "Invoice Value" || item.dataKey === "value";
+          return (
+            <div
+              key={`${item.dataKey ?? item.name}`}
+              className="flex items-center justify-between gap-4 text-sm"
+            >
+              <span className="font-semibold text-slate-100">{item.name}</span>
+              <span
+                className="font-bold tabular-nums"
+                style={{ color: isValue ? "#c4b5fd" : "#67e8f9" }}
+              >
+                {isValue ? formatWithSpaces(Number(item.value ?? 0)) : Number(item.value ?? 0)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

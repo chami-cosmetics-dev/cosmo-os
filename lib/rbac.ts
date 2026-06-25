@@ -220,6 +220,10 @@ const DEFAULT_PERMISSIONS = [
   },
   // Dashboard
   {
+    key: "dashboard.view",
+    description: "View dashboard overview analytics",
+  },
+  {
     key: "dashboard.edit",
     description: "Edit dashboard brand configuration (add/remove brands, change selection)",
   },
@@ -412,6 +416,8 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.approvals.manage",
       "finance.hod.revert_paid_to_unpaid",
+      "dashboard.view",
+      "dashboard.edit",
       REPORT_DUMP_PERMISSIONS.contactListPart1,
       REPORT_DUMP_PERMISSIONS.contactListPart1_1,
       REPORT_DUMP_PERMISSIONS.contactListPart2,
@@ -466,6 +472,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.approvals.manage",
+      "dashboard.view",
       "orders.read",
       "orders.update_payment_method",
       "returns.read",
@@ -477,6 +484,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",
+      "dashboard.view",
       "orders.read",
     ],
   },
@@ -491,6 +499,7 @@ const DEFAULT_ROLES = [
       "products.read",
       "academy.learn",
       "products.storage.read",
+      "dashboard.view",
       "orders.read",
       "returns.read",
       "exchanges.read",

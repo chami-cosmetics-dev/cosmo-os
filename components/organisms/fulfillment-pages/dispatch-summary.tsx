@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarDays, CheckCircle2, Clock, Download, Loader2, Package, RefreshCw, Truck, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,10 @@ function formatDate(iso: string | null) {
   return Number.isNaN(d.getTime())
     ? "—"
     : d.toLocaleString("en-LK", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatRangeLabel(from: string, to: string) {
+  return from === to ? from : `${from} to ${to}`;
 }
 
 function orderStatusLabel(
@@ -138,9 +143,15 @@ type SummaryData = {
 } | null;
 
 export function DispatchSummaryPage() {
+  const searchParams = useSearchParams();
   const dateRef = useRef<HTMLInputElement | null>(null);
-  const [status, setStatus] = useState<"pending" | "completed">("pending");
-  const [date, setDate] = useState(todayIso());
+  const initialStatus =
+    searchParams.get("status") === "completed" ? "completed" : "pending";
+  const initialDateFrom = searchParams.get("dateFrom") || todayIso();
+  const initialDateTo = searchParams.get("dateTo") || initialDateFrom;
+  const [status, setStatus] = useState<"pending" | "completed">(initialStatus);
+  const [dateFrom, setDateFrom] = useState(initialDateFrom);
+  const [dateTo, setDateTo] = useState(initialDateTo);
   const [data, setData] = useState<SummaryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -182,7 +193,7 @@ export function DispatchSummaryPage() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ status, dateFrom: date });
+        const params = new URLSearchParams({ status, dateFrom, dateTo });
         const res = await fetch(`/api/admin/fulfillment/dispatch-summary?${params}`, {
           signal: controller.signal,
         });
@@ -196,14 +207,15 @@ export function DispatchSummaryPage() {
       }
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
-  }, [status, date, refreshTick]);
+  }, [status, dateFrom, dateTo, refreshTick]);
 
   function buildDownloadBody() {
-    return { status, dateFrom: date };
+    return { status, dateFrom, dateTo };
   }
 
   function fileSuffix() {
-    return status === "pending" ? `pending-${date}` : date;
+    const suffix = dateFrom === dateTo ? dateFrom : `${dateFrom}-to-${dateTo}`;
+    return status === "pending" ? `pending-${suffix}` : suffix;
   }
 
   async function triggerDownload(format: "pdf" | "csv") {
@@ -273,19 +285,29 @@ export function DispatchSummaryPage() {
           </div>
 
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">Date</span>
+            <span className="font-medium text-muted-foreground">From date</span>
             <div className="relative">
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={dateRef}
                 type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
                 onClick={() => dateRef.current?.showPicker?.()}
                 onFocus={() => dateRef.current?.showPicker?.()}
                 className="h-10 min-w-44 pl-9"
               />
             </div>
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="font-medium text-muted-foreground">To date</span>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-10 min-w-44"
+            />
           </label>
 
           <Button
@@ -346,8 +368,8 @@ export function DispatchSummaryPage() {
           {data.groups.length === 0 ? (
             <p className="rounded-md border border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
               {isCompleted
-                ? `No completed deliveries found for ${date}.`
-                : `No pending dispatches found for ${date}.`}
+                ? `No completed deliveries found for ${formatRangeLabel(dateFrom, dateTo)}.`
+                : `No pending dispatches found for ${formatRangeLabel(dateFrom, dateTo)}.`}
             </p>
           ) : (
             <div className="space-y-4">

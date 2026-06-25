@@ -9,12 +9,31 @@ import { Label, Pie, PieChart, Sector } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+
+const DASHBOARD_SEGMENT_COLORS = [
+  "#a78bfa",
+  "#5eead4",
+  "#fb7185",
+  "#60a5fa",
+  "#fbbf24",
+  "#34d399",
+  "#f472b6",
+  "#38bdf8",
+  "#c084fc",
+  "#f97316",
+  "#84cc16",
+  "#e879f9",
+  "#22c55e",
+  "#f43f5e",
+  "#06b6d4",
+  "#facc15",
+  "#818cf8",
+  "#14b8a6",
+];
 
 const DashboardSalesCharts = dynamic(
   () =>
@@ -88,46 +107,52 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
       return {
         shop: location.name,
         total: formatMetric(total),
-        agent: topMerchant?.merchantName ?? "Unassigned",
+        agent: topMerchant?.merchantName ?? "DM-General",
         agentValue: formatMetric(topMerchant?.total ?? 0),
       };
     })
     .sort((a, b) => parseMetric(b.total) - parseMetric(a.total));
 
+  const summaryAgentSegments = (() => {
+    const totals = new Map<string, number>();
+    for (const location of salesLocations) {
+      if (analysisType === "gateway") {
+        for (const row of location.sources) {
+          totals.set(row.sourceName, (totals.get(row.sourceName) ?? 0) + row.total);
+        }
+      } else {
+        for (const row of location.merchants) {
+          totals.set(row.merchantName, (totals.get(row.merchantName) ?? 0) + row.total);
+        }
+      }
+    }
+    return [...totals.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+  })();
+
   const donutGridStats = salesLocations
     .map((location) => {
       const merchantTotals = [...location.merchants].sort((a, b) => b.total - a.total);
       const total = merchantTotals.reduce((sum, merchant) => sum + merchant.total, 0);
-      const locationMerchantTotal = merchantTotals
-        .filter((merchant) => merchant.merchantId === location.defaultMerchantId)
-        .reduce((sum, merchant) => sum + merchant.total, 0);
-      const topAssignedMerchant =
-        merchantTotals.find((merchant) => merchant.merchantId != null) ?? null;
-      const assignmentSegments = buildAssignmentSegmentsFromRows(
-        merchantTotals,
-        location.defaultMerchantId,
-      );
+      const topMerchant = merchantTotals[0] ?? null;
+      const merchantSegments = buildMerchantSegmentsFromRows(merchantTotals);
       const sourceBreakdown = buildSourceBreakdown(location.sources);
       const topSource =
         [...sourceBreakdown].sort((a, b) => b.rawTotal - a.rawTotal)[0] ?? null;
-      const useSourcePie =
-        assignmentSegments.length === 1 && assignmentSegments[0]?.label === "Unassigned";
+      const useSourcePie = merchantSegments.length === 0;
 
       return {
         shop: location.name,
         total: formatMetric(total),
-        donutTitle: useSourcePie ? "Primary Source" : "Primary Agent",
+        donutTitle: useSourcePie ? "Primary Source" : "Top Merchant",
         agent: useSourcePie
           ? topSource?.label ?? "Unassigned"
-          : location.defaultMerchantName ??
-            topAssignedMerchant?.merchantName ??
-            "Unassigned",
+          : topMerchant?.merchantName ?? "DM-General",
         agentValue: formatMetric(
           useSourcePie
             ? (topSource?.rawTotal ?? 0)
-            : location.defaultMerchantId
-              ? locationMerchantTotal
-              : (topAssignedMerchant?.total ?? 0),
+            : (topMerchant?.total ?? 0),
         ),
         segments: useSourcePie
           ? sourceBreakdown
@@ -135,9 +160,10 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
               .map((source) => ({
                 label: source.label,
                 value: source.percent,
+                amount: source.rawTotal,
                 color: source.color,
               }))
-          : assignmentSegments,
+          : merchantSegments,
         sources: sourceBreakdown,
       };
     })
@@ -185,6 +211,7 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
       <DashboardSummaryCharts
         analysisType={analysisType}
         stats={summaryStats}
+        agentSegments={summaryAgentSegments}
       />
       <DashboardSalesCharts stats={salesChartStats} />
       <DashboardLocationMerchantChartsDynamic
@@ -232,7 +259,7 @@ function DashboardDonutGrid({
     donutTitle: string;
     agent: string;
     agentValue: string;
-    segments: Array<{ label: string; value: number; color: string }>;
+    segments: Array<{ label: string; value: number; amount: number; color: string }>;
     sources: Array<{
       label: string;
       total: string;
@@ -257,9 +284,6 @@ function DashboardDonutGrid({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <LegendDot color="#4f95bf" label="Location Merchant" />
-          <LegendDot color="#06b06c" label="Other Merchants" />
-          <LegendDot color="#f06a57" label="Unassigned" />
           <span className="text-muted-foreground ml-1">{stats.length} locations</span>
         </div>
       </div>
@@ -283,41 +307,8 @@ function DashboardDonutGrid({
               <DonutChartCard
                 chartId={`dashboard-main-donut-${index}`}
                 title={stat.donutTitle}
-                name={stat.agent}
-                value={stat.agentValue}
                 segments={stat.segments}
               />
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px]">
-                {stat.segments.map((segment, index) => (
-                  <div
-                    key={`${stat.shop}-${index}`}
-                    className="rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1.5 dark:border-border dark:bg-background/60"
-                  >
-                    <div
-                      className="mx-auto mb-1.5 h-1.5 w-10 rounded-full"
-                      style={{ backgroundColor: segment.color }}
-                    />
-                    <p className="text-muted-foreground">{segment.label}</p>
-                    <p className="font-semibold text-slate-800 dark:text-foreground">{segment.value}%</p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px]">
-                {stat.sources.map((source) => (
-                  <div
-                    key={`${stat.shop}-${source.label}`}
-                    className="rounded-xl border border-slate-200 bg-slate-50/80 px-2 py-1.5 dark:border-border dark:bg-background/60"
-                  >
-                    <div
-                      className="mx-auto mb-1.5 h-1.5 w-10 rounded-full"
-                      style={{ backgroundColor: source.color }}
-                    />
-                    <p className="text-muted-foreground">{source.label}</p>
-                    <p className="font-semibold text-slate-800 dark:text-foreground">{source.total}</p>
-                    <p className="text-muted-foreground">{source.orders} orders</p>
-                  </div>
-                ))}
-              </div>
             </CardContent>
           </Card>
         ))}
@@ -326,37 +317,21 @@ function DashboardDonutGrid({
   );
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="inline-flex items-center gap-2">
-      <span
-        className="h-2.5 w-2.5 rounded-full"
-        style={{ backgroundColor: color }}
-        aria-hidden
-      />
-      <span className="text-muted-foreground">{label}</span>
-    </div>
-  );
-}
-
 function DonutChartCard({
   chartId,
   title,
-  name,
-  value,
   segments,
 }: {
   chartId: string;
   title: string;
-  name: string;
-  value: string;
-  segments: Array<{ label: string; value: number; color: string }>;
+  segments: Array<{ label: string; value: number; amount: number; color: string }>;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const chartData = segments.map((segment, index) => ({
     key: `segment-${index + 1}`,
     label: segment.label,
     value: segment.value,
+    amount: segment.amount,
     fill: segment.color,
   }));
   const chartConfig = chartData.reduce<ChartConfig>((config, segment) => {
@@ -366,31 +341,13 @@ function DonutChartCard({
     };
     return config;
   }, {});
+  const activeSegment =
+    activeIndex == null ? (chartData[0] ?? null) : chartData[activeIndex] ?? null;
 
   return (
     <div className="mx-auto mt-6 h-[14.5rem] w-[14.5rem] max-w-full">
       <ChartContainer id={chartId} config={chartConfig} className="mx-auto aspect-square h-full w-full">
         <PieChart>
-          <ChartTooltip
-            cursor={false}
-            content={
-              <ChartTooltipContent
-                hideLabel
-                formatter={(chartValue, _name, item) => {
-                  const payload = item.payload as {
-                    label: string;
-                    value: number;
-                  };
-                  return (
-                    <div className="flex w-full items-center justify-between gap-3">
-                      <span>{payload.label}</span>
-                      <span className="font-medium tabular-nums">{Number(chartValue)}%</span>
-                    </div>
-                  );
-                }}
-              />
-            }
-          />
           <Pie
             data={chartData}
             dataKey="value"
@@ -421,23 +378,30 @@ function DonutChartCard({
                       <tspan
                         x={viewBox.cx}
                         y={(viewBox.cy || 0) - 26}
-                        className="fill-slate-500 text-[10px] uppercase dark:fill-muted-foreground"
+                        className="fill-slate-600 text-[10px] uppercase dark:fill-cyan-100/85"
                       >
-                        {title}
-                      </tspan>
+                          {title}
+                        </tspan>
                       <tspan
                         x={viewBox.cx}
                         y={(viewBox.cy || 0) - 2}
-                        className="fill-slate-900 text-[11px] font-semibold dark:fill-foreground"
+                        className="fill-slate-950 text-[11px] font-semibold dark:fill-white"
                       >
-                        {name}
+                        {activeSegment?.label ?? "Hover segment"}
                       </tspan>
                       <tspan
                         x={viewBox.cx}
-                        y={(viewBox.cy || 0) + 28}
-                        className="fill-slate-900 text-[20px] font-bold dark:fill-foreground"
+                        y={(viewBox.cy || 0) + 24}
+                        className="fill-slate-950 text-[18px] font-bold dark:fill-white"
                       >
-                        {value}
+                        {activeSegment ? formatMetric(activeSegment.amount) : ""}
+                      </tspan>
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) + 48}
+                        className="fill-slate-700 text-[12px] font-semibold dark:fill-cyan-100"
+                      >
+                        {activeSegment ? `${activeSegment.value}%` : ""}
                       </tspan>
                     </text>
                   );
@@ -451,54 +415,31 @@ function DonutChartCard({
   );
 }
 
-function buildAssignmentSegmentsFromRows(
-  rows: Array<{ merchantId: string | null; total: number }>,
-  defaultMerchantId: string | null,
+function buildMerchantSegmentsFromRows(
+  rows: Array<{ merchantName: string; total: number }>,
 ) {
   const total = rows.reduce((sum, row) => sum + row.total, 0);
   if (total <= 0) {
-    return [{ label: "Unassigned", value: 100, color: "#f06a57" }];
+    return [];
   }
-
-  const buckets = [
-    {
-      label: "Location Merchant",
-      raw: defaultMerchantId
-        ? rows
-            .filter((row) => row.merchantId === defaultMerchantId)
-            .reduce((sum, row) => sum + row.total, 0)
-        : 0,
-      color: "#4f95bf",
-    },
-    {
-      label: "Other Merchants",
-      raw: rows
-        .filter((row) => row.merchantId != null && row.merchantId !== defaultMerchantId)
-        .reduce((sum, row) => sum + row.total, 0),
-      color: "#06b06c",
-    },
-    {
-      label: "Unassigned",
-      raw: rows
-        .filter((row) => row.merchantId == null)
-        .reduce((sum, row) => sum + row.total, 0),
-      color: "#f06a57",
-    },
-  ].filter((bucket) => bucket.raw > 0);
 
   let assignedPercent = 0;
 
-  return buckets.map((bucket, index) => {
+  return rows.map((row, index) => {
     const value =
-      index === buckets.length - 1
+      index === rows.length - 1
         ? Math.max(0, 100 - assignedPercent)
-        : Math.round((bucket.raw / total) * 100);
+        : Math.round((row.total / total) * 100);
     assignedPercent += value;
 
     return {
-      label: bucket.label,
+      label: row.merchantName,
       value,
-      color: bucket.color,
+      amount: row.total,
+      color:
+        row.merchantName === "DM-General"
+          ? "#fb7185"
+          : DASHBOARD_SEGMENT_COLORS[index % DASHBOARD_SEGMENT_COLORS.length]!,
     };
   });
 }
@@ -531,7 +472,7 @@ function buildSourceBreakdown(
 
   const total = Object.values(buckets).reduce((sum, bucket) => sum + bucket.total, 0);
   let assignedPercent = 0;
-  const entries = Object.entries(buckets);
+  const entries = Object.entries(buckets).sort(([, a], [, b]) => b.total - a.total);
 
   return entries.map(([label, bucket], index) => {
     const percent =

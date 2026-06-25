@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   const perf = createPerfLogger("api.admin.dashboard.sales-by-location.GET", {
     path: request.nextUrl.pathname,
   });
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("dashboard.view");
   perf.mark("auth");
   if (!auth.ok) {
     perf.end({ status: auth.status, ok: false });
