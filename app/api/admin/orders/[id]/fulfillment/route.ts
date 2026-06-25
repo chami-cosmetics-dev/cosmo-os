@@ -74,7 +74,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("mark_invoice_complete"),
-    modeOfPayment: z.string().trim().min(1).max(200),
+    modeOfPayment: z.string().trim().min(1).max(200).optional(),
   }),
   z.object({
     action: z.literal("mark_delivered"),
@@ -941,15 +941,18 @@ export async function PATCH(
     }
 
     if (data.action === "mark_invoice_complete") {
-      const paymentModes = await listCompanyErpPaymentModes(companyId);
-      if (!isAllowedCompanyErpPaymentMode(paymentModes, data.modeOfPayment)) {
-        return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
+      const modeOverride = data.modeOfPayment?.trim();
+      if (modeOverride) {
+        const paymentModes = await listCompanyErpPaymentModes(companyId);
+        if (!isAllowedCompanyErpPaymentMode(paymentModes, modeOverride)) {
+          return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
+        }
       }
       const outcome = await markOrderInvoiceComplete({
         companyId,
         orderId: order.id,
         userId: auth.context!.user!.id,
-        modeOfPayment: data.modeOfPayment,
+        modeOfPayment: modeOverride,
       });
       if (!outcome.success) {
         return NextResponse.json({ error: outcome.error }, { status: 400 });

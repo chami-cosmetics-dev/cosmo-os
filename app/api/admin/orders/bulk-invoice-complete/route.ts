@@ -12,7 +12,7 @@ import { cuidSchema, trimmedString } from "@/lib/validation";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
-  modeOfPayment: trimmedString(1, 200),
+  modeOfPayment: trimmedString(1, 200).optional(),
 });
 
 export const dynamic = "force-dynamic";
@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
   }
 
   const paymentModes = await listCompanyErpPaymentModes(companyId);
-  if (!isAllowedCompanyErpPaymentMode(paymentModes, parsed.data.modeOfPayment)) {
+  const modeOverride = parsed.data.modeOfPayment?.trim();
+  if (modeOverride && !isAllowedCompanyErpPaymentMode(paymentModes, modeOverride)) {
     return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
   }
 
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest) {
         companyId,
         orderId,
         userId,
-        modeOfPayment: parsed.data.modeOfPayment,
+        modeOfPayment: modeOverride,
         bulk: true,
       });
       if (outcome.success) {
