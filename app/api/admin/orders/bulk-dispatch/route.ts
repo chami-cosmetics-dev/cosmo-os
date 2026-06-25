@@ -11,6 +11,7 @@ import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -85,6 +86,8 @@ export async function POST(request: NextRequest) {
           shippingAddress: true,
           erpnextInvoiceId: true,
           erpnextSyncError: true,
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -110,6 +113,17 @@ export async function POST(request: NextRequest) {
       const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
       if (erpOutOfStockBlock) {
         results.push({ orderId, ref, success: false, error: erpOutOfStockBlock });
+        continue;
+      }
+
+      const financeBlock = await getFinancePaymentApprovalBlockReason({
+        id: order.id,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames ?? [],
+        erpnextInvoiceId: order.erpnextInvoiceId,
+      });
+      if (financeBlock) {
+        results.push({ orderId, ref, success: false, error: financeBlock });
         continue;
       }
 
