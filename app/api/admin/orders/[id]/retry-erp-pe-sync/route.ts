@@ -5,7 +5,11 @@ import {
   isAllowedCompanyErpPaymentMode,
   listCompanyErpPaymentModes,
 } from "@/lib/erp-payment-modes";
-import { markOrderErpPeSyncFailed, retryOrderErpPeSync } from "@/lib/failed-erp-pe-sync";
+import {
+  markOrderErpPeSyncFailed,
+  resolveFailedErpPeRetryMop,
+  retryOrderErpPeSync,
+} from "@/lib/failed-erp-pe-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, trimmedString } from "@/lib/validation";
@@ -42,7 +46,7 @@ export async function POST(
 
   const order = await prisma.order.findFirst({
     where: { id: idResult.data, companyId },
-    select: { id: true, erpPeSyncError: true, erpPeSyncMop: true },
+    include: { companyLocation: { include: { erpnextInstance: true } } },
   });
   if (!order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -51,14 +55,20 @@ export async function POST(
     return NextResponse.json({ error: "No failed ERP payment entry on this order" }, { status: 400 });
   }
 
-  const mopName = parsed.data.modeOfPayment?.trim() || order.erpPeSyncMop?.trim() || "";
-  if (!mopName) {
-    return NextResponse.json({ error: "ERP payment mode is required" }, { status: 400 });
+  const mopOverride = parsed.data.modeOfPayment?.trim();
+  if (mopOverride) {
+    const paymentModes = await listCompanyErpPaymentModes(companyId);
+    if (!isAllowedCompanyErpPaymentMode(paymentModes, mopOverride)) {
+      return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
+    }
   }
 
-  const paymentModes = await listCompanyErpPaymentModes(companyId);
-  if (!isAllowedCompanyErpPaymentMode(paymentModes, mopName)) {
-    return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
+  const mopName = resolveFailedErpPeRetryMop(order, mopOverride);
+  if (!mopName) {
+    return NextResponse.json(
+      { error: "No ERP payment mode recorded for this failure. Select a mode to retry." },
+      { status: 400 },
+    );
   }
 
   try {
@@ -70,7 +80,7 @@ export async function POST(
     return NextResponse.json({ ok: true, message: "ERP payment entry created" });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    await markOrderErpPeSyncFailed(order.id, errMsg, mopName);
+    await markOrderErpPeSyncFailed(order.id, errMsg, mopOverride ?? mopName);
     return NextResponse.json({ error: "Retry failed", details: errMsg }, { status: 500 });
   }
 }

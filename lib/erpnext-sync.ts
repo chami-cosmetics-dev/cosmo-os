@@ -49,7 +49,7 @@ type ErpConfig = {
   shippingChargeAccount: string;
 };
 
-function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
+export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
   return {
     baseUrl: (instance?.baseUrl ?? process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, ""),
     apiKey: instance?.apiKey ?? process.env.ERPNEXT_API_KEY ?? "",
@@ -681,9 +681,25 @@ function detectDeliveryMop(
   return null;
 }
 
+/** Resolve ERP Mode of Payment from Vault order payment gateways (invoice-complete default). */
+export function resolveOrderPaymentMop(
+  cfg: ErpConfig,
+  paymentGatewayPrimary: string | null,
+  paymentGatewayNames: string[],
+): string | null {
+  const gateways = [paymentGatewayPrimary, ...paymentGatewayNames].filter(Boolean) as string[];
+  return (
+    detectDeliveryMop(cfg, paymentGatewayPrimary, paymentGatewayNames) ??
+    resolvePrepaidMop(cfg, gateways) ??
+    resolveErpPaymentType(cfg, gateways)
+  );
+}
+
 export type CreateDeliveryPaymentEntryOptions = {
   /** Explicit ERP Mode of Payment name (finance invoice-complete / PE retry). */
   mopNameOverride?: string;
+  /** When true, throw if no MOP can be resolved (invoice complete / explicit retry). */
+  requireMop?: boolean;
 };
 
 export async function createDeliveryPaymentEntry(
@@ -716,7 +732,7 @@ export async function createDeliveryPaymentEntry(
 
   let mopName: string | null = options?.mopNameOverride?.trim() || null;
   if (!mopName) {
-    mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+    mopName = resolveOrderPaymentMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
     if (!mopName && isErpOrder) {
       mopName = cfg.codMop || null;
     }
@@ -724,6 +740,9 @@ export async function createDeliveryPaymentEntry(
   if (!mopName) {
     if (options?.mopNameOverride) {
       throw new Error(`ERPNext Mode of Payment "${options.mopNameOverride}" is not configured`);
+    }
+    if (options?.requireMop) {
+      throw new Error("No ERP payment mode matched for this order's payment method");
     }
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return;
