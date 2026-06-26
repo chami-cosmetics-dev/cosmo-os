@@ -192,11 +192,20 @@ export async function resolveOrderDiscountCouponForOrder(input: {
   erpnextInvoiceId?: string | null;
   erpnextInstance?: ErpInstanceLike;
 }): Promise<string | null> {
+  const isErpSource = input.sourceName?.startsWith("erpnext") ?? false;
   const fromShopify = getDiscountCouponCode(input.discountCodes);
-  const fromErpPayload =
-    input.sourceName?.startsWith("erpnext")
-      ? getErpDiscountCouponFromPayload(input.rawPayload ?? null)
-      : null;
+
+  // For Shopify orders the discount_codes field is the source of truth.
+  // The ERP SI may store an internal pricing-rule name (e.g. "localcs") that
+  // differs from the Shopify coupon the customer used (e.g. "SV20") — don't
+  // let the ERP lookup override it.
+  if (fromShopify && !isErpSource) {
+    return fromShopify;
+  }
+
+  const fromErpPayload = isErpSource
+    ? getErpDiscountCouponFromPayload(input.rawPayload ?? null)
+    : null;
   const stored = fromShopify ?? fromErpPayload;
 
   if (!shouldResolveFromLinkedErpInvoice(input)) {
