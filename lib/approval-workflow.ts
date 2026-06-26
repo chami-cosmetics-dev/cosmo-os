@@ -163,50 +163,42 @@ export async function cancelPendingApprovalsForOrder(orderId: string) {
   return direct.count + viaReturn.count;
 }
 
-/** Clear stale pending approvals and cancel-pending return states for orders already
- * voided in Vault. A voided order has no outstanding payment to approve and no ERP
- * cancellation action needed — both the finance approval and the return "cancel pending"
- * flag are cleaned up together so both lists stay in sync. */
+/** Clear stale payment approvals for orders already voided in Vault.
+ * Only cancels ORDER_PAYMENT_APPROVAL and DELIVERY_PAYMENT_APPROVAL — never
+ * RETURN_CANCEL_APPROVAL or RETURN_REARRANGE_PAYMENT_APPROVAL, because returned
+ * orders always have financialStatus="voided" and those approvals must stay pending
+ * until finance explicitly acts on them. */
 export async function reconcilePendingApprovalsForVoidedOrders(companyId: string) {
   const now = new Date();
-  const approvalData = {
+  const data = {
     status: "cancelled" as const,
     reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
     updatedAt: now,
   };
+  const paymentTypes = [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL];
 
   const [direct, viaReturn] = await Promise.all([
     prisma.approvalRequest.updateMany({
       where: {
         companyId,
         status: "pending",
+        type: { in: paymentTypes },
         order: { financialStatus: voidedOrderFinancialStatusFilter },
       },
-      data: approvalData,
+      data,
     }),
     prisma.approvalRequest.updateMany({
       where: {
         companyId,
         status: "pending",
+        type: { in: paymentTypes },
         orderReturn: {
           order: { financialStatus: voidedOrderFinancialStatusFilter },
         },
       },
-      data: approvalData,
+      data,
     }),
   ]);
-
-  // Also clear the cancel-pending state on OrderReturn rows so the returns list
-  // stays in sync with the finance approvals list (both show nothing for voided orders).
-  await prisma.orderReturn.updateMany({
-    where: {
-      companyId,
-      actionType: "cancel",
-      actionStatus: "pending",
-      order: { financialStatus: voidedOrderFinancialStatusFilter },
-    },
-    data: { actionStatus: "solved", updatedAt: now },
-  });
 
   return direct.count + viaReturn.count;
 }
