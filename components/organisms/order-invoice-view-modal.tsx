@@ -314,12 +314,7 @@ type TimelineItem = {
   onHold?: boolean;
 };
 
-function isPosOrder(sourceName: string) {
-  return sourceName === "pos" || sourceName === "erpnext-pos";
-}
-
 function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => string): TimelineItem[] {
-  const isPos = isPosOrder(orderDetail.sourceName);
   const items: TimelineItem[] = [];
 
   // 1. Order received (always)
@@ -407,19 +402,6 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
         ? "In print queue"
         : undefined,
   });
-
-  if (isPos) {
-    // POS orders are completed in-store — no dispatch/delivery/invoice steps apply.
-    items.push({
-      id: "completed_at_pos",
-      label: "Completed at Store",
-      date: orderDetail.fulfillmentStageEnteredAt ?? null,
-      who: "-",
-      done: true,
-      icon: <Check className="size-4" />,
-    });
-    return items;
-  }
 
   // 4. Package Ready — only after manual mark or dispatch (not auto on print)
   const onHold = !!orderDetail.packageOnHoldAt;

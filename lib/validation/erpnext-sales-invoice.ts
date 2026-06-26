@@ -1,12 +1,5 @@
 import { z } from "zod";
 
-// ERPNext sends literal "None" for unset string fields instead of null/empty.
-const erpString = z
-  .string()
-  .optional()
-  .nullable()
-  .transform((v) => (!v?.trim() || v.trim().toLowerCase() === "none" ? null : v.trim()));
-
 /**
  * ERPNext Sales Invoice webhook body (Cosmo OS + Vault OS share this handler).
  * ERP must include `customer_name` (Sales Invoice display name) — not only `customer` (often a phone ID).
@@ -30,14 +23,14 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   set_warehouse: z.string().optional().nullable(),
   is_pos: z.union([z.number(), z.boolean()]).optional().nullable().transform((v) => (v == null ? null : Number(v))),
   is_return: z.union([z.number(), z.boolean()]).optional().nullable().transform((v) => (v == null ? null : Number(v))),
-  return_against: erpString,
+  return_against: z.string().optional().nullable(),
   payment_type: z.string().optional().nullable().default(null),
   custom_payment_type: z.string().optional().nullable().default(null),
   custom_merchant_coupon_code: z.string().optional().nullable().default(null),
   merchant_coupon_code: z.string().optional().nullable().default(null),
   coupon_code: z.string().optional().nullable().default(null),
   custom_coupon_code: z.string().optional().nullable().default(null),
-  posa_pos_opening_shift: erpString,
+  posa_pos_opening_shift: z.string().optional().nullable().default(null),
   owner: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   contact_mobile: z.string().optional().nullable(),
