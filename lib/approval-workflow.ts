@@ -163,7 +163,10 @@ export async function cancelPendingApprovalsForOrder(orderId: string) {
   return direct.count + viaReturn.count;
 }
 
-/** Clear stale pending approvals left on orders already voided in Vault. */
+/** Clear stale pending approvals left on orders already voided in Vault.
+ * Only cancels payment approval types — return-related approvals (cancel/rearrange)
+ * must remain pending even though the linked order is voided (returned orders are
+ * always voided but still need finance to process the ERP-side cancellation). */
 export async function reconcilePendingApprovalsForVoidedOrders(companyId: string) {
   const now = new Date();
   const data = {
@@ -171,12 +174,14 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
     reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
     updatedAt: now,
   };
+  const paymentApprovalTypes = [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL];
 
   const [direct, viaReturn] = await Promise.all([
     prisma.approvalRequest.updateMany({
       where: {
         companyId,
         status: "pending",
+        type: { in: paymentApprovalTypes },
         order: { financialStatus: voidedOrderFinancialStatusFilter },
       },
       data,
@@ -185,6 +190,7 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
       where: {
         companyId,
         status: "pending",
+        type: { in: paymentApprovalTypes },
         orderReturn: {
           order: { financialStatus: voidedOrderFinancialStatusFilter },
         },
