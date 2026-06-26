@@ -180,6 +180,26 @@ export async function resolveOrderLineItemsPricing(input: {
   erpnextInstance?: ErpInstanceLike;
   lineItems: Array<{ sku: string | null; quantity: number; price: string }>;
 }): Promise<OrderLineItemPricing[]> {
+  const isErpSource = input.sourceName?.startsWith("erpnext") ?? false;
+
+  // For Shopify orders, the Shopify line item price is the source of truth.
+  // The ERP SI may carry a different rate (after ERP-side pricing rules) that
+  // diverges from Shopify's recorded price — using it would make line item
+  // prices inconsistent with the rest of the Shopify totals breakdown.
+  if (!isErpSource && input.lineItems.every((li) => li.price)) {
+    return input.lineItems.map((li) => {
+      const saleUnit = parseFloat(li.price);
+      const saleTotal = saleUnit * li.quantity;
+      return {
+        salePrice: Number.isFinite(saleUnit) ? saleUnit.toFixed(2) : li.price,
+        saleTotal: Number.isFinite(saleTotal) ? saleTotal.toFixed(2) : li.price,
+        originalPrice: null,
+        originalTotal: null,
+        lineDiscount: null,
+      };
+    });
+  }
+
   const useErp = shouldResolveFromLinkedErpInvoice({
     sourceName: input.sourceName,
     erpnextInvoiceId: input.erpnextInvoiceId,
