@@ -137,8 +137,8 @@ export async function buildPickListAggregationForOrders(
   };
 }
 
-export async function fetchSinglePrintPickList(companyId: string): Promise<PickListAggregation> {
-  const { from, to } = getPickListTodayBounds();
+export async function fetchSinglePrintPickList(companyId: string, date?: string): Promise<PickListAggregation> {
+  const { from, to } = getPickListTodayBounds(date);
 
   const orders = await prisma.order.findMany({
     where: {
@@ -169,8 +169,8 @@ export async function fetchSinglePrintPickList(companyId: string): Promise<PickL
   };
 }
 
-export async function fetchTodayUngroupedPrintOrderIds(companyId: string): Promise<string[]> {
-  const { from, to } = getPickListTodayBounds();
+export async function fetchTodayUngroupedPrintOrderIds(companyId: string, date?: string): Promise<string[]> {
+  const { from, to } = getPickListTodayBounds(date);
   const rows = await prisma.order.findMany({
     where: {
       companyId,
