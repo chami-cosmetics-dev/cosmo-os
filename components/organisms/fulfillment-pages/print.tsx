@@ -114,6 +114,8 @@ function PrintQueueInner() {
   const [printing, setPrinting] = useState(false);
   const [view, setView] = useState<"queue" | "history">("queue");
   const [refreshTick, setRefreshTick] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const selectAllRef = useRef<HTMLInputElement>(null);
   const appliedDeepLinkRef = useRef<string | null>(null);
 
@@ -121,6 +123,10 @@ function PrintQueueInner() {
     const t = setTimeout(() => setDebouncedSearch(search), 400);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [debouncedSearch]);
 
   const deepLinkOrderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim() ?? null;
 
@@ -204,6 +210,7 @@ function PrintQueueInner() {
         sort_by: "updated",
         sort_order: "desc",
         limit: String(PRINT_QUEUE_PAGE_SIZE),
+        page: String(historyPage),
         print_history_mode: "true",
       });
 
@@ -216,9 +223,10 @@ function PrintQueueInner() {
         notify.error("Failed to load print queue");
         return;
       }
-      const data = (await res.json()) as { orders?: PrintOrder[] };
+      const data = (await res.json()) as { orders?: PrintOrder[]; total?: number };
       const nextOrders = data.orders ?? [];
       setOrders(nextOrders);
+      setHistoryTotal(data.total ?? nextOrders.length);
       setSelected(new Set());
       if (deepLinkOrderId) appliedDeepLinkRef.current = null;
     } catch {
@@ -226,7 +234,7 @@ function PrintQueueInner() {
     } finally {
       setLoading(false);
     }
-  }, [view, debouncedSearch, deepLinkOrderId]);
+  }, [view, debouncedSearch, deepLinkOrderId, historyPage]);
 
   useEffect(() => {
     void fetchOrders();
@@ -580,11 +588,37 @@ function PrintQueueInner() {
         )}
 
         {!loading && orders.length > 0 && (
-          <div className="border-t border-border/70 px-4 py-2 text-xs text-muted-foreground">
-            {view === "queue"
-              ? `${unprinted.length} unprinted order${unprinted.length !== 1 ? "s" : ""} in queue`
-              : `${orders.length} order${orders.length !== 1 ? "s" : ""} printed`}
-            {selected.size > 0 && ` · ${selected.size} selected`}
+          <div className="flex items-center justify-between border-t border-border/70 px-4 py-2 text-xs text-muted-foreground">
+            <span>
+              {view === "queue"
+                ? `${unprinted.length} unprinted order${unprinted.length !== 1 ? "s" : ""} in queue`
+                : historyTotal > PRINT_QUEUE_PAGE_SIZE
+                  ? `Showing ${(historyPage - 1) * PRINT_QUEUE_PAGE_SIZE + 1}–${(historyPage - 1) * PRINT_QUEUE_PAGE_SIZE + orders.length} of ${historyTotal} printed orders`
+                  : `${historyTotal} printed order${historyTotal !== 1 ? "s" : ""}`}
+              {selected.size > 0 && ` · ${selected.size} selected`}
+            </span>
+            {view === "history" && historyTotal > PRINT_QUEUE_PAGE_SIZE && (
+              <div className="flex gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={historyPage <= 1 || loading}
+                  onClick={() => setHistoryPage((p) => p - 1)}
+                >
+                  ← Prev
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={historyPage >= Math.ceil(historyTotal / PRINT_QUEUE_PAGE_SIZE) || loading}
+                  onClick={() => setHistoryPage((p) => p + 1)}
+                >
+                  Next →
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>
