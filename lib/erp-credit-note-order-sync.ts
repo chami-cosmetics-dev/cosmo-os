@@ -120,9 +120,17 @@ export async function applyErpCreditNoteToOriginalOrder(
       financialStatus: true,
       fulfillmentStage: true,
       rawPayload: true,
+      revertedFromInvoiceCompleteAt: true,
     },
   });
   if (!original) return null;
+
+  // Credit note was triggered by OS itself at revert time — OS state is already correct ("refunded").
+  // Skip auto-void to prevent the webhook from overwriting the partial-void state.
+  if (original.revertedFromInvoiceCompleteAt) {
+    console.log(`[ERP CN] Skipping auto-void for finance-reverted order ${original.id} (${original.name})`);
+    return original;
+  }
 
   const returnInvoiceName = options?.returnInvoiceName?.trim() || null;
 
@@ -252,6 +260,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       financialStatus: true,
       fulfillmentStage: true,
       rawPayload: true,
+      revertedFromInvoiceCompleteAt: true,
       companyLocation: {
         select: {
           erpnextInstance: {
@@ -270,6 +279,11 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
 
   if (order.financialStatus === "voided" && order.fulfillmentStage === "returned") {
     return { updated: false, reason: "already_credit_noted" };
+  }
+
+  // Credit note was issued by OS at revert time — don't overwrite the "refunded" partial-void state.
+  if (order.revertedFromInvoiceCompleteAt) {
+    return { updated: false, reason: "finance_reverted_order_skipped" };
   }
 
   const creds: ErpInstanceCreds = {

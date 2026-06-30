@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/audit-log";
+import { createInvoiceRevertVoidApproval } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -176,6 +177,7 @@ async function buildPreviewRows(companyId: string, entries: NormalizedEntry[]): 
           name: true,
           fulfillmentStage: true,
           dispatchedAt: true,
+          revertedFromInvoiceCompleteAt: true,
           assignedMerchantId: true,
           shippingAddress: true,
           customer: { select: { firstName: true, lastName: true } },
@@ -259,7 +261,9 @@ async function buildPreviewRows(companyId: string, entries: NormalizedEntry[]): 
       returnRemark,
     };
 
-    if (order.fulfillmentStage !== "dispatched") {
+    const isFinanceReverted =
+      order.fulfillmentStage === "delivery_complete" && !!order.revertedFromInvoiceCompleteAt;
+    if (!isFinanceReverted && order.fulfillmentStage !== "dispatched") {
       return {
         ...base,
         status: "not_dispatched",
@@ -277,7 +281,7 @@ async function buildPreviewRows(companyId: string, entries: NormalizedEntry[]): 
     return {
       ...base,
       status: "valid",
-      message: "Ready to mark returned",
+      message: isFinanceReverted ? "Finance-reverted — ready to mark item returned" : "Ready to mark returned",
     };
   });
 
@@ -370,7 +374,11 @@ export async function POST(request: NextRequest) {
         results.push({ ...row, status: "not_found", message: "Order not found during confirm" });
         continue;
       }
-      if (order.fulfillmentStage !== "dispatched") {
+
+      const isFinanceReverted =
+        order.fulfillmentStage === "delivery_complete" && !!order.revertedFromInvoiceCompleteAt;
+
+      if (!isFinanceReverted && order.fulfillmentStage !== "dispatched") {
         results.push({
           ...row,
           status: "not_dispatched",
@@ -384,100 +392,150 @@ export async function POST(request: NextRequest) {
       }
 
       const shipping = getShippingService(order);
-      const returnedOrder = await prisma.$transaction(async (tx) => {
-        const createdReturn = await tx.orderReturn.create({
-          data: {
-            companyId,
-            orderId: order.id,
-            merchantUserId: order.assignedMerchantId,
-            dispatchedAt: order.dispatchedAt!,
-            returnDate,
-            shippingServiceType: shipping.type,
-            shippingServiceName: shipping.name,
-            riderId: order.dispatchedByRiderId,
-            courierServiceId: order.dispatchedByCourierServiceId,
-            returnedById: actorUserId,
-            returnRemark,
-            remarkTemplate: entry.remarkTemplate,
-            actionStatus: "pending",
-          },
-        });
 
-        await tx.order.update({
+      if (isFinanceReverted) {
+        // Finance-reverted path: update existing invoice_revert OrderReturn + trigger void approval
+        const existingReturn = await prisma.orderReturn.findFirst({
+          where: { orderId: order.id, companyId, remarkTemplate: "invoice_revert" },
+          select: { id: true },
+        });
+        const orderLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+
+        await prisma.order.update({
           where: { id: order.id },
-          data: {
-            ...orderStageUpdate("returned_to_store", returnDate),
-            fulfillmentStatus: "unfulfilled",
-            packageReadyAt: null,
-            packageReadyById: null,
-            packageOnHoldAt: null,
-            packageHoldReasonId: null,
-            dispatchedAt: null,
-            dispatchedById: null,
-            dispatchedByRiderId: null,
-            dispatchedByCourierServiceId: null,
-            deliveryOutcome: "pending",
-            deliveryFailedReason: null,
-            deliveryCompleteAt: null,
-            deliveryCompleteById: null,
-            lastRiderUpdateAt: null,
-            riderDeliveryToken: null,
-          },
+          data: orderStageUpdate("returned_to_store", returnDate),
         });
 
-        await tx.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
-        return createdReturn;
-      });
+        if (existingReturn) {
+          await prisma.orderReturn.update({
+            where: { id: existingReturn.id },
+            data: { returnRemark },
+          });
+        }
 
-      await writeAuditLog({
-        companyId,
-        actorUserId,
-        module: "orders",
-        action: "returned_order_recorded",
-        entityType: "OrderReturn",
-        entityId: returnedOrder.id,
-        summary: `Bulk recorded return for order ${getOrderLabel(order)}`,
-        afterData: {
+        await createInvoiceRevertVoidApproval({
+          companyId,
           orderId: order.id,
-          returnDate,
+          invoiceLabel: orderLabel,
+          revertedAt: order.revertedFromInvoiceCompleteAt!,
+        });
+
+        await writeAuditLog({
+          companyId,
+          actorUserId,
+          module: "orders",
+          action: "fulfillment_updated",
+          entityType: "Order",
+          entityId: order.id,
+          summary: `Finance-reverted order ${orderLabel} marked returned to store — void approval sent`,
+          beforeData: { fulfillmentStage: order.fulfillmentStage },
+          afterData: { fulfillmentStage: "returned_to_store" },
+          metadata: { action: "finance_revert_returned_to_store", bulk: true, input: row.input },
+        });
+
+        results.push({
+          ...row,
+          status: "processed",
+          message: "Returned to store — void approval sent to finance",
           returnRemark,
           remarkTemplate: entry.remarkTemplate,
-          dispatchedAt: order.dispatchedAt,
-          shippingServiceType: shipping.type,
-          shippingServiceName: shipping.name,
-        },
-        metadata: {
-          bulk: true,
-          input: row.input,
-        },
-      });
+        });
+      } else {
+        const returnedOrder = await prisma.$transaction(async (tx) => {
+          const createdReturn = await tx.orderReturn.create({
+            data: {
+              companyId,
+              orderId: order.id,
+              merchantUserId: order.assignedMerchantId,
+              dispatchedAt: order.dispatchedAt!,
+              returnDate,
+              shippingServiceType: shipping.type,
+              shippingServiceName: shipping.name,
+              riderId: order.dispatchedByRiderId,
+              courierServiceId: order.dispatchedByCourierServiceId,
+              returnedById: actorUserId,
+              returnRemark,
+              remarkTemplate: entry.remarkTemplate,
+              actionStatus: "pending",
+            },
+          });
 
-      await writeAuditLog({
-        companyId,
-        actorUserId,
-        module: "orders",
-        action: "fulfillment_updated",
-        entityType: "Order",
-        entityId: order.id,
-        summary: `Bulk marked order ${getOrderLabel(order)} as returned to store`,
-        beforeData: { fulfillmentStage: order.fulfillmentStage },
-        afterData: { fulfillmentStage: "returned_to_store" },
-        metadata: {
-          action: "bulk_mark_returned",
-          returnDate: returnDate.toISOString(),
-          dispatchedAt: order.dispatchedAt.toISOString(),
-          shippingServiceType: shipping.type,
-          shippingServiceName: shipping.name,
-        },
-      });
+          await tx.order.update({
+            where: { id: order.id },
+            data: {
+              ...orderStageUpdate("returned_to_store", returnDate),
+              fulfillmentStatus: "unfulfilled",
+              packageReadyAt: null,
+              packageReadyById: null,
+              packageOnHoldAt: null,
+              packageHoldReasonId: null,
+              dispatchedAt: null,
+              dispatchedById: null,
+              dispatchedByRiderId: null,
+              dispatchedByCourierServiceId: null,
+              deliveryOutcome: "pending",
+              deliveryFailedReason: null,
+              deliveryCompleteAt: null,
+              deliveryCompleteById: null,
+              lastRiderUpdateAt: null,
+              riderDeliveryToken: null,
+            },
+          });
 
-      results.push({
-        ...row,
-        status: "processed",
-        message: "Returned to store",
-        returnRemark,
-        remarkTemplate: entry.remarkTemplate,
-      });
+          await tx.riderDeliveryTask.deleteMany({ where: { orderId: order.id } });
+          return createdReturn;
+        });
+
+        await writeAuditLog({
+          companyId,
+          actorUserId,
+          module: "orders",
+          action: "returned_order_recorded",
+          entityType: "OrderReturn",
+          entityId: returnedOrder.id,
+          summary: `Bulk recorded return for order ${getOrderLabel(order)}`,
+          afterData: {
+            orderId: order.id,
+            returnDate,
+            returnRemark,
+            remarkTemplate: entry.remarkTemplate,
+            dispatchedAt: order.dispatchedAt,
+            shippingServiceType: shipping.type,
+            shippingServiceName: shipping.name,
+          },
+          metadata: {
+            bulk: true,
+            input: row.input,
+          },
+        });
+
+        await writeAuditLog({
+          companyId,
+          actorUserId,
+          module: "orders",
+          action: "fulfillment_updated",
+          entityType: "Order",
+          entityId: order.id,
+          summary: `Bulk marked order ${getOrderLabel(order)} as returned to store`,
+          beforeData: { fulfillmentStage: order.fulfillmentStage },
+          afterData: { fulfillmentStage: "returned_to_store" },
+          metadata: {
+            action: "bulk_mark_returned",
+            returnDate: returnDate.toISOString(),
+            dispatchedAt: order.dispatchedAt.toISOString(),
+            shippingServiceType: shipping.type,
+            shippingServiceName: shipping.name,
+          },
+        });
+
+        results.push({
+          ...row,
+          status: "processed",
+          message: "Returned to store",
+          returnRemark,
+          remarkTemplate: entry.remarkTemplate,
+        });
+      }
     } catch (error) {
       console.error("Bulk return failed:", error);
       results.push({

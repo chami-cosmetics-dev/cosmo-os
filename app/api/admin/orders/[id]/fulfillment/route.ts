@@ -18,6 +18,7 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
+import { createErpnextCreditNote } from "@/lib/erpnext-sync";
 import { markOrderDelivered } from "@/lib/mark-order-delivered";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import {
@@ -1002,7 +1003,15 @@ export async function PATCH(
       const clearFromStageIdx = targetIdx + 1;
       const dispatchedIdx = FULFILLMENT_STAGE_ORDER.indexOf("dispatched");
       const readyIdx = FULFILLMENT_STAGE_ORDER.indexOf("ready_to_dispatch");
-      const shouldRecordReturn = currentIdx >= dispatchedIdx && targetIdx >= readyIdx && order.dispatchedAt;
+      // Special path: finance reverts a paid+delivered order back from invoice_complete.
+      // Item is physically out with customer (not yet returned), so we track a "refunded" partial-void state.
+      const isInvoiceCompleteRevert =
+        currentStage === "invoice_complete" && targetStage === "delivery_complete";
+      const shouldRecordReturn =
+        !isInvoiceCompleteRevert &&
+        currentIdx >= dispatchedIdx &&
+        targetIdx >= readyIdx &&
+        Boolean(order.dispatchedAt);
       const returnRemark = data.remarkTemplate
         ? buildReturnRemarkText({
             remarkTemplate: data.remarkTemplate,
@@ -1055,6 +1064,11 @@ export async function PATCH(
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("invoice_complete")) {
         updateData.invoiceCompleteAt = null;
         updateData.invoiceCompleteById = null;
+      }
+      if (isInvoiceCompleteRevert) {
+        updateData.revertedFromInvoiceCompleteAt = now;
+        updateData.revertedFromInvoiceCompleteById = auth.context!.user!.id;
+        updateData.financialStatus = "refunded";
       }
       if (shouldRecordReturn) {
         updateData.fulfillmentStatus = "unfulfilled";
@@ -1139,6 +1153,58 @@ export async function PATCH(
           },
         });
       }
+
+      if (isInvoiceCompleteRevert) {
+        const existingRevertReturn = await prisma.orderReturn.findFirst({
+          where: { orderId: order.id, companyId, remarkTemplate: "invoice_revert" },
+          select: { id: true },
+        });
+        if (!existingRevertReturn) {
+          const shipping = getShippingServiceForReturn(order);
+          const createdReturn = await prisma.orderReturn.create({
+            data: {
+              companyId,
+              orderId: order.id,
+              merchantUserId: order.assignedMerchantId,
+              dispatchedAt: order.dispatchedAt ?? now,
+              returnDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
+              shippingServiceType: shipping.type,
+              shippingServiceName: shipping.name,
+              riderId: order.dispatchedByRiderId,
+              courierServiceId: order.dispatchedByCourierServiceId,
+              returnedById: auth.context!.user!.id,
+              returnRemark: data.revertReason,
+              remarkTemplate: "invoice_revert",
+              actionStatus: "pending",
+            },
+          });
+          await writeAuditLog({
+            companyId,
+            actorUserId: auth.context!.user!.id,
+            module: "orders",
+            action: "returned_order_recorded",
+            entityType: "OrderReturn",
+            entityId: createdReturn.id,
+            summary: `Finance reverted order ${order.orderNumber ?? order.name ?? order.id} from invoice complete — credit refund pending`,
+            afterData: { orderId: order.id, remarkTemplate: "invoice_revert", source: "invoice_complete_revert" },
+          });
+        }
+        // Fire-and-forget ERP credit note — non-fatal
+        void (async () => {
+          try {
+            const withLocation = await prisma.order.findUnique({
+              where: { id: order.id },
+              include: { companyLocation: { include: { erpnextInstance: true } } },
+            });
+            if (withLocation?.companyLocation) {
+              await createErpnextCreditNote(order, withLocation.companyLocation);
+            }
+          } catch (err) {
+            console.error("[ERPNext] createErpnextCreditNote failed (non-fatal):", err);
+          }
+        })();
+      }
+
       await logOrderFulfillmentAudit({
         companyId,
         actorUserId: auth.context!.user!.id,

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   DELIVERY_PAYMENT_APPROVAL,
+  INVOICE_REVERT_VOID_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
@@ -153,7 +154,7 @@ export async function PATCH(
 
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
-        // Bank / KOKO: mark sample step complete and advance to print queue.
+        // Bank / KOKO / WebXPay: invoice is financially complete at approval; advance to print queue for physical fulfillment.
         await tx.order.update({
           where: { id: approval.orderId! },
           data: {
@@ -161,6 +162,8 @@ export async function PATCH(
             ...orderStageUpdate("print", now),
             sampleFreeIssueCompleteAt: now,
             sampleFreeIssueCompleteById: reviewerId,
+            invoiceCompleteAt: now,
+            invoiceCompleteById: reviewerId,
           },
         });
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
@@ -175,6 +178,23 @@ export async function PATCH(
                 invoiceCompleteAt: now,
                 invoiceCompleteById: reviewerId,
               },
+        });
+      } else if (approval.type === INVOICE_REVERT_VOID_APPROVAL) {
+        await tx.order.update({
+          where: { id: approval.orderId! },
+          data: {
+            financialStatus: "voided",
+            ...orderStageUpdate("returned", now),
+          },
+        });
+        await tx.orderReturn.updateMany({
+          where: { orderId: approval.orderId!, remarkTemplate: "invoice_revert", actionStatus: "pending" },
+          data: {
+            actionStatus: "solved",
+            actionType: "void",
+            actionDate: now,
+            actionById: reviewerId,
+          },
         });
       } else if (approval.type === RETURN_CANCEL_APPROVAL) {
         await tx.orderReturn.update({
