@@ -39,8 +39,7 @@ export async function GET(request: NextRequest) {
         item.customerName,
         item.customerEmail,
         item.customerPhone,
-        item.merchant?.name,
-        item.merchant?.email,
+        item.merchant,
         item.shippingService,
         item.riderName,
         item.returnRemark,
@@ -55,7 +54,7 @@ export async function GET(request: NextRequest) {
     ["Invoice", "Merchant", "Rider", "Remark", "Date"],
     rows.map((item) => ({
       Invoice: item.invoiceNo,
-      Merchant: item.merchant?.name ?? item.merchant?.email ?? "",
+      Merchant: item.merchant ?? "",
       Rider: item.riderName ?? item.shippingService,
       Remark: item.returnRemark ?? item.actionRemark ?? "",
       Date: formatIsoDate(new Date(item.returnDate)),
