@@ -75,13 +75,6 @@ type BulkRemarkDraft = {
   customRemark: string;
 };
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-LK");
-}
-
 function formatDateOnly(value?: string | null) {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -184,8 +177,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         item.customerName,
         item.customerEmail,
         item.customerPhone,
-        item.merchant?.name,
-        item.merchant?.email,
+        item.merchant,
         item.shippingService,
         item.riderName,
         item.returnRemark,
@@ -706,7 +698,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     return (
                       <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
                         <td className="px-3 py-3 font-medium">{item.invoiceNo}</td>
-                        <td className="px-3 py-3">{item.merchant?.name ?? item.merchant?.email ?? "Unassigned"}</td>
+                        <td className="px-3 py-3">{item.merchant ?? "-"}</td>
                         <td className="px-3 py-3">{item.riderName ?? item.shippingService}</td>
                         <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
                         <td className="max-w-[220px] truncate px-3 py-3">{item.returnRemark ?? item.actionRemark ?? "-"}</td>
@@ -740,6 +732,9 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   <>
                     <div className="rounded-md border border-border/70 px-3 py-2 text-sm">
                       Status: {selected.actionStatus === "solved" ? "Solved" : "Pending"}
+                      {selected.merchant && (
+                        <div className="mt-1 text-muted-foreground">Merchant: {selected.merchant}</div>
+                      )}
                       <div className="mt-1 text-muted-foreground">Payment: {paymentLabel(selected)}</div>
                       <div className="mt-1 text-muted-foreground">Service: {selected.riderName ?? selected.shippingService}</div>
                       {selected.returnRemark && (
