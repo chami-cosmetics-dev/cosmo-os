@@ -335,8 +335,6 @@ export function ContactAllocationPanel({
 
   return (
     <div className="space-y-4 text-xs">
-      <div className="text-muted-foreground">1,50,52</div>
-
       <Card className="gap-0 rounded-none border-t-2 border-t-sky-600 py-0">
         <CardHeader className="border-b px-4 py-2">
           <CardTitle className="text-sm font-medium uppercase">Individual Allocation.</CardTitle>
