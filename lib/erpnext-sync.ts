@@ -835,7 +835,7 @@ export async function createDeliveryPaymentEntry(
  * invoice_complete was reverted by a finance user. Non-fatal — caller must catch.
  */
 export async function createErpnextCreditNote(
-  order: { id: string; name: string | null; orderNumber: string | null },
+  order: { id: string; name: string | null; orderNumber: string | null; erpnextInvoiceId?: string | null },
   location: LocationWithErpInstance,
 ): Promise<{ creditNoteName: string }> {
   const cfg = getErpConfig(location.erpnextInstance);
@@ -849,27 +849,31 @@ export async function createErpnextCreditNote(
   const orderName = order.name ?? order.orderNumber;
   if (!orderName) throw new Error("[ERPNext] createErpnextCreditNote: order has no name");
 
-  // Find the original submitted Sales Invoice by po_no
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderName],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "customer", "debit_to", "grand_total", "items"]),
-  );
-  const list = await erpnextGet<Array<{ name: string }>>(
-    cfg,
-    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
-  );
-
-  if (!list || list.length === 0) {
-    throw new Error(`[ERPNext] createErpnextCreditNote: no submitted SI found for po_no="${orderName}"`);
+  // For ERP-native orders (erpnextInvoiceId set), the SI name IS the invoice id — fetch directly.
+  // For Shopify-sourced orders, find the SI by po_no (Shopify order name stored there).
+  let originalSiName: string;
+  if (order.erpnextInvoiceId) {
+    originalSiName = order.erpnextInvoiceId;
+  } else {
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderName],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name"]),
+    );
+    const list = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
+    );
+    if (!list || list.length === 0) {
+      throw new Error(`[ERPNext] createErpnextCreditNote: no submitted SI found for po_no="${orderName}"`);
+    }
+    originalSiName = list[0].name;
   }
-
-  const originalSiName = list[0].name;
 
   // Fetch full SI document to get items and debit_to
   const originalSi = await erpnextGet<{

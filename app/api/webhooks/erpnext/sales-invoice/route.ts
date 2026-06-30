@@ -512,7 +512,7 @@ export async function POST(request: NextRequest) {
         : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
-    select: { id: true, name: true },
+    select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true },
   });
 
   if (financialStatus === "voided" || isCreditNoted) {
@@ -522,10 +522,14 @@ export async function POST(request: NextRequest) {
   // For non-POS ERP orders: if payment requires approval and is unpaid, create an approval
   // request. The print/dispatch queue filters already exclude orders with pending approvals,
   // so no stage change is needed — the order is blocked automatically until finance approves.
+  // Use the stored order payment gateway (post-upsert) rather than resolvedPaymentMethods from
+  // the current ERP payload — the ERP invoice may omit custom_payment_type (sending "None") on
+  // subsequent webhook fires (e.g. after cancel/resubmit), but the OS order already has the
+  // correct payment gateway from the first webhook fire that set it.
   if (!isPOS && financialStatus !== "paid" && financialStatus !== "voided") {
     const needsApproval = isOrderPaymentRequiresApproval({
-      paymentGatewayPrimary: resolvedPaymentMethods[0] ?? null,
-      paymentGatewayNames: resolvedPaymentMethods,
+      paymentGatewayPrimary: order.paymentGatewayPrimary,
+      paymentGatewayNames: order.paymentGatewayNames,
     });
     if (needsApproval) {
       const existingApproval = await prisma.approvalRequest.findFirst({
@@ -542,7 +546,7 @@ export async function POST(request: NextRequest) {
           orderId: order.id,
           requestedById: null,
           invoiceLabel: order.name ?? data.name,
-          paymentType: resolvedPaymentMethods[0] ?? "bank transfer",
+          paymentType: order.paymentGatewayPrimary ?? resolvedPaymentMethods[0] ?? "bank transfer",
           amount: grandTotal.toString(),
         }).catch((err) =>
           console.error("[ERP webhook] approval creation failed:", err),

@@ -317,6 +317,19 @@ export async function PATCH(
     erpnextInvoiceId: order.erpnextInvoiceId,
   });
 
+  // If the block is due to a missing approval record (ERP webhook silent failure),
+  // create it now so finance can see and act on it.
+  if (financeFulfillmentBlock && isOrderPaymentRequiresApproval(order)) {
+    void createOrGetOrderPaymentApproval({
+      companyId,
+      orderId: order.id,
+      requestedById: auth.context!.user!.id,
+      invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+      paymentType: order.paymentGatewayPrimary ?? "bank transfer",
+      amount: order.totalPrice.toString(),
+    }).catch((err) => console.error("[fulfillment] approval self-heal failed:", err));
+  }
+
   const data = parsed.data;
   const now = new Date();
 
@@ -1197,7 +1210,10 @@ export async function PATCH(
               include: { companyLocation: { include: { erpnextInstance: true } } },
             });
             if (withLocation?.companyLocation) {
-              await createErpnextCreditNote(order, withLocation.companyLocation);
+              await createErpnextCreditNote(
+                { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+                withLocation.companyLocation,
+              );
             }
           } catch (err) {
             console.error("[ERPNext] createErpnextCreditNote failed (non-fatal):", err);

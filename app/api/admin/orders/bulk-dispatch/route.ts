@@ -11,7 +11,11 @@ import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
-import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
+import {
+  createOrGetOrderPaymentApproval,
+  getFinancePaymentApprovalBlockReason,
+  isOrderPaymentRequiresApproval,
+} from "@/lib/approval-workflow";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -88,6 +92,7 @@ export async function POST(request: NextRequest) {
           erpnextSyncError: true,
           paymentGatewayPrimary: true,
           paymentGatewayNames: true,
+          totalPrice: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -123,6 +128,18 @@ export async function POST(request: NextRequest) {
         erpnextInvoiceId: order.erpnextInvoiceId,
       });
       if (financeBlock) {
+        // If the block is due to a missing approval record (ERP webhook silent failure),
+        // create it now so finance can see and act on it.
+        if (isOrderPaymentRequiresApproval(order)) {
+          void createOrGetOrderPaymentApproval({
+            companyId,
+            orderId: order.id,
+            requestedById: auth.context!.user!.id,
+            invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+            paymentType: order.paymentGatewayPrimary ?? "bank transfer",
+            amount: order.totalPrice.toString(),
+          }).catch((err) => console.error("[dispatch] approval self-heal failed:", err));
+        }
         results.push({ orderId, ref, success: false, error: financeBlock });
         continue;
       }
