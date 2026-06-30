@@ -126,7 +126,7 @@ export function FailedErpSyncsPanel() {
         </div>
       );
     }
-    return <span className="text-destructive">{formatted}</span>;
+    return <span className="line-clamp-2 text-destructive">{formatted}</span>;
   }
 
   async function handleRetry(id: string) {
@@ -317,7 +317,7 @@ export function FailedErpSyncsPanel() {
                           <div className="text-xs text-muted-foreground">{item.customerPhone ?? ""}</div>
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
-                        <td className="max-w-[280px] px-4 py-2 text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
+                        <td className="max-w-[280px] px-4 py-2 align-top text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
                           {item.erpnextSyncError ? (
                             renderSyncError(item.erpnextSyncError, item.lineItems)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
