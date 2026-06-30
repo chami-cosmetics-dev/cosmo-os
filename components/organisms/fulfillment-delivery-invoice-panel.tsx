@@ -58,7 +58,6 @@ export function FulfillmentDeliveryInvoicePanel({
   const isBusy = busyKey !== null;
   const stage = order?.fulfillmentStage ?? "dispatched";
   const canMarkDelivered = stage === "dispatched";
-  const awaitingFinancePayment = stage === "delivery_complete";
 
   useEffect(() => {
     if (!orderId) {
@@ -97,14 +96,17 @@ export function FulfillmentDeliveryInvoicePanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      const data = (await res.json()) as { error?: string; needsPaymentApproval?: boolean };
+      const data = (await res.json()) as {
+        error?: string;
+        needsPaymentApproval?: boolean;
+      };
       if (!res.ok) {
         notify.error(data.error ?? "Action failed");
         return;
       }
       notify.success(
         data.needsPaymentApproval
-          ? "Delivery recorded. Finance will confirm before invoice complete."
+          ? "Delivery recorded. Finance can invoice complete from the Invoice Complete tab."
           : "Updated."
       );
       onRefresh(true);
@@ -236,9 +238,9 @@ export function FulfillmentDeliveryInvoicePanel({
         </table>
       </div>
 
-      {awaitingFinancePayment && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
-          Delivery is complete. Finance must confirm before invoice complete.
+      {stage === "delivery_complete" && (
+        <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          Delivery is complete. Use the <span className="font-medium">Invoice Complete</span> fulfillment tab for finance processing.
         </p>
       )}
 

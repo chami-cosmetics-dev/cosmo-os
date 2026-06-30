@@ -100,6 +100,38 @@ const orderSelect = {
       actionBy: { select: { id: true, name: true, email: true } },
     },
   },
+  exchangesAsOriginal: {
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      reason: true,
+      status: true,
+      remark: true,
+      actionDate: true,
+      createdAt: true,
+      originalReference: true,
+      replacementReference: true,
+      replacementOrder: {
+        select: { id: true, name: true, orderNumber: true, erpnextInvoiceId: true },
+      },
+    },
+  },
+  exchangesAsReplacement: {
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      reason: true,
+      status: true,
+      remark: true,
+      actionDate: true,
+      createdAt: true,
+      originalReference: true,
+      replacementReference: true,
+      originalOrder: {
+        select: { id: true, name: true, orderNumber: true },
+      },
+    },
+  },
   remarks: {
     orderBy: { createdAt: "desc" },
     include: { addedBy: { select: { id: true, name: true, email: true } } },
@@ -450,6 +482,44 @@ export async function GET(
       createdAt: r.createdAt.toISOString(),
       addedBy: r.addedBy ? { id: r.addedBy.id, name: r.addedBy.name, email: r.addedBy.email } : null,
     })),
+    exchanges: [
+      ...details.exchangesAsOriginal.map((e) => {
+        const erpBase = details.companyLocation.erpnextInstance?.baseUrl?.replace(/\/$/, "");
+        const repInvoiceId = e.replacementOrder?.erpnextInvoiceId;
+        const replacementErpAdminInvoiceUrl =
+          erpBase && repInvoiceId && !["pending", "pending_approval"].includes(repInvoiceId)
+            ? `${erpBase}/app/sales-invoice/${encodeURIComponent(repInvoiceId)}`
+            : null;
+        return {
+          id: e.id,
+          role: "original" as const,
+          reason: e.reason,
+          status: e.status,
+          remark: e.remark,
+          actionDate: e.actionDate?.toISOString() ?? null,
+          createdAt: e.createdAt.toISOString(),
+          originalReference: e.originalReference,
+          replacementReference: e.replacementReference,
+          linkedOrderId: e.replacementOrder?.id ?? null,
+          linkedOrderName: e.replacementOrder?.name ?? e.replacementReference,
+          replacementErpAdminInvoiceUrl,
+        };
+      }),
+      ...details.exchangesAsReplacement.map((e) => ({
+        id: e.id,
+        role: "replacement" as const,
+        reason: e.reason,
+        status: e.status,
+        remark: e.remark,
+        actionDate: e.actionDate?.toISOString() ?? null,
+        createdAt: e.createdAt.toISOString(),
+        originalReference: e.originalReference,
+        replacementReference: e.replacementReference,
+        linkedOrderId: e.originalOrder?.id ?? null,
+        linkedOrderName: e.originalOrder?.name ?? e.originalReference,
+        replacementErpAdminInvoiceUrl: null,
+      })),
+    ],
     paymentApproval: (() => {
       const ap = details.approvalRequests.find((row) => row.type === ORDER_PAYMENT_APPROVAL);
       if (!ap) return null;

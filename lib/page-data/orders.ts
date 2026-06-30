@@ -61,6 +61,10 @@ export type OrdersPageParams = {
   returnFilter?: "normal" | "rearrange";
   /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
   dispatchMode?: boolean;
+  /** Dispatched orders awaiting delivery complete (bulk delivery combobox) */
+  deliveryMode?: boolean;
+  /** Delivered orders awaiting finance invoice complete (bulk invoice combobox) */
+  invoiceCompleteMode?: boolean;
   /** Print queue mode: Shopify at print stage (unprinted); ERP at order_received/ready_to_dispatch/print (unprinted) */
   printMode?: boolean;
   /** Generic unprinted-only filter (printCount === 0) */
@@ -159,6 +163,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     updated: { updatedAt: sortOrder },
     last_printed: { lastPrintedAt: sortOrder },
     dispatched: { dispatchedAt: sortOrder },
+    delivery_complete: { deliveryCompleteAt: sortOrder },
     total: { totalPrice: sortOrder },
     order_number: { orderNumber: sortOrder },
     name: { name: sortOrder },
@@ -259,6 +264,21 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       ...(Array.isArray(where.AND) ? where.AND : []),
       dispatchPipelineWhere,
     ];
+  } else if (params.deliveryMode) {
+    where.fulfillmentStage = "dispatched";
+    where.financialStatus = { not: "voided" };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+      deliveryPipelineWhere,
+    ];
+  } else if (params.invoiceCompleteMode) {
+    where.fulfillmentStage = "delivery_complete";
+    where.financialStatus = { not: "voided" };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      deliveryPipelineWhere,
+    ];
   } else if (params.fulfillmentStages?.trim()) {
     const stages = params.fulfillmentStages
       .trim()
@@ -330,14 +350,15 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   }
 
   // Exclude orders from locations that have been temporarily blocked from fulfillment
-  if (params.printMode || params.dispatchMode || params.fulfillmentStages?.trim()) {
+  if (params.printMode || params.dispatchMode || params.deliveryMode || params.invoiceCompleteMode || params.fulfillmentStages?.trim()) {
     where.companyLocation = { fulfillmentBlocked: false };
     const stages = params.fulfillmentStages
       ?.trim()
       .split(",")
       .map((s) => s.trim()) ?? [];
     const isDispatchQueue = params.dispatchMode || isDispatchFulfillmentStages(stages);
-    const isDeliveryQueue = isDeliveryFulfillmentStages(stages);
+    const isDeliveryQueue = params.deliveryMode || isDeliveryFulfillmentStages(stages);
+    const isInvoiceCompleteQueue = params.invoiceCompleteMode;
 
     const hasSampleQueueStage = stages.some(
       (s) => s === "order_received" || s === "sample_free_issue",
@@ -348,7 +369,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ...(Array.isArray(where.AND) ? where.AND : []),
         printFulfillmentPipelineWhere,
       ];
-    } else if (!isDispatchQueue && !isDeliveryQueue && !hasSampleQueueStage) {
+    } else if (!isDispatchQueue && !isDeliveryQueue && !isInvoiceCompleteQueue && !hasSampleQueueStage) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,

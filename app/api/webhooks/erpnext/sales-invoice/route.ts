@@ -537,7 +537,7 @@ export async function POST(request: NextRequest) {
         select: { id: true },
       });
       if (!existingApproval) {
-        void createOrGetOrderPaymentApproval({
+        await createOrGetOrderPaymentApproval({
           companyId: location.companyId,
           orderId: order.id,
           requestedById: null,
