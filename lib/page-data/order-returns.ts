@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/prisma";
+import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
 
 export type ReturnTrackingItem = {
   id: string;
   orderId: string;
   invoiceNo: string;
-  merchant: { id: string; name: string | null; email: string | null } | null;
+  merchant: string | null;
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -115,8 +116,11 @@ export async function fetchReturnsTrackingData(input: {
             financialStatus: true,
             paymentGatewayPrimary: true,
             paymentGatewayNames: true,
+            sourceName: true,
+            discountCodes: true,
             shippingAddress: true,
             customer: { select: { firstName: true, lastName: true } },
+            assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
           },
         },
       },
@@ -133,7 +137,12 @@ export async function fetchReturnsTrackingData(input: {
       id: item.id,
       orderId: item.orderId,
       invoiceNo: item.order.name ?? item.order.orderNumber ?? item.order.shopifyOrderId,
-      merchant: item.merchantUser,
+      merchant: resolveOrderMerchantLabel({
+        assignedMerchant: item.merchantUser ?? item.order.assignedMerchant,
+        sourceName: item.order.sourceName,
+        discountCodes: item.order.discountCodes,
+        assignedMerchantCouponCodes: item.order.assignedMerchant?.couponCodes ?? null,
+      }),
       customerName: pickCustomerName({
         customer: item.order.customer,
         shippingAddress: item.order.shippingAddress,

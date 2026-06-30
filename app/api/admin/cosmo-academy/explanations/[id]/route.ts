@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
+import { v2 as cloudinary } from "cloudinary";
 
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
@@ -28,7 +28,7 @@ export async function DELETE(
     select: {
       id: true,
       productTitle: true,
-      media: { select: { id: true, url: true, provider: true } },
+      media: { select: { id: true, url: true, provider: true, publicId: true } },
     },
   });
 
@@ -36,23 +36,28 @@ export async function DELETE(
     return NextResponse.json({ error: "Explanation not found" }, { status: 404 });
   }
 
-  const blobUrls = explanation.media
-    .filter((m) => m.provider === "vercel_blob" && m.url)
-    .map((m) => m.url);
+  const cloudinaryMedia = explanation.media.filter(
+    (m) => m.provider === "cloudinary" && m.publicId,
+  );
+  const allUrls = explanation.media.filter((m) => m.url).map((m) => m.url);
 
-  // Delete blobs from Vercel storage (best-effort)
-  if (blobUrls.length > 0) {
+  // Delete files from Cloudinary (best-effort)
+  if (cloudinaryMedia.length > 0) {
     try {
-      await del(blobUrls);
+      await Promise.all(
+        cloudinaryMedia.map((m) =>
+          cloudinary.uploader.destroy(m.publicId!, { resource_type: "video" }),
+        ),
+      );
     } catch (err) {
-      console.error("[academy] Blob delete failed:", err);
+      console.error("[academy] Cloudinary delete failed:", err);
     }
   }
 
-  // Clean up ProductItemAsset rows that point to the same blob URLs
-  if (blobUrls.length > 0) {
+  // Clean up ProductItemAsset rows that point to the same URLs
+  if (allUrls.length > 0) {
     await prisma.productItemAsset.deleteMany({
-      where: { companyId, blobUrl: { in: blobUrls } },
+      where: { companyId, blobUrl: { in: allUrls } },
     }).catch(() => {});
   }
 

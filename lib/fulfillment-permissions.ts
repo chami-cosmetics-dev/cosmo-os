@@ -132,7 +132,7 @@ export function buildFulfillmentPermissions(
     canRevertHold: hasPermission(context, "fulfillment.ready_dispatch.revert_hold"),
     canDispatch: hasPermission(context, "fulfillment.ready_dispatch.dispatch"),
     canMarkDelivered: hasPermission(context, "fulfillment.delivery_invoice.mark_delivered"),
-    canMarkInvoiceComplete: hasPermission(context, "finance.approvals.manage"),
+    canMarkInvoiceComplete: hasPermission(context, "fulfillment.delivery_invoice.mark_complete"),
     canManageRemarks:
       hasPermission(context, "fulfillment.remarks.manage") ||
       hasPermission(context, "fulfillment.sample_free_issue.manage_remarks") ||
@@ -147,6 +147,7 @@ export type FulfillmentNavPermissions = {
   canViewOrderPrint: boolean;
   canViewReadyDispatch: boolean;
   canViewDeliveryInvoice: boolean;
+  canViewInvoiceComplete: boolean;
   canViewFalconUpload: boolean;
   canViewWaybillLookup: boolean;
 };
@@ -160,6 +161,7 @@ export function buildFulfillmentNavPermissions(
       canViewOrderPrint: false,
       canViewReadyDispatch: false,
       canViewDeliveryInvoice: false,
+      canViewInvoiceComplete: false,
       canViewFalconUpload: false,
       canViewWaybillLookup: false,
     };
@@ -169,6 +171,7 @@ export function buildFulfillmentNavPermissions(
     canViewOrderPrint: hasPermission(context, "fulfillment.order_print.read"),
     canViewReadyDispatch: hasPermission(context, "fulfillment.ready_dispatch.read"),
     canViewDeliveryInvoice: hasPermission(context, "fulfillment.delivery_invoice.read"),
+    canViewInvoiceComplete: hasPermission(context, "fulfillment.invoice_complete.read"),
     canViewFalconUpload: hasPermission(context, "fulfillment.falcon_upload.read"),
     canViewWaybillLookup:
       hasPermission(context, "fulfillment.waybill_lookup.read") ||

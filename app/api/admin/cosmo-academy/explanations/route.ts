@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CosmoAcademyMediaType } from "@prisma/client";
-import { put } from "@vercel/blob";
+import { v2 as cloudinary } from "cloudinary";
 
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
@@ -173,14 +173,21 @@ export async function POST(request: NextRequest) {
   }
 
   let blobUrl: string;
+  let cloudinaryPublicId: string;
   try {
-    const blob = await put(blobPath, file, {
-      access: "private",
-      contentType: baseMimeType,
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const dataUri = `data:${baseMimeType};base64,${buffer.toString("base64")}`;
+    // Cloudinary public_id must not include a file extension; strip it from blobPath
+    const publicId = blobPath.replace(/\.[^.]+$/, "");
+    const result = await cloudinary.uploader.upload(dataUri, {
+      public_id: publicId,
+      resource_type: "video",
+      overwrite: false,
     });
-    blobUrl = blob.url;
+    blobUrl = result.secure_url;
+    cloudinaryPublicId = result.public_id;
   } catch (err) {
-    console.error("[academy] Blob upload failed:", err);
+    console.error("[academy] Cloudinary upload failed:", err);
     return NextResponse.json({ error: "Failed to upload voice file" }, { status: 500 });
   }
 
@@ -200,7 +207,8 @@ export async function POST(request: NextRequest) {
           create: {
             mediaType: CosmoAcademyMediaType.voice,
             url: blobUrl,
-            provider: "vercel_blob",
+            provider: "cloudinary",
+            publicId: cloudinaryPublicId,
             fileName,
             mimeType: file.type,
             sizeBytes: file.size,
@@ -259,7 +267,7 @@ export async function POST(request: NextRequest) {
           blobUrl,
           fileSize: file.size,
           mimeType: file.type,
-          provider: "vercel_blob",
+          provider: "cloudinary",
           uploadedById: user.id,
         })),
         skipDuplicates: true,

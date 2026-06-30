@@ -314,7 +314,7 @@ const DEFAULT_PERMISSIONS = [
   // Fulfillment - Delivery & Invoice
   {
     key: "fulfillment.delivery_invoice.read",
-    description: "View delivery & invoice page",
+    description: "View delivery page",
   },
   {
     key: "fulfillment.delivery_invoice.mark_delivered",
@@ -323,6 +323,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "fulfillment.delivery_invoice.mark_complete",
     description: "Mark invoice complete",
+  },
+  {
+    key: "fulfillment.invoice_complete.read",
+    description: "View invoice complete page",
   },
   // Fulfillment - Falcon Upload
   {
@@ -475,6 +479,7 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.read",
       "fulfillment.delivery_invoice.mark_delivered",
       "fulfillment.delivery_invoice.mark_complete",
+      "fulfillment.invoice_complete.read",
       "fulfillment.falcon_upload.read",
       "fulfillment.falcon_upload.export",
       "fulfillment.waybill_lookup.read",
@@ -496,6 +501,8 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.approvals.manage",
+      "fulfillment.invoice_complete.read",
+      "fulfillment.delivery_invoice.mark_complete",
       "orders.read",
       "orders.update_payment_method",
       "returns.read",

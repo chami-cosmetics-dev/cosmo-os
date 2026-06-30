@@ -79,8 +79,8 @@ export async function createPickListGroup(
   };
 }
 
-export async function listPickListGroups(companyId: string, downloaded: boolean) {
-  const { from, to } = getPickListTodayBounds();
+export async function listPickListGroups(companyId: string, downloaded: boolean, date?: string) {
+  const { from, to } = getPickListTodayBounds(date);
 
   const groups = await prisma.pickListGroup.findMany({
     where: {

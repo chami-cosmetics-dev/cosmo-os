@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
   if (!companyId) return NextResponse.json({ error: "No company" }, { status: 404 });
 
   const view = request.nextUrl.searchParams.get("view") ?? "active";
+  const dateParam = request.nextUrl.searchParams.get("date") ?? undefined;
+  const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : undefined;
 
   if (view === "history") {
     const historyGroups = await listPickListGroups(companyId, true);
@@ -25,14 +27,14 @@ export async function GET(request: NextRequest) {
   }
 
   const [activeGroups, singlePrints] = await Promise.all([
-    listPickListGroups(companyId, false),
-    fetchSinglePrintPickList(companyId),
+    listPickListGroups(companyId, false, date),
+    fetchSinglePrintPickList(companyId, date),
   ]);
 
   return NextResponse.json({
     activeGroups,
     singlePrints,
-    todayLabel: formatPickListTodayLabel(),
+    todayLabel: formatPickListTodayLabel(date),
   });
 }
 

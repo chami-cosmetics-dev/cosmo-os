@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Boxes, Download, History, Loader2, MapPin, Printer, RefreshCw, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
@@ -48,6 +49,15 @@ type ActivePickListData = {
 type HistoryPickListData = {
   historyGroups: PickListGroup[];
 };
+
+function todayLK() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 function LocationTables({ groups }: { groups: LocationGroup[] }) {
   if (groups.length === 0) {
@@ -132,6 +142,7 @@ export function PickListPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [pickDate, setPickDate] = useState(() => todayLK());
   const fetchedRef = useRef(false);
 
   const loadData = useCallback(async () => {
@@ -141,7 +152,7 @@ export function PickListPage() {
       const endpoint =
         view === "history"
           ? "/api/admin/fulfillment/pick-list?view=history"
-          : "/api/admin/fulfillment/pick-list?view=active";
+          : `/api/admin/fulfillment/pick-list?view=active&date=${pickDate}`;
       const res = await fetch(endpoint, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) {
@@ -159,7 +170,7 @@ export function PickListPage() {
       setLoading(false);
       fetchedRef.current = true;
     }
-  }, [view]);
+  }, [view, pickDate]);
 
   useEffect(() => {
     void loadData();
@@ -254,20 +265,31 @@ export function PickListPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Inventory Pick List</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Today&apos;s bulk print batches and single-print orders grouped by location
+            Bulk print batches and single-print orders grouped by location
             {activeData?.todayLabel ? ` (${activeData.todayLabel})` : ""}.
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-10 gap-2"
-          disabled={loading}
-          onClick={() => setRefreshTick((t) => t + 1)}
-        >
-          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {view === "active" && (
+            <Input
+              type="date"
+              value={pickDate}
+              max={todayLK()}
+              onChange={(e) => setPickDate(e.target.value || todayLK())}
+              className="h-10 w-auto"
+            />
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 gap-2"
+            disabled={loading}
+            onClick={() => setRefreshTick((t) => t + 1)}
+          >
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-6 border-b border-border/70">
@@ -302,7 +324,7 @@ export function PickListPage() {
                 <Printer className="size-5 text-muted-foreground" />
                 <h2 className="text-lg font-semibold">Bulk print batches</h2>
               </div>
-              {singles && singles.orderCount > 0 && (
+              {singles && singles.orderCount > 0 && pickDate === todayLK() && (
                 <Button
                   size="sm"
                   className="ml-auto gap-2"

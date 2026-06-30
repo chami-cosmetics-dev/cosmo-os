@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Clock, Loader2, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, Clock, CreditCard, FileText, Loader2, RefreshCw, Search } from "lucide-react";
 
+import { FailedErpPeSyncsTab } from "@/components/organisms/failed-erp-pe-syncs-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -42,6 +43,7 @@ type FailedErpSync = {
 };
 
 export function FailedErpSyncsPanel() {
+  const [tab, setTab] = useState<"sales_invoice" | "payment_entry">("sales_invoice");
   const [items, setItems] = useState<FailedErpSync[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -66,6 +68,7 @@ export function FailedErpSyncsPanel() {
   }, [effectiveSearch]);
 
   const fetchData = useCallback(async () => {
+    if (tab !== "sales_invoice") return;
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("limit", String(limit));
@@ -84,16 +87,20 @@ export function FailedErpSyncsPanel() {
     };
     setItems(data.items);
     setTotal(data.total);
-  }, [page, limit, effectiveSearch]);
+  }, [page, limit, effectiveSearch, tab]);
 
   useEffect(() => {
+    if (tab !== "sales_invoice") {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     fetchData()
       .then(() => { if (!cancelled) setLoading(false); })
       .catch(() => { if (!cancelled) { setLoading(false); notify.error("Failed to load data"); } });
     return () => { cancelled = true; };
-  }, [fetchData]);
+  }, [fetchData, tab]);
 
   function formatSyncError(message: string | null) {
     return message ? formatFailedErpSyncErrorMessage(message) : null;
@@ -119,7 +126,7 @@ export function FailedErpSyncsPanel() {
         </div>
       );
     }
-    return <span className="text-destructive">{formatted}</span>;
+    return <span className="line-clamp-2 text-destructive">{formatted}</span>;
   }
 
   async function handleRetry(id: string) {
@@ -203,10 +210,35 @@ export function FailedErpSyncsPanel() {
           Failed ERP Syncs
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Orders that arrived from Shopify but failed to sync to ERPNext. Transient failures are retried automatically (1 min, 3 min, 10 min, 30 min). Orders that still fail appear here for manual action.
+          Orders that failed to sync with ERPNext — missing Sales Invoices or failed Payment Entries after invoice complete.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={tab === "sales_invoice" ? "default" : "outline"}
+            size="sm"
+            className="gap-2"
+            onClick={() => setTab("sales_invoice")}
+          >
+            <FileText className="size-4" aria-hidden />
+            Sales Invoice
+          </Button>
+          <Button
+            type="button"
+            variant={tab === "payment_entry" ? "default" : "outline"}
+            size="sm"
+            className="gap-2"
+            onClick={() => setTab("payment_entry")}
+          >
+            <CreditCard className="size-4" aria-hidden />
+            Payment Entry
+          </Button>
+        </div>
       </section>
 
+      {tab === "payment_entry" ? (
+        <FailedErpPeSyncsTab />
+      ) : (
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -285,7 +317,7 @@ export function FailedErpSyncsPanel() {
                           <div className="text-xs text-muted-foreground">{item.customerPhone ?? ""}</div>
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
-                        <td className="max-w-[280px] px-4 py-2 text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
+                        <td className="max-w-[280px] px-4 py-2 align-top text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
                           {item.erpnextSyncError ? (
                             renderSyncError(item.erpnextSyncError, item.lineItems)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
@@ -338,6 +370,7 @@ export function FailedErpSyncsPanel() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <Dialog open={!!selectedItem} onOpenChange={(open) => { if (!open) setSelectedItem(null); }}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))]">

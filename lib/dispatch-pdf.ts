@@ -70,6 +70,13 @@ function formatPayment(raw: string | null) {
   }
   return raw.replace(/[_-]+/g, " ").toUpperCase();
 }
+
+function dispatchHandlerLabel(type: DispatchGroupForPdf["dispatchType"]) {
+  if (type === "rider") return "Rider";
+  if (type === "courier") return "Courier";
+  return "Handler";
+}
+
 export async function generateDispatchGroupPdf(
   group: DispatchGroupForPdf,
   dateFrom: string,
@@ -120,7 +127,28 @@ export async function generateDispatchGroupPdf(
     pageOrientation: "landscape",
     pageMargins: [22, 18, 22, 18],
     content: [
-      { text: "Full Delivery Summary", style: "title", margin: [0, 0, 0, 14] },
+      {
+        columns: [
+          { text: "Full Delivery Summary", style: "title" },
+          {
+            stack: [
+              {
+                text: `${dispatchHandlerLabel(group.dispatchType)}: ${group.dispatcherName}`,
+                style: "headerMeta",
+                alignment: "right",
+              },
+              {
+                text: `Date: ${dateLabel}`,
+                style: "headerMeta",
+                alignment: "right",
+                margin: [0, 2, 0, 0],
+              },
+            ],
+          },
+        ],
+        columnGap: 12,
+        margin: [0, 0, 0, 14],
+      },
       {
         table: {
           headerRows: 1,
@@ -135,6 +163,7 @@ export async function generateDispatchGroupPdf(
     ],
     styles: {
       title: { fontSize: 15, bold: true, color: "#000000" },
+      headerMeta: { fontSize: 9, bold: true, color: "#000000" },
       th: { fontSize: 9, bold: true, color: "#6f6f6f" },
       td: { fontSize: 9, color: "#777777" },
       merchantTd: { fontSize: 8, color: "#777777" },

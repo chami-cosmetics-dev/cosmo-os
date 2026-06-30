@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Check, ChevronsUpDown, Loader2, Truck, X } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
@@ -27,10 +28,12 @@ import {
   fulfillmentOrderSearchTokens,
 } from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
+import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 
 type Lookups = {
   courierServices: Array<{ id: string; name: string }>;
   riders: Array<{ id: string; name: string | null; mobile: string | null }>;
+  packageHoldReasons: Array<{ id: string; name: string }>;
 };
 
 type ReadyOrder = {
@@ -39,6 +42,7 @@ type ReadyOrder = {
   orderNumber: string | null;
   shopifyOrderId?: string | null;
   erpnextInvoiceId: string | null;
+  sourceName: string;
   customerPhone: string | null;
   customerEmail: string | null;
   shippingAddress: { phone?: string | null } | null;
@@ -49,6 +53,12 @@ type ReadyOrder = {
   paymentGatewayNames?: string[] | null;
   financialStatus: string | null;
   companyLocation: { id: string; name: string } | null;
+  assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  createdAt: string;
+  packageOnHoldAt?: string | null;
+  packageReadyAt?: string | null;
+  lastPrintedAt?: string | null;
+  packageHoldReason?: { id: string; name: string } | null;
 };
 
 type DispatchResult = { orderId: string; ref: string; success: boolean; error?: string };
@@ -100,9 +110,17 @@ const STAGE_LABEL: Record<string, string> = {
 
 interface FulfillmentBulkDispatchProps {
   onRefresh: () => void;
+  returnFilter?: "normal" | "rearrange";
+  refreshTrigger?: number;
+  initialOrderId?: string;
 }
 
-export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchProps) {
+export function FulfillmentBulkDispatch({
+  onRefresh,
+  returnFilter = "normal",
+  refreshTrigger = 0,
+  initialOrderId,
+}: FulfillmentBulkDispatchProps) {
   const perms = useFulfillmentPermissions();
   const [lookups, setLookups] = useState<Lookups | null>(null);
   const [dispatchService, setDispatchService] = useState("");
@@ -116,12 +134,23 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
   const [orderDetails, setOrderDetails] = useState<Record<string, OrderDetail>>({});
   const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [markingReadyId, setMarkingReadyId] = useState<string | null>(null);
+  const [holdBusyId, setHoldBusyId] = useState<string | null>(null);
+  const [holdReasonByOrderId, setHoldReasonByOrderId] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetch("/api/admin/orders/fulfillment-lookups")
       .then((r) => r.json())
-      .then((data: Lookups) => setLookups(data))
-      .catch(() => {});
+      .then((data: Partial<Lookups>) =>
+        setLookups({
+          courierServices: data.courierServices ?? [],
+          riders: data.riders ?? [],
+          packageHoldReasons: data.packageHoldReasons ?? [],
+        })
+      )
+      .catch(() => {
+        setLookups({ courierServices: [], riders: [], packageHoldReasons: [] });
+      });
   }, []);
 
   useEffect(() => {
@@ -131,6 +160,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
       try {
         const params = new URLSearchParams({ dispatch_mode: "true", limit: "50", sort_by: "last_printed", sort_order: "desc" });
         if (comboSearch.trim()) params.set("search", comboSearch.trim());
+        if (returnFilter) params.set("return_filter", returnFilter);
         const res = await fetch(`/api/admin/orders/page-data?${params}`);
         if (!res.ok) { if (!cancelled) setComboOptions([]); return; }
         const data = (await res.json()) as { orders?: ReadyOrder[] };
@@ -142,7 +172,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
       }
     }, 300);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [comboSearch]);
+  }, [comboSearch, returnFilter, refreshTrigger]);
 
   const selectedDispatch = parseDispatchService(dispatchService);
 
@@ -188,11 +218,155 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
     fetchDetail(id);
   }
 
+  async function handleMarkReady(order: ReadyOrder) {
+    if (!perms.canMarkReady) return;
+    setMarkingReadyId(order.id);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_ready" }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Could not mark package ready.");
+        return;
+      }
+      const now = new Date().toISOString();
+      setSelectedOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? { ...o, packageReadyAt: now, packageOnHoldAt: null, packageHoldReason: null }
+            : o
+        )
+      );
+      notify.success(`${orderLabel(order)} marked package ready.`);
+      onRefresh();
+    } catch {
+      notify.error("Could not mark package ready.");
+    } finally {
+      setMarkingReadyId(null);
+    }
+  }
+
+  async function handlePutOnHold(order: ReadyOrder, holdReasonId: string) {
+    if (!perms.canPutOnHold || !holdReasonId) return;
+    const reason = lookups?.packageHoldReasons.find((r) => r.id === holdReasonId);
+    setHoldBusyId(order.id);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "put_on_hold", holdReasonId }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Could not put order on hold.");
+        return;
+      }
+      const now = new Date().toISOString();
+      setSelectedOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? {
+                ...o,
+                packageOnHoldAt: now,
+                packageHoldReason: reason ? { id: reason.id, name: reason.name } : null,
+                packageReadyAt: null,
+              }
+            : o
+        )
+      );
+      setHoldReasonByOrderId((prev) => {
+        const next = { ...prev };
+        delete next[order.id];
+        return next;
+      });
+      notify.success(`${orderLabel(order)} put on hold.`);
+      onRefresh();
+    } catch {
+      notify.error("Could not put order on hold.");
+    } finally {
+      setHoldBusyId(null);
+    }
+  }
+
+  async function handleRevertHold(order: ReadyOrder) {
+    if (!perms.canRevertHold) return;
+    setHoldBusyId(order.id);
+    try {
+      const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revert_hold" }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Could not revert hold.");
+        return;
+      }
+      setSelectedOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? { ...o, packageOnHoldAt: null, packageHoldReason: null }
+            : o
+        )
+      );
+      notify.success(`Hold reverted for ${orderLabel(order)}.`);
+      onRefresh();
+    } catch {
+      notify.error("Could not revert hold.");
+    } finally {
+      setHoldBusyId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!initialOrderId || selectedOrders.some((o) => o.id === initialOrderId)) return;
+    let cancelled = false;
+    fetch(`/api/admin/orders/${initialOrderId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: ReadyOrder | null) => {
+        if (!cancelled && data?.id) addOrder(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed deep-link order once
+  }, [initialOrderId]);
+
   async function handleDispatch() {
     if (!selectedDispatch || selectedOrders.length === 0) return;
     setDispatching(true);
     setResults(null);
     try {
+      const dispatchBody = {
+        action: "dispatch" as const,
+        ...dispatchSelectionToApiBody(selectedDispatch),
+      };
+
+      if (selectedOrders.length === 1) {
+        const order = selectedOrders[0]!;
+        const res = await fetch(`/api/admin/orders/${order.id}/fulfillment`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(dispatchBody),
+        });
+        const data = (await res.json()) as { error?: string };
+        const ref = orderLabel(order);
+        if (!res.ok) {
+          setResults([{ orderId: order.id, ref, success: false, error: data.error }]);
+          notify.error(data.error ?? "Dispatch failed.");
+          return;
+        }
+        notify.success("Dispatched.");
+        setSelectedOrders([]);
+        setActiveOrderId(null);
+        onRefresh();
+        return;
+      }
+
       const res = await fetch("/api/admin/orders/bulk-dispatch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -222,7 +396,12 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
     }
   }
 
-  if (!perms.canDispatch) return null;
+  if (!perms.canDispatch && !perms.canPutOnHold && !perms.canMarkReady && !perms.canRevertHold) {
+    return null;
+  }
+
+  const holdReasons = lookups?.packageHoldReasons ?? [];
+  const canShowHoldActions = perms.canPutOnHold || perms.canRevertHold;
 
   return (
     <div className="space-y-3 rounded-md border border-border/70 p-3">
@@ -331,7 +510,7 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
 
         {/* Dispatch button */}
         <Button
-          disabled={!selectedDispatch || selectedOrders.length === 0 || dispatching}
+          disabled={!perms.canDispatch || !selectedDispatch || selectedOrders.length === 0 || dispatching}
           onClick={() => void handleDispatch()}
           className="h-9 gap-2"
         >
@@ -344,50 +523,189 @@ export function FulfillmentBulkDispatch({ onRefresh }: FulfillmentBulkDispatchPr
         </Button>
       </div>
 
-      {/* Chips row — only when orders are selected */}
+      {/* Selected orders — each with optional Package Ready */}
       {selectedOrders.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => { setSelectedOrders([]); setActiveOrderId(null); setResults(null); }}
-            disabled={dispatching}
-            className="h-7 text-xs"
-          >
-            Clear all
-          </Button>
-          {selectedOrders.map((order) => {
-            const isActive = activeOrderId === order.id;
-            const resultForOrder = results?.find((r) => r.orderId === order.id);
-            return (
-              <span
-                key={order.id}
-                onClick={() => selectActive(order.id)}
-                className={`inline-flex h-7 cursor-pointer items-center gap-1 rounded-md border px-2 text-xs transition-colors ${
-                  isActive
-                    ? "border-primary bg-primary/10 text-primary font-medium"
-                    : "border-border/70 bg-muted/50 hover:border-muted-foreground"
-                }`}
-              >
-                {resultForOrder && (
-                  <span className={resultForOrder.success ? "text-emerald-500" : "text-destructive"}>
-                    {resultForOrder.success ? "✓" : "✗"}
-                  </span>
-                )}
-                {orderLabel(order)}
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removeOrder(order.id); }}
-                  disabled={dispatching}
-                  className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${orderLabel(order)}`}
+        <div className="space-y-2 rounded-md border border-border/70 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium">Dispatch list</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedOrders([]);
+                setActiveOrderId(null);
+                setResults(null);
+              }}
+              disabled={dispatching || markingReadyId !== null || holdBusyId !== null}
+              className="h-7 text-xs"
+            >
+              Clear all
+            </Button>
+          </div>
+          {canShowHoldActions && holdReasons.length === 0 && (
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              No hold reasons configured. Add them in{" "}
+              <Link href="/dashboard/settings/fulfillment" className="underline hover:text-foreground">
+                Settings → Fulfillment
+              </Link>{" "}
+              to use Put on Hold.
+            </p>
+          )}
+          <div className="space-y-2">
+            {selectedOrders.map((order) => {
+              const isActive = activeOrderId === order.id;
+              const resultForOrder = results?.find((r) => r.orderId === order.id);
+              const packageReady = isExplicitlyPackageReady({
+                packageReadyAt: order.packageReadyAt,
+                lastPrintedAt: order.lastPrintedAt,
+              });
+              const onHold = !!order.packageOnHoldAt;
+              const markingReady = markingReadyId === order.id;
+              const holdBusy = holdBusyId === order.id;
+              const selectedHoldReason = holdReasonByOrderId[order.id] ?? "";
+
+              return (
+                <div
+                  key={order.id}
+                  className={`space-y-2 rounded-md border px-2 py-2 text-xs ${
+                    isActive
+                      ? "border-primary bg-primary/5"
+                      : "border-border/70 bg-muted/30"
+                  }`}
                 >
-                  <X className="size-3" aria-hidden />
-                </button>
-              </span>
-            );
-          })}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectActive(order.id)}
+                      className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left"
+                    >
+                      {resultForOrder && (
+                        <span className={resultForOrder.success ? "text-emerald-500" : "text-destructive"}>
+                          {resultForOrder.success ? "✓" : "✗"}
+                        </span>
+                      )}
+                      <span className="truncate font-medium">{orderLabel(order)}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => removeOrder(order.id)}
+                      disabled={dispatching || markingReady || holdBusy}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label={`Remove ${orderLabel(order)}`}
+                    >
+                      <X className="size-3.5" aria-hidden />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                  {onHold ? (
+                    <>
+                      <span className="text-amber-600 dark:text-amber-400" title={order.packageHoldReason?.name}>
+                        On hold: {order.packageHoldReason?.name ?? "—"}
+                      </span>
+                      {perms.canRevertHold && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={dispatching || holdBusy || holdBusyId !== null}
+                          onClick={() => void handleRevertHold(order)}
+                          className="h-7 px-2 text-xs"
+                        >
+                          {holdBusy ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                          ) : (
+                            "Revert Hold"
+                          )}
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {packageReady ? (
+                        <span className="text-emerald-600 dark:text-emerald-400">Package ready</span>
+                      ) : perms.canMarkReady ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={
+                            dispatching ||
+                            markingReady ||
+                            markingReadyId !== null ||
+                            holdBusyId !== null
+                          }
+                          onClick={() => void handleMarkReady(order)}
+                          className="h-7 px-2 text-xs"
+                        >
+                          {markingReady ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                          ) : (
+                            "Package Ready"
+                          )}
+                        </Button>
+                      ) : null}
+
+                      {perms.canPutOnHold && (
+                        <>
+                          <select
+                            value={selectedHoldReason}
+                            onChange={(e) =>
+                              setHoldReasonByOrderId((prev) => ({
+                                ...prev,
+                                [order.id]: e.target.value,
+                              }))
+                            }
+                            disabled={
+                              holdReasons.length === 0 ||
+                              dispatching ||
+                              holdBusyId !== null ||
+                              markingReadyId !== null
+                            }
+                            className="h-7 min-w-[8rem] max-w-[12rem] rounded-md border border-border/70 bg-background/90 px-2 text-xs"
+                            aria-label={`Hold reason for ${orderLabel(order)}`}
+                          >
+                            <option value="">
+                              {holdReasons.length === 0 ? "No hold reasons" : "Hold reason…"}
+                            </option>
+                            {holdReasons.map((reason) => (
+                              <option key={reason.id} value={reason.id}>
+                                {reason.name}
+                              </option>
+                            ))}
+                          </select>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              !selectedHoldReason ||
+                              holdReasons.length === 0 ||
+                              dispatching ||
+                              holdBusy ||
+                              holdBusyId !== null ||
+                              markingReadyId !== null
+                            }
+                            onClick={() => void handlePutOnHold(order, selectedHoldReason)}
+                            className="h-7 px-2 text-xs"
+                          >
+                            {holdBusy ? (
+                              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                            ) : (
+                              "Put on Hold"
+                            )}
+                          </Button>
+                        </>
+                      )}
+                    </>
+                  )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 

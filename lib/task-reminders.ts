@@ -16,6 +16,7 @@ import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage
 import { prisma } from "@/lib/prisma";
 import {
   canSeeTaskReminderCategory,
+  listVisibleTaskReminderCategories,
   shouldScopeSampleRemindersToMerchant,
   type TaskReminderAccessContext,
 } from "@/lib/task-reminder-access";
@@ -48,6 +49,8 @@ export type TaskReminder = {
 export type TaskRemindersResult = {
   reminders: TaskReminder[];
   totalCount: number;
+  /** Categories this user may monitor (shown in HUD even when count is 0). */
+  visibleCategories: TaskReminderCategory[];
 };
 
 type PermissionContext = TaskReminderAccessContext;
@@ -485,8 +488,11 @@ export async function fetchTaskReminders(
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
+  const visibleCategories = listVisibleTaskReminderCategories(context);
+
   return {
     reminders,
     totalCount: reminders.length,
+    visibleCategories,
   };
 }
