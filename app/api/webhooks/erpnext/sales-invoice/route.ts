@@ -263,33 +263,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
-  // Find location — prefer warehouse match, fall back to company match
+  // Find location — match by warehouse field, then warehouse list, then company fallback
+  const locationSelect = {
+    id: true,
+    companyId: true,
+    defaultMerchantUserId: true,
+    shadowParentLocationId: true,
+    shopifyLocationId: true,
+  } as const;
   const location = await (async () => {
     if (data.set_warehouse) {
-      const byWarehouse = await prisma.companyLocation.findFirst({
-        where: {
-          erpnextWarehouse: data.set_warehouse,
-          erpnextCompany: data.company,
-        },
-        select: {
-          id: true,
-          companyId: true,
-          defaultMerchantUserId: true,
-          shadowParentLocationId: true,
-          shopifyLocationId: true,
-        },
+      // 1. Primary field match (single-warehouse locations)
+      const byField = await prisma.companyLocation.findFirst({
+        where: { erpnextWarehouse: data.set_warehouse, erpnextCompany: data.company },
+        select: locationSelect,
       });
-      if (byWarehouse) return byWarehouse;
+      if (byField) return byField;
+      // 2. Warehouse list match (multi-warehouse locations)
+      const byList = await prisma.companyLocation.findFirst({
+        where: {
+          erpnextCompany: data.company,
+          erpWarehouses: { some: { warehouse: data.set_warehouse } },
+        },
+        select: locationSelect,
+      });
+      if (byList) return byList;
     }
+    // 3. Company-only fallback
     return prisma.companyLocation.findFirst({
       where: { erpnextCompany: data.company },
-      select: {
-        id: true,
-        companyId: true,
-        defaultMerchantUserId: true,
-        shadowParentLocationId: true,
-        shopifyLocationId: true,
-      },
+      select: locationSelect,
     });
   })();
   if (!location) {
@@ -457,6 +460,7 @@ export async function POST(request: NextRequest) {
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       name: data.name,
       erpnextInvoiceId: data.name,
+      erpnextWarehouse: data.set_warehouse ?? null,
       totalPrice: grandTotal,
       ...pricingFields,
       ...(erpShipping.totalShipping
@@ -493,6 +497,7 @@ export async function POST(request: NextRequest) {
       ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
+      erpnextWarehouse: data.set_warehouse ?? null,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       ...(isPOS
         ? orderStageUpdate("delivery_complete", new Date())
