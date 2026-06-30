@@ -59,8 +59,8 @@ const FALCON_COLUMNS = 25;
 
 const SENDER = {
   name: "SupplementVault.lk",
-  address1: "No 71A, 1st Lane, Pepiliyana Mw, Nugegoda.",
-  city: "Nugegoda",
+  address1: "347/34, 3/1, Nirmala Mawatha, Lake Road, Boralesgamuwa.",
+  city: "Boralesgamuwa",
   contact1: "715930200",
   contact2: "703050482",
   billingType: "SENDER ACCOUNT",
