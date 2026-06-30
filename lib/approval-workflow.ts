@@ -11,13 +11,15 @@ export const RETURN_REARRANGE_PAYMENT_APPROVAL = "return_rearrange_payment";
 export const RETURN_CANCEL_APPROVAL = "return_cancel";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
 export const DELIVERY_PAYMENT_APPROVAL = "delivery_payment_approval";
+export const INVOICE_REVERT_VOID_APPROVAL = "invoice_revert_void_approval";
 /** When false, delivery payment approvals stay in DB but are hidden from finance UI (notifications + approvals list). */
-export const DELIVERY_PAYMENT_FINANCE_UI_ENABLED = false;
+export const DELIVERY_PAYMENT_FINANCE_UI_ENABLED = true;
 export const FINANCE_APPROVAL_TYPES = [
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   RETURN_CANCEL_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_APPROVAL,
+  INVOICE_REVERT_VOID_APPROVAL,
 ] as const;
 const FINANCE_APPROVAL_PERMISSION = "finance.approvals.manage";
 
@@ -105,12 +107,12 @@ export function isOrderPaymentRequiresApproval(order: {
   // which causes false positives (e.g. "Bank Deposit" alongside a COD order).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
-    return g.includes("koko") || g.includes("bank");
+    return g.includes("koko") || g.includes("bank") || g.includes("webxpay");
   }
   const gateways = order.paymentGatewayNames
     .map((g) => g.toLowerCase().trim())
     .filter(Boolean);
-  return gateways.some((g) => g.includes("koko") || g.includes("bank"));
+  return gateways.some((g) => g.includes("koko") || g.includes("bank") || g.includes("webxpay"));
 }
 
 export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
@@ -637,6 +639,63 @@ export async function createOrGetReturnCancelApproval(input: {
         body: `Process cancellation in ERPNext for ${input.invoiceLabel}. Open the linked Sales Invoice from Finance Approvals.`,
         entityType: "ApprovalRequest",
         entityId: id,
+      })
+    )
+  );
+
+  return { id, status: "pending" as ApprovalStatus };
+}
+
+export async function createInvoiceRevertVoidApproval(input: {
+  companyId: string;
+  orderId: string;
+  invoiceLabel: string;
+  revertedAt: Date;
+}) {
+  const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+    Prisma.sql`
+      SELECT "id", "status"
+      FROM "ApprovalRequest"
+      WHERE "companyId" = ${input.companyId}
+        AND "type" = ${INVOICE_REVERT_VOID_APPROVAL}
+        AND "orderId" = ${input.orderId}
+        AND "status" = 'pending'
+      LIMIT 1
+    `
+  );
+  if (existing[0]) return existing[0];
+
+  const id = randomUUID();
+  const revertDateStr = input.revertedAt.toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+  });
+
+  await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "ApprovalRequest" (
+        "id", "companyId", "type", "status", "orderId",
+        "requestedById", "requestNote", "createdAt", "updatedAt"
+      )
+      VALUES (
+        ${id}, ${input.companyId}, ${INVOICE_REVERT_VOID_APPROVAL}, ${"pending"}, ${input.orderId},
+        ${null}, ${`${input.invoiceLabel} — reverted from invoice complete on ${revertDateStr}`},
+        ${new Date()}, ${new Date()}
+      )
+      ON CONFLICT DO NOTHING
+    `
+  );
+
+  const financeUserIds = await getFinanceApprovalUserIds(input.companyId);
+  await Promise.all(
+    financeUserIds.map((userId) =>
+      createNotification({
+        companyId: input.companyId,
+        userId,
+        type: "approval_requested",
+        title: "Reverted order returned to store",
+        body: `Order ${input.invoiceLabel}, reverted on ${revertDateStr}, is now returned to store. Please approve to mark it as voided.`,
+        entityType: "Order",
+        entityId: input.orderId,
       })
     )
   );

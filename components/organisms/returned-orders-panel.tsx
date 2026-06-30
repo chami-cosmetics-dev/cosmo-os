@@ -88,6 +88,12 @@ function formatDateOnly(value?: string | null) {
 }
 
 function actionTypeBadge(item: ReturnTrackingItem) {
+  if (item.remarkTemplate === "invoice_revert") {
+    if (item.actionStatus === "solved" && item.actionType === "void") {
+      return { label: "Finance Reverted — Voided", className: "border-purple-500/30 bg-purple-500/10 text-purple-700" };
+    }
+    return { label: "Finance Reverted", className: "border-orange-500/30 bg-orange-500/10 text-orange-700" };
+  }
   if (item.actionType === "cancel") {
     return item.actionStatus === "pending"
       ? { label: "Cancel Pending", className: "border-rose-500/30 bg-rose-500/10 text-rose-700" }
@@ -102,6 +108,14 @@ function actionTypeBadge(item: ReturnTrackingItem) {
       : { label: "Rearranged", className: "border-sky-500/30 bg-sky-500/10 text-sky-700" };
   }
   return null;
+}
+
+function financeRevertSubStatus(item: ReturnTrackingItem) {
+  if (item.actionStatus === "solved" && item.actionType === "void") return "Voided";
+  if (item.orderFulfillmentStage === "returned_to_store") {
+    return "Refunded — item returned, awaiting void approval";
+  }
+  return "Refunded — item not yet returned to store";
 }
 
 export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
@@ -288,6 +302,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
 
   function canTakeAction(item: ReturnTrackingItem | null) {
     if (!item || item.actionStatus !== "pending") return false;
+    if (item.remarkTemplate === "invoice_revert") return false;
     if (item.actionType === "cancel") return false;
     if (!item.actionType) return true;
     return isBankTransferRearrangePending(item);
@@ -741,6 +756,17 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                         <div className="mt-1 text-muted-foreground">Return remark: {selected.returnRemark}</div>
                       )}
                     </div>
+                    {selected.remarkTemplate === "invoice_revert" && (
+                      <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
+                        <p className="font-medium">Finance Reverted</p>
+                        <p className="mt-0.5">{financeRevertSubStatus(selected)}</p>
+                        {selected.revertedFromInvoiceCompleteAt && (
+                          <p className="mt-1 text-xs opacity-75">
+                            Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {isBankTransferRearrangePending(selected) && (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
                         This returned courier order is waiting for bank transfer. Request finance approval before dispatch.
@@ -792,15 +818,19 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                       </>
                     ) : (
                       <p className="text-muted-foreground text-sm">
-                        {selected.actionType === "cancel"
-                          ? selected.actionStatus === "pending"
-                            ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
-                            : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
-                          : selected.actionType === "rearrange"
+                        {selected.remarkTemplate === "invoice_revert"
+                          ? selected.actionStatus === "solved"
+                            ? "Order has been fully voided. Credit note remains in ERP."
+                            : "Finance-reverted order — use the bulk return form above to mark item returned to store and trigger void approval."
+                          : selected.actionType === "cancel"
                             ? selected.actionStatus === "pending"
-                              ? "Rearrange is awaiting finance approval."
-                              : "This return has been rearranged."
-                            : "This return is already solved."}
+                              ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
+                              : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
+                            : selected.actionType === "rearrange"
+                              ? selected.actionStatus === "pending"
+                                ? "Rearrange is awaiting finance approval."
+                                : "This return has been rearranged."
+                              : "This return is already solved."}
                       </p>
                     )}
                   </>

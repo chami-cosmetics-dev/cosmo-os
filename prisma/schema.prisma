@@ -262,6 +262,7 @@ model User {
   exchangeCreated                 OrderExchange[]           @relation("OrderExchangeCreatedBy")
   exchangeMerchantAssignments     OrderExchange[]           @relation("OrderExchangeMerchantUser")
   ordersInvoiceCompleteBy         Order[]                   @relation("OrderInvoiceCompleteBy")
+  ordersRevertedFromInvoiceCompleteBy Order[]               @relation("OrderRevertedFromInvoiceCompleteBy")
   ordersLastPrintedBy             Order[]                   @relation("OrderLastPrintedBy")
   ordersPackageReadyBy            Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
@@ -515,6 +516,8 @@ model Order {
   deliveryCompleteById         String?
   dispatchedById               String?
   invoiceCompleteById          String?
+  revertedFromInvoiceCompleteAt   DateTime?
+  revertedFromInvoiceCompleteById String?
   lastPrintedAt                DateTime?
   lastRiderUpdateAt            DateTime?
   lastPrintedById              String?
@@ -529,6 +532,7 @@ model Order {
   dispatchedBy                 User?                  @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id])
   dispatchedByRider            User?                  @relation("OrderDispatchedByRider", fields: [dispatchedByRiderId], references: [id])
   invoiceCompleteBy            User?                  @relation("OrderInvoiceCompleteBy", fields: [invoiceCompleteById], references: [id])
+  revertedFromInvoiceCompleteBy User?                 @relation("OrderRevertedFromInvoiceCompleteBy", fields: [revertedFromInvoiceCompleteById], references: [id])
   lastPrintedBy                User?                  @relation("OrderLastPrintedBy", fields: [lastPrintedById], references: [id])
   packageHoldReason            PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
   packageReadyBy               User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
