@@ -107,6 +107,7 @@ export function isDeliveryFulfillmentStages(stages: string[]): boolean {
 
 /**
  * Dispatch list — printed orders waiting to ship, plus unprinted orders already at dispatch stages.
+ * ERP orders at "print" only appear here after being printed (printCount > 0, covered by condition 1).
  */
 export const dispatchStageOrWhere = {
   OR: [
@@ -120,7 +121,7 @@ export const dispatchStageOrWhere = {
     },
     {
       sourceName: "erpnext",
-      fulfillmentStage: { in: ["order_received", "print", "ready_to_dispatch"] },
+      fulfillmentStage: { in: ["order_received", "ready_to_dispatch"] },
     },
   ],
 } satisfies Prisma.OrderWhereInput;
