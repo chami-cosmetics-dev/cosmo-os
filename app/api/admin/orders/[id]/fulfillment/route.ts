@@ -1210,7 +1210,10 @@ export async function PATCH(
               include: { companyLocation: { include: { erpnextInstance: true } } },
             });
             if (withLocation?.companyLocation) {
-              await createErpnextCreditNote(order, withLocation.companyLocation);
+              await createErpnextCreditNote(
+                { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+                withLocation.companyLocation,
+              );
             }
           } catch (err) {
             console.error("[ERPNext] createErpnextCreditNote failed (non-fatal):", err);
