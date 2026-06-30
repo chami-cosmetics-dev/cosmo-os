@@ -16,6 +16,17 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function printedDateIso() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 function parseDateRange(from: string | null, to: string | null) {
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!from || !re.test(from)) return null;
@@ -398,8 +409,9 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const pdfDateFrom = range?.dateFrom ?? "All dates";
-  const pdfDateTo = range?.dateTo ?? "All dates";
+  const printDate = printedDateIso();
+  const pdfDateFrom = range?.dateFrom ?? printDate;
+  const pdfDateTo = range?.dateTo ?? printDate;
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {
