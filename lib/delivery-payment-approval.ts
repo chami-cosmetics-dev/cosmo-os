@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getApprovedOrderPaymentReviewerId } from "@/lib/approval-workflow";
+import { createOrGetDeliveryPaymentApproval, getApprovedOrderPaymentReviewerId } from "@/lib/approval-workflow";
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_finance" }
@@ -30,11 +30,35 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   return { kind: "awaiting_finance" };
 }
 
-/** @deprecated Delivery payment approvals removed — finance uses invoice complete. */
-export async function triggerDeliveryPaymentApprovalIfNeeded(_input: {
+/** Trigger a delivery payment approval so finance can confirm payment was collected at the door. */
+export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
   companyId: string;
   orderId: string;
   requestedById: string | null;
 }) {
-  return null;
+  const order = await prisma.order.findFirst({
+    where: { id: input.orderId, companyId: input.companyId },
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      paymentGatewayPrimary: true,
+      paymentGatewayNames: true,
+      totalPrice: true,
+    },
+  });
+  if (!order) return null;
+
+  const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+  const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";
+
+  return createOrGetDeliveryPaymentApproval({
+    companyId: input.companyId,
+    orderId: order.id,
+    requestedById: input.requestedById,
+    invoiceLabel,
+    paymentType,
+    amount: order.totalPrice.toString(),
+  });
 }

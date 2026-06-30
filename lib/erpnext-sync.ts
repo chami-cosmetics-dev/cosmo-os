@@ -830,6 +830,101 @@ export async function createDeliveryPaymentEntry(
   console.log(`[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName})`);
 }
 
+/**
+ * Create a credit note (return Sales Invoice) in ERPNext for an order whose
+ * invoice_complete was reverted by a finance user. Non-fatal — caller must catch.
+ */
+export async function createErpnextCreditNote(
+  order: { id: string; name: string | null; orderNumber: string | null },
+  location: LocationWithErpInstance,
+): Promise<{ creditNoteName: string }> {
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    throw new Error("[ERPNext] createErpnextCreditNote: ERP credentials not configured");
+  }
+  if (!location.erpnextCompany) {
+    throw new Error("[ERPNext] createErpnextCreditNote: location has no erpnextCompany");
+  }
+
+  const orderName = order.name ?? order.orderNumber;
+  if (!orderName) throw new Error("[ERPNext] createErpnextCreditNote: order has no name");
+
+  // Find the original submitted Sales Invoice by po_no
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderName],
+      ["company", "=", location.erpnextCompany],
+      ["docstatus", "=", "1"],
+    ]),
+  );
+  const fields = encodeURIComponent(
+    JSON.stringify(["name", "customer", "debit_to", "grand_total", "items"]),
+  );
+  const list = await erpnextGet<Array<{ name: string }>>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
+  );
+
+  if (!list || list.length === 0) {
+    throw new Error(`[ERPNext] createErpnextCreditNote: no submitted SI found for po_no="${orderName}"`);
+  }
+
+  const originalSiName = list[0].name;
+
+  // Fetch full SI document to get items and debit_to
+  const originalSi = await erpnextGet<{
+    name: string;
+    customer: string;
+    debit_to: string;
+    grand_total: number;
+    items: Array<{
+      item_code: string;
+      item_name?: string;
+      description?: string;
+      qty: number;
+      rate: number;
+      income_account?: string;
+      cost_center?: string;
+      uom?: string;
+    }>;
+  }>(cfg, `/api/resource/Sales Invoice/${encodeURIComponent(originalSiName)}`);
+
+  if (!originalSi) {
+    throw new Error(`[ERPNext] createErpnextCreditNote: could not fetch SI "${originalSiName}"`);
+  }
+
+  const today = toDateStr(new Date());
+  const returnItems = originalSi.items.map((item) => ({
+    item_code: item.item_code,
+    item_name: item.item_name,
+    description: item.description,
+    qty: -Math.abs(item.qty),
+    rate: item.rate,
+    income_account: item.income_account,
+    cost_center: item.cost_center,
+    uom: item.uom,
+  }));
+
+  const creditNote = await erpnextPost<{ name: string }>(cfg, "/api/resource/Sales Invoice", {
+    doctype: "Sales Invoice",
+    is_return: 1,
+    return_against: originalSiName,
+    company: location.erpnextCompany,
+    customer: originalSi.customer,
+    debit_to: originalSi.debit_to,
+    posting_date: today,
+    po_no: orderName,
+    items: returnItems,
+    docstatus: 1,
+  });
+
+  console.log(
+    `[ERPNext] Credit note ${creditNote.name} created against ${originalSiName} for order ${orderName}`,
+  );
+
+  return { creditNoteName: creditNote.name };
+}
+
 export async function cancelErpnextSalesInvoice(
   orderName: string,
   location: LocationWithErpInstance,
@@ -1247,9 +1342,10 @@ export async function syncOrderToERPNext(
   console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);
 
   if (order.financialStatus === "paid") {
+    let peAttemptedMop: string | null = null;
     try {
-      const prepaidMop = resolvePrepaidMop(cfg, shopifyData.payment_gateway_names ?? []);
-      if (prepaidMop) {
+      peAttemptedMop = resolvePrepaidMop(cfg, shopifyData.payment_gateway_names ?? []);
+      if (peAttemptedMop) {
         await createPrepaidPaymentEntry(
           cfg,
           si.name,
@@ -1258,11 +1354,20 @@ export async function syncOrderToERPNext(
           si.debit_to,
           si.grand_total,
           dateStr,
-          prepaidMop,
+          peAttemptedMop,
         );
       }
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          erpPeSyncError: errMsg.slice(0, 10_000),
+          erpPeSyncFailedAt: new Date(),
+          erpPeSyncMop: peAttemptedMop?.slice(0, 200) ?? null,
+        },
+      }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
     }
   }
 }
@@ -1441,9 +1546,10 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
 
   if (order.financialStatus === "paid") {
+    let peAttemptedMop: string | null = null;
     try {
-      const prepaidMop = resolvePrepaidMop(cfg, allGateways);
-      if (prepaidMop) {
+      peAttemptedMop = resolvePrepaidMop(cfg, allGateways);
+      if (peAttemptedMop) {
         await createPrepaidPaymentEntry(
           cfg,
           si.name,
@@ -1452,11 +1558,20 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
           si.debit_to,
           si.grand_total,
           dateStr,
-          prepaidMop,
+          peAttemptedMop,
         );
       }
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          erpPeSyncError: errMsg.slice(0, 10_000),
+          erpPeSyncFailedAt: new Date(),
+          erpPeSyncMop: peAttemptedMop?.slice(0, 200) ?? null,
+        },
+      }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
     }
   }
 }

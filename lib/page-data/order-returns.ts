@@ -30,6 +30,8 @@ export type ReturnTrackingItem = {
   cancelRequestedAt: string | null;
   actionStatus: "pending" | "solved";
   actionType: string | null;
+  revertedFromInvoiceCompleteAt: string | null;
+  orderFulfillmentStage: string | null;
 };
 
 export type ReturnsTrackingData = {
@@ -114,11 +116,13 @@ export async function fetchReturnsTrackingData(input: {
             customerEmail: true,
             customerPhone: true,
             financialStatus: true,
+            fulfillmentStage: true,
             paymentGatewayPrimary: true,
             paymentGatewayNames: true,
             sourceName: true,
             discountCodes: true,
             shippingAddress: true,
+            revertedFromInvoiceCompleteAt: true,
             customer: { select: { firstName: true, lastName: true } },
             assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
           },
@@ -171,6 +175,8 @@ export async function fetchReturnsTrackingData(input: {
       cancelRequestedAt: item.cancelRequestedAt?.toISOString() ?? null,
       actionStatus: item.actionStatus,
       actionType: item.actionType,
+      revertedFromInvoiceCompleteAt: item.order.revertedFromInvoiceCompleteAt?.toISOString() ?? null,
+      orderFulfillmentStage: item.order.fulfillmentStage ?? null,
     }));
 
     const counts = returns.reduce(

@@ -1,7 +1,10 @@
 import type { FulfillmentStage } from "@prisma/client";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
+import {
+  resolvePostDeliveryInvoiceComplete,
+  triggerDeliveryPaymentApprovalIfNeeded,
+} from "@/lib/delivery-payment-approval";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import {
   resolveCustomerPhone,
@@ -83,6 +86,14 @@ export async function markOrderDelivered(input: {
 
   let afterStage: FulfillmentStage = "delivery_complete";
   const needsPaymentApproval = postDelivery.kind === "awaiting_finance";
+
+  if (postDelivery.kind === "awaiting_finance") {
+    await triggerDeliveryPaymentApprovalIfNeeded({
+      companyId: input.companyId,
+      orderId: order.id,
+      requestedById: input.userId,
+    });
+  }
 
   if (postDelivery.kind === "invoice_complete") {
     await prisma.order.update({
