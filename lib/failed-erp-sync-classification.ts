@@ -2,6 +2,31 @@ export function normalizeFailedErpSyncMessage(message: string) {
   return message.replace(/\s+/g, " ").trim();
 }
 
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function extractErpNextMessage(message: string): string | null {
+  const jsonStart = message.indexOf("{");
+  if (jsonStart === -1) return null;
+  if (!/\[\d+\]:\s*$/.test(message.slice(0, jsonStart).trimEnd())) return null;
+  try {
+    const parsed = JSON.parse(message.slice(jsonStart)) as { exception?: string };
+    if (!parsed.exception) return null;
+    const text = parsed.exception.replace(/^[\w.]+(?:Error|Exception):\s*/i, "").trim();
+    return stripHtml(text) || null;
+  } catch {
+    return null;
+  }
+}
+
 export type OutOfStockItemInfo = {
   sku: string;
   itemName: string | null;
@@ -158,13 +183,15 @@ export function isErpOutOfStockSyncError(message: string | null | undefined) {
   return classifyFailedErpSyncError(message).type === "Out of stock";
 }
 
-/** Turn raw ERPNext NegativeStockError payloads into a short operator-friendly message. */
+/** Turn raw ERPNext error payloads into a short operator-friendly message. */
 export function formatFailedErpSyncErrorMessage(message: string) {
   const normalized = message.replace(/\\"/g, '"');
   if (!normalized.includes("NegativeStockError")) {
     const parsed = parseOutOfStockItemFromError(message);
     if (parsed?.sku && looksLikeItemSku(parsed.sku)) return formatOutOfStockLabel(parsed);
     if (parsed?.itemName) return formatOutOfStockLabel({ sku: "", itemName: parsed.itemName });
+    const extracted = extractErpNextMessage(message);
+    if (extracted) return extracted;
     return normalizeFailedErpSyncMessage(message);
   }
 

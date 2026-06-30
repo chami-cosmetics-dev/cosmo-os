@@ -81,7 +81,7 @@ function ReminderListPanel({
   return (
     <div
       className={cn(
-        "pointer-events-auto mb-3 w-[min(100vw-2.5rem,22rem)] overflow-hidden rounded-lg border border-cyan-400/30",
+        "pointer-events-auto w-[min(100vw-2.5rem,22rem)] overflow-hidden rounded-lg border border-cyan-400/30",
         "bg-[linear-gradient(165deg,rgba(2,8,23,0.96),rgba(8,47,73,0.92))]",
         "shadow-[0_0_32px_rgba(34,211,238,0.2),0_22px_50px_-28px_rgba(0,0,0,0.65)]",
         "backdrop-blur-xl",
@@ -388,19 +388,23 @@ export function TaskReminderBubbles() {
       )}
       style={isBouncing && position ? { left: position.x, top: position.y } : { bottom: bottomPx }}
     >
-      {showAllPanel && (
-        <ReminderListPanel title="All overdue tasks" items={reminders} onClose={() => setShowAllPanel(false)} />
-      )}
+      <div ref={hudRowRef} className="pointer-events-auto relative flex items-end">
+        {showAllPanel && (
+          <div className="mr-3">
+            <ReminderListPanel title="All overdue tasks" items={reminders} onClose={() => setShowAllPanel(false)} />
+          </div>
+        )}
 
-      {activeCategory && !showAllPanel && (
-        <ReminderListPanel
-          title={panelTitle}
-          items={activeItems}
-          onClose={() => setActiveCategory(null)}
-        />
-      )}
+        {activeCategory && !showAllPanel && (
+          <div className="mr-3">
+            <ReminderListPanel
+              title={panelTitle}
+              items={activeItems}
+              onClose={() => setActiveCategory(null)}
+            />
+          </div>
+        )}
 
-      <div ref={hudRowRef} className="pointer-events-auto relative flex items-center">
         {nodesOpen && userCategories.length > 0 && (
           <>
             <NodeConnectors
