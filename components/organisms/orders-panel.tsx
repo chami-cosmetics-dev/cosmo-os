@@ -43,6 +43,7 @@ type Order = {
   lastPrintedAt?: string | null;
   packageReadyAt?: string | null;
   dispatchedAt?: string | null;
+  revertedFromInvoiceCompleteAt?: string | null;
   sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
