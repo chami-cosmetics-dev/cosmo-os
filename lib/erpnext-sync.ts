@@ -313,12 +313,20 @@ async function postErpSalesInvoiceCreate(
       return postErpSalesInvoiceCreate(cfg, { ...siBody, custom_payment_type: cfg.codMop }, { ...opts, skipPaymentTypeRetry: true });
     }
     if (!opts?.skipMerchantRetry && msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
+      const originalMerchant = typeof siBody.custom_merchant_coupon_code === "string" && siBody.custom_merchant_coupon_code !== "SHOPIFY"
+        ? siBody.custom_merchant_coupon_code
+        : null;
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
       const retryOpts = { ...opts, skipMerchantRetry: true };
       try {
         return await postErpSalesInvoiceCreate(cfg, withoutMerchant, retryOpts);
       } catch (retryErr) {
+        if (originalMerchant) {
+          // Order has a real merchant — don't replace with SHOPIFY, propagate so it appears in failed sync
+          console.warn(`[ERPNext] SI retry without merchant failed for real merchant "${originalMerchant}" — not falling back to SHOPIFY`);
+          throw retryErr;
+        }
         console.warn("[ERPNext] SI retry without merchant failed — falling back to SHOPIFY Sales Person");
         return postErpSalesInvoiceCreate(cfg, {
           ...withoutMerchant,
