@@ -139,6 +139,8 @@ export function LocationsSettingsForm({
   const [newShipAmount, setNewShipAmount] = useState("");
   const [newShipSort, setNewShipSort] = useState("0");
   const [erpInstances, setErpInstances] = useState<{ id: string; label: string }[]>([]);
+  const [erpWarehouses, setErpWarehouses] = useState<{ id: string; warehouse: string }[]>([]);
+  const [newErpWarehouse, setNewErpWarehouse] = useState("");
 
   const isBusy = busyKey !== null;
 
@@ -200,6 +202,22 @@ export function LocationsSettingsForm({
       .then((data: { id: string; label: string }[]) => setErpInstances(data))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!sheetOpen || sheetMode !== "edit" || !editingId) {
+      setErpWarehouses([]);
+      setNewErpWarehouse("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/admin/company/locations/${editingId}/erp-warehouses`);
+      if (!res.ok || cancelled) return;
+      const data = (await res.json()) as { warehouses: { id: string; warehouse: string }[] };
+      if (!cancelled) setErpWarehouses(data.warehouses ?? []);
+    })();
+    return () => { cancelled = true; };
+  }, [sheetOpen, sheetMode, editingId]);
 
   useEffect(() => {
     if (!sheetOpen || sheetMode !== "edit" || !editingId) {
@@ -463,6 +481,44 @@ export function LocationsSettingsForm({
     } finally {
       setBusyKey(null);
     }
+  }
+
+  async function handleAddErpWarehouse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingId || !canEdit || !newErpWarehouse.trim()) return;
+    setBusyKey("wh-add");
+    try {
+      const res = await fetch(`/api/admin/company/locations/${editingId}/erp-warehouses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ warehouse: newErpWarehouse.trim() }),
+      });
+      const data = (await res.json()) as { id: string; warehouse: string; error?: string };
+      if (!res.ok) { notify.error(data.error ?? "Failed to add warehouse"); return; }
+      setErpWarehouses((prev) => [...prev, data]);
+      setNewErpWarehouse("");
+      notify.success("Warehouse added.");
+    } catch { notify.error("Failed to add warehouse"); }
+    finally { setBusyKey(null); }
+  }
+
+  async function handleDeleteErpWarehouse(id: string) {
+    if (!editingId || !canEdit) return;
+    const confirmed = await confirm({
+      title: "Remove warehouse?",
+      description: "Remove this warehouse from the location?",
+      confirmLabel: "Remove",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+    setBusyKey(`wh-del-${id}`);
+    try {
+      const res = await fetch(`/api/admin/company/locations/${editingId}/erp-warehouses/${id}`, { method: "DELETE" });
+      if (!res.ok) { const data = (await res.json()) as { error?: string }; notify.error(data.error ?? "Failed to remove"); return; }
+      setErpWarehouses((prev) => prev.filter((w) => w.id !== id));
+      notify.success("Removed.");
+    } catch { notify.error("Failed to remove"); }
+    finally { setBusyKey(null); }
   }
 
   async function handleSheetSubmit() {
@@ -1293,6 +1349,55 @@ export function LocationsSettingsForm({
                 disabled={isBusy}
                 maxLength={140}
               />
+
+              {sheetMode === "edit" && editingId && (
+                <div className="space-y-2 rounded-xl border border-border/70 bg-background/70 p-3">
+                  <p className="text-xs font-medium">Additional warehouses</p>
+                  <p className="text-xs text-muted-foreground">
+                    Add extra warehouses for this location. Incoming ERP invoices from any of these will be matched to this location.
+                  </p>
+                  {erpWarehouses.length > 0 && (
+                    <ul className="space-y-1.5">
+                      {erpWarehouses.map((wh) => (
+                        <li key={wh.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-background px-2.5 py-2 text-sm">
+                          <span className="truncate">{wh.warehouse}</span>
+                          {canEdit && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 shrink-0"
+                              onClick={() => handleDeleteErpWarehouse(wh.id)}
+                              disabled={isBusy}
+                            >
+                              {busyKey === `wh-del-${wh.id}`
+                                ? <Loader2 className="size-3 animate-spin" aria-hidden />
+                                : <Trash2 className="size-3.5" aria-hidden />}
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {canEdit && (
+                    <form onSubmit={handleAddErpWarehouse} className="flex gap-2">
+                      <Input
+                        placeholder="e.g. Shop Warehouse - AJS"
+                        value={newErpWarehouse}
+                        onChange={(e) => setNewErpWarehouse(e.target.value)}
+                        disabled={isBusy}
+                        maxLength={140}
+                        className="flex-1"
+                      />
+                      <Button type="submit" disabled={isBusy || !newErpWarehouse.trim()}>
+                        {busyKey === "wh-add"
+                          ? <Loader2 className="size-4 animate-spin" aria-hidden />
+                          : <Plus className="size-4" aria-hidden />}
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

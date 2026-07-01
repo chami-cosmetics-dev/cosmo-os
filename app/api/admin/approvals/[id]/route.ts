@@ -152,6 +152,19 @@ export async function PATCH(
       `
     );
 
+    if (nextStatus === "rejected" && approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
+      // Cancel was rejected — reset the return to pending so staff can continue processing it normally.
+      await tx.orderReturn.update({
+        where: { id: approval.orderReturnId },
+        data: {
+          actionType: null,
+          actionStatus: "pending",
+          actionDate: now,
+          actionById: reviewerId,
+        },
+      });
+    }
+
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
         // Bank / KOKO / WebXPay: invoice is financially complete at approval; advance to print queue for physical fulfillment.
@@ -284,19 +297,17 @@ export async function PATCH(
     }),
   });
 
-  if (nextStatus === "approved" && approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
+  if (approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
     await writeAuditLog({
       companyId,
       actorUserId: reviewerId,
       module: "orders",
-      action: "returned_order_cancel_approved",
+      action: nextStatus === "approved" ? "returned_order_cancel_approved" : "returned_order_cancel_rejected",
       entityType: "OrderReturn",
       entityId: approval.orderReturnId,
-      summary: `Finance acknowledged cancel for ${invoiceLabel({
-        name: approval.orderName,
-        orderNumber: approval.orderNumber,
-        shopifyOrderId: approval.shopifyOrderId,
-      })} (process in ERPNext)`,
+      summary: nextStatus === "approved"
+        ? `Finance acknowledged cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} (process in ERPNext)`
+        : `Finance rejected cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} — return reset to pending`,
       metadata: { approvalId: approval.id, orderId: approval.orderId },
     });
   }

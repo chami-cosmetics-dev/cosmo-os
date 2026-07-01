@@ -43,6 +43,7 @@ type Order = {
   lastPrintedAt?: string | null;
   packageReadyAt?: string | null;
   dispatchedAt?: string | null;
+  revertedFromInvoiceCompleteAt?: string | null;
   sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -735,6 +736,7 @@ export function OrdersPanel({
                               packageReadyAt: order.packageReadyAt,
                               lastPrintedAt: order.lastPrintedAt,
                               dispatchedAt: order.dispatchedAt,
+                              revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
                             }).map((badge) => (
                               <span
                                 key={badge.key}

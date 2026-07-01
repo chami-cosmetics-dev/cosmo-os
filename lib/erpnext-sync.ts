@@ -110,6 +110,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
     if (lower.includes("webxpay")) return cfg.webxpayMop || null;
+    if (lower === "cc") return cfg.bankTransferMop;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
@@ -120,11 +121,12 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   return null;
 }
 
-/** Mode of payment for prepaid gateways (Koko, WebXPay, bank transfer). */
+/** Mode of payment for prepaid gateways (Koko, WebXPay, cc checkout, bank transfer). */
 function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
   if (cfg.webxpayMop && lower.some((g) => g.includes("webxpay"))) return cfg.webxpayMop;
+  if (lower.some((g) => g === "cc")) return cfg.bankTransferMop;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
 }
@@ -215,6 +217,10 @@ type CreateErpSalesInvoiceOpts = {
   couponLabel?: string | null;
   /** Net-rate line items for coupon retry after ERP rejects list-rate + coupon_code. */
   netRateItems?: ErpSalesInvoiceItem[];
+  /** Internal guard: prevents the merchant-coupon retry handler from firing recursively. */
+  skipMerchantRetry?: boolean;
+  /** Internal guard: prevents the custom_payment_type fallback retry from firing recursively. */
+  skipPaymentTypeRetry?: boolean;
 };
 
 function withCouponDiscountFallback(
@@ -299,17 +305,18 @@ async function postErpSalesInvoiceCreate(
         shipping_rule: cfg.shippingRule,
       });
     }
-    if (msg.includes("417") && msg.includes("Merchant Coupon Code")) {
+    if (!opts?.skipMerchantRetry && msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
+      const retryOpts = { ...opts, skipMerchantRetry: true };
       try {
-        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, opts);
+        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, retryOpts);
       } catch (retryErr) {
         console.warn("[ERPNext] SI retry without merchant failed — falling back to SHOPIFY Sales Person");
         return postErpSalesInvoiceCreate(cfg, {
           ...withoutMerchant,
           custom_merchant_coupon_code: "SHOPIFY",
-        }, opts);
+        }, retryOpts);
       }
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in siBody) {
@@ -879,12 +886,14 @@ export async function createErpnextCreditNote(
     originalSiName = list[0].name;
   }
 
-  // Fetch full SI document to get items and debit_to
+  // Fetch full SI document to get items, debit_to, and any custom mandatory fields
   const originalSi = await erpnextGet<{
     name: string;
     customer: string;
     debit_to: string;
     grand_total: number;
+    custom_payment_type?: string | null;
+    custom_merchant_coupon_code?: string | null;
     items: Array<{
       item_code: string;
       item_name?: string;
@@ -924,6 +933,9 @@ export async function createErpnextCreditNote(
     po_no: orderName,
     items: returnItems,
     docstatus: 1,
+    // Pass through custom mandatory fields from the original SI (e.g. Cosmetics.lk requires these)
+    ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
+    ...(originalSi.custom_merchant_coupon_code ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code } : {}),
   });
 
   console.log(
