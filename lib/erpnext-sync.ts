@@ -882,12 +882,14 @@ export async function createErpnextCreditNote(
     originalSiName = list[0].name;
   }
 
-  // Fetch full SI document to get items and debit_to
+  // Fetch full SI document to get items, debit_to, and any custom mandatory fields
   const originalSi = await erpnextGet<{
     name: string;
     customer: string;
     debit_to: string;
     grand_total: number;
+    custom_payment_type?: string | null;
+    custom_merchant_coupon_code?: string | null;
     items: Array<{
       item_code: string;
       item_name?: string;
@@ -927,6 +929,9 @@ export async function createErpnextCreditNote(
     po_no: orderName,
     items: returnItems,
     docstatus: 1,
+    // Pass through custom mandatory fields from the original SI (e.g. Cosmetics.lk requires these)
+    ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
+    ...(originalSi.custom_merchant_coupon_code ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code } : {}),
   });
 
   console.log(
