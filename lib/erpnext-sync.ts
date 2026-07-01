@@ -339,6 +339,10 @@ async function postErpSalesInvoiceCreate(
       const { taxes_and_charges: _t, ...siBodyClean } = siBody;
       return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", siBodyClean);
     }
+    if (msg.includes("payment_terms") && !("payment_terms_template" in siBody)) {
+      console.warn("[ERPNext] SI creation failed — payment_terms error (customer has broken template), retrying with cleared payment_terms_template:", msg.slice(0, 200));
+      return postErpSalesInvoiceCreate(cfg, { ...siBody, payment_terms_template: "" }, opts);
+    }
     throw err;
   }
 }
