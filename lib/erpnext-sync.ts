@@ -118,6 +118,9 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   }
   // Return null for unrecognised gateways — passing an unknown value to ERPNext's
   // custom_payment_type Link field causes a LinkValidationError.
+  if (gateways.length > 0) {
+    console.warn(`[ERPNext] resolveErpPaymentType: no mapping for gateways ${JSON.stringify(gateways)} — custom_payment_type will be omitted`);
+  }
   return null;
 }
 
