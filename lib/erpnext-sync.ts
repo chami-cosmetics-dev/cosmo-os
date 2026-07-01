@@ -215,6 +215,8 @@ type CreateErpSalesInvoiceOpts = {
   couponLabel?: string | null;
   /** Net-rate line items for coupon retry after ERP rejects list-rate + coupon_code. */
   netRateItems?: ErpSalesInvoiceItem[];
+  /** Internal guard: prevents the merchant-coupon retry handler from firing recursively. */
+  skipMerchantRetry?: boolean;
 };
 
 function withCouponDiscountFallback(
@@ -299,17 +301,18 @@ async function postErpSalesInvoiceCreate(
         shipping_rule: cfg.shippingRule,
       });
     }
-    if (msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
+    if (!opts?.skipMerchantRetry && msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
+      const retryOpts = { ...opts, skipMerchantRetry: true };
       try {
-        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, opts);
+        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, retryOpts);
       } catch (retryErr) {
         console.warn("[ERPNext] SI retry without merchant failed — falling back to SHOPIFY Sales Person");
         return postErpSalesInvoiceCreate(cfg, {
           ...withoutMerchant,
           custom_merchant_coupon_code: "SHOPIFY",
-        }, opts);
+        }, retryOpts);
       }
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in siBody) {
