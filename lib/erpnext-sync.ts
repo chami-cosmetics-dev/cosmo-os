@@ -308,6 +308,10 @@ async function postErpSalesInvoiceCreate(
         shipping_rule: cfg.shippingRule,
       });
     }
+    if (!opts?.skipPaymentTypeRetry && msg.includes("417") && msg.includes("custom_payment_type") && !siBody.custom_payment_type) {
+      console.warn(`[ERPNext] SI creation failed — custom_payment_type mandatory but unresolved, retrying with codMop fallback: ${msg.slice(0, 200)}`);
+      return postErpSalesInvoiceCreate(cfg, { ...siBody, custom_payment_type: cfg.codMop }, { ...opts, skipPaymentTypeRetry: true });
+    }
     if (!opts?.skipMerchantRetry && msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
