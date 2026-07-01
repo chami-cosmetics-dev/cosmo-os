@@ -78,6 +78,28 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+// ERPNext stores posting_date/posting_time as naive datetimes in Asia/Colombo timezone.
+// Sending UTC time causes NegativeStockError when stock was added earlier the same day
+// (ERPNext sees the SI as posted before the stock entry).
+function toColomboDT(): { date: string; time: string } {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    time: `${get("hour")}:${get("minute")}:${get("second")}`,
+  };
+}
+
 type ShopifyAddress = {
   name?: string | null;
   first_name?: string | null;
@@ -1254,11 +1276,10 @@ export async function syncOrderToERPNext(
   // Map Shopify payment gateways to ERPNext mode-of-payment name
   const erpPaymentType = resolveErpPaymentType(cfg, shopifyData.payment_gateway_names ?? []);
 
-  const dateStr = toDateStr(order.createdAt);
-  // Use current time as posting_time so ERPNext stock checks are after any stock entries added during the day.
-  // Defaulting to 00:00:00 causes NegativeStockError when stock was added after midnight on the order date.
-  const now = new Date();
-  const postingTime = now.toISOString().slice(11, 19); // "HH:MM:SS"
+  // Use today's date + current time in Colombo timezone for posting_date/posting_time.
+  // ERPNext treats these as naive Colombo datetimes. Sending UTC time causes NegativeStockError
+  // when stock was added earlier the same day (UTC time < Colombo time of stock entry).
+  const { date: dateStr, time: postingTime } = toColomboDT();
 
   const shopifyShippingAmt = resolveOrderShippingAmountForErp({
     discountCodes: shopifyData.discount_codes,
@@ -1502,9 +1523,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     .filter((g): g is string => typeof g === "string" && g.length > 0);
   const erpPaymentType = resolveErpPaymentType(cfg, allGateways);
 
-  const dateStr = toDateStr(order.createdAt);
-  const now = new Date();
-  const postingTime = now.toISOString().slice(11, 19);
+  const { date: dateStr, time: postingTime } = toColomboDT();
 
   const siItems: Array<{ item_code: string; item_name?: string; qty: number; rate: number; warehouse: string }> = lineItems.map((li) => ({
     item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
