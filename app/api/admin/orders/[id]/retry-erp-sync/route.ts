@@ -81,6 +81,7 @@ export async function POST(
     return NextResponse.json({ ok: true, message: "ERP sync succeeded" });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[ERPNext] manual retry failed for order", order.id, errMsg);
     await markOrderErpSyncFailed(order.id, errMsg, {
       scheduleAutoRetry: true,
       incrementAutoRetryCount: true,
