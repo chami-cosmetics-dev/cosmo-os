@@ -59,7 +59,8 @@ export async function POST(
   }
 
   const isPendingApproval = order.erpnextInvoiceId === "pending_approval";
-  if (!order.erpnextSyncError && !isPendingApproval) {
+  const isZombiePending = order.erpnextInvoiceId === "pending" && !order.erpnextSyncError;
+  if (!order.erpnextSyncError && !isPendingApproval && !isZombiePending) {
     return NextResponse.json({ error: "No failed ERP sync on this order" }, { status: 400 });
   }
 
