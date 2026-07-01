@@ -107,12 +107,12 @@ export function isOrderPaymentRequiresApproval(order: {
   // which causes false positives (e.g. "Bank Deposit" alongside a COD order).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
-    return g.includes("koko") || g.includes("bank") || g.includes("webxpay");
+    return g.includes("koko") || g.includes("bank");
   }
   const gateways = order.paymentGatewayNames
     .map((g) => g.toLowerCase().trim())
     .filter(Boolean);
-  return gateways.some((g) => g.includes("koko") || g.includes("bank") || g.includes("webxpay"));
+  return gateways.some((g) => g.includes("koko") || g.includes("bank"));
 }
 
 export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
