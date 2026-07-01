@@ -735,6 +735,7 @@ export function OrdersPanel({
                               packageReadyAt: order.packageReadyAt,
                               lastPrintedAt: order.lastPrintedAt,
                               dispatchedAt: order.dispatchedAt,
+                              revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
                             }).map((badge) => (
                               <span
                                 key={badge.key}
