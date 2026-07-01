@@ -332,6 +332,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         error?: string;
         returnedOrder?: Partial<ReturnTrackingItem>;
         order?: {
+          fulfillmentStage?: string | null;
           financialStatus?: string | null;
           paymentGatewayPrimary?: string | null;
           requiresBankTransferBeforeRearrange?: boolean;
@@ -349,6 +350,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   ...item,
                   ...data.returnedOrder,
                   returnRemark: data.returnedOrder?.returnRemark ?? item.returnRemark,
+                  orderFulfillmentStage: data.order?.fulfillmentStage ?? item.orderFulfillmentStage,
                   financialStatus: data.order?.financialStatus ?? item.financialStatus,
                   paymentGatewayPrimary: data.order?.paymentGatewayPrimary ?? item.paymentGatewayPrimary,
                   paymentGatewayNames: data.order?.paymentGatewayPrimary
@@ -372,6 +374,41 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       }
     } catch {
       notify.error("Failed to save return action");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markReturnedToStore() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/returns/${selected.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionType: "mark_returned_to_store" }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        returnedOrder?: Partial<ReturnTrackingItem>;
+        order?: { fulfillmentStage?: string | null };
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to mark returned to store");
+        return;
+      }
+      if (data.returnedOrder) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === selected.id
+              ? { ...item, ...data.returnedOrder, orderFulfillmentStage: data.order?.fulfillmentStage ?? item.orderFulfillmentStage }
+              : item
+          )
+        );
+      }
+      notify.success("Item marked returned to store — void approval sent to finance.");
+    } catch {
+      notify.error("Failed to mark returned to store");
     } finally {
       setSaving(false);
     }
@@ -757,14 +794,35 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                       )}
                     </div>
                     {selected.remarkTemplate === "invoice_revert" && (
-                      <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
-                        <p className="font-medium">Finance Reverted</p>
-                        <p className="mt-0.5">{financeRevertSubStatus(selected)}</p>
-                        {selected.revertedFromInvoiceCompleteAt && (
-                          <p className="mt-1 text-xs opacity-75">
-                            Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
-                          </p>
-                        )}
+                      <div className="space-y-2">
+                        <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
+                          <p className="font-medium">Finance Reverted — Partial Void</p>
+                          <p className="mt-0.5">{financeRevertSubStatus(selected)}</p>
+                          {selected.revertedFromInvoiceCompleteAt && (
+                            <p className="mt-1 text-xs opacity-75">
+                              Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
+                            </p>
+                          )}
+                        </div>
+                        {selected.actionStatus === "pending" &&
+                          selected.orderFulfillmentStage !== "returned_to_store" &&
+                          selected.orderFulfillmentStage !== "returned" && (
+                            <Button
+                              variant="destructive"
+                              className="w-full"
+                              disabled={saving}
+                              onClick={() => void markReturnedToStore()}
+                            >
+                              {saving ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  Processing...
+                                </>
+                              ) : (
+                                "Mark Item Returned to Store"
+                              )}
+                            </Button>
+                          )}
                       </div>
                     )}
                     {isBankTransferRearrangePending(selected) && (
@@ -821,7 +879,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                         {selected.remarkTemplate === "invoice_revert"
                           ? selected.actionStatus === "solved"
                             ? "Order has been fully voided. Credit note remains in ERP."
-                            : "Finance-reverted order — use the bulk return form above to mark item returned to store and trigger void approval."
+                            : "Finance-reverted order — item has been returned to store, awaiting void approval from finance."
                           : selected.actionType === "cancel"
                             ? selected.actionStatus === "pending"
                               ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."

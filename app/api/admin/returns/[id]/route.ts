@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  createInvoiceRevertVoidApproval,
   createOrGetReturnCancelApproval,
   createOrGetReturnRearrangeApproval,
   serializeReturnCancelApprovalNote,
@@ -18,7 +19,7 @@ const returnActionSchema = z.object({
   actionRemark: z.string().trim().max(5000).nullable().optional(),
   cancelRemark: z.string().trim().max(5000).optional(),
   actionType: z
-    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel"])
+    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel", "mark_returned_to_store"])
     .optional(),
 });
 
@@ -93,6 +94,7 @@ export async function PUT(
           financialStatus: true,
           paymentGatewayPrimary: true,
           paymentGatewayNames: true,
+          revertedFromInvoiceCompleteAt: true,
         },
       },
     },
@@ -108,12 +110,63 @@ export async function PUT(
   const isConfirmRearrangePaid = parsed.data.actionType === "confirm_rearrange_paid";
   const isFinanceApprovalRequest = parsed.data.actionType === "request_finance_approval";
   const isCancelRequest = parsed.data.actionType === "request_cancel";
+  const isMarkReturnedToStore = parsed.data.actionType === "mark_returned_to_store";
 
   if (isCancelRequest) {
     const cancelRemark = parsed.data.cancelRemark?.trim();
     if (!cancelRemark) {
       return NextResponse.json({ error: "Cancel remark is required" }, { status: 400 });
     }
+  }
+
+  if (isMarkReturnedToStore) {
+    if (existing.remarkTemplate !== "invoice_revert") {
+      return NextResponse.json({ error: "Only finance-reverted orders can use this action" }, { status: 400 });
+    }
+    if (!existing.order.revertedFromInvoiceCompleteAt) {
+      return NextResponse.json({ error: "Order is not in partial void state" }, { status: 400 });
+    }
+    if (existing.order.fulfillmentStage === "returned_to_store" || existing.order.fulfillmentStage === "returned") {
+      return NextResponse.json({ error: "Order has already been returned to store" }, { status: 400 });
+    }
+
+    const orderLabel = existing.order.name ?? existing.order.orderNumber ?? existing.order.shopifyOrderId ?? existing.orderId;
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: existing.orderId },
+        data: orderStageUpdate("returned_to_store", actionDate),
+      });
+      await tx.orderReturn.update({
+        where: { id: existing.id },
+        data: { actionDate, actionById: viewerUserId },
+      });
+    });
+
+    await createInvoiceRevertVoidApproval({
+      companyId,
+      orderId: existing.orderId,
+      invoiceLabel: orderLabel,
+      revertedAt: existing.order.revertedFromInvoiceCompleteAt,
+    });
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: viewerUserId,
+      module: "orders",
+      action: "fulfillment_updated",
+      entityType: "Order",
+      entityId: existing.orderId,
+      summary: `Finance-reverted order ${orderLabel} marked returned to store — void approval sent`,
+      beforeData: { fulfillmentStage: existing.order.fulfillmentStage },
+      afterData: { fulfillmentStage: "returned_to_store" },
+      metadata: { action: "finance_revert_returned_to_store", orderReturnId: existing.id },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      returnedOrder: { id: existing.id, actionDate: actionDate.toISOString(), actionById: viewerUserId },
+      order: { id: existing.orderId, fulfillmentStage: "returned_to_store" },
+    });
   }
 
   const requiresBankTransferBeforeRearrange =
