@@ -267,6 +267,7 @@ model User {
   ordersLastPrintedBy             Order[]                   @relation("OrderLastPrintedBy")
   ordersPackageReadyBy            Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
+  ordersCancelledBy               Order[]                   @relation("OrderCancelledBy")
   orderRemarksAdded               OrderRemark[]
   orderSampleFreeIssuesAdded      OrderSampleFreeIssue[]
   smsLogs                         SmsLog[]
@@ -537,6 +538,9 @@ model Order {
   lastRiderUpdateAt            DateTime?
   lastPrintedById              String?
   packageReadyById             String?
+  cancelledAt                  DateTime?
+  cancelledById                String?
+  cancelReason                 String?
   assignedMerchant             User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
   company                      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation              CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
@@ -552,6 +556,7 @@ model Order {
   packageHoldReason            PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
   packageReadyBy               User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy    User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
+  cancelledBy                  User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
   lineItems                    OrderLineItem[]
   exchangesAsOriginal          OrderExchange[]        @relation("OrderExchangeOriginalOrder")
   exchangesAsReplacement       OrderExchange[]        @relation("OrderExchangeReplacementOrder")
