@@ -110,7 +110,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
     if (lower.includes("webxpay")) return cfg.webxpayMop || null;
-    if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
+    if (lower === "cc" || lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
     if (lower.includes("cash")) return cfg.cashMop;
