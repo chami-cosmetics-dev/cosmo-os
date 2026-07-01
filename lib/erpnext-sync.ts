@@ -110,7 +110,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
     if (lower.includes("webxpay")) return cfg.webxpayMop || null;
-    if (lower === "cc") return cfg.bankTransferMop;
+    if (lower === "cc" || lower === "cc checkout") return cfg.bankTransferMop;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
@@ -129,7 +129,7 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
   if (cfg.webxpayMop && lower.some((g) => g.includes("webxpay"))) return cfg.webxpayMop;
-  if (lower.some((g) => g === "cc")) return cfg.bankTransferMop;
+  if (lower.some((g) => g === "cc" || g === "cc checkout")) return cfg.bankTransferMop;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
 }
