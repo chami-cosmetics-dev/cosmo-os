@@ -1255,6 +1255,10 @@ export async function syncOrderToERPNext(
   const erpPaymentType = resolveErpPaymentType(cfg, shopifyData.payment_gateway_names ?? []);
 
   const dateStr = toDateStr(order.createdAt);
+  // Use current time as posting_time so ERPNext stock checks are after any stock entries added during the day.
+  // Defaulting to 00:00:00 causes NegativeStockError when stock was added after midnight on the order date.
+  const now = new Date();
+  const postingTime = now.toISOString().slice(11, 19); // "HH:MM:SS"
 
   const shopifyShippingAmt = resolveOrderShippingAmountForErp({
     discountCodes: shopifyData.discount_codes,
@@ -1312,6 +1316,7 @@ export async function syncOrderToERPNext(
     company: location.erpnextCompany,
     customer: erpCustomerName,
     posting_date: dateStr,
+    posting_time: postingTime,
     po_no: orderPoNo,
     update_stock: 1,
     set_warehouse: location.erpnextWarehouse,
@@ -1498,6 +1503,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const erpPaymentType = resolveErpPaymentType(cfg, allGateways);
 
   const dateStr = toDateStr(order.createdAt);
+  const now = new Date();
+  const postingTime = now.toISOString().slice(11, 19);
 
   const siItems: Array<{ item_code: string; item_name?: string; qty: number; rate: number; warehouse: string }> = lineItems.map((li) => ({
     item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
@@ -1539,6 +1546,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     company: erpnextCompany,
     customer: erpCustomerName,
     posting_date: dateStr,
+    posting_time: postingTime,
     po_no: orderPoNo,
     update_stock: 1,
     set_warehouse: erpnextWarehouse,

@@ -26,6 +26,7 @@ export type FulfillmentPermissions = {
   canManageRemarks: boolean;
   canResendRiderSms: boolean;
   canChangePaymentMethod: boolean;
+  canCancelOrder: boolean;
 };
 
 export const FULFILLMENT_STAGE_ORDER = [
@@ -122,6 +123,7 @@ export function buildFulfillmentPermissions(
       canManageRemarks: false,
       canResendRiderSms: false,
       canChangePaymentMethod: false,
+      canCancelOrder: false,
     };
   }
   return {
@@ -139,6 +141,7 @@ export function buildFulfillmentPermissions(
       hasPermission(context, "fulfillment.ready_dispatch.manage_remarks"),
     canResendRiderSms: hasPermission(context, "orders.manage"),
     canChangePaymentMethod: hasPermission(context, "orders.update_payment_method"),
+    canCancelOrder: hasPermission(context, "orders.manage"),
   };
 }
 

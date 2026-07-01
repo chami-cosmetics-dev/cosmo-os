@@ -18,7 +18,8 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
-import { createErpnextCreditNote } from "@/lib/erpnext-sync";
+import { createErpnextCreditNote, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
+import { cancelShopifyOrder } from "@/lib/shopify-admin";
 import { markOrderDelivered } from "@/lib/mark-order-delivered";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import {
@@ -84,6 +85,10 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     action: z.literal("complete_pos"),
   }),
   z.object({
+    action: z.literal("cancel_order"),
+    reason: z.string().trim().min(5).max(500),
+  }),
+  z.object({
     action: z.literal("revert_to_stage"),
     targetStage: z.enum([
       "order_received",
@@ -126,6 +131,8 @@ function getRequiredPermissionsForAction(action: string): string[] {
       return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
       return ["fulfillment.delivery_invoice.mark_complete"];
+    case "cancel_order":
+      return ["orders.manage"];
     case "complete_pos":
       return ["orders.manage"];
     case "revert_to_stage":
@@ -1230,6 +1237,66 @@ export async function PATCH(
         afterStage: targetStage,
         metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
       });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "cancel_order") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Orders can only be cancelled at order received or sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+      if (order.financialStatus?.toLowerCase() === "voided") {
+        return NextResponse.json({ error: "Order is already cancelled" }, { status: 400 });
+      }
+
+      const orderWithLocation = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: { companyLocation: { include: { erpnextInstance: true } } },
+      });
+      const location = orderWithLocation?.companyLocation;
+
+      // Cancel in Shopify first — fatal; if this fails we don't mark as voided
+      if (location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(order.shopifyOrderId, location.shopifyAdminStoreHandle);
+        console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
+      } else {
+        console.warn(`[Cancel] No shopifyAdminStoreHandle on location — skipping Shopify cancel for order ${order.id}`);
+      }
+
+      // Cancel ERP Sales Invoice if one exists — non-fatal
+      if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
+        try {
+          await cancelErpnextSalesInvoice(order.name ?? order.shopifyOrderId, location);
+          console.log(`[Cancel] ERP SI cancelled for order ${order.id}`);
+        } catch (err) {
+          console.error(`[Cancel] ERP SI cancel failed (non-fatal) for order ${order.id}:`, err);
+        }
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          financialStatus: "voided",
+          cancelledAt: now,
+          cancelledById: auth.context!.user!.id,
+          cancelReason: data.reason,
+        },
+      });
+
+      await writeAuditLog({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        module: "orders",
+        action: "order_cancelled",
+        entityType: "Order",
+        entityId: order.id,
+        summary: `Cancelled order ${order.orderNumber ?? order.name ?? order.id}: ${data.reason}`,
+        beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
+        afterData: { financialStatus: "voided", cancelReason: data.reason },
+      });
+
       return NextResponse.json({ success: true });
     }
 
