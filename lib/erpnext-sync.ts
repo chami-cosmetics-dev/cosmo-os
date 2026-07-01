@@ -299,7 +299,7 @@ async function postErpSalesInvoiceCreate(
         shipping_rule: cfg.shippingRule,
       });
     }
-    if (msg.includes("417") && msg.includes("Merchant Coupon Code")) {
+    if (msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
       try {
