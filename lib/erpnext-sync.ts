@@ -1254,10 +1254,11 @@ export async function syncOrderToERPNext(
   // Map Shopify payment gateways to ERPNext mode-of-payment name
   const erpPaymentType = resolveErpPaymentType(cfg, shopifyData.payment_gateway_names ?? []);
 
-  const dateStr = toDateStr(order.createdAt);
-  // Use current time as posting_time so ERPNext stock checks are after any stock entries added during the day.
-  // Defaulting to 00:00:00 causes NegativeStockError when stock was added after midnight on the order date.
+  // Use today's date + current time as posting_date/posting_time.
+  // The order's original date is preserved in po_no. Using today prevents NegativeStockError
+  // when stock was received after the order's creation date (common on retried orders).
   const now = new Date();
+  const dateStr = toDateStr(now);
   const postingTime = now.toISOString().slice(11, 19); // "HH:MM:SS"
 
   const shopifyShippingAmt = resolveOrderShippingAmountForErp({
@@ -1502,8 +1503,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     .filter((g): g is string => typeof g === "string" && g.length > 0);
   const erpPaymentType = resolveErpPaymentType(cfg, allGateways);
 
-  const dateStr = toDateStr(order.createdAt);
   const now = new Date();
+  const dateStr = toDateStr(now);
   const postingTime = now.toISOString().slice(11, 19);
 
   const siItems: Array<{ item_code: string; item_name?: string; qty: number; rate: number; warehouse: string }> = lineItems.map((li) => ({
