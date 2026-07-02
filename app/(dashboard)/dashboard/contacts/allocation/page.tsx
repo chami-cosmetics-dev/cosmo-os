@@ -1,14 +1,13 @@
 import { redirect } from "next/navigation";
 
 import { ContactAllocationPanel } from "@/components/organisms/contact-allocation-panel";
-import { fetchContactFollowUps, fetchContactsNotUpdated } from "@/lib/page-data/contact-follow-ups";
-import { fetchContactsPageData } from "@/lib/page-data/contacts";
-import { requirePermission } from "@/lib/rbac";
+import { fetchContactAllocationPageData } from "@/lib/page-data/contact-allocation";
+import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContactAllocationPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission(["contacts.allocation.read", "contacts.read"]);
   if (!auth.ok) {
     if (auth.status === 401) {
       redirect("/login");
@@ -21,33 +20,10 @@ export default async function ContactAllocationPage() {
     redirect("/dashboard");
   }
 
-  const canManage = auth.context!.permissionKeys.includes("orders.manage");
-  const [initialData, followUps, notUpdatedQueue] = await Promise.all([
-    fetchContactsPageData(companyId, {
-      page: 1,
-      limit: 24,
-      sortOrder: "desc",
-    }),
-    fetchContactFollowUps({
-      companyId,
-      merchantName: canManage ? null : auth.context!.user?.name,
-      merchantEmail: canManage ? null : auth.context!.user?.email,
-      limit: 30,
-    }),
-    fetchContactsNotUpdated({
-      companyId,
-      merchantName: canManage ? null : auth.context!.user?.name,
-      merchantEmail: canManage ? null : auth.context!.user?.email,
-      limit: 30,
-    }),
-  ]);
+  const initialData = await fetchContactAllocationPageData(companyId);
+  const canManage =
+    hasPermission(auth.context!, "contacts.allocation.manage") ||
+    hasPermission(auth.context!, "contacts.manage");
 
-  return (
-    <ContactAllocationPanel
-      initialData={initialData}
-      initialFollowUps={followUps}
-      initialNotUpdatedQueue={notUpdatedQueue}
-      canManage={canManage}
-    />
-  );
+  return <ContactAllocationPanel initialData={initialData} canManage={canManage} />;
 }

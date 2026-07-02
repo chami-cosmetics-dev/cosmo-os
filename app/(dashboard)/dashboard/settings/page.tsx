@@ -36,6 +36,9 @@ export default async function SettingsPage() {
   const canManageFulfillment = context
     ? hasPermission(context, "settings.fulfillment")
     : false;
+  const canManageContactAllocationSettings = context
+    ? hasPermission(context, "contacts.allocation.settings")
+    : false;
   const canManageOutlets = context
     ? hasPermission(context, "outlets.manage")
     : false;
@@ -137,15 +140,6 @@ export default async function SettingsPage() {
             icon: Plug,
           },
           {
-            key: "contact-allocation",
-            group: "Operations" as const,
-            title: "Contact Allocation Options",
-            description:
-              "Manage dropdown options for the Contact Allocation panel — service providers, districts, towns, origins, customer types, and categories.",
-            href: "/dashboard/settings/contact-allocation",
-            icon: BookUser,
-          },
-          {
             key: "koko",
             group: "Reports" as const,
             title: "Koko Settings",
@@ -153,6 +147,19 @@ export default async function SettingsPage() {
               "Manage the predefined list of Koko companies and invoice prefixes used in the Koko Tally tool.",
             href: "/dashboard/settings/koko",
             icon: Calculator,
+          },
+        ]
+      : []),
+    ...(canManageContactAllocationSettings
+      ? [
+          {
+            key: "contact-allocation",
+            group: "Operations" as const,
+            title: "Contact Allocation Options",
+            description:
+              "Manage dropdown options for the Contact Allocation panel — service providers, districts, towns, origins, customer types, and categories.",
+            href: "/dashboard/settings/contact-allocation",
+            icon: BookUser,
           },
         ]
       : []),
@@ -310,3 +317,4 @@ export default async function SettingsPage() {
     </div>
   );
 }
+

@@ -17,7 +17,11 @@ const querySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAnyPermission(["contacts.read", "orders.create_manual"]);
+  const auth = await requireAnyPermission([
+    "contacts.master.read",
+    "contacts.read",
+    "orders.create_manual",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

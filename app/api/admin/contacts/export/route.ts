@@ -5,7 +5,7 @@ import { logReportDownload } from "@/lib/report-download-log";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
 type ContactExportMode = "contacts" | "purchase_summary";
@@ -98,7 +98,7 @@ async function buildPurchaseSummary(
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("contacts.read");
+  const auth = await requireAnyPermission(["contacts.master.read", "contacts.read"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

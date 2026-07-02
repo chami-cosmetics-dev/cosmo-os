@@ -1300,6 +1300,13 @@ model ContactMaster {
   name            String
   lastPurchaseAt  DateTime?
   recentMerchant  String?
+  assignedMerchant String?
+  source          String?
+  country         String?
+  zone            String?
+  area            String?
+  exWebCustomer   Boolean?
+  exOffCustomer   Boolean?
   // CRM profile fields
   remarks         String?
   gender          String?
@@ -1334,6 +1341,11 @@ model ContactMaster {
   @@index([companyId, updatedAt(sort: Desc)])
   @@index([companyId, email])
   @@index([companyId, phoneNumber])
+  @@index([companyId, assignedMerchant])
+  @@index([companyId, source])
+  @@index([companyId, country])
+  @@index([companyId, zone])
+  @@index([companyId, area])
 }
 
 model ContactEmail {

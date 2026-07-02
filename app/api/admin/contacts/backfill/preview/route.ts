@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 
 import { previewContactBackfill } from "@/lib/contact-master-backfill";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 export async function GET() {
-  const auth = await requirePermission("contacts.manage");
+  const auth = await requireAnyPermission(["contacts.master.manage", "contacts.manage"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

@@ -3,14 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 // Returns aggregated ContactAllocationUpdate counts grouped by merchantName and
 // category, used to power the Call Center Performance Analysis chart on the
 // dashboard. Optional `from` / `to` query params filter by createdAt date.
 
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("contacts.read");
+  const auth = await requireAnyPermission(["contacts.allocation.read", "contacts.read"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
