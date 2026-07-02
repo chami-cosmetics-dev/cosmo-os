@@ -32,7 +32,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAnyPermission(["contacts.allocation.manage", "contacts.manage"]);
+  const auth = await requireAnyPermission(["contacts.updates.manage", "contacts.manage"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -49,7 +49,7 @@ export async function PATCH(
 
   const existing = await prisma.contactMaster.findFirst({
     where: { id, companyId },
-    // category is fetched so we can record the effective value in ContactAllocationUpdate
+    // category is fetched so we can record the effective value in the update log
     select: { id: true, category: true },
   });
   if (!existing) {

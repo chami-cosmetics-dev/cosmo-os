@@ -8,7 +8,7 @@ import {
 } from "@/lib/contact-identifiers";
 import { getLatestOrderPurchaseAt } from "@/lib/orders-last-purchase";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 type ParsedRow = Record<string, string>;
 
@@ -91,7 +91,7 @@ function toPairKey(email: string | null, phoneNumber: string | null) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("contacts.manage");
+  const auth = await requireAnyPermission(["contacts.master.manage", "contacts.manage"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
