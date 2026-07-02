@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getLocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { BookUser, Building2, Calculator, ChevronRight, Mail, MessageSquare, Package, Plug, Store } from "lucide-react";
+import { BookUser, Building2, Calculator, ChevronRight, FileArchive, Mail, MessageSquare, Package, Plug, Printer, Store } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -135,6 +135,24 @@ export default async function SettingsPage() {
               "Connect one or more ERPNext instances. Each location can be assigned to a specific ERP instance.",
             href: "/dashboard/settings/erp-instances",
             icon: Plug,
+          },
+          {
+            key: "print-formats",
+            group: "Operations" as const,
+            title: "Print Formats",
+            description:
+              "Create and manage custom HTML formats for order invoice printing.",
+            href: "/dashboard/settings/print-formats",
+            icon: Printer,
+          },
+          {
+            key: "files",
+            group: "Operations" as const,
+            title: "Files",
+            description:
+              "Upload reusable files and icons for print formats and company assets.",
+            href: "/dashboard/settings/files",
+            icon: FileArchive,
           },
           {
             key: "contact-allocation",

@@ -38,6 +38,7 @@ import { notify } from "@/lib/notify";
 import type { LocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 
 type Merchant = { id: string; name: string | null; email: string | null };
+type PrintFormatOption = { id: string; name: string; isEnabled: boolean };
 
 type Location = {
   id: string;
@@ -57,6 +58,7 @@ type Location = {
   shopifyShopName: string | null;
   shopifyAdminStoreHandle: string | null;
   defaultMerchantUserId?: string | null;
+  defaultOrderPrintFormatId?: string | null;
   manualInvoicePrefix?: string | null;
   manualInvoiceNextSeq?: number;
   manualInvoiceSeqPadding?: number;
@@ -97,6 +99,7 @@ const emptyForm = (): LocationForm => ({
   shopifyShopName: "",
   shopifyAdminStoreHandle: "",
   defaultMerchantUserId: null,
+  defaultOrderPrintFormatId: null,
   manualInvoicePrefix: "",
   manualInvoiceSeqPadding: 3,
   erpnextCompany: "",
@@ -139,6 +142,7 @@ export function LocationsSettingsForm({
   const [newShipAmount, setNewShipAmount] = useState("");
   const [newShipSort, setNewShipSort] = useState("0");
   const [erpInstances, setErpInstances] = useState<{ id: string; label: string }[]>([]);
+  const [printFormats, setPrintFormats] = useState<PrintFormatOption[]>([]);
 
   const isBusy = busyKey !== null;
 
@@ -198,6 +202,13 @@ export function LocationsSettingsForm({
     fetch("/api/admin/company/erp-instances")
       .then((r) => r.json())
       .then((data: { id: string; label: string }[]) => setErpInstances(data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/settings/print-formats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { formats?: PrintFormatOption[] } | null) => setPrintFormats(data?.formats ?? []))
       .catch(() => {});
   }, []);
 
@@ -282,6 +293,7 @@ export function LocationsSettingsForm({
       shopifyShopName: loc.shopifyShopName ?? "",
       shopifyAdminStoreHandle: loc.shopifyAdminStoreHandle ?? "",
       defaultMerchantUserId: loc.defaultMerchantUserId ?? null,
+      defaultOrderPrintFormatId: loc.defaultOrderPrintFormatId ?? null,
       manualInvoicePrefix: loc.manualInvoicePrefix ?? "",
       manualInvoiceSeqPadding: loc.manualInvoiceSeqPadding ?? 3,
       erpnextCompany: loc.erpnextCompany ?? "",
@@ -398,6 +410,7 @@ export function LocationsSettingsForm({
           (form.shopifyShopName?.trim() ?? "") !== (editingLocation.shopifyShopName ?? "").trim() ||
           (form.shopifyAdminStoreHandle?.trim() ?? "") !== (editingLocation.shopifyAdminStoreHandle ?? "").trim() ||
           (form.defaultMerchantUserId ?? null) !== (editingLocation.defaultMerchantUserId ?? null) ||
+          (form.defaultOrderPrintFormatId ?? null) !== (editingLocation.defaultOrderPrintFormatId ?? null) ||
           (form.manualInvoicePrefix?.trim() ?? "") !== (editingLocation.manualInvoicePrefix ?? "").trim() ||
           (form.manualInvoiceSeqPadding ?? 3) !== (editingLocation.manualInvoiceSeqPadding ?? 3) ||
           (form.erpnextCompany?.trim() ?? "") !== (editingLocation.erpnextCompany ?? "").trim() ||
@@ -432,6 +445,7 @@ export function LocationsSettingsForm({
         shopifyShopName: form.shopifyShopName?.trim() || undefined,
         shopifyAdminStoreHandle: form.shopifyAdminStoreHandle?.trim() || undefined,
         defaultMerchantUserId: form.defaultMerchantUserId || null,
+        defaultOrderPrintFormatId: form.defaultOrderPrintFormatId || null,
         manualInvoicePrefix:
           form.manualInvoicePrefix?.trim() === ""
             ? null
@@ -494,6 +508,7 @@ export function LocationsSettingsForm({
       shopifyShopName: form.shopifyShopName?.trim() || undefined,
       shopifyAdminStoreHandle: form.shopifyAdminStoreHandle?.trim() || undefined,
       defaultMerchantUserId: form.defaultMerchantUserId || null,
+      defaultOrderPrintFormatId: form.defaultOrderPrintFormatId || null,
       manualInvoicePrefix:
         form.manualInvoicePrefix?.trim() === ""
           ? null
@@ -976,6 +991,38 @@ export function LocationsSettingsForm({
                 disabled={isBusy}
                 maxLength={254}
               />
+              <div className="space-y-2">
+                <label htmlFor="location-default-print-format" className="text-sm font-medium">
+                  Order default print format
+                </label>
+                <Select
+                  value={form.defaultOrderPrintFormatId ?? "__none"}
+                  onValueChange={(value) =>
+                    setForm((f) => ({
+                      ...f,
+                      defaultOrderPrintFormatId: value === "__none" ? null : value,
+                    }))
+                  }
+                  disabled={isBusy}
+                >
+                  <SelectTrigger id="location-default-print-format" className="w-full bg-background">
+                    <SelectValue placeholder="Select print format" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">No default selected</SelectItem>
+                    {printFormats
+                      .filter((format) => format.isEnabled)
+                      .map((format) => (
+                        <SelectItem key={format.id} value={format.id}>
+                          {format.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-xs">
+                  Orders from this location use this print format.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
