@@ -12,6 +12,7 @@ import {
   parseReturnCancelApprovalNote,
   reconcilePendingApprovalsForVoidedOrders,
   reconcilePendingDeliveryApprovalsForCourierOrders,
+  reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
   reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
@@ -39,6 +40,7 @@ export async function GET() {
     reconcilePendingApprovalsForVoidedOrders(companyId),
     reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId),
     reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
+    reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),
   ]);
 
   const rows = await prisma.$queryRaw<Array<{

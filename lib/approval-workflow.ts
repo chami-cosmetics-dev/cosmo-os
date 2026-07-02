@@ -213,6 +213,25 @@ export async function reconcilePendingDeliveryApprovalsForCourierOrders(companyI
   });
 }
 
+/** Cancel pending delivery payment approvals for customer-pickup orders.
+ * Payment is collected at the counter — no rider payment confirmation needed. */
+export async function reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId: string) {
+  const now = new Date();
+  await prisma.approvalRequest.updateMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      order: { dispatchedToCustomer: true },
+    },
+    data: {
+      status: "cancelled",
+      reviewNote: "Customer pickup — payment collected in-store, no confirmation needed.",
+      updatedAt: now,
+    },
+  });
+}
+
 /** Clear stale payment approvals for orders already voided in Vault.
  * Only cancels ORDER_PAYMENT_APPROVAL and DELIVERY_PAYMENT_APPROVAL — never
  * RETURN_CANCEL_APPROVAL or RETURN_REARRANGE_PAYMENT_APPROVAL, because returned
