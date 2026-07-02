@@ -11,6 +11,8 @@ import {
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
   reconcilePendingApprovalsForVoidedOrders,
+  reconcilePendingDeliveryApprovalsForCourierOrders,
+  reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -33,7 +35,11 @@ export async function GET() {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  await reconcilePendingApprovalsForVoidedOrders(companyId);
+  await Promise.all([
+    reconcilePendingApprovalsForVoidedOrders(companyId),
+    reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId),
+    reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
+  ]);
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;

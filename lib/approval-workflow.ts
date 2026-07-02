@@ -164,7 +164,53 @@ export async function cancelPendingApprovalsForOrder(orderId: string) {
     }),
   ]);
 
+  // The cancel request is now moot — order is voided. Mark the return as solved
+  // so it no longer shows as "Cancel Pending" in the returns panel.
+  await prisma.orderReturn.updateMany({
+    where: { orderId, actionType: "cancel", actionStatus: "pending" },
+    data: { actionStatus: "solved", actionDate: now },
+  });
+
   return direct.count + viaReturn.count;
+}
+
+/** Cancel pending delivery payment approvals for orders already at invoice_complete.
+ * Handles the case where an order was bulk-completed or manually advanced to invoice_complete
+ * while a DELIVERY_PAYMENT_APPROVAL was still pending in the finance queue. */
+export async function reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId: string) {
+  const now = new Date();
+  await prisma.approvalRequest.updateMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      order: { fulfillmentStage: "invoice_complete" },
+    },
+    data: {
+      status: "cancelled",
+      reviewNote: "Order already marked invoice complete.",
+      updatedAt: now,
+    },
+  });
+}
+
+/** Cancel pending delivery payment approvals for orders dispatched by a courier service (e.g. Citypack).
+ * Courier deliveries don't require finance to confirm cash collection — payment is handled by the courier. */
+export async function reconcilePendingDeliveryApprovalsForCourierOrders(companyId: string) {
+  const now = new Date();
+  await prisma.approvalRequest.updateMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      order: { dispatchedByCourierServiceId: { not: null } },
+    },
+    data: {
+      status: "cancelled",
+      reviewNote: "Delivered by courier service — no payment collection confirmation needed.",
+      updatedAt: now,
+    },
+  });
 }
 
 /** Clear stale payment approvals for orders already voided in Vault.
