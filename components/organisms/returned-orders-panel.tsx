@@ -379,6 +379,28 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
     }
   }
 
+  async function resendVoidApproval() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/returns/${selected.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionType: "resend_void_approval" }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to re-send void approval");
+      } else {
+        notify.success("Void approval re-sent to finance.");
+      }
+    } catch {
+      notify.error("Failed to re-send void approval");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function markReturnedToStore() {
     if (!selected) return;
     setSaving(true);
@@ -820,6 +842,24 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                                 </>
                               ) : (
                                 "Mark Item Returned to Store"
+                              )}
+                            </Button>
+                          )}
+                        {selected.remarkTemplate === "invoice_revert" &&
+                          selected.orderFulfillmentStage === "returned_to_store" && (
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              disabled={saving}
+                              onClick={() => void resendVoidApproval()}
+                            >
+                              {saving ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  Processing...
+                                </>
+                              ) : (
+                                "Re-send Void Approval"
                               )}
                             </Button>
                           )}
