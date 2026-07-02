@@ -306,12 +306,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ];
       } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      // Sample / free-issue queue — Shopify & manual only (ERP skips this step).
-      const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
-      const hasDispatchStage = stages.includes("ready_to_dispatch");
-      where.sourceName = (hasSampleStage && !hasDispatchStage)
-        ? { in: ["web", "manual"] }
-        : { in: ["web", "manual", "erpnext"] };
+      where.sourceName = { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
