@@ -49,14 +49,10 @@ export async function GET(request: NextRequest) {
     const root = document.getElementById("bulk-root");
     const loader = document.getElementById("bulk-loader");
 
-    function appendInvoiceStyles(doc) {
-      if (document.getElementById("invoice-styles")) return;
-      const style = doc.querySelector("style");
-      if (!style) return;
-      const copy = document.createElement("style");
-      copy.id = "invoice-styles";
-      copy.textContent = style.textContent;
-      document.head.appendChild(copy);
+    function getInvoiceHeadHtml(doc) {
+      return Array.from(doc.head.querySelectorAll("style, link[rel='stylesheet'], link[rel='preconnect'], link[rel='preload']"))
+        .map((node) => node.outerHTML)
+        .join("");
     }
 
     function waitForImage(img) {
@@ -101,11 +97,10 @@ export async function GET(request: NextRequest) {
 
         const html = await response.text();
         const doc = new DOMParser().parseFromString(html, "text/html");
-        appendInvoiceStyles(doc);
 
         const invoice = document.createElement("section");
         invoice.className = "bulk-invoice";
-        invoice.innerHTML = doc.body.innerHTML;
+        invoice.innerHTML = getInvoiceHeadHtml(doc) + doc.body.innerHTML;
         invoice.querySelectorAll("script").forEach((script) => script.remove());
         root.appendChild(invoice);
       }
