@@ -46,6 +46,8 @@ function typeLabel(type: string) {
   if (type === "return_rearrange_payment") return "Return Rearrange";
   if (type === "return_cancel") return "Return Cancel";
   if (type === "delivery_payment_approval") return "Delivery Payment";
+  if (type === "invoice_revert_void_approval") return "Invoice Revert Void";
+  if (type === "payment_method_change_approval") return "Payment Method Change";
   return type;
 }
 

@@ -12,6 +12,7 @@ export const RETURN_CANCEL_APPROVAL = "return_cancel";
 export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
 export const DELIVERY_PAYMENT_APPROVAL = "delivery_payment_approval";
 export const INVOICE_REVERT_VOID_APPROVAL = "invoice_revert_void_approval";
+export const PAYMENT_METHOD_CHANGE_APPROVAL = "payment_method_change_approval";
 /** When false, delivery payment approvals stay in DB but are hidden from finance UI (notifications + approvals list). */
 export const DELIVERY_PAYMENT_FINANCE_UI_ENABLED = true;
 export const FINANCE_APPROVAL_TYPES = [
@@ -20,6 +21,7 @@ export const FINANCE_APPROVAL_TYPES = [
   ORDER_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
 ] as const;
 const FINANCE_APPROVAL_PERMISSION = "finance.approvals.manage";
 
@@ -177,7 +179,7 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
     reviewNote: ORDER_VOIDED_APPROVAL_CANCEL_NOTE,
     updatedAt: now,
   };
-  const paymentTypes = [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL];
+  const paymentTypes = [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL];
 
   const [direct, viaReturn] = await Promise.all([
     prisma.approvalRequest.updateMany({
@@ -699,6 +701,85 @@ export async function createInvoiceRevertVoidApproval(input: {
       })
     )
   );
+
+  return { id, status: "pending" as ApprovalStatus };
+}
+
+export async function createPaymentMethodChangeApproval(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+  invoiceLabel: string;
+  targetPaymentMethod: string;
+  amount: string;
+}) {
+  const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+    Prisma.sql`
+      SELECT "id", "status"
+      FROM "ApprovalRequest"
+      WHERE "companyId" = ${input.companyId}
+        AND "type" = ${PAYMENT_METHOD_CHANGE_APPROVAL}
+        AND "orderId" = ${input.orderId}
+        AND "status" = 'pending'
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `
+  );
+  if (existing[0]) return existing[0];
+
+  const id = randomUUID();
+  const rowsAffected = await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "ApprovalRequest" (
+        "id", "companyId", "type", "status", "orderId",
+        "requestedById", "requestNote", "createdAt", "updatedAt"
+      )
+      VALUES (
+        ${id}, ${input.companyId}, ${PAYMENT_METHOD_CHANGE_APPROVAL}, ${"pending"}, ${input.orderId},
+        ${input.requestedById}, ${`${input.targetPaymentMethod} — payment method change request — amount: ${input.amount}`},
+        ${new Date()}, ${new Date()}
+      )
+      ON CONFLICT DO NOTHING
+    `
+  );
+
+  if (rowsAffected === 0) {
+    const concurrent = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "type" = ${PAYMENT_METHOD_CHANGE_APPROVAL}
+          AND "orderId" = ${input.orderId}
+          AND "status" = 'pending'
+        LIMIT 1
+      `
+    );
+    return concurrent[0]!;
+  }
+
+  const financeUsers = await getFinanceApprovalUsers(input.companyId);
+
+  await Promise.all(
+    financeUsers.map((u) =>
+      createNotification({
+        companyId: input.companyId,
+        userId: u.id,
+        type: "approval_requested",
+        title: "Payment method change approval required",
+        body: `${input.targetPaymentMethod} payment method change requested for ${input.invoiceLabel} — amount: ${input.amount}.`,
+        entityType: "ApprovalRequest",
+        entityId: id,
+      })
+    )
+  );
+
+  const financeEmails = financeUsers.map((u) => u.email).filter((e): e is string => !!e);
+  if (financeEmails.length > 0) {
+    void sendFinanceApprovalEmail(financeEmails, input.invoiceLabel, input.targetPaymentMethod, input.amount).catch(
+      (err) => console.error("[Finance approval] Email send failed:", err)
+    );
+  }
 
   return { id, status: "pending" as ApprovalStatus };
 }

@@ -19,7 +19,7 @@ const returnActionSchema = z.object({
   actionRemark: z.string().trim().max(5000).nullable().optional(),
   cancelRemark: z.string().trim().max(5000).optional(),
   actionType: z
-    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel", "mark_returned_to_store"])
+    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel", "mark_returned_to_store", "resend_void_approval"])
     .optional(),
 });
 
@@ -111,6 +111,7 @@ export async function PUT(
   const isFinanceApprovalRequest = parsed.data.actionType === "request_finance_approval";
   const isCancelRequest = parsed.data.actionType === "request_cancel";
   const isMarkReturnedToStore = parsed.data.actionType === "mark_returned_to_store";
+  const isResendVoidApproval = parsed.data.actionType === "resend_void_approval";
 
   if (isCancelRequest) {
     const cancelRemark = parsed.data.cancelRemark?.trim();
@@ -167,6 +168,39 @@ export async function PUT(
       returnedOrder: { id: existing.id, actionDate: actionDate.toISOString(), actionById: viewerUserId },
       order: { id: existing.orderId, fulfillmentStage: "returned_to_store" },
     });
+  }
+
+  if (isResendVoidApproval) {
+    if (existing.remarkTemplate !== "invoice_revert") {
+      return NextResponse.json({ error: "Only finance-reverted orders can use this action" }, { status: 400 });
+    }
+    if (!existing.order.revertedFromInvoiceCompleteAt) {
+      return NextResponse.json({ error: "Order is not in partial void state" }, { status: 400 });
+    }
+    if (existing.order.fulfillmentStage !== "returned_to_store") {
+      return NextResponse.json({ error: "Order must be marked returned to store first" }, { status: 400 });
+    }
+
+    const orderLabel = existing.order.name ?? existing.order.orderNumber ?? existing.order.shopifyOrderId ?? existing.orderId;
+    await createInvoiceRevertVoidApproval({
+      companyId,
+      orderId: existing.orderId,
+      invoiceLabel: orderLabel,
+      revertedAt: existing.order.revertedFromInvoiceCompleteAt,
+    });
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: viewerUserId,
+      module: "orders",
+      action: "fulfillment_updated",
+      entityType: "Order",
+      entityId: existing.orderId,
+      summary: `Void approval re-sent for finance-reverted order ${orderLabel}`,
+      metadata: { action: "finance_revert_void_approval_resent", orderReturnId: existing.id },
+    });
+
+    return NextResponse.json({ ok: true });
   }
 
   const requiresBankTransferBeforeRearrange =

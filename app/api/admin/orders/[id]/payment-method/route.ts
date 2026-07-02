@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { syncBankTransferPaymentToERPNext } from "@/lib/erpnext-sync";
+import { createPaymentMethodChangeApproval } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
+  targetPaymentMethod: z.enum(["bank_transfer", "koko"]).optional().default("bank_transfer"),
 });
 
 function normalizeText(value: string | null | undefined) {
@@ -66,10 +68,13 @@ export async function PATCH(
     select: {
       id: true,
       name: true,
+      orderNumber: true,
       shopifyOrderId: true,
       companyLocationId: true,
       financialStatus: true,
       fulfillmentStage: true,
+      totalPrice: true,
+      currency: true,
       ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
       ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
     },
@@ -95,6 +100,22 @@ export async function PATCH(
 
   const now = new Date();
   const note = parsed.data.note?.trim() || null;
+  const { targetPaymentMethod } = parsed.data;
+
+  if (targetPaymentMethod === "koko") {
+    const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
+    const amount = order.totalPrice != null ? `${order.currency ?? ""} ${order.totalPrice}`.trim() : "unknown";
+    const approval = await createPaymentMethodChangeApproval({
+      companyId,
+      orderId: order.id,
+      requestedById: userId,
+      invoiceLabel,
+      targetPaymentMethod: "KOKO",
+      amount,
+    });
+    return NextResponse.json({ ok: true, pendingApproval: true, approvalId: approval.id });
+  }
+
   const remarkContent = note
     ? `Payment method changed from COD to Bank Transfer by finance.\n${note}`
     : "Payment method changed from COD to Bank Transfer by finance.";

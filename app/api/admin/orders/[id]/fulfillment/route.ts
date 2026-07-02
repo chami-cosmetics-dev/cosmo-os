@@ -342,12 +342,6 @@ export async function PATCH(
 
   try {
     if (data.action === "add_samples") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Samples can only be added at sample/free issue stage" },
@@ -430,12 +424,6 @@ export async function PATCH(
       if (financeFulfillmentBlock) {
         return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
       }
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/print stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Can only advance to print from sample/free issue stage" },
@@ -464,12 +452,6 @@ export async function PATCH(
     }
 
     if (data.action === "set_sample_send_later_date") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Send later date can only be set at sample/free issue stage" },
@@ -505,12 +487,6 @@ export async function PATCH(
     }
 
     if (data.action === "send_sample_now") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Send now is only available at sample/free issue stage" },
@@ -544,12 +520,6 @@ export async function PATCH(
     }
 
     if (data.action === "cancel_sample_send_later") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Cancel schedule is only available at sample/free issue stage" },

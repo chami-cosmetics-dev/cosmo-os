@@ -6,6 +6,7 @@ import {
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
@@ -219,6 +220,21 @@ export async function PATCH(
             actionById: reviewerId,
           },
         });
+      } else if (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) {
+        // COD → KOKO change approved by finance: switch gateway, mark paid, advance to print queue.
+        await tx.order.update({
+          where: { id: approval.orderId! },
+          data: {
+            paymentGatewayNames: ["koko"],
+            paymentGatewayPrimary: "koko",
+            financialStatus: "paid",
+            ...orderStageUpdate("print", now),
+            sampleFreeIssueCompleteAt: now,
+            sampleFreeIssueCompleteById: reviewerId,
+            invoiceCompleteAt: now,
+            invoiceCompleteById: reviewerId,
+          },
+        });
       } else if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL) {
         // Return rearrange approval: force to ready_to_dispatch + resolve the return
         await tx.order.update({
@@ -319,7 +335,7 @@ export async function PATCH(
   if (
     nextStatus === "approved" &&
     !isPaymentReapproval &&
-    approval.type === ORDER_PAYMENT_APPROVAL &&
+    (approval.type === ORDER_PAYMENT_APPROVAL || approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) &&
     approval.orderId
   ) {
     try {

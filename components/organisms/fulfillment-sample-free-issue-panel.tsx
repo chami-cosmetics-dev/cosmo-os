@@ -130,6 +130,8 @@ export function FulfillmentSampleFreeIssuePanel({
   const [showBankTransferDialog, setShowBankTransferDialog] = useState(false);
   const [bankTransferNote, setBankTransferNote] = useState("");
   const [bankTransferBusy, setBankTransferBusy] = useState(false);
+  const [showKokoDialog, setShowKokoDialog] = useState(false);
+  const [kokoBusy, setKokoBusy] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -423,6 +425,30 @@ export function FulfillmentSampleFreeIssuePanel({
       setBankTransferBusy(false);
     }
   }
+  async function handleRequestKokoChange() {
+    if (!orderId) return;
+    setKokoBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPaymentMethod: "koko" }),
+      });
+      const data = (await res.json()) as { error?: string; pendingApproval?: boolean };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to request KOKO payment change");
+        return;
+      }
+      notify.success("KOKO payment change request sent to finance for approval.");
+      setShowKokoDialog(false);
+      onRefresh(false);
+    } catch {
+      notify.error("Failed to request KOKO payment change");
+    } finally {
+      setKokoBusy(false);
+    }
+  }
+
   async function handleCancelOrder() {
     if (!orderId) return;
     const reason = cancelReason.trim();
@@ -505,13 +531,26 @@ export function FulfillmentSampleFreeIssuePanel({
                   <span className="font-medium">Payment:</span>
                   <span>{paymentMethod}</span>
                   {perms.canChangePaymentMethod && isCodOrder && orderId && (
-                    <button
-                      type="button"
-                      onClick={() => { setBankTransferNote(""); setShowBankTransferDialog(true); }}
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      Change to Bank Transfer
-                    </button>
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => { setBankTransferNote(""); setShowBankTransferDialog(true); }}
+                        className="h-6 px-2 text-xs border-blue-500 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950"
+                      >
+                        Bank Transfer
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowKokoDialog(true)}
+                        className="h-6 px-2 text-xs border-emerald-500 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:border-emerald-400 dark:text-emerald-400 dark:hover:bg-emerald-950"
+                      >
+                        KOKO
+                      </Button>
+                    </>
                   )}
                 </div>
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
@@ -988,6 +1027,31 @@ export function FulfillmentSampleFreeIssuePanel({
               <><Loader2 className="mr-2 size-4 animate-spin" />Updating...</>
             ) : (
               "Confirm Bank Transfer"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog
+      open={showKokoDialog}
+      onOpenChange={(open) => { if (!open) setShowKokoDialog(false); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Change to KOKO</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will send a payment method change request to the finance team for approval.
+            Once approved, the payment type will be changed from COD to KOKO and the ERP payment entry will be created under KOKO.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={kokoBusy}>Cancel</AlertDialogCancel>
+          <Button disabled={kokoBusy} onClick={() => void handleRequestKokoChange()}>
+            {kokoBusy ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
+            ) : (
+              "Send for Approval"
             )}
           </Button>
         </AlertDialogFooter>
