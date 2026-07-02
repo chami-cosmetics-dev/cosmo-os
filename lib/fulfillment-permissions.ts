@@ -141,7 +141,7 @@ export function buildFulfillmentPermissions(
       hasPermission(context, "fulfillment.ready_dispatch.manage_remarks"),
     canResendRiderSms: hasPermission(context, "orders.manage"),
     canChangePaymentMethod: hasPermission(context, "orders.update_payment_method"),
-    canCancelOrder: hasPermission(context, "orders.manage"),
+    canCancelOrder: hasPermission(context, "orders.cancel"),
   };
 }
 

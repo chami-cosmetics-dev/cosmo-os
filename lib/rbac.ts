@@ -94,6 +94,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Retry failed order webhooks and manage order fulfillment",
   },
   {
+    key: "orders.cancel",
+    description: "Cancel orders at order received or sample/free issue stage",
+  },
+  {
     key: "orders.update_payment_method",
     description: "Change order payment method from COD to Bank Transfer",
   },
