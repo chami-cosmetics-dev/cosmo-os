@@ -54,12 +54,16 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       paymentGatewayNames: true,
       totalPrice: true,
       dispatchedByCourierServiceId: true,
+      dispatchedToCustomer: true,
     },
   });
   if (!order) return null;
 
   // Courier service deliveries (e.g. Citypack) don't require finance to confirm payment collection.
   if (order.dispatchedByCourierServiceId) return null;
+
+  // Customer pickups are collected in-store — no rider payment collection to confirm.
+  if (order.dispatchedToCustomer) return null;
 
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
   const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";
