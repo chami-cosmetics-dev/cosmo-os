@@ -1,6 +1,8 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+import { put } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 
+import { writeAuditLog } from "@/lib/audit-log";
+import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -26,19 +28,56 @@ export async function POST(request: NextRequest) {
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
 
-  const body = (await request.json()) as HandleUploadBody;
-  const jsonResponse = await handleUpload({
-    body,
-    request,
-    onBeforeGenerateToken: async () => ({
-      allowedContentTypes: ALLOWED_CONTENT_TYPES,
-      maximumSizeInBytes: 25 * 1024 * 1024,
-      tokenPayload: JSON.stringify({ userId, companyId }),
-    }),
-    onUploadCompleted: async () => {
-      // DB metadata is saved by POST /api/admin/settings/files after upload.
-    },
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+  }
+
+  const file = formData.get("file");
+  if (!file || !(file instanceof File)) {
+    return NextResponse.json({ error: "File is required" }, { status: 400 });
+  }
+
+  if (!ALLOWED_CONTENT_TYPES.includes(file.type || "application/octet-stream")) {
+    return NextResponse.json({ error: "File type is not allowed" }, { status: 400 });
+  }
+
+  if (file.size > 25 * 1024 * 1024) {
+    return NextResponse.json({ error: "File too large. Maximum size is 25MB" }, { status: 400 });
+  }
+
+  const blob = await put(file.name, file, {
+    access: "private",
+    addRandomSuffix: true,
   });
 
-  return NextResponse.json(jsonResponse);
+  const saved = await prisma.file.create({
+    data: {
+      companyId,
+      fileName: file.name,
+      blobUrl: blob.url,
+      fileSize: file.size,
+      mimeType: file.type || null,
+      uploadedById: userId,
+    },
+    select: { id: true, fileName: true, fileSize: true, mimeType: true, provider: true, createdAt: true },
+  });
+
+  await writeAuditLog({
+    companyId,
+    actorUserId: userId,
+    module: "settings",
+    action: "setting_created",
+    entityType: "File",
+    entityId: saved.id,
+    summary: `Uploaded file ${saved.fileName}`,
+  });
+
+  return NextResponse.json({
+    ...saved,
+    url: `/api/admin/settings/files/${saved.id}`,
+    createdAt: saved.createdAt.toISOString(),
+  });
 }

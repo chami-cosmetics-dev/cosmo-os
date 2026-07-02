@@ -59,6 +59,33 @@ export async function GET(request: NextRequest) {
       document.head.appendChild(copy);
     }
 
+    function waitForImage(img) {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      if (typeof img.decode === "function") {
+        return img.decode().catch(() => undefined);
+      }
+      return new Promise((resolve) => {
+        const done = () => resolve();
+        img.addEventListener("load", done, { once: true });
+        img.addEventListener("error", done, { once: true });
+      });
+    }
+
+    async function waitForPrintAssets() {
+      const images = Array.from(document.images);
+      await Promise.race([
+        Promise.all(images.map(waitForImage)),
+        new Promise((resolve) => window.setTimeout(resolve, 5000)),
+      ]);
+
+      if (document.fonts?.ready) {
+        await Promise.race([
+          document.fonts.ready,
+          new Promise((resolve) => window.setTimeout(resolve, 2000)),
+        ]);
+      }
+    }
+
     async function loadInvoices() {
       for (const id of orderIds) {
         const response = await fetch("/api/admin/orders/" + encodeURIComponent(id) + "/invoice?print=1", {
@@ -84,10 +111,9 @@ export async function GET(request: NextRequest) {
       }
 
       loader.textContent = "Ready to print.";
-      window.setTimeout(() => {
-        loader.style.display = "none";
-        window.print();
-      }, 500);
+      await waitForPrintAssets();
+      loader.style.display = "none";
+      window.print();
     }
 
     loadInvoices().catch((error) => {

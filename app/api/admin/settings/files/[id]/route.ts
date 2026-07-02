@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
-import { requireAnyPermission, requirePermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -12,29 +12,22 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAnyPermission([
-    "settings.company",
-    "fulfillment.order_print.read",
-    "fulfillment.order_print.print",
-  ]);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const companyId = auth.context!.user!.companyId;
-  if (!companyId) return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
-
   const { id } = await params;
   const idResult = cuidSchema.safeParse(id);
   if (!idResult.success) return NextResponse.json({ error: "Invalid file ID" }, { status: 400 });
 
-  const file = await prisma.file.findFirst({
-    where: { id: idResult.data, companyId },
+  const file = await prisma.file.findUnique({
+    where: { id: idResult.data },
     select: { blobUrl: true, mimeType: true, fileName: true },
   });
   if (!file) return NextResponse.json({ error: "File not found" }, { status: 404 });
 
-  const blobRes = await fetch(file.blobUrl, {
-    headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
-  });
+  const blobRes = await fetch(
+    file.blobUrl,
+    process.env.BLOB_READ_WRITE_TOKEN
+      ? { headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` } }
+      : undefined,
+  );
   if (!blobRes.ok || !blobRes.body) {
     return NextResponse.json({ error: "Failed to fetch file" }, { status: 502 });
   }

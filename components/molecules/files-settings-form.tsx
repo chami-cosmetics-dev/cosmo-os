@@ -1,6 +1,5 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
 import { Copy, FileIcon, FileImage, Loader2, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -28,6 +27,10 @@ function formatBytes(bytes: number | null) {
 
 function isImage(file: StoredFile) {
   return file.mimeType?.startsWith("image/") ?? false;
+}
+
+function getPrintFileUrl(file: StoredFile) {
+  return `/files/${encodeURIComponent(file.fileName)}`;
 }
 
 export function FilesSettingsForm() {
@@ -58,23 +61,15 @@ export function FilesSettingsForm() {
   async function handleUpload(file: File) {
     setUploading(true);
     try {
-      const blob = await upload(file.name, file, {
-        access: "private",
-        handleUploadUrl: "/api/admin/settings/files/upload",
-      });
+      const formData = new FormData();
+      formData.set("file", file);
 
-      const res = await fetch("/api/admin/settings/files", {
+      const res = await fetch("/api/admin/settings/files/upload", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: file.name,
-          blobUrl: blob.url,
-          fileSize: file.size,
-          mimeType: file.type || null,
-        }),
+        body: formData,
       });
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Failed to save file");
+      if (!res.ok) throw new Error(data.error ?? "Failed to upload file");
       notify.success(`${file.name} uploaded.`);
       await fetchFiles();
     } catch (error) {
@@ -141,46 +136,50 @@ export function FilesSettingsForm() {
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {files.map((file) => (
-              <div key={file.id} className="rounded-lg border border-border/70 p-3">
-                <div className="flex items-start gap-3">
-                  {isImage(file) ? (
-                    <a href={file.url} target="_blank" rel="noopener noreferrer">
-                      <img src={file.url} alt={file.fileName} className="size-12 rounded-md object-cover ring-1 ring-border/60" />
-                    </a>
-                  ) : (
-                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="flex size-12 items-center justify-center rounded-md bg-secondary/30">
-                      {file.mimeType?.startsWith("image/") ? <FileImage className="size-5" /> : <FileIcon className="size-5" />}
-                    </a>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="block truncate text-sm font-medium hover:underline">
-                      {file.fileName}
-                    </a>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {formatBytes(file.fileSize)} | {file.mimeType ?? "unknown"}
-                    </p>
-                    <code className="mt-2 block truncate rounded bg-secondary/40 px-2 py-1 text-xs">{file.url}</code>
+            {files.map((file) => {
+              const printUrl = getPrintFileUrl(file);
+
+              return (
+                <div key={file.id} className="rounded-lg border border-border/70 p-3">
+                  <div className="flex items-start gap-3">
+                    {isImage(file) ? (
+                      <a href={printUrl} target="_blank" rel="noopener noreferrer">
+                        <img src={printUrl} alt={file.fileName} className="size-12 rounded-md object-cover ring-1 ring-border/60" />
+                      </a>
+                    ) : (
+                      <a href={printUrl} target="_blank" rel="noopener noreferrer" className="flex size-12 items-center justify-center rounded-md bg-secondary/30">
+                        {file.mimeType?.startsWith("image/") ? <FileImage className="size-5" /> : <FileIcon className="size-5" />}
+                      </a>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <a href={printUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-sm font-medium hover:underline">
+                        {file.fileName}
+                      </a>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {formatBytes(file.fileSize)} | {file.mimeType ?? "unknown"}
+                      </p>
+                      <code className="mt-2 block truncate rounded bg-secondary/40 px-2 py-1 text-xs">{printUrl}</code>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex justify-end gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => void copyUrl(printUrl)} className="gap-1.5">
+                      <Copy className="size-3.5" />
+                      Copy URL
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-muted-foreground hover:text-destructive"
+                      disabled={deletingId === file.id}
+                      onClick={() => void deleteFile(file)}
+                    >
+                      {deletingId === file.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                    </Button>
                   </div>
                 </div>
-                <div className="mt-3 flex justify-end gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={() => void copyUrl(file.url)} className="gap-1.5">
-                    <Copy className="size-3.5" />
-                    Copy URL
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-destructive"
-                    disabled={deletingId === file.id}
-                    onClick={() => void deleteFile(file)}
-                  >
-                    {deletingId === file.id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>
