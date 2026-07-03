@@ -59,15 +59,15 @@ function pickCustomerName(order: {
   shippingAddress: unknown;
   name: string | null;
 }) {
-  if (order.customer?.firstName || order.customer?.lastName) {
-    return [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
-  }
   if (order.shippingAddress && typeof order.shippingAddress === "object") {
     const shipping = order.shippingAddress as Record<string, unknown>;
     const raw = shipping.name ?? [shipping.first_name, shipping.last_name].filter(Boolean).join(" ").trim();
     if (typeof raw === "string" && raw.trim()) {
       return raw.trim();
     }
+  }
+  if (order.customer?.firstName || order.customer?.lastName) {
+    return [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
   }
   return order.name;
 }
