@@ -1320,12 +1320,11 @@ export async function syncOrderToERPNext(
 
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
-  const couponSiItems = buildErpItemsFromShopifyLineItems(
-    lineItems,
-    location.erpnextWarehouse,
-    "erp_price_list",
-  );
-  const siItems = useCouponPricing ? [...couponSiItems] : [...netSiItems];
+  // When a coupon is found in ERP we send items at Shopify list (pre-discount) rates and apply
+  // discount_amount explicitly. ERP's coupon pricing rules don't fire during API-based SI creation
+  // (they require client-side UI triggers), so relying on erp_price_list mode + coupon_code alone
+  // leaves the SI at full price. discount_amount at header level is the reliable path.
+  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
   const netRateItems = [...netSiItems];
 
   if (useShippingItem) {
@@ -1341,9 +1340,9 @@ export async function syncOrderToERPNext(
   }
 
   const vaultTotal = parseFloat(order.totalPrice.toString());
-  const productItems = useCouponPricing ? listSiItems : netSiItems;
+  // siItems already holds the right base rates (list for coupon orders, net for others).
   const itemsTotal =
-    sumErpInvoiceItemsTotal(productItems) +
+    sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
@@ -1396,8 +1395,9 @@ export async function syncOrderToERPNext(
       : cfg.taxesAndCharges
         ? { taxes_and_charges: cfg.taxesAndCharges }
         : { taxes: [] }),
-    // ERP Coupon Code pricing rules already reduce line rates; header discount_amount would double-apply.
-    ...(discountAmt > 0 && !erpCouponFields.coupon_code
+    // Apply Shopify-calculated discount as header discount_amount whenever there's a gap between
+    // the Shopify-charged total and the sum of item rates (covers both coupon and non-coupon orders).
+    ...(discountAmt > 0
       ? { discount_amount: discountAmt, apply_discount_on: "Net Total" }
       : {}),
   };
