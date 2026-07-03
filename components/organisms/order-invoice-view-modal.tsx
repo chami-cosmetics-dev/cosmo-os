@@ -459,7 +459,9 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     label: "Dispatched",
     date: orderDetail.dispatchedAt ?? null,
     who: dispatched
-      ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${dispatchTarget}`
+      ? dispatchTarget !== "—"
+        ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${dispatchTarget}`
+        : userName(orderDetail.dispatchedBy ?? null) ?? "-"
       : "-",
     done: dispatched,
     icon: <Truck className="size-4" />,
@@ -664,12 +666,16 @@ export function OrderInvoiceViewModal({
           remarkTemplate: revertRemarkTemplate,
         }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as { success?: boolean; error?: string; erpCreditNoteFailed?: boolean; erpCreditNoteError?: string };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to revert stage");
         return;
       }
-      notify.success("Order reverted.");
+      if (data.erpCreditNoteFailed) {
+        notify.error(`Order reverted but ERP credit note could not be created. Create it manually in ERPNext. (${data.erpCreditNoteError ?? "unknown error"})`);
+      } else {
+        notify.success("Order reverted.");
+      }
       setConfirmRevertStage(null);
       setRevertReason("");
       onRefresh?.();

@@ -51,7 +51,50 @@ function typeLabel(type: string) {
   return type;
 }
 
-function paymentLabel(approval: Pick<FinanceApprovalItem, "type" | "paymentTypeLabel">) {
+const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
+  order_payment_approval: {
+    label: "Pre-Dispatch Approval",
+    cls: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700/40",
+  },
+  delivery_payment_approval: {
+    label: "Delivery Collection",
+    cls: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700/40",
+  },
+  payment_method_change_approval: {
+    label: "Method Change",
+    cls: "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700/40",
+  },
+  return_rearrange_payment: {
+    label: "Return Rearrange",
+    cls: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700/40",
+  },
+  return_cancel: {
+    label: "Return Cancel",
+    cls: "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-700/40",
+  },
+  invoice_revert_void_approval: {
+    label: "Invoice Revert",
+    cls: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/40",
+  },
+};
+
+function TypeBadge({ type }: { type: string }) {
+  const badge = TYPE_BADGE[type];
+  if (!badge) return <span className="text-xs text-muted-foreground">{type}</span>;
+  return (
+    <span className={`inline-flex whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] font-semibold ${badge.cls}`}>
+      {badge.label}
+    </span>
+  );
+}
+
+function paymentLabel(approval: Pick<FinanceApprovalItem, "type" | "paymentTypeLabel" | "requestNote">) {
+  if (approval.type === "delivery_payment_approval") {
+    // Extract just the payment method from the note (e.g. "cod", "bank_transfer")
+    const raw = approval.paymentTypeLabel ?? approval.requestNote ?? "";
+    const method = raw.split(/\s*[—–-]\s*/)[0].trim();
+    return method ? method.toUpperCase() : "COD";
+  }
   return approval.paymentTypeLabel ?? typeLabel(approval.type);
 }
 
@@ -67,11 +110,6 @@ function formatAmount(value: string | null) {
   return Number.isNaN(amount) ? value : amount.toLocaleString("en-LK", { minimumFractionDigits: 2 });
 }
 
-function statusClass(status: string) {
-  if (status === "approved") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
-  if (status === "rejected") return "border-rose-500/30 bg-rose-500/10 text-rose-700";
-  return "border-amber-500/30 bg-amber-500/10 text-amber-700";
-}
 
 function isPendingApproval(approval: FinanceApprovalItem) {
   return approval.status === "pending";
@@ -331,14 +369,13 @@ export function FinanceApprovalsPanel({
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-sm">
+              <table className="w-full text-sm">
                 <thead className="border-b bg-muted/35 text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-3 font-medium">Invoice</th>
+                    <th className="px-3 py-3 font-medium">Purpose</th>
                     <th className="px-3 py-3 font-medium">Payment</th>
                     <th className="px-3 py-3 font-medium">Amount</th>
-                    <th className="px-3 py-3 font-medium">Customer</th>
-                    <th className="px-3 py-3 font-medium">Status</th>
                     <th className="px-3 py-3 font-medium">Requested</th>
                   </tr>
                 </thead>
@@ -360,20 +397,15 @@ export function FinanceApprovalsPanel({
                           </span>
                         )}
                       </td>
+                      <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
                       <td className="px-3 py-3 text-muted-foreground">{paymentLabel(approval)}</td>
                       <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
-                      <td className="px-3 py-3">{approval.customerPhone ?? approval.customerEmail ?? "-"}</td>
-                      <td className="px-3 py-3">
-                        <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${statusClass(approval.status)}`}>
-                          {approval.status}
-                        </span>
-                      </td>
                       <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
                     </tr>
                   ))}
                   {searchedApprovals.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-10 text-center text-muted-foreground">
+                      <td colSpan={5} className="px-3 py-10 text-center text-muted-foreground">
                         {effectiveSearch
                           ? "No approval requests match your search."
                           : view === "pending"
