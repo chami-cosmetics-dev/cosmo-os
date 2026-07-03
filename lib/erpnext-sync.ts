@@ -1112,6 +1112,7 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   order: {
     name: string | null;
     shopifyOrderId: string;
+    erpnextInvoiceId?: string | null;
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
     financialStatus: string | null;
@@ -1130,27 +1131,44 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   const mopName = resolvePrepaidMop(cfg, gateways);
   if (!mopName) return;
 
-  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+  // For ERP-native orders the SI name IS the erpnextInvoiceId — fetch it directly.
+  // For Shopify-synced orders fall back to po_no lookup (SI was created with po_no set).
+  const erpId = order.erpnextInvoiceId?.trim();
+  const directSiName =
+    erpId && erpId !== "pending" && erpId !== "pending_approval"
+      ? erpId
+      : null;
 
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping finance-approved PE`);
+  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
+
+  if (directSiName) {
+    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(directSiName)}`,
+    ) ?? null;
+  } else {
+    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderPoNo],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+    );
+    const list = await erpnextGet<
+      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+    invoice = list?.[0] ?? null;
+  }
+
+  if (!invoice) {
+    console.warn(`[ERPNext] No Sales Invoice found for order "${order.name ?? order.shopifyOrderId}" — skipping finance-approved PE`);
     return;
   }
 
-  const invoice = list[0];
   if (invoice.outstanding_amount <= 0) {
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping finance-approved PE`);
     return;

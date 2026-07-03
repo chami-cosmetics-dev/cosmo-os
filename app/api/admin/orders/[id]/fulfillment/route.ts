@@ -1179,23 +1179,36 @@ export async function PATCH(
             afterData: { orderId: order.id, remarkTemplate: "invoice_revert", source: "invoice_complete_revert" },
           });
         }
-        // Fire-and-forget ERP credit note — non-fatal
-        void (async () => {
-          try {
-            const withLocation = await prisma.order.findUnique({
-              where: { id: order.id },
-              include: { companyLocation: { include: { erpnextInstance: true } } },
-            });
-            if (withLocation?.companyLocation) {
-              await createErpnextCreditNote(
-                { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
-                withLocation.companyLocation,
-              );
-            }
-          } catch (err) {
-            console.error("[ERPNext] createErpnextCreditNote failed (non-fatal):", err);
+        // Create ERP credit note — awaited; failure surfaced as warning flag (order is already reverted in DB)
+        let erpCreditNoteFailed = false;
+        let erpCreditNoteError: string | undefined;
+        try {
+          const withLocation = await prisma.order.findUnique({
+            where: { id: order.id },
+            include: { companyLocation: { include: { erpnextInstance: true } } },
+          });
+          if (withLocation?.companyLocation) {
+            await createErpnextCreditNote(
+              { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+              withLocation.companyLocation,
+            );
           }
-        })();
+        } catch (err) {
+          console.error("[ERPNext] createErpnextCreditNote failed:", err);
+          erpCreditNoteFailed = true;
+          erpCreditNoteError = err instanceof Error ? err.message : String(err);
+        }
+
+        await logOrderFulfillmentAudit({
+          companyId,
+          actorUserId: auth.context!.user!.id,
+          orderId: order.id,
+          summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
+          beforeStage: order.fulfillmentStage,
+          afterStage: targetStage,
+          metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
+        });
+        return NextResponse.json({ success: true, erpCreditNoteFailed, erpCreditNoteError });
       }
 
       await logOrderFulfillmentAudit({
