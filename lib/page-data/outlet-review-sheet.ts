@@ -52,13 +52,13 @@ function pickCustomerName(order: {
   shippingAddress: unknown;
   name: string | null;
 }): string | null {
-  if (order.customer?.firstName || order.customer?.lastName) {
-    return [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim() || null;
-  }
   if (order.shippingAddress && typeof order.shippingAddress === "object") {
     const s = order.shippingAddress as Record<string, unknown>;
     const raw = s.name ?? [s.first_name, s.last_name].filter(Boolean).join(" ").trim();
     if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  if (order.customer?.firstName || order.customer?.lastName) {
+    return [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim() || null;
   }
   return order.name;
 }

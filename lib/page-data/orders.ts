@@ -29,15 +29,17 @@ function pickOrderListCustomerName(order: {
   billingAddress: unknown;
   rawPayload?: unknown;
 }): string | null {
-  if (order.customer?.firstName || order.customer?.lastName) {
-    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
-    if (name) return name;
-  }
-  return resolveStoredOrderCustomerName({
+  const fromAddress = resolveStoredOrderCustomerName({
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
     rawPayload: order.rawPayload,
   });
+  if (fromAddress) return fromAddress;
+  if (order.customer?.firstName || order.customer?.lastName) {
+    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
+    if (name) return name;
+  }
+  return null;
 }
 
 export type OrdersPageParams = {
