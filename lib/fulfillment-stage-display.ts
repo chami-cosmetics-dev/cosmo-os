@@ -83,7 +83,9 @@ function resolveListFulfillmentStage(input: {
     input.dispatchedAt &&
     stage !== "dispatched" &&
     stage !== "delivery_complete" &&
-    stage !== "invoice_complete"
+    stage !== "invoice_complete" &&
+    stage !== "returned" &&
+    stage !== "returned_to_store"
   ) {
     return "dispatched";
   }
