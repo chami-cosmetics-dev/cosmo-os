@@ -6,7 +6,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
-import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
@@ -435,7 +435,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     approvalRequests: {
       where: {
         status: "pending",
-        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] },
+        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
       },
       select: { id: true, type: true },
     },
@@ -512,6 +512,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
     pendingPaymentApproval: o.approvalRequests.some((a) => a.type === ORDER_PAYMENT_APPROVAL),
+    pendingMethodChangeApproval: o.approvalRequests.some((a) => a.type === PAYMENT_METHOD_CHANGE_APPROVAL),
     pendingDeliveryPaymentApproval:
       DELIVERY_PAYMENT_FINANCE_UI_ENABLED &&
       o.approvalRequests.some((a) => a.type === DELIVERY_PAYMENT_APPROVAL),

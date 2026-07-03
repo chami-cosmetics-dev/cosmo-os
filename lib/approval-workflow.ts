@@ -123,17 +123,18 @@ export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
 }
 
 /** Keep finance-pending KOKO/bank orders out of fulfillment queues. */
+// NOT { OR [A, B] } has a SQL NULL trap: when erpnextInvoiceId IS NULL,
+// `NULL = 'pending_approval'` → NULL, so NOT(... OR NULL) = NULL = false,
+// silently dropping orders whose ERP sync failed (erpnextInvoiceId never set).
+// Fix: use `none` for the relation (NOT EXISTS) and explicit OR-null for the string field.
 export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
-  NOT: {
-    OR: [
-      {
-        approvalRequests: {
-          some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-        },
-      },
-      { erpnextInvoiceId: "pending_approval" },
-    ],
+  approvalRequests: {
+    none: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
   },
+  OR: [
+    { erpnextInvoiceId: null },
+    { erpnextInvoiceId: { not: "pending_approval" } },
+  ],
 } satisfies Prisma.OrderWhereInput;
 
 const voidedOrderFinancialStatusFilter = {
