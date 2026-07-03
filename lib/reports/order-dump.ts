@@ -74,6 +74,8 @@ export type OrderInvoiceCsvRow = {
   printed_on: string;
   printed_time: string;
   printed_by: string;
+  delivery_completed_date: string;
+  delivery_completed_by: string;
   completed_date: string;
   completed_time: string;
   completed_by: string;
@@ -134,6 +136,8 @@ const ORDER_INVOICE_HEADERS = [
   "dispatched_time",
   "dispatched_by",
   "shipping_service",
+  "delivery_completed_date",
+  "delivery_completed_by",
   "completed_date",
   "completed_time",
   "completed_by",
@@ -229,6 +233,8 @@ export function createOrderInvoiceRow(input: {
   dispatchedBy: string;
   lastPrintedAt: Date | null;
   lastPrintedBy: string;
+  deliveryCompleteAt: Date | null;
+  deliveryCompleteBy: string;
   invoiceCompleteAt: Date | null;
   invoiceCompleteBy: string;
   shippingRule: string | null;
@@ -268,6 +274,8 @@ export function createOrderInvoiceRow(input: {
     printed_on: formatIsoDate(input.lastPrintedAt),
     printed_time: formatIsoTime(input.lastPrintedAt),
     printed_by: input.lastPrintedBy,
+    delivery_completed_date: formatIsoDate(input.deliveryCompleteAt),
+    delivery_completed_by: input.deliveryCompleteBy,
     completed_date: formatIsoDate(input.invoiceCompleteAt),
     completed_time: formatIsoTime(input.invoiceCompleteAt),
     completed_by: input.invoiceCompleteBy,

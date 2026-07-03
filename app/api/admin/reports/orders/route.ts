@@ -179,6 +179,7 @@ export async function GET(request: NextRequest) {
       dispatchedByRider: { select: { knownName: true, name: true, mobile: true } },
       dispatchedByCourierService: { select: { name: true } },
       lastPrintedBy: { select: { knownName: true, name: true, email: true } },
+      deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
       invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
       lineItems: {
         include: {
@@ -348,6 +349,8 @@ export async function GET(request: NextRequest) {
       dispatchedBy: getUserDisplayName(order.dispatchedBy),
       lastPrintedAt: order.lastPrintedAt,
       lastPrintedBy: getUserDisplayName(order.lastPrintedBy),
+      deliveryCompleteAt: order.deliveryCompleteAt,
+      deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
       invoiceCompleteAt: order.invoiceCompleteAt,
       invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
       shippingRule,
