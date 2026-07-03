@@ -50,6 +50,7 @@ export type FulfillmentOrder = {
   packageHoldReason?: { id: string; name: string } | null;
   sampleFreeIssueSendLaterDate?: string | null;
   fulfillmentStage?: string | null;
+  pendingMethodChangeApproval?: boolean;
 };
 
 interface FulfillmentOrderSelectorProps {

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
-import { syncBankTransferPaymentToERPNext } from "@/lib/erpnext-sync";
 import { createPaymentMethodChangeApproval } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -70,9 +69,7 @@ export async function PATCH(
       name: true,
       orderNumber: true,
       shopifyOrderId: true,
-      companyLocationId: true,
       financialStatus: true,
-      fulfillmentStage: true,
       totalPrice: true,
       currency: true,
       ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
@@ -98,67 +95,18 @@ export async function PATCH(
     return NextResponse.json({ error: "Order is not a COD order" }, { status: 400 });
   }
 
-  const now = new Date();
-  const note = parsed.data.note?.trim() || null;
   const { targetPaymentMethod } = parsed.data;
 
-  if (targetPaymentMethod === "koko") {
-    const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
-    const amount = order.totalPrice != null ? `${order.currency ?? ""} ${order.totalPrice}`.trim() : "unknown";
-    const approval = await createPaymentMethodChangeApproval({
-      companyId,
-      orderId: order.id,
-      requestedById: userId,
-      invoiceLabel,
-      targetPaymentMethod: "KOKO",
-      amount,
-    });
-    return NextResponse.json({ ok: true, pendingApproval: true, approvalId: approval.id });
-  }
-
-  const remarkContent = note
-    ? `Payment method changed from COD to Bank Transfer by finance.\n${note}`
-    : "Payment method changed from COD to Bank Transfer by finance.";
-
-  await prisma.$transaction(async (tx) => {
-    const updateData: Record<string, unknown> = {};
-    if (gatewayColumns.hasPaymentGatewayNames) {
-      updateData.paymentGatewayNames = ["bank_transfer"];
-    }
-    if (gatewayColumns.hasPaymentGatewayPrimary) {
-      updateData.paymentGatewayPrimary = "bank_transfer";
-    }
-    updateData.financialStatus = "paid";
-    updateData.updatedAt = now;
-
-    await tx.order.update({
-      where: { id: order.id },
-      data: updateData,
-    });
-
-    await tx.orderRemark.create({
-      data: {
-        orderId: order.id,
-        stage: order.fulfillmentStage ?? "order_received",
-        type: "internal",
-        content: remarkContent,
-        addedById: userId,
-        showOnInvoice: false,
-      },
-    });
+  const targetPaymentMethodLabel = targetPaymentMethod === "koko" ? "KOKO" : "Bank Transfer";
+  const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
+  const amount = order.totalPrice != null ? `${order.currency ?? ""} ${order.totalPrice}`.trim() : "unknown";
+  const approval = await createPaymentMethodChangeApproval({
+    companyId,
+    orderId: order.id,
+    requestedById: userId,
+    invoiceLabel,
+    targetPaymentMethod: targetPaymentMethodLabel,
+    amount,
   });
-
-  const location = await prisma.companyLocation.findUnique({
-    where: { id: order.companyLocationId },
-    include: { erpnextInstance: true },
-  });
-  if (location) {
-    const poNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-    const dateStr = now.toISOString().slice(0, 10);
-    syncBankTransferPaymentToERPNext(poNo, location, dateStr).catch((e) =>
-      console.error("[ERPNext] Bank transfer payment entry failed:", e),
-    );
-  }
-
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, pendingApproval: true, approvalId: approval.id });
 }

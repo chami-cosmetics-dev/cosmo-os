@@ -128,7 +128,6 @@ export function FulfillmentSampleFreeIssuePanel({
   const [sendLaterDate, setSendLaterDate] = useState("");
   const sendLaterInputRef = useRef<HTMLInputElement | null>(null);
   const [showBankTransferDialog, setShowBankTransferDialog] = useState(false);
-  const [bankTransferNote, setBankTransferNote] = useState("");
   const [bankTransferBusy, setBankTransferBusy] = useState(false);
   const [showKokoDialog, setShowKokoDialog] = useState(false);
   const [kokoBusy, setKokoBusy] = useState(false);
@@ -408,17 +407,16 @@ export function FulfillmentSampleFreeIssuePanel({
       const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: bankTransferNote.trim() || null }),
+        body: JSON.stringify({ targetPaymentMethod: "bank_transfer" }),
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to update payment method");
         return;
       }
-      notify.success("Payment method updated to Bank Transfer.");
+      notify.success("Bank Transfer change request sent to finance for approval.");
       setShowBankTransferDialog(false);
-      setBankTransferNote("");
-      onRefresh(false);
+      onRefresh(true);
     } catch {
       notify.error("Failed to update payment method");
     } finally {
@@ -536,7 +534,7 @@ export function FulfillmentSampleFreeIssuePanel({
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => { setBankTransferNote(""); setShowBankTransferDialog(true); }}
+                        onClick={() => { setShowBankTransferDialog(true); }}
                         className="h-6 px-2 text-xs border-blue-500 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-950"
                       >
                         Bank Transfer
@@ -699,7 +697,7 @@ export function FulfillmentSampleFreeIssuePanel({
                       variant="outline"
                       role="combobox"
                       aria-expanded={addOpen}
-                      disabled={!orderId}
+                      disabled={!orderId || !!order?.pendingMethodChangeApproval}
                       className="w-full justify-between border-border/70 bg-background/90"
                     >
                       {orderId ? "Select item" : "Select order first"}
@@ -740,7 +738,7 @@ export function FulfillmentSampleFreeIssuePanel({
                   value={selectedSamples.at(-1)?.qty ?? 1}
                   min={1}
                   max={99}
-                  disabled={!orderId || selectedSamples.length === 0}
+                  disabled={!orderId || selectedSamples.length === 0 || !!order?.pendingMethodChangeApproval}
                   onChange={(event) => {
                     const qty = parseInt(event.target.value, 10) || 1;
                     setSelectedSamples((prev) =>
@@ -754,7 +752,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!orderId || selectedSamples.length === 0 || isBusy}
+                  disabled={!orderId || selectedSamples.length === 0 || isBusy || !!order?.pendingMethodChangeApproval}
                   onClick={() =>
                     doAction("add_samples", {
                       action: "add_samples",
@@ -895,7 +893,19 @@ export function FulfillmentSampleFreeIssuePanel({
         )}
         </div>
 
-        {requiresFinanceApproval && orderId && (
+        {order?.pendingMethodChangeApproval && orderId && (
+          <div className="flex items-start gap-3 rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-sm">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-blue-600" aria-hidden />
+            <div>
+              <p className="font-medium text-blue-800 dark:text-blue-400">Payment method change pending finance approval</p>
+              <p className="text-blue-700 dark:text-blue-500">
+                A payment method change request is awaiting finance approval. Once approved, this order will move to the print queue automatically — no further action is needed here.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {requiresFinanceApproval && !order?.pendingMethodChangeApproval && orderId && (
           <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
             <div>
@@ -912,7 +922,7 @@ export function FulfillmentSampleFreeIssuePanel({
             <div className="flex justify-end">
               <Button
                 onClick={() => void confirmSample()}
-                disabled={!orderId || isBusy || remarkBusy}
+                disabled={!orderId || isBusy || remarkBusy || !!order?.pendingMethodChangeApproval}
                 className="h-11 bg-green-600 px-8 text-white hover:bg-green-700"
               >
                 {busyKey === "advance_to_print" || remarkBusy ? (
@@ -996,37 +1006,23 @@ export function FulfillmentSampleFreeIssuePanel({
 
     <AlertDialog
       open={showBankTransferDialog}
-      onOpenChange={(open) => { if (!open) { setShowBankTransferDialog(false); setBankTransferNote(""); } }}
+      onOpenChange={(open) => { if (!open) setShowBankTransferDialog(false); }}
     >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Change to Bank Transfer</AlertDialogTitle>
           <AlertDialogDescription>
-            This will change the payment method from Cash on Delivery to Bank Transfer.
-            The invoice will reflect this immediately.
+            This will send a payment method change request to the finance team for approval.
+            Once approved, the payment type will be changed from COD to Bank Transfer and the ERP payment entry will be created.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="py-1">
-          <label className="mb-1.5 block text-sm font-medium" htmlFor="sfi-bank-transfer-note">
-            Finance note (optional)
-          </label>
-          <Textarea
-            id="sfi-bank-transfer-note"
-            value={bankTransferNote}
-            onChange={(e) => setBankTransferNote(e.target.value)}
-            placeholder="e.g. Customer confirmed bank transfer receipt #..."
-            className="min-h-20"
-            maxLength={2000}
-            disabled={bankTransferBusy}
-          />
-        </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={bankTransferBusy}>Cancel</AlertDialogCancel>
           <Button disabled={bankTransferBusy} onClick={() => void handleConfirmBankTransfer()}>
             {bankTransferBusy ? (
-              <><Loader2 className="mr-2 size-4 animate-spin" />Updating...</>
+              <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
             ) : (
-              "Confirm Bank Transfer"
+              "Send for Approval"
             )}
           </Button>
         </AlertDialogFooter>
