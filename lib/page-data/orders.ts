@@ -61,6 +61,8 @@ export type OrdersPageParams = {
   orderStatusFilter?: OrderStatusFilter;
   sampleSendLater?: "available" | "future" | "all";
   returnFilter?: "normal" | "rearrange";
+  /** Filter orders by MER coupon code (checks discountCodes JSON and ERP rawPayload). */
+  merCode?: string | null;
   /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
   dispatchMode?: boolean;
   /** Dispatched orders awaiting delivery complete (bulk delivery combobox) */
@@ -233,6 +235,29 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ],
       },
     ];
+  }
+
+  if (params.merCode?.trim()) {
+    const pattern = `%${params.merCode.trim()}%`;
+    const merMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM "Order"
+      WHERE "companyId" = ${companyId}
+      AND (
+        (
+          "discountCodes" IS NOT NULL
+          AND jsonb_typeof("discountCodes") = 'array'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements("discountCodes") AS elem
+            WHERE elem->>'code' ILIKE ${pattern}
+          )
+        )
+        OR "rawPayload"->>'merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->'data'->>'merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->>'custom_merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->'data'->>'custom_merchant_coupon_code' ILIKE ${pattern}
+      )
+    `);
+    where.id = { in: merMatches.map((r) => r.id) };
   }
 
   const VALID_STAGES = [
