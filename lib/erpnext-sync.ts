@@ -402,17 +402,17 @@ async function createErpSalesInvoice(
   if (submitNow && couponCode) {
     console.log(`[ERPNext] Creating draft Sales Invoice with coupon ${couponCode} before submit`);
     try {
+      // siBody already includes coupon_code and discount_amount. We skip the extra PUT save here
+      // because PUT triggers ERP's validate/calculate_taxes_and_totals hook which overrides
+      // discount_amount to 0. API creation (POST) does not fire pricing rules, so values from
+      // siBody are preserved. ensureErpSalesInvoiceCouponLabels sets coupon labels post-submit.
       const draft = await postErpSalesInvoiceCreate(cfg, { ...siBody, docstatus: 0 }, opts);
-      await erpnextSaveSalesInvoice(cfg, draft.name, {
-        coupon_code: couponCode,
-        custom_coupon_code: couponCode,
-      });
-      const draftCheck = await erpnextGet<{ coupon_code?: string | null }>(
+      const draftCheck = await erpnextGet<{ coupon_code?: string | null; discount_amount?: number | null }>(
         cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code"]))}`,
+        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code", "discount_amount"]))}`,
       );
       console.log(
-        `[ERPNext] Draft ${draft.name} coupon_code before submit: ${draftCheck?.coupon_code?.trim() || "(empty)"}`,
+        `[ERPNext] Draft ${draft.name} before submit: coupon_code=${draftCheck?.coupon_code?.trim() || "(empty)"}, discount_amount=${draftCheck?.discount_amount ?? 0}`,
       );
       await erpnextSubmitSalesInvoice(cfg, draft.name);
       const submitted = await erpnextGet<{

@@ -448,8 +448,9 @@ export async function POST(request: NextRequest) {
       : {}),
   };
 
-  const skipSampleStage = !isCreditNoted;
-  const sampleStageCompletedAt = skipSampleStage ? new Date() : undefined;
+  // POS orders skip the sample/free-issue stage (delivered immediately at counter).
+  // Regular ERP orders start at order_received so staff can add samples before advancing to print.
+  const sampleStageCompletedAt = isPOS ? new Date() : undefined;
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
@@ -473,7 +474,7 @@ export async function POST(request: NextRequest) {
         ? orderStageUpdate("delivery_complete", sampleStageCompletedAt ?? new Date())
         : isCreditNoted
           ? orderStageUpdate("returned", sampleStageCompletedAt ?? new Date())
-          : orderStageUpdate("print", sampleStageCompletedAt ?? new Date())),
+          : orderStageUpdate("order_received", new Date())),
       ...(sampleStageCompletedAt ? { sampleFreeIssueCompleteAt: sampleStageCompletedAt } : {}),
       customerEmail,
       customerPhone,
