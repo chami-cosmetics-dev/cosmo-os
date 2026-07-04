@@ -44,6 +44,17 @@ function requiresCourierBankTransferBeforeRearrange(orderReturn: {
   return isCitypakCourier(orderReturn.shippingServiceName);
 }
 
+function isAlreadyApprovedPayment(order: {
+  financialStatus: string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+}) {
+  if (normalizeText(order.financialStatus) !== "paid") return false;
+  const gateways = [order.paymentGatewayPrimary, ...order.paymentGatewayNames].map(normalizeText);
+  const isCod = gateways.some((v) => v === "cod" || v === "cash" || v.includes("cash_on_delivery"));
+  return !isCod;
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -204,7 +215,9 @@ export async function PUT(
   }
 
   const requiresBankTransferBeforeRearrange =
-    isRearrange && requiresCourierBankTransferBeforeRearrange(existing);
+    isRearrange &&
+    requiresCourierBankTransferBeforeRearrange(existing) &&
+    !isAlreadyApprovedPayment(existing.order);
   const isApprovalRequestFlow =
     isFinanceApprovalRequest &&
     (requiresCourierBankTransferBeforeRearrange(existing) || isPendingBankTransferOrder(existing.order));
