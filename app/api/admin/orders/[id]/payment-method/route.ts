@@ -72,6 +72,7 @@ export async function PATCH(
       financialStatus: true,
       totalPrice: true,
       currency: true,
+      companyLocationId: true,
       ...(gatewayColumns.hasPaymentGatewayNames ? { paymentGatewayNames: true } : {}),
       ...(gatewayColumns.hasPaymentGatewayPrimary ? { paymentGatewayPrimary: true } : {}),
     },
@@ -107,6 +108,7 @@ export async function PATCH(
     invoiceLabel,
     targetPaymentMethod: targetPaymentMethodLabel,
     amount,
+    companyLocationId: order.companyLocationId,
   });
   return NextResponse.json({ ok: true, pendingApproval: true, approvalId: approval.id });
 }

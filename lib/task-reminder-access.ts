@@ -100,6 +100,8 @@ export function resolveTaskReminderAudiences(
 
 function categoryPermission(category: TaskReminderCategory): string {
   switch (category) {
+    case "erp_sync_warning":
+      return "system.erp_sync.read";
     case "finance_approval":
       return "finance.approvals.manage";
     case "add_samples":
@@ -125,6 +127,8 @@ function hasFinanceReminderPermission(context: TaskReminderAccessContext) {
 
 function categoryAudience(category: TaskReminderCategory): TaskReminderAudience {
   switch (category) {
+    case "erp_sync_warning":
+      return "admin";
     case "finance_approval":
       return "finance";
     case "add_samples":
@@ -175,6 +179,7 @@ export function canSeeTaskReminderCategory(
 }
 
 const ALL_TASK_REMINDER_CATEGORIES = [
+  "erp_sync_warning",
   "finance_approval",
   "add_samples",
   "print",

@@ -418,6 +418,7 @@ export async function POST(request: NextRequest) {
           orderId: order.id,
           invoiceLabel: orderLabel,
           revertedAt: order.revertedFromInvoiceCompleteAt!,
+          companyLocationId: order.companyLocationId,
         });
 
         await writeAuditLog({

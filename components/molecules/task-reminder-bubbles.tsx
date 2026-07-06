@@ -30,6 +30,7 @@ type TaskRemindersResponse = {
 };
 
 const CATEGORY_ORDER = [
+  "erp_sync_warning",
   "finance_approval",
   "add_samples",
   "print",
@@ -40,6 +41,7 @@ const CATEGORY_ORDER = [
 ] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
+  erp_sync_warning: "ERP sync warnings",
   finance_approval: "Finance approvals",
   add_samples: "Samples / free issue",
   print: "Print",
@@ -50,6 +52,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_NODE_LABELS: Record<string, string> = {
+  erp_sync_warning: "Warning",
   finance_approval: "Finance approvals",
   add_samples: "Samples",
   print: "Print",
@@ -73,10 +76,12 @@ function ReminderListPanel({
   title,
   items,
   onClose,
+  onDismissAll,
 }: {
   title: string;
   items: TaskReminder[];
   onClose: () => void;
+  onDismissAll?: () => void;
 }) {
   return (
     <div
@@ -133,16 +138,29 @@ function ReminderListPanel({
       </ul>
 
       <div className="border-t border-cyan-500/25 px-3 py-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full font-mono text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-100"
-          onClick={onClose}
-        >
-          <ChevronDown className="mr-1 size-4" />
-          MINIMIZE_HUD
-        </Button>
+        {onDismissAll ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full font-mono text-amber-400 hover:bg-amber-500/10 hover:text-amber-200"
+            onClick={onDismissAll}
+          >
+            <ChevronDown className="mr-1 size-4" />
+            DISMISS ALL WARNINGS
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full font-mono text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-100"
+            onClick={onClose}
+          >
+            <ChevronDown className="mr-1 size-4" />
+            MINIMIZE_HUD
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -153,11 +171,13 @@ function CategoryNode({
   count,
   active,
   onClick,
+  variant = "default",
 }: {
   label: string;
   count: number;
   active: boolean;
   onClick: () => void;
+  variant?: "default" | "warning";
 }) {
   const hasOverdue = count > 0;
   return (
@@ -167,13 +187,19 @@ function CategoryNode({
       className={cn(
         "pointer-events-auto relative flex min-w-[9.5rem] items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-all",
         "shadow-[0_4px_18px_rgba(0,0,0,0.35)]",
-        active
-          ? hasOverdue
-            ? "border-emerald-300/80 bg-[linear-gradient(135deg,#22c55e,#15803d)] text-white shadow-[0_0_20px_rgba(34,197,94,0.45)]"
-            : "border-cyan-300/60 bg-[linear-gradient(135deg,#0e7490,#164e63)] text-cyan-50 shadow-[0_0_16px_rgba(34,211,238,0.25)]"
-          : hasOverdue
-            ? "border-emerald-500/40 bg-[linear-gradient(135deg,#16a34a,#166534)] text-emerald-50 hover:scale-[1.02] hover:border-emerald-300/70 hover:shadow-[0_0_16px_rgba(34,197,94,0.35)]"
-            : "border-cyan-500/30 bg-[linear-gradient(135deg,#0c4a6e,#082f49)] text-cyan-100/80 hover:scale-[1.02] hover:border-cyan-400/50",
+        variant === "warning"
+          ? active
+            ? "border-amber-300/80 bg-[linear-gradient(135deg,#d97706,#92400e)] text-white shadow-[0_0_20px_rgba(245,158,11,0.5)]"
+            : hasOverdue
+              ? "border-amber-500/60 bg-[linear-gradient(135deg,#b45309,#78350f)] text-amber-50 hover:scale-[1.02] hover:border-amber-300/80 hover:shadow-[0_0_16px_rgba(245,158,11,0.4)]"
+              : "border-amber-500/20 bg-[linear-gradient(135deg,#451a03,#1c0a00)] text-amber-200/50 hover:scale-[1.02] hover:border-amber-400/30"
+          : active
+            ? hasOverdue
+              ? "border-emerald-300/80 bg-[linear-gradient(135deg,#22c55e,#15803d)] text-white shadow-[0_0_20px_rgba(34,197,94,0.45)]"
+              : "border-cyan-300/60 bg-[linear-gradient(135deg,#0e7490,#164e63)] text-cyan-50 shadow-[0_0_16px_rgba(34,211,238,0.25)]"
+            : hasOverdue
+              ? "border-emerald-500/40 bg-[linear-gradient(135deg,#16a34a,#166534)] text-emerald-50 hover:scale-[1.02] hover:border-emerald-300/70 hover:shadow-[0_0_16px_rgba(34,197,94,0.35)]"
+              : "border-cyan-500/30 bg-[linear-gradient(135deg,#0c4a6e,#082f49)] text-cyan-100/80 hover:scale-[1.02] hover:border-cyan-400/50",
       )}
     >
       <span className="text-sm font-semibold">{label}</span>
@@ -401,6 +427,19 @@ export function TaskReminderBubbles() {
               title={panelTitle}
               items={activeItems}
               onClose={() => setActiveCategory(null)}
+              onDismissAll={
+                activeCategory === "erp_sync_warning"
+                  ? async () => {
+                      await fetch("/api/admin/notifications", {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ type: "erp_sync_failure" }),
+                      }).catch(() => null);
+                      setActiveCategory(null);
+                      await loadReminders();
+                    }
+                  : undefined
+              }
             />
           </div>
         )}
@@ -420,6 +459,7 @@ export function TaskReminderBubbles() {
                   count={grouped.get(category)?.length ?? 0}
                   active={activeCategory === category}
                   onClick={() => toggleCategory(category)}
+                  variant={category === "erp_sync_warning" ? "warning" : "default"}
                 />
               ))}
             </div>

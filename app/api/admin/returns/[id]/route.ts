@@ -106,6 +106,7 @@ export async function PUT(
           paymentGatewayPrimary: true,
           paymentGatewayNames: true,
           revertedFromInvoiceCompleteAt: true,
+          companyLocationId: true,
         },
       },
     },
@@ -159,6 +160,7 @@ export async function PUT(
       orderId: existing.orderId,
       invoiceLabel: orderLabel,
       revertedAt: existing.order.revertedFromInvoiceCompleteAt,
+      companyLocationId: existing.order.companyLocationId,
     });
 
     await writeAuditLog({
@@ -198,6 +200,7 @@ export async function PUT(
       orderId: existing.orderId,
       invoiceLabel: orderLabel,
       revertedAt: existing.order.revertedFromInvoiceCompleteAt,
+      companyLocationId: existing.order.companyLocationId,
     });
 
     await writeAuditLog({
@@ -332,6 +335,7 @@ export async function PUT(
       orderReturnId: existing.id,
       requestedById: viewerUserId,
       invoiceLabel,
+      companyLocationId: existing.order.companyLocationId,
       requestNote: serializeReturnCancelApprovalNote({
         invoiceLabel,
         shopifyOrderId: existing.order.shopifyOrderId,
@@ -368,6 +372,7 @@ export async function PUT(
       requestedById: viewerUserId,
       requestNote: remark,
       invoiceLabel: existing.order.orderNumber ?? existing.order.name ?? existing.orderId,
+      companyLocationId: existing.order.companyLocationId,
     });
     approvalRequestId = approval.id;
   }
