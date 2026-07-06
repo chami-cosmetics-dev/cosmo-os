@@ -518,7 +518,7 @@ export async function POST(request: NextRequest) {
         : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
-    select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true },
+    select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true, financialStatus: true },
   });
 
   if (financialStatus === "voided" || isCreditNoted) {
@@ -537,7 +537,10 @@ export async function POST(request: NextRequest) {
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames,
     });
-    if (needsApproval) {
+    // Skip if the OS order is already paid — payment was confirmed via finance approval or
+    // payment method change; the ERP invoice may still be "Unpaid" until a PE is posted.
+    const osOrderAlreadyPaid = order.financialStatus === "paid";
+    if (needsApproval && !osOrderAlreadyPaid) {
       const existingApproval = await prisma.approvalRequest.findFirst({
         where: {
           orderId: order.id,
