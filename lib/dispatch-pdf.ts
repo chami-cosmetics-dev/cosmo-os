@@ -127,7 +127,7 @@ export async function generateDispatchGroupPdf(
       }
       if (invLines.length === 0) invLines.push(order.reference);
 
-      const baseRow = [
+      const baseRow: unknown[] = [
         { text: String(index + 1), style: "td", alignment: "center" },
         { text: order.locationName, style: "td" },
         { text: formatDate(order.dispatchedAt), style: "td" },
