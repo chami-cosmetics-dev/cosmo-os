@@ -226,21 +226,49 @@ export async function PATCH(
           },
         });
       } else if (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) {
-        // COD → KOKO or COD → Bank Transfer approved by finance: switch gateway, mark paid, advance to print queue.
+        // COD → KOKO or COD → Bank Transfer approved by finance: switch gateway, mark paid.
         const gateway = isBankTransferApproval ? "bank_transfer" : "koko";
+        const orderForStage = await tx.order.findUnique({
+          where: { id: approval.orderId! },
+          select: { fulfillmentStage: true },
+        });
+        // Post-delivery orders (delivery_complete) go to invoice_complete, not back to print.
+        const isPostDelivery = orderForStage?.fulfillmentStage === "delivery_complete";
+        const stageData = isPostDelivery
+          ? {
+              ...orderStageUpdate("invoice_complete", now),
+              fulfillmentStatus: "fulfilled",
+              invoiceCompleteAt: now,
+              invoiceCompleteById: reviewerId,
+            }
+          : {
+              ...orderStageUpdate("print", now),
+              sampleFreeIssueCompleteAt: now,
+              sampleFreeIssueCompleteById: reviewerId,
+              invoiceCompleteAt: now,
+              invoiceCompleteById: reviewerId,
+            };
         await tx.order.update({
           where: { id: approval.orderId! },
           data: {
             paymentGatewayNames: [gateway],
             paymentGatewayPrimary: gateway,
             financialStatus: "paid",
-            ...orderStageUpdate("print", now),
-            sampleFreeIssueCompleteAt: now,
-            sampleFreeIssueCompleteById: reviewerId,
-            invoiceCompleteAt: now,
-            invoiceCompleteById: reviewerId,
+            ...stageData,
           },
         });
+        // Cancel any pending delivery payment approval for this order — the payment method
+        // change covers the same confirmation, so the DP approval is no longer needed.
+        await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ApprovalRequest"
+            SET "status" = 'cancelled', "updatedAt" = ${now}
+            WHERE "orderId" = ${approval.orderId}
+              AND "companyId" = ${companyId}
+              AND "type" = ${"delivery_payment_approval"}
+              AND "status" = 'pending'
+          `
+        );
       } else if (approval.type === RETURN_REARRANGE_PAYMENT_APPROVAL) {
         // Return rearrange approval: force to ready_to_dispatch + resolve the return
         await tx.order.update({

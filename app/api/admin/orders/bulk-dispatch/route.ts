@@ -246,6 +246,7 @@ export async function POST(request: NextRequest) {
         sendOrderSms(companyId, orderId, "rider_dispatched", {
           orderNumber: orderNum,
           invoiceNumber,
+          orderReference: [orderNum, invoiceNumber].filter(Boolean).join(" / "),
           deliveryUrl,
           riderPhone: riderMobile ?? undefined,
         }).catch((err) => console.error("[bulk-dispatch] rider SMS failed:", err));

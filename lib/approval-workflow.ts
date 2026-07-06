@@ -274,11 +274,13 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
 }
 
 export async function getOrderPaymentApproval(orderId: string) {
+  // PAYMENT_METHOD_CHANGE_APPROVAL (e.g. COD → KOKO) also confirms payment for the order,
+  // so treat it the same as ORDER_PAYMENT_APPROVAL when checking the print block.
   const rows = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
       SELECT "id", "status"
       FROM "ApprovalRequest"
-      WHERE "type" = ${ORDER_PAYMENT_APPROVAL}
+      WHERE "type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
         AND "orderId" = ${orderId}
       ORDER BY "createdAt" DESC
       LIMIT 1

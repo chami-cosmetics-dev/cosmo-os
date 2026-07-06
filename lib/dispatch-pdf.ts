@@ -28,9 +28,11 @@ export type DispatchGroupForPdf = {
   dispatchType: "rider" | "courier" | "customer";
   orders: Array<{
     reference: string;
+    shopifyReference: string;
     erpReference: string | null;
     orderDate: string;
     dispatchedAt: string;
+    customerName: string | null;
     customerPhone: string | null;
     merchantName: string | null;
     city: string | null;
@@ -88,26 +90,44 @@ export async function generateDispatchGroupPdf(
   const dateLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
 
   const grandTotal = group.orders.reduce((sum, order) => sum + (parseFloat(order.totalPrice) || 0), 0);
+  const isRider = group.dispatchType === "rider";
 
   const tableBody: unknown[][] = [
-    [
-      { text: "NO", style: "th", alignment: "center" },
-      { text: "LOCATION", style: "th" },
-      { text: "L.DEL.DATE", style: "th" },
-      { text: "INV. NO", style: "th" },
-      { text: "P.M", style: "th" },
-      { text: "CITY", style: "th" },
-      { text: "ADDRESS", style: "th" },
-      { text: "T/P NO", style: "th" },
-      { text: "MERCHANT", style: "th" },
-      { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
-    ],
+    isRider
+      ? [
+          { text: "NO", style: "th", alignment: "center" },
+          { text: "LOCATION", style: "th" },
+          { text: "L.DEL.DATE", style: "th" },
+          { text: "INV. NO", style: "th" },
+          { text: "P.M", style: "th" },
+          { text: "CITY", style: "th" },
+          { text: "ADDRESS", style: "th" },
+          { text: "T/P NO", style: "th" },
+          { text: "CUSTOMER", style: "th" },
+          { text: "MERCHANT", style: "th" },
+          { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
+        ]
+      : [
+          { text: "NO", style: "th", alignment: "center" },
+          { text: "LOCATION", style: "th" },
+          { text: "L.DEL.DATE", style: "th" },
+          { text: "INV. NO", style: "th" },
+          { text: "P.M", style: "th" },
+          { text: "CITY", style: "th" },
+          { text: "ADDRESS", style: "th" },
+          { text: "T/P NO", style: "th" },
+          { text: "MERCHANT", style: "th" },
+          { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
+        ],
     ...group.orders.map((order, index) => {
-      const invLines: string[] = [order.reference];
-      if (order.erpReference && order.erpReference !== order.reference) {
+      const invLines: string[] = [];
+      if (order.shopifyReference) invLines.push(order.shopifyReference);
+      if (order.erpReference && order.erpReference !== order.shopifyReference) {
         invLines.push(order.erpReference);
       }
-      return [
+      if (invLines.length === 0) invLines.push(order.reference);
+
+      const baseRow: unknown[] = [
         { text: String(index + 1), style: "td", alignment: "center" },
         { text: order.locationName, style: "td" },
         { text: formatDate(order.dispatchedAt), style: "td" },
@@ -116,15 +136,27 @@ export async function generateDispatchGroupPdf(
         { text: order.city ?? "-", style: "td" },
         { text: order.address ?? "-", style: "td" },
         { text: order.customerPhone ?? "-", style: "td" },
+      ];
+      if (isRider) {
+        baseRow.push({ text: order.customerName ?? "-", style: "td" });
+      }
+      baseRow.push(
         { text: order.merchantName ?? "-", style: "merchantTd" },
         { text: formatAmount(order.totalPrice), style: "td", alignment: "right", noWrap: true },
-      ];
+      );
+      return baseRow;
     }),
-    [
-      { text: `TOTAL (${group.orders.length} orders)`, style: "totalLabel", colSpan: 9, alignment: "right", bold: true },
-      {}, {}, {}, {}, {}, {}, {}, {},
-      { text: formatAmount(String(grandTotal)), style: "totalAmount", alignment: "right", bold: true, noWrap: true },
-    ],
+    isRider
+      ? [
+          { text: `TOTAL (${group.orders.length} orders)`, style: "totalLabel", colSpan: 10, alignment: "right", bold: true },
+          {}, {}, {}, {}, {}, {}, {}, {}, {},
+          { text: formatAmount(String(grandTotal)), style: "totalAmount", alignment: "right", bold: true, noWrap: true },
+        ]
+      : [
+          { text: `TOTAL (${group.orders.length} orders)`, style: "totalLabel", colSpan: 9, alignment: "right", bold: true },
+          {}, {}, {}, {}, {}, {}, {}, {},
+          { text: formatAmount(String(grandTotal)), style: "totalAmount", alignment: "right", bold: true, noWrap: true },
+        ],
   ];
 
   const tableLayout = {
@@ -168,7 +200,9 @@ export async function generateDispatchGroupPdf(
       {
         table: {
           headerRows: 1,
-          widths: [22, 78, 62, 54, 76, 66, 132, 68, 72, 82],
+          widths: isRider
+            ? [22, 65, 55, 52, 68, 55, 108, 60, 72, 60, 78]
+            : [22, 78, 62, 54, 76, 66, 132, 68, 72, 82],
           body: tableBody,
         },
         layout: {
