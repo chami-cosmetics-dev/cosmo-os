@@ -37,6 +37,7 @@ export function getPaymentMethodInfo(input?: {
   }
   if (
     normalized === "cc" ||
+    normalized === "cc checkout" ||
     normalized.includes("credit card") ||
     normalized.includes("card") ||
     normalized.includes("shopify payments") ||

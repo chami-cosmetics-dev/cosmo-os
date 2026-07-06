@@ -27,10 +27,15 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
     return { kind: "invoice_complete", financeUserId: earlyFinanceUserId };
   }
 
-  // WebXPay is an online payment gateway — money is collected at checkout, not at the door.
-  // Auto-complete to invoice_complete and trigger PE creation so ERP is reconciled.
+  // Online payment gateways (WebXPay on Vault OS, CC Checkout on Cosmo OS) — money is
+  // collected at checkout, not at the door. Auto-complete and create a PE in ERP.
+  // createDeliveryPaymentEntry already skips if outstanding_amount <= 0 (already paid in ERP).
   const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
-  if (gateway.includes("webxpay") && order.financialStatus?.toLowerCase() === "paid") {
+  const isPrepaidOnline =
+    gateway.includes("webxpay") ||
+    gateway === "cc" ||
+    gateway === "cc checkout";
+  if (isPrepaidOnline && order.financialStatus?.toLowerCase() === "paid") {
     return { kind: "invoice_complete", financeUserId: input.requestedById ?? "", createPe: true };
   }
 
