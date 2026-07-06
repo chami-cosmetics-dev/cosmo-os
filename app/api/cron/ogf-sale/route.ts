@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { sendOgfSyncSummaryEmail } from "@/lib/maileroo";
+
+const OGF_NOTIFY_EMAIL = "chami@cosmetics.lk";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -173,6 +176,7 @@ export async function GET(request: NextRequest) {
   };
 
   let responseObj: { returnStatus?: string; [key: string]: unknown } = {};
+  let httpStatus = 0;
   try {
     const apiRes = await fetch("https://mims.imonitor.center/api/possale/importpossaleswithitems", {
       method: "POST",
@@ -182,11 +186,12 @@ export async function GET(request: NextRequest) {
       },
       body: JSON.stringify(payload),
     });
+    httpStatus = apiRes.status;
     const text = await apiRes.text();
     try {
       responseObj = JSON.parse(text) as typeof responseObj;
     } catch {
-      responseObj = { returnStatus: "ParseError", raw: text };
+      responseObj = { returnStatus: "ParseError", httpStatus, raw: text };
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -204,10 +209,21 @@ export async function GET(request: NextRequest) {
       SET "ogfSyncedAt" = ${now}, "ogfSyncBatchCode" = ${batchCode}, "ogfSyncError" = NULL
       WHERE "id" IN (${orderIdSql})
     `);
+    const emailRows = orders.map((o) => {
+      const isCard = /card|visa|master|amex|koko/i.test(o.paymentGatewayPrimary ?? "");
+      return {
+        receiptNo: o.orderNumber ?? o.name?.replace(/^#/, "") ?? o.id,
+        totalStr: Number(o.totalPrice).toFixed(2),
+        paymentMethod: isCard ? "Card" : "Cash",
+      };
+    });
+    sendOgfSyncSummaryEmail(OGF_NOTIFY_EMAIL, orders.length, batchCode, emailRows).catch((err) =>
+      console.error("[ogf-sale] summary email failed:", err),
+    );
     return NextResponse.json({ ok: true, synced: orders.length, batchCode });
   }
 
-  const errMsg = JSON.stringify(responseObj).slice(0, 1000);
+  const errMsg = `HTTP ${httpStatus} — ${JSON.stringify(responseObj).slice(0, 900)}`;
   await prisma.$executeRaw(Prisma.sql`
     UPDATE "Order" SET "ogfSyncError" = ${errMsg}
     WHERE "id" IN (${orderIdSql})
