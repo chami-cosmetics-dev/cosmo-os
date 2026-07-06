@@ -48,6 +48,8 @@ export async function requeuePaymentApprovalAfterRevert(input: {
     });
   }
 
+  // Only KOKO/bank orders need pre-dispatch finance approval.
+  // COD, card-on-delivery, etc. are handled at delivery via DELIVERY_PAYMENT_APPROVAL.
   if (isOrderPaymentRequiresApproval(order)) {
     return createOrGetOrderPaymentApproval({
       companyId: input.companyId,
@@ -59,12 +61,5 @@ export async function requeuePaymentApprovalAfterRevert(input: {
     });
   }
 
-  return createOrGetOrderPaymentApproval({
-    companyId: input.companyId,
-    orderId: order.id,
-    requestedById: input.requestedById,
-    invoiceLabel: invoiceLabel(order),
-    paymentType: order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment",
-    amount: order.totalPrice.toString(),
-  });
+  return null;
 }
