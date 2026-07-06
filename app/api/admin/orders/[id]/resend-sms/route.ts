@@ -69,6 +69,8 @@ export async function POST(
       fulfillmentStage: true,
       customerPhone: true,
       shippingAddress: true,
+      billingAddress: true,
+      rawPayload: true,
       packageReadyAt: true,
       dispatchedAt: true,
       deliveryCompleteAt: true,

@@ -50,6 +50,7 @@ export type FulfillmentOrder = {
   packageHoldReason?: { id: string; name: string } | null;
   sampleFreeIssueSendLaterDate?: string | null;
   fulfillmentStage?: string | null;
+  pendingMethodChangeApproval?: boolean;
 };
 
 interface FulfillmentOrderSelectorProps {
@@ -121,7 +122,7 @@ export function FulfillmentOrderSelector({
         : "created";
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(
-    bulkPrintUnprinted ? 100 : isDispatchOrDeliveryQueue ? 50 : 5,
+    bulkPrintUnprinted ? 100 : isDispatchOrDeliveryQueue || worksheetMode ? 50 : 5,
   );
   const [total, setTotal] = useState(0);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -357,6 +358,11 @@ export function FulfillmentOrderSelector({
                           );
                         })}
                       </CommandGroup>
+                      {total > orders.length && (
+                        <div className="border-t border-border/60 px-3 py-2 text-center text-xs text-muted-foreground">
+                          Showing {orders.length} of {total} orders — type to search
+                        </div>
+                      )}
                     </CommandList>
                   </Command>
                 </PopoverContent>

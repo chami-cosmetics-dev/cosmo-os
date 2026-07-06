@@ -13,6 +13,7 @@ import {
   Plus,
   Printer,
   Settings,
+  ShoppingBag,
   ShoppingCart,
   Sticker,
   Store,
@@ -256,6 +257,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
             <SidebarGroupContent>
               {canViewOrders && (
                 <NavItem href="/dashboard/orders" icon={ShoppingCart} label="Orders" isActive={pathname === "/dashboard/orders"} />
+              )}
+              {canViewOrders && (
+                <NavItem href="/dashboard/orders/pos-orders" icon={ShoppingBag} label="POS Orders" isActive={pathname === "/dashboard/orders/pos-orders"} />
               )}
               {canViewReturns && (
                 <NavItem href="/dashboard/returns" icon={PackageCheck} label="Returned Orders" isActive={pathname === "/dashboard/returns"} />

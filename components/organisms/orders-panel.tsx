@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, Search, ShoppingCart } from "lucide-react";
+import { Eye, Search, ShoppingCart, Tag } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -272,6 +272,8 @@ export function OrdersPanel({
   const [loading, setLoading] = useState(!initialData);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [merFilter, setMerFilter] = useState("");
+  const [debouncedMerFilter, setDebouncedMerFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [merchantFilter, setMerchantFilter] = useState<string>("");
@@ -291,11 +293,17 @@ export function OrdersPanel({
     return () => clearTimeout(t);
   }, [search]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMerFilter(merFilter), 500);
+    return () => clearTimeout(t);
+  }, [merFilter]);
+
   const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+  const effectiveMerFilter = useMemo(() => debouncedMerFilter.trim(), [debouncedMerFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [effectiveSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, sortBy, sortOrder]);
+  }, [effectiveSearch, effectiveMerFilter, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
     const perf = createClientPerfLogger("orders.panel.fetch", {
@@ -305,6 +313,7 @@ export function OrdersPanel({
     });
     const params = new URLSearchParams();
     if (effectiveSearch) params.set("search", effectiveSearch);
+    if (effectiveMerFilter) params.set("mer_code", effectiveMerFilter);
     if (locationFilter) params.set("location_id", locationFilter);
     if (sourceFilter) params.set("source", sourceFilter);
     if (merchantFilter) params.set("merchant_id", merchantFilter);
@@ -339,7 +348,7 @@ export function OrdersPanel({
     setMerchants(data.merchants ?? []);
     setPaymentGatewayOptions(data.paymentGatewayOptions ?? []);
     perf.end({ ok: true, total: data.total });
-  }, [effectiveSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, page, limit, sortBy, sortOrder]);
+  }, [effectiveSearch, effectiveMerFilter, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, page, limit, sortBy, sortOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -493,18 +502,27 @@ export function OrdersPanel({
             Orders Explorer
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Search and filter orders by location, source, merchant, payment, and status.
+            Search and filter orders by location, source, merchant, MER code, payment, and status.
           </p>
         </CardHeader>
         <CardContent className="min-w-0 max-w-full overflow-x-hidden space-y-4">
           <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))] lg:items-center">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_repeat(5,minmax(0,1fr))] lg:items-center">
             <div className="relative min-w-0">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
                 placeholder="Search by order name (e.g. 6008699), #, or customer..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                className="border-border/70 bg-background/90 pl-9"
+              />
+            </div>
+            <div className="relative min-w-0">
+              <Tag className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+              <Input
+                placeholder="MER code..."
+                value={merFilter}
+                onChange={(e) => setMerFilter(e.target.value)}
                 className="border-border/70 bg-background/90 pl-9"
               />
             </div>

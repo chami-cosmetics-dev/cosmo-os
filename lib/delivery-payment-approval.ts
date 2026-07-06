@@ -3,7 +3,7 @@ import { createOrGetDeliveryPaymentApproval, getApprovedOrderPaymentReviewerId }
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_finance" }
-  | { kind: "invoice_complete"; financeUserId: string };
+  | { kind: "invoice_complete"; financeUserId: string; createPe?: boolean };
 
 /**
  * After store marks delivered: pre-approved KOKO/bank → invoice complete;
@@ -16,7 +16,7 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
 }): Promise<PostDeliveryInvoiceResult> {
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, companyId: input.companyId },
-    select: { id: true },
+    select: { id: true, financialStatus: true, paymentGatewayPrimary: true },
   });
   if (!order) {
     return { kind: "awaiting_finance" };
@@ -25,6 +25,13 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   const earlyFinanceUserId = await getApprovedOrderPaymentReviewerId(order.id);
   if (earlyFinanceUserId) {
     return { kind: "invoice_complete", financeUserId: earlyFinanceUserId };
+  }
+
+  // WebXPay is an online payment gateway — money is collected at checkout, not at the door.
+  // Auto-complete to invoice_complete and trigger PE creation so ERP is reconciled.
+  const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
+  if (gateway.includes("webxpay") && order.financialStatus?.toLowerCase() === "paid") {
+    return { kind: "invoice_complete", financeUserId: input.requestedById ?? "", createPe: true };
   }
 
   return { kind: "awaiting_finance" };
@@ -46,9 +53,17 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
       totalPrice: true,
+      dispatchedByCourierServiceId: true,
+      dispatchedToCustomer: true,
     },
   });
   if (!order) return null;
+
+  // Courier service deliveries (e.g. Citypack) don't require finance to confirm payment collection.
+  if (order.dispatchedByCourierServiceId) return null;
+
+  // Customer pickups are collected in-store — no rider payment collection to confirm.
+  if (order.dispatchedToCustomer) return null;
 
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
   const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";

@@ -13,7 +13,7 @@ import {
   notifyApprovalRequester,
 } from "@/lib/approval-workflow";
 import { writeAuditLog } from "@/lib/audit-log";
-import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
+import { createDeliveryPaymentEntry, syncBankTransferPaymentToERPNext } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -63,6 +63,7 @@ export async function PATCH(
     orderId: string | null;
     orderReturnId: string | null;
     requestedById: string | null;
+    requestNote: string | null;
     orderLinked: boolean;
     orderName: string | null;
     orderNumber: string | null;
@@ -76,6 +77,7 @@ export async function PATCH(
         ar."orderId",
         ar."orderReturnId",
         ar."requestedById",
+        ar."requestNote",
         (o."id" IS NOT NULL) AS "orderLinked",
         o."name" AS "orderName",
         o."orderNumber",
@@ -128,6 +130,9 @@ export async function PATCH(
 
   const now = new Date();
   const nextStatus = parsed.data.action === "approve" ? "approved" : "rejected";
+  const isBankTransferApproval =
+    approval.type === PAYMENT_METHOD_CHANGE_APPROVAL &&
+    (approval.requestNote?.toLowerCase().startsWith("bank transfer") ?? false);
   const isPaymentReapproval =
     nextStatus === "approved" &&
     approval.orderId != null &&
@@ -221,12 +226,13 @@ export async function PATCH(
           },
         });
       } else if (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) {
-        // COD → KOKO change approved by finance: switch gateway, mark paid, advance to print queue.
+        // COD → KOKO or COD → Bank Transfer approved by finance: switch gateway, mark paid, advance to print queue.
+        const gateway = isBankTransferApproval ? "bank_transfer" : "koko";
         await tx.order.update({
           where: { id: approval.orderId! },
           data: {
-            paymentGatewayNames: ["koko"],
-            paymentGatewayPrimary: "koko",
+            paymentGatewayNames: [gateway],
+            paymentGatewayPrimary: gateway,
             financialStatus: "paid",
             ...orderStageUpdate("print", now),
             sampleFreeIssueCompleteAt: now,
@@ -332,10 +338,12 @@ export async function PATCH(
   let erpSyncError: string | undefined;
 
   // First-time approval only — re-approval after HOD revert updates Vault paid status; ERP SI stays unchanged.
+  // Bank transfer method change gets a PE (not SI), handled separately below.
   if (
     nextStatus === "approved" &&
     !isPaymentReapproval &&
-    (approval.type === ORDER_PAYMENT_APPROVAL || approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) &&
+    (approval.type === ORDER_PAYMENT_APPROVAL ||
+      (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL && !isBankTransferApproval)) &&
     approval.orderId
   ) {
     try {
@@ -346,6 +354,31 @@ export async function PATCH(
       await markOrderErpSyncFailed(approval.orderId, errMsg);
       erpSyncFailed = true;
       erpSyncError = errMsg;
+    }
+  }
+
+  if (nextStatus === "approved" && !isPaymentReapproval && isBankTransferApproval && approval.orderId) {
+    const orderForErp = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: { name: true, shopifyOrderId: true, companyLocationId: true },
+    });
+    if (orderForErp?.companyLocationId) {
+      const location = await prisma.companyLocation.findUnique({
+        where: { id: orderForErp.companyLocationId },
+        include: { erpnextInstance: true },
+      });
+      if (location) {
+        try {
+          const poNo = (orderForErp.name ?? orderForErp.shopifyOrderId ?? approval.orderId).slice(0, 140);
+          const dateStr = now.toISOString().slice(0, 10);
+          await syncBankTransferPaymentToERPNext(poNo, location, dateStr);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error("[ERPNext] bank transfer PE failed:", errMsg);
+          erpSyncFailed = true;
+          erpSyncError = errMsg;
+        }
+      }
     }
   }
 

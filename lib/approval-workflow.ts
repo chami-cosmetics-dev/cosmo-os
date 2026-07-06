@@ -123,17 +123,18 @@ export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
 }
 
 /** Keep finance-pending KOKO/bank orders out of fulfillment queues. */
+// NOT { OR [A, B] } has a SQL NULL trap: when erpnextInvoiceId IS NULL,
+// `NULL = 'pending_approval'` → NULL, so NOT(... OR NULL) = NULL = false,
+// silently dropping orders whose ERP sync failed (erpnextInvoiceId never set).
+// Fix: use `none` for the relation (NOT EXISTS) and explicit OR-null for the string field.
 export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
-  NOT: {
-    OR: [
-      {
-        approvalRequests: {
-          some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-        },
-      },
-      { erpnextInvoiceId: "pending_approval" },
-    ],
+  approvalRequests: {
+    none: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
   },
+  OR: [
+    { erpnextInvoiceId: null },
+    { erpnextInvoiceId: { not: "pending_approval" } },
+  ],
 } satisfies Prisma.OrderWhereInput;
 
 const voidedOrderFinancialStatusFilter = {
@@ -164,7 +165,72 @@ export async function cancelPendingApprovalsForOrder(orderId: string) {
     }),
   ]);
 
+  // The cancel request is now moot — order is voided. Mark the return as solved
+  // so it no longer shows as "Cancel Pending" in the returns panel.
+  await prisma.orderReturn.updateMany({
+    where: { orderId, actionType: "cancel", actionStatus: "pending" },
+    data: { actionStatus: "solved", actionDate: now },
+  });
+
   return direct.count + viaReturn.count;
+}
+
+/** Cancel pending delivery payment approvals for orders already at invoice_complete.
+ * Handles the case where an order was bulk-completed or manually advanced to invoice_complete
+ * while a DELIVERY_PAYMENT_APPROVAL was still pending in the finance queue. */
+export async function reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId: string) {
+  const now = new Date();
+  await prisma.approvalRequest.updateMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      order: { fulfillmentStage: "invoice_complete" },
+    },
+    data: {
+      status: "cancelled",
+      reviewNote: "Order already marked invoice complete.",
+      updatedAt: now,
+    },
+  });
+}
+
+/** Cancel pending delivery payment approvals for orders dispatched by a courier service (e.g. Citypack).
+ * Courier deliveries don't require finance to confirm cash collection — payment is handled by the courier. */
+export async function reconcilePendingDeliveryApprovalsForCourierOrders(companyId: string) {
+  const now = new Date();
+  await prisma.approvalRequest.updateMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      order: { dispatchedByCourierServiceId: { not: null } },
+    },
+    data: {
+      status: "cancelled",
+      reviewNote: "Delivered by courier service — no payment collection confirmation needed.",
+      updatedAt: now,
+    },
+  });
+}
+
+/** Cancel pending delivery payment approvals for customer-pickup orders.
+ * Payment is collected at the counter — no rider payment confirmation needed. */
+export async function reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId: string) {
+  const now = new Date();
+  await prisma.approvalRequest.updateMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      order: { dispatchedToCustomer: true },
+    },
+    data: {
+      status: "cancelled",
+      reviewNote: "Customer pickup — payment collected in-store, no confirmation needed.",
+      updatedAt: now,
+    },
+  });
 }
 
 /** Clear stale payment approvals for orders already voided in Vault.

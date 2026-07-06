@@ -131,8 +131,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   for (const g of gateways) {
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
-    if (lower.includes("webxpay")) return cfg.webxpayMop || null;
-    if (lower === "cc" || lower === "cc checkout") return cfg.bankTransferMop;
+    if (lower.includes("webxpay") || lower === "cc" || lower === "cc checkout") return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
@@ -150,8 +149,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
 function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
-  if (cfg.webxpayMop && lower.some((g) => g.includes("webxpay"))) return cfg.webxpayMop;
-  if (lower.some((g) => g === "cc" || g === "cc checkout")) return cfg.bankTransferMop;
+  if (lower.some((g) => g.includes("webxpay") || g === "cc" || g === "cc checkout")) return cfg.webxpayMop || null;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
 }
@@ -402,17 +400,17 @@ async function createErpSalesInvoice(
   if (submitNow && couponCode) {
     console.log(`[ERPNext] Creating draft Sales Invoice with coupon ${couponCode} before submit`);
     try {
+      // siBody already includes coupon_code and discount_amount. We skip the extra PUT save here
+      // because PUT triggers ERP's validate/calculate_taxes_and_totals hook which overrides
+      // discount_amount to 0. API creation (POST) does not fire pricing rules, so values from
+      // siBody are preserved. ensureErpSalesInvoiceCouponLabels sets coupon labels post-submit.
       const draft = await postErpSalesInvoiceCreate(cfg, { ...siBody, docstatus: 0 }, opts);
-      await erpnextSaveSalesInvoice(cfg, draft.name, {
-        coupon_code: couponCode,
-        custom_coupon_code: couponCode,
-      });
-      const draftCheck = await erpnextGet<{ coupon_code?: string | null }>(
+      const draftCheck = await erpnextGet<{ coupon_code?: string | null; discount_amount?: number | null }>(
         cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code"]))}`,
+        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code", "discount_amount"]))}`,
       );
       console.log(
-        `[ERPNext] Draft ${draft.name} coupon_code before submit: ${draftCheck?.coupon_code?.trim() || "(empty)"}`,
+        `[ERPNext] Draft ${draft.name} before submit: coupon_code=${draftCheck?.coupon_code?.trim() || "(empty)"}, discount_amount=${draftCheck?.discount_amount ?? 0}`,
       );
       await erpnextSubmitSalesInvoice(cfg, draft.name);
       const submitted = await erpnextGet<{
@@ -1112,6 +1110,7 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   order: {
     name: string | null;
     shopifyOrderId: string;
+    erpnextInvoiceId?: string | null;
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
     financialStatus: string | null;
@@ -1130,27 +1129,44 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   const mopName = resolvePrepaidMop(cfg, gateways);
   if (!mopName) return;
 
-  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+  // For ERP-native orders the SI name IS the erpnextInvoiceId — fetch it directly.
+  // For Shopify-synced orders fall back to po_no lookup (SI was created with po_no set).
+  const erpId = order.erpnextInvoiceId?.trim();
+  const directSiName =
+    erpId && erpId !== "pending" && erpId !== "pending_approval"
+      ? erpId
+      : null;
 
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping finance-approved PE`);
+  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
+
+  if (directSiName) {
+    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(directSiName)}`,
+    ) ?? null;
+  } else {
+    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderPoNo],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+    );
+    const list = await erpnextGet<
+      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+    invoice = list?.[0] ?? null;
+  }
+
+  if (!invoice) {
+    console.warn(`[ERPNext] No Sales Invoice found for order "${order.name ?? order.shopifyOrderId}" — skipping finance-approved PE`);
     return;
   }
 
-  const invoice = list[0];
   if (invoice.outstanding_amount <= 0) {
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping finance-approved PE`);
     return;
@@ -1302,12 +1318,11 @@ export async function syncOrderToERPNext(
 
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
-  const couponSiItems = buildErpItemsFromShopifyLineItems(
-    lineItems,
-    location.erpnextWarehouse,
-    "erp_price_list",
-  );
-  const siItems = useCouponPricing ? [...couponSiItems] : [...netSiItems];
+  // When a coupon is found in ERP we send items at Shopify list (pre-discount) rates and apply
+  // discount_amount explicitly. ERP's coupon pricing rules don't fire during API-based SI creation
+  // (they require client-side UI triggers), so relying on erp_price_list mode + coupon_code alone
+  // leaves the SI at full price. discount_amount at header level is the reliable path.
+  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
   const netRateItems = [...netSiItems];
 
   if (useShippingItem) {
@@ -1323,9 +1338,9 @@ export async function syncOrderToERPNext(
   }
 
   const vaultTotal = parseFloat(order.totalPrice.toString());
-  const productItems = useCouponPricing ? listSiItems : netSiItems;
+  // siItems already holds the right base rates (list for coupon orders, net for others).
   const itemsTotal =
-    sumErpInvoiceItemsTotal(productItems) +
+    sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
@@ -1378,8 +1393,9 @@ export async function syncOrderToERPNext(
       : cfg.taxesAndCharges
         ? { taxes_and_charges: cfg.taxesAndCharges }
         : { taxes: [] }),
-    // ERP Coupon Code pricing rules already reduce line rates; header discount_amount would double-apply.
-    ...(discountAmt > 0 && !erpCouponFields.coupon_code
+    // Apply Shopify-calculated discount as header discount_amount whenever there's a gap between
+    // the Shopify-charged total and the sum of item rates (covers both coupon and non-coupon orders).
+    ...(discountAmt > 0
       ? { discount_amount: discountAmt, apply_discount_on: "Net Total" }
       : {}),
   };
