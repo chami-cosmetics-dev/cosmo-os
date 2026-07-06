@@ -58,6 +58,9 @@ function formatPayment(raw: string | null) {
   if (normalized === "cod" || normalized.includes("cash on delivery") || normalized.includes("cash")) {
     return "CASH PAYMENT\nON DEL";
   }
+  if (normalized.includes("card on delivery") || normalized.includes("card payment on delivery")) {
+    return "CARD ON DEL";
+  }
   if (
     normalized.includes("koko") ||
     normalized.includes("webxpay") ||
