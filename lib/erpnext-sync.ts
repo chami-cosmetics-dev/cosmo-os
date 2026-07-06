@@ -983,30 +983,40 @@ export async function createErpnextCreditNote(
 export async function cancelErpnextSalesInvoice(
   orderName: string,
   location: LocationWithErpInstance,
+  options?: { directInvoiceName?: string },
 ): Promise<void> {
   const cfg = getErpConfig(location.erpnextInstance);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
   if (!location.erpnextCompany) return;
 
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderName],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(JSON.stringify(["name"]));
-  const list = await erpnextGet<Array<{ name: string }>>(
-    cfg,
-    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
-  );
+  let invoiceName: string;
 
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No submitted Sales Invoice found for po_no="${orderName}" — skipping cancel`);
-    return;
+  if (options?.directInvoiceName) {
+    // ERP-native orders: we already know the invoice name — cancel directly without a po_no lookup.
+    invoiceName = options.directInvoiceName;
+  } else {
+    // Shopify-synced orders: find the submitted SI by po_no (set when OS created the SI).
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderName],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(JSON.stringify(["name"]));
+    const list = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
+    );
+
+    if (!list || list.length === 0) {
+      console.warn(`[ERPNext] No submitted Sales Invoice found for po_no="${orderName}" — skipping cancel`);
+      return;
+    }
+
+    invoiceName = list[0].name;
   }
 
-  const invoiceName = list[0].name;
   const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.cancel`, {
     method: "POST",
     headers: authHeaders(cfg),
@@ -1018,7 +1028,7 @@ export async function cancelErpnextSalesInvoice(
     throw new Error(`ERPNext cancel Sales Invoice ${invoiceName} [${res.status}]: ${text.slice(0, 500)}`);
   }
 
-  console.log(`[ERPNext] Cancelled Sales Invoice ${invoiceName} for Shopify order ${orderName}`);
+  console.log(`[ERPNext] Cancelled Sales Invoice ${invoiceName} for order ${orderName}`);
 }
 
 export async function syncBankTransferPaymentToERPNext(
