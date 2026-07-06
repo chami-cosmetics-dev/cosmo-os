@@ -1240,12 +1240,14 @@ export async function PATCH(
       });
       const location = orderWithLocation?.companyLocation;
 
-      // Cancel in Shopify first — fatal; if this fails we don't mark as voided
-      if (location?.shopifyAdminStoreHandle) {
+      // Cancel in Shopify first — fatal; if this fails we don't mark as voided.
+      // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
+      const isRealShopifyOrder = order.shopifyOrderId && !order.shopifyOrderId.startsWith("erp-");
+      if (isRealShopifyOrder && location?.shopifyAdminStoreHandle) {
         await cancelShopifyOrder(order.shopifyOrderId, location.shopifyAdminStoreHandle);
         console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
       } else {
-        console.warn(`[Cancel] No shopifyAdminStoreHandle on location — skipping Shopify cancel for order ${order.id}`);
+        console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);
       }
 
       // Cancel ERP Sales Invoice if one exists — non-fatal
