@@ -63,14 +63,9 @@ function formatPayment(raw: string | null) {
   if (normalized.includes("card on delivery") || normalized.includes("card payment on delivery")) {
     return "CARD ON DEL";
   }
-  if (
-    normalized.includes("koko") ||
-    normalized.includes("webxpay") ||
-    normalized.includes("bank") ||
-    normalized.includes("card") ||
-    normalized.includes("shopify payments") ||
-    normalized === "paid"
-  ) {
+  if (normalized.includes("koko")) return "KOKO";
+  if (normalized.includes("bank")) return "BANK TRANSFER";
+  if (normalized.includes("webxpay") || normalized.includes("shopify payments") || normalized.includes("card") || normalized === "paid") {
     return "ONLINE PAID";
   }
   return raw.replace(/[_-]+/g, " ").toUpperCase();
