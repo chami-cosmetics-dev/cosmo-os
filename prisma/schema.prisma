@@ -582,6 +582,10 @@ model Order {
   erpPeSyncFailedAt              DateTime?
   erpPeSyncMop                   String?
 
+  ogfSyncedAt                    DateTime?
+  ogfSyncBatchCode               String?
+  ogfSyncError                   String?
+
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, sampleFreeIssueSendLaterDate])
