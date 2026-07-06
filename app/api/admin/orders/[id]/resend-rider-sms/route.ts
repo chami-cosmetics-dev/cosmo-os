@@ -93,6 +93,7 @@ export async function POST(
     await sendOrderSms(companyId, order.id, "rider_dispatched", {
       orderNumber: orderNum,
       invoiceNumber,
+      orderReference: [orderNum, invoiceNumber].filter(Boolean).join(" / "),
       riderName: rider.name ?? undefined,
       riderPhone,
       deliveryUrl,

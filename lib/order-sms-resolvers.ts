@@ -9,6 +9,8 @@ export type SmsContext = {
   orderNumber?: string;
   orderName?: string;
   invoiceNumber?: string;
+  /** Combined "Shopify# / ERP#" — use {orderReference} in SMS templates to show both in one token. */
+  orderReference?: string;
   customerName?: string;
   customerPhone?: string;
   locationName?: string;

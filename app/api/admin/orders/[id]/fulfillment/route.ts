@@ -903,6 +903,7 @@ export async function PATCH(
         sendOrderSms(companyId, order.id, "rider_dispatched", {
           orderNumber: orderNum,
           invoiceNumber: invoiceNum,
+          orderReference: [orderNum, invoiceNum].filter(Boolean).join(" / "),
           riderName: rider?.name ?? undefined,
           riderPhone: rider?.mobile ?? undefined,
           deliveryUrl,

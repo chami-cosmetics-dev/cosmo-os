@@ -39,6 +39,7 @@ export async function sendOrderSms(
   message = message.replace(/\{orderNumber\}/g, context.orderNumber ?? "");
   message = message.replace(/\{orderName\}/g, context.orderName ?? "");
   message = message.replace(/\{invoiceNumber\}/g, context.invoiceNumber ?? "");
+  message = message.replace(/\{orderReference\}/g, context.orderReference ?? "");
   message = message.replace(/\{customerName\}/g, context.customerName ?? "");
   message = message.replace(/\{locationName\}/g, context.locationName ?? "");
   message = message.replace(/\{deliveryUrl\}/g, context.deliveryUrl ?? "");
