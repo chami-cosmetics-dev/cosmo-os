@@ -76,7 +76,37 @@ export async function createNotification(input: NotificationInput) {
   );
 }
 
-export async function getFinanceApprovalUsers(companyId: string) {
+export async function getFinanceApprovalUsers(companyId: string, locationId?: string | null) {
+  // When a locationId is supplied, prefer finance users assigned to that location.
+  // Included: users with ep.locationId = locationId, users with ep.locationId IS NULL
+  // (company-wide), and admins/super_admins regardless of their profile.
+  // Fallback: if no users match at all, retry without location filter.
+  if (locationId) {
+    const scoped = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
+      Prisma.sql`
+        SELECT DISTINCT u."id", u."email"
+        FROM "User" u
+        JOIN "UserRole" ur ON ur."userId" = u."id"
+        JOIN "Role" r ON r."id" = ur."roleId"
+        LEFT JOIN "RolePermission" rp ON rp."roleId" = ur."roleId"
+        LEFT JOIN "Permission" p ON p."id" = rp."permissionId"
+        LEFT JOIN "EmployeeProfile" ep ON ep."userId" = u."id"
+        WHERE u."companyId" = ${companyId}
+          AND (
+            p."key" = ${FINANCE_APPROVAL_PERMISSION}
+            OR r."name" IN ('admin', 'super_admin')
+          )
+          AND (
+            ep."locationId" = ${locationId}
+            OR ep."locationId" IS NULL
+            OR r."name" IN ('admin', 'super_admin')
+          )
+      `
+    );
+    if (scoped.length > 0) return scoped;
+    // Nobody configured for this location — fall through to company-wide
+  }
+
   const rows = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
     Prisma.sql`
       SELECT DISTINCT u."id", u."email"
@@ -95,8 +125,8 @@ export async function getFinanceApprovalUsers(companyId: string) {
   return rows;
 }
 
-export async function getFinanceApprovalUserIds(companyId: string) {
-  const users = await getFinanceApprovalUsers(companyId);
+export async function getFinanceApprovalUserIds(companyId: string, locationId?: string | null) {
+  const users = await getFinanceApprovalUsers(companyId, locationId);
   return users.map((u) => u.id);
 }
 
@@ -351,6 +381,7 @@ export async function createOrGetOrderPaymentApproval(input: {
   invoiceLabel: string;
   paymentType: string;
   amount: string;
+  companyLocationId?: string | null;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -398,7 +429,7 @@ export async function createOrGetOrderPaymentApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUsers = await getFinanceApprovalUsers(input.companyId);
+  const financeUsers = await getFinanceApprovalUsers(input.companyId, input.companyLocationId);
 
   await Promise.all(
     financeUsers.map((u) =>
@@ -439,6 +470,7 @@ export async function createOrGetDeliveryPaymentApproval(input: {
   paymentType: string;
   amount: string;
   collectionNote?: string | null;
+  companyLocationId?: string | null;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -493,7 +525,7 @@ export async function createOrGetDeliveryPaymentApproval(input: {
   }
 
   if (DELIVERY_PAYMENT_FINANCE_UI_ENABLED) {
-    const financeUsers = await getFinanceApprovalUsers(input.companyId);
+    const financeUsers = await getFinanceApprovalUsers(input.companyId, input.companyLocationId);
     await Promise.all(
       financeUsers.map((u) =>
         createNotification({
@@ -519,6 +551,7 @@ export async function createOrGetReturnRearrangeApproval(input: {
   requestedById: string;
   requestNote?: string | null;
   invoiceLabel: string;
+  companyLocationId?: string | null;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -584,7 +617,7 @@ export async function createOrGetReturnRearrangeApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUserIds = await getFinanceApprovalUserIds(input.companyId);
+  const financeUserIds = await getFinanceApprovalUserIds(input.companyId, input.companyLocationId);
   await Promise.all(
     financeUserIds.map((userId) =>
       createNotification({
@@ -634,6 +667,7 @@ export async function createOrGetReturnCancelApproval(input: {
   requestedById: string;
   requestNote: string;
   invoiceLabel: string;
+  companyLocationId?: string | null;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -698,7 +732,7 @@ export async function createOrGetReturnCancelApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUserIds = await getFinanceApprovalUserIds(input.companyId);
+  const financeUserIds = await getFinanceApprovalUserIds(input.companyId, input.companyLocationId);
   await Promise.all(
     financeUserIds.map((userId) =>
       createNotification({
@@ -721,6 +755,7 @@ export async function createInvoiceRevertVoidApproval(input: {
   orderId: string;
   invoiceLabel: string;
   revertedAt: Date;
+  companyLocationId?: string | null;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -755,7 +790,7 @@ export async function createInvoiceRevertVoidApproval(input: {
     `
   );
 
-  const financeUserIds = await getFinanceApprovalUserIds(input.companyId);
+  const financeUserIds = await getFinanceApprovalUserIds(input.companyId, input.companyLocationId);
   await Promise.all(
     financeUserIds.map((userId) =>
       createNotification({
@@ -780,6 +815,7 @@ export async function createPaymentMethodChangeApproval(input: {
   invoiceLabel: string;
   targetPaymentMethod: string;
   amount: string;
+  companyLocationId?: string | null;
 }) {
   const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
     Prisma.sql`
@@ -826,7 +862,7 @@ export async function createPaymentMethodChangeApproval(input: {
     return concurrent[0]!;
   }
 
-  const financeUsers = await getFinanceApprovalUsers(input.companyId);
+  const financeUsers = await getFinanceApprovalUsers(input.companyId, input.companyLocationId);
 
   await Promise.all(
     financeUsers.map((u) =>

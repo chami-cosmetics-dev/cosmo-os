@@ -81,6 +81,7 @@ export async function GET() {
             WHERE n."companyId" = ${companyId}
               AND n."userId" = ${userId}
               AND n."readAt" IS NULL
+              AND n."type" <> 'erp_sync_failure'
               AND NOT (
                 n."entityType" = 'ApprovalRequest'
                 AND n."type" = 'approval_requested'
@@ -100,6 +101,7 @@ export async function GET() {
             WHERE "companyId" = ${companyId}
               AND "userId" = ${userId}
               AND "readAt" IS NULL
+              AND "type" <> 'erp_sync_failure'
             ORDER BY "createdAt" DESC
             LIMIT 20
           `
@@ -112,6 +114,7 @@ export async function GET() {
             WHERE n."companyId" = ${companyId}
               AND n."userId" = ${userId}
               AND n."readAt" IS NULL
+              AND n."type" <> 'erp_sync_failure'
               AND NOT (
                 n."entityType" = 'ApprovalRequest'
                 AND n."type" = 'approval_requested'
@@ -129,6 +132,7 @@ export async function GET() {
             WHERE "companyId" = ${companyId}
               AND "userId" = ${userId}
               AND "readAt" IS NULL
+              AND "type" <> 'erp_sync_failure'
           `
     ),
   ]);
@@ -153,6 +157,7 @@ export async function PATCH(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const id = typeof body.id === "string" ? body.id : null;
+  const type = typeof body.type === "string" ? body.type : null;
   const now = new Date();
 
   if (id) {
@@ -163,6 +168,17 @@ export async function PATCH(request: NextRequest) {
         WHERE "id" = ${id}
           AND "companyId" = ${companyId}
           AND "userId" = ${userId}
+      `
+    );
+  } else if (type) {
+    await prisma.$executeRaw(
+      Prisma.sql`
+        UPDATE "Notification"
+        SET "readAt" = COALESCE("readAt", ${now})
+        WHERE "companyId" = ${companyId}
+          AND "userId" = ${userId}
+          AND "readAt" IS NULL
+          AND "type" = ${type}
       `
     );
   } else {

@@ -334,6 +334,7 @@ export async function PATCH(
       invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
       paymentType: order.paymentGatewayPrimary ?? "bank transfer",
       amount: order.totalPrice.toString(),
+      companyLocationId: order.companyLocationId,
     }).catch((err) => console.error("[fulfillment] approval self-heal failed:", err));
   }
 
@@ -404,6 +405,7 @@ export async function PATCH(
           invoiceLabel,
           paymentType,
           amount,
+          companyLocationId: order.companyLocationId,
         });
       }
 

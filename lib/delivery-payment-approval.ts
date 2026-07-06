@@ -60,6 +60,7 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       totalPrice: true,
       dispatchedByCourierServiceId: true,
       dispatchedToCustomer: true,
+      companyLocationId: true,
     },
   });
   if (!order) return null;
@@ -80,5 +81,6 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
     invoiceLabel,
     paymentType,
     amount: order.totalPrice.toString(),
+    companyLocationId: order.companyLocationId,
   });
 }
