@@ -19,31 +19,50 @@ interface DashboardSummaryChartsProps {
     agent: string;
     agentValue: string;
   }>;
+  agentSegments?: Array<{
+    label: string;
+    value: number;
+  }>;
 }
 
 const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-  "color-mix(in srgb, var(--chart-1) 55%, white)",
-  "color-mix(in srgb, var(--chart-2) 55%, white)",
-  "color-mix(in srgb, var(--chart-3) 55%, white)",
-  "color-mix(in srgb, var(--muted-foreground) 45%, transparent)",
+  "#a78bfa",
+  "#5eead4",
+  "#fb7185",
+  "#60a5fa",
+  "#fbbf24",
+  "#34d399",
+  "#f472b6",
+  "#38bdf8",
+  "#c084fc",
+  "#f97316",
+  "#84cc16",
+  "#e879f9",
+  "#22c55e",
+  "#f43f5e",
+  "#06b6d4",
+  "#facc15",
+  "#818cf8",
+  "#14b8a6",
 ];
 
 export function DashboardSummaryCharts({
   analysisType,
   stats,
+  agentSegments,
 }: DashboardSummaryChartsProps) {
   const totals = stats.map((stat, index) => ({
+    label: stat.shop,
     value: parseMetric(stat.total),
     color: CHART_COLORS[index % CHART_COLORS.length],
   }));
 
-  const agentTotals = stats.map((stat, index) => ({
+  const agentTotals = (agentSegments ?? stats.map((stat) => ({
+    label: stat.agent,
     value: parseMetric(stat.agentValue),
+  }))).map((segment, index) => ({
+    label: segment.label,
+    value: segment.value,
     color: CHART_COLORS[index % CHART_COLORS.length],
   }));
 
@@ -57,10 +76,9 @@ export function DashboardSummaryCharts({
     stats[0] ?? { shop: "-", total: "0", agent: "-", agentValue: "0" },
   );
 
-  const rightCenter = stats.reduce(
-    (best, current) =>
-      parseMetric(current.agentValue) > parseMetric(best.agentValue) ? current : best,
-    stats[0] ?? { shop: "-", total: "0", agent: "-", agentValue: "0" },
+  const topAgentSegment = agentTotals.reduce(
+    (best, current) => (current.value > best.value ? current : best),
+    agentTotals[0] ?? { label: "-", value: 0, color: CHART_COLORS[0] },
   );
 
   const rightSegments =
@@ -68,6 +86,7 @@ export function DashboardSummaryCharts({
       ? [
           ...agentTotals,
           {
+            label: "Remaining",
             value: remainder,
             color: "color-mix(in srgb, var(--muted-foreground) 32%, transparent)",
           },
@@ -88,8 +107,8 @@ export function DashboardSummaryCharts({
         chartId={`dashboard-summary-${analysisType}-agent-total`}
         title={`Grand Total - ${analysisType === "merchant" ? "Merchant Wise" : "Payment Gateway Wise"}`}
         total={formatMetric(grandTotal)}
-        centerLabel={rightCenter.agent}
-        centerValue={rightCenter.agentValue}
+        centerLabel={topAgentSegment.label}
+        centerValue={formatMetric(topAgentSegment.value)}
         segments={rightSegments}
       />
     </div>
@@ -109,12 +128,12 @@ function SummaryChartCard({
   total: string;
   centerLabel: string;
   centerValue: string;
-  segments: Array<{ value: number; color: string }>;
+  segments: Array<{ label: string; value: number; color: string }>;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const chartData = segments.map((segment, index) => ({
     key: `segment-${index + 1}`,
-    label: `Part ${index + 1}`,
+    label: segment.label,
     value: segment.value,
     fill: segment.color,
   }));
@@ -190,14 +209,14 @@ function SummaryChartCard({
                           <tspan
                             x={viewBox.cx}
                             y={(viewBox.cy || 0) - 10}
-                            className="fill-slate-900 text-[28px] font-semibold dark:fill-foreground"
+                            className="fill-slate-950 text-[28px] font-semibold dark:fill-white"
                           >
                             {centerLabel}
                           </tspan>
                           <tspan
                             x={viewBox.cx}
                             y={(viewBox.cy || 0) + 42}
-                            className="fill-slate-900 text-[30px] font-bold dark:fill-foreground"
+                            className="fill-slate-950 text-[30px] font-bold dark:fill-white"
                           >
                             {centerValue}
                           </tspan>

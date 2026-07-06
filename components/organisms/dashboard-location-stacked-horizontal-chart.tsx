@@ -19,7 +19,26 @@ import {
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
-const MAX_MERCHANT_SEGMENTS = 8;
+const SEGMENT_COLORS = [
+  "#a78bfa",
+  "#5eead4",
+  "#fb7185",
+  "#60a5fa",
+  "#fbbf24",
+  "#34d399",
+  "#f472b6",
+  "#38bdf8",
+  "#c084fc",
+  "#f97316",
+  "#84cc16",
+  "#e879f9",
+  "#22c55e",
+  "#f43f5e",
+  "#06b6d4",
+  "#facc15",
+  "#818cf8",
+  "#14b8a6",
+];
 
 type MerchantRow = {
   merchantName: string;
@@ -110,7 +129,7 @@ export function DashboardLocationStackedHorizontalChart({
 }: DashboardLocationStackedHorizontalChartProps) {
   const [hiddenSegments, setHiddenSegments] = useState<Set<string>>(() => new Set());
   const isGateway = breakdownVariant === "gateway";
-  const otherLabel = isGateway ? "Other gateways" : "Other merchants";
+  const segmentNoun = isGateway ? "gateway" : "merchant";
 
   const { chartData, segmentKeys, chartConfig } = useMemo(() => {
     const globalTotals = new Map<string, number>();
@@ -121,14 +140,11 @@ export function DashboardLocationStackedHorizontalChart({
     }
 
     const sortedMerchants = [...globalTotals.entries()].sort((a, b) => b[1] - a[1]);
-    const topNames = sortedMerchants.slice(0, MAX_MERCHANT_SEGMENTS).map(([n]) => n);
-    const rest = new Set(sortedMerchants.slice(MAX_MERCHANT_SEGMENTS).map(([n]) => n));
 
-    const segmentMeta: Array<{ key: string; label: string }> = topNames.map((name, i) => ({
+    const segmentMeta: Array<{ key: string; label: string }> = sortedMerchants.map(([name], i) => ({
       key: `seg_${i}`,
       label: name,
     }));
-    segmentMeta.push({ key: "seg_other", label: otherLabel });
 
     const rows: StackedRow[] = locations.map((loc) => {
       const row: StackedRow = {
@@ -143,36 +159,28 @@ export function DashboardLocationStackedHorizontalChart({
       let sum = 0;
       for (const m of loc.merchants) {
         sum += m.total;
-        if (rest.has(m.merchantName)) {
-          row.seg_other = (row.seg_other as number) + m.total;
-        } else {
-          const idx = topNames.indexOf(m.merchantName);
-          if (idx >= 0) {
-            const k = `seg_${idx}`;
-            row[k] = (row[k] as number) + m.total;
-          } else {
-            row.seg_other = (row.seg_other as number) + m.total;
-          }
+        const idx = sortedMerchants.findIndex(([name]) => name === m.merchantName);
+        if (idx >= 0) {
+          const k = `seg_${idx}`;
+          row[k] = (row[k] as number) + m.total;
         }
       }
       row.total = sum;
       return row;
     });
 
-    const hasOther = rows.some((r) => Number(r.seg_other) > 0);
-    const keys = hasOther ? segmentMeta.map((s) => s.key) : segmentMeta.filter((s) => s.key !== "seg_other").map((s) => s.key);
+    const keys = segmentMeta.map((s) => s.key);
 
     const config: ChartConfig = {};
     segmentMeta.forEach((s, i) => {
-      if (s.key === "seg_other" && !hasOther) return;
       config[s.key] = {
         label: s.label,
-        color: `var(--chart-${(i % 5) + 1})`,
+        color: SEGMENT_COLORS[i % SEGMENT_COLORS.length],
       };
     });
 
     return { chartData: rows, segmentKeys: keys, chartConfig: config };
-  }, [locations, otherLabel]);
+  }, [locations]);
 
   const toggleSegment = useCallback((dataKey: string) => {
     setHiddenSegments((prev) => {
@@ -218,9 +226,7 @@ export function DashboardLocationStackedHorizontalChart({
         </CardTitle>
         <CardDescription>
           Each bar is location total; colored segments are {isGateway ? "primary payment gateway" : "merchant"}{" "}
-          share. Top {MAX_MERCHANT_SEGMENTS}{" "}
-          {isGateway ? "gateways" : "merchants"} by company-wide volume; remaining roll into &quot;{otherLabel}
-          &quot;. Click a name below to show or hide that segment in the chart. · {dateHint}
+          share. Every {segmentNoun} is shown separately. Click a name below to show or hide that segment in the chart. · {dateHint}
         </CardDescription>
       </CardHeader>
       <CardContent className="pt-6">
@@ -255,6 +261,8 @@ export function DashboardLocationStackedHorizontalChart({
                     formatter={(value, _name, item) => {
                       const row = item?.payload as StackedRow;
                       const v = Number(value ?? 0);
+                      const dataKey = String(item?.dataKey ?? "");
+                      const merchantName = String(chartConfig[dataKey]?.label ?? item?.name ?? _name ?? "");
                       const denom = row
                         ? rowVisibleTotal(row, segmentKeys, hiddenSegments)
                         : 0;
@@ -262,7 +270,8 @@ export function DashboardLocationStackedHorizontalChart({
                         denom > 0 ? ((v / denom) * 100).toFixed(1) : "0.0";
                       return (
                         <div className="flex w-full flex-col gap-0.5">
-                          <span className="font-medium tabular-nums">{formatCompact(v)}</span>
+                          <span className="font-medium">{merchantName}</span>
+                          <span className="font-medium tabular-nums">Sales: {formatCompact(v)}</span>
                           <span className="text-muted-foreground text-[11px]">
                             {pct}% of visible total
                           </span>
