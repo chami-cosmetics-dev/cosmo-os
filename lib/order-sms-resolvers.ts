@@ -34,7 +34,7 @@ export function resolveOrderNumber(order: {
   return order.name?.trim() || order.orderNumber?.trim() || order.shopifyOrderId?.trim() || "";
 }
 
-/** Customer phone from order field, shipping address, billing address, or Shopify raw payload. */
+/** Customer phone from order field, shipping address, billing address, or Shopify/ERP raw payload. */
 export function resolveCustomerPhone(order: {
   customerPhone?: string | null;
   shippingAddress?: unknown;
@@ -52,6 +52,15 @@ export function resolveCustomerPhone(order: {
 
   if (order.rawPayload && typeof order.rawPayload === "object") {
     const raw = order.rawPayload as Record<string, unknown>;
+
+    // ERP Sales Invoice: phone is at contact_mobile (may be wrapped under a "data" key)
+    const erpMobile = typeof raw.contact_mobile === "string" ? raw.contact_mobile.trim() : "";
+    if (erpMobile) return erpMobile;
+    const dataObj = raw.data as Record<string, unknown> | null | undefined;
+    const erpMobileNested = typeof dataObj?.contact_mobile === "string" ? dataObj.contact_mobile.trim() : "";
+    if (erpMobileNested) return erpMobileNested;
+
+    // Shopify order: phone at root, billing_address.phone, shipping_address.phone, customer.phone
     const fromRoot = typeof raw.phone === "string" ? raw.phone.trim() : "";
     if (fromRoot) return fromRoot;
 
