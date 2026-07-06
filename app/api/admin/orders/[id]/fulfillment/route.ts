@@ -1253,7 +1253,14 @@ export async function PATCH(
       // Cancel ERP Sales Invoice if one exists — non-fatal
       if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
         try {
-          await cancelErpnextSalesInvoice(order.name ?? order.shopifyOrderId, location);
+          // ERP-native orders (shopifyOrderId starts with "erp-") have no po_no in ERP —
+          // pass the invoice name directly so the lookup is skipped.
+          const isErpNative = order.shopifyOrderId?.startsWith("erp-");
+          await cancelErpnextSalesInvoice(
+            order.name ?? order.shopifyOrderId,
+            location,
+            isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
+          );
           console.log(`[Cancel] ERP SI cancelled for order ${order.id}`);
         } catch (err) {
           console.error(`[Cancel] ERP SI cancel failed (non-fatal) for order ${order.id}:`, err);
