@@ -311,12 +311,12 @@ export async function getFinancePaymentApprovalBlockReason(order: {
   return null;
 }
 
-/** Finance user who approved KOKO/bank payment before fulfillment. */
+/** Finance user who approved KOKO/bank payment before fulfillment (ORDER_PAYMENT_APPROVAL or PAYMENT_METHOD_CHANGE_APPROVAL). */
 export async function getApprovedOrderPaymentReviewerId(orderId: string): Promise<string | null> {
   const row = await prisma.approvalRequest.findFirst({
     where: {
       orderId,
-      type: ORDER_PAYMENT_APPROVAL,
+      type: { in: [ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
       status: "approved",
       reviewedById: { not: null },
     },
