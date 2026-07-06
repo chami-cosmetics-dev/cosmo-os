@@ -2,13 +2,15 @@
 
 import dynamic from "next/dynamic";
 import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, Search, ShoppingCart } from "lucide-react";
+import { Eye, Search, ShoppingCart, Tag } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
+import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { resolveErpOrderRef } from "@/lib/fulfillment-order-reference";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -37,6 +39,12 @@ type Order = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   fulfillmentStage?: string | null;
+  printCount?: number;
+  lastPrintedAt?: string | null;
+  packageReadyAt?: string | null;
+  dispatchedAt?: string | null;
+  revertedFromInvoiceCompleteAt?: string | null;
+  sampleFreeIssueCompleteAt?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
   customerName: string | null;
@@ -51,30 +59,6 @@ type Order = {
   erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
-};
-
-const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
-  order_received: "Order Received",
-  sample_free_issue: "Sample/Free Issue",
-  print: "Print",
-  returned_to_store: "Returned to Store",
-  returned: "Returned",
-  ready_to_dispatch: "Ready to Dispatch",
-  dispatched: "Dispatched",
-  invoice_complete: "Invoice Complete",
-  delivery_complete: "Delivery Complete",
-};
-
-const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
-  order_received:    "bg-slate-100  text-slate-700  dark:bg-slate-800      dark:text-slate-300",
-  sample_free_issue: "bg-purple-100 text-purple-800 dark:bg-purple-900/30  dark:text-purple-300",
-  print:             "bg-amber-100  text-amber-800  dark:bg-amber-900/30   dark:text-amber-300",
-  returned_to_store: "bg-red-100    text-red-800    dark:bg-red-900/30     dark:text-red-300",
-  returned:          "bg-rose-100   text-rose-800   dark:bg-rose-900/30    dark:text-rose-300",
-  ready_to_dispatch: "bg-blue-100   text-blue-800   dark:bg-blue-900/30    dark:text-blue-300",
-  dispatched:        "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30  dark:text-indigo-300",
-  delivery_complete: "bg-teal-100   text-teal-800   dark:bg-teal-900/30    dark:text-teal-300",
-  invoice_complete:  "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
 };
 
 const ALL_FILTER_VALUE = "__all";
@@ -288,6 +272,8 @@ export function OrdersPanel({
   const [loading, setLoading] = useState(!initialData);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [merFilter, setMerFilter] = useState("");
+  const [debouncedMerFilter, setDebouncedMerFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState<string>("");
   const [sourceFilter, setSourceFilter] = useState<string>("");
   const [merchantFilter, setMerchantFilter] = useState<string>("");
@@ -307,11 +293,17 @@ export function OrdersPanel({
     return () => clearTimeout(t);
   }, [search]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMerFilter(merFilter), 500);
+    return () => clearTimeout(t);
+  }, [merFilter]);
+
   const effectiveSearch = useMemo(() => debouncedSearch.trim(), [debouncedSearch]);
+  const effectiveMerFilter = useMemo(() => debouncedMerFilter.trim(), [debouncedMerFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [effectiveSearch, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, sortBy, sortOrder]);
+  }, [effectiveSearch, effectiveMerFilter, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, sortBy, sortOrder]);
 
   const fetchPageData = useCallback(async () => {
     const perf = createClientPerfLogger("orders.panel.fetch", {
@@ -321,6 +313,7 @@ export function OrdersPanel({
     });
     const params = new URLSearchParams();
     if (effectiveSearch) params.set("search", effectiveSearch);
+    if (effectiveMerFilter) params.set("mer_code", effectiveMerFilter);
     if (locationFilter) params.set("location_id", locationFilter);
     if (sourceFilter) params.set("source", sourceFilter);
     if (merchantFilter) params.set("merchant_id", merchantFilter);
@@ -355,7 +348,7 @@ export function OrdersPanel({
     setMerchants(data.merchants ?? []);
     setPaymentGatewayOptions(data.paymentGatewayOptions ?? []);
     perf.end({ ok: true, total: data.total });
-  }, [effectiveSearch, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, page, limit, sortBy, sortOrder]);
+  }, [effectiveSearch, effectiveMerFilter, hasInitialData, locationFilter, sourceFilter, merchantFilter, paymentGatewayFilter, orderStatusFilter, page, limit, sortBy, sortOrder]);
 
   useEffect(() => {
     let cancelled = false;
@@ -509,18 +502,27 @@ export function OrdersPanel({
             Orders Explorer
           </CardTitle>
           <p className="text-muted-foreground text-sm">
-            Search and filter orders by location, source, merchant, payment, and status.
+            Search and filter orders by location, source, merchant, MER code, payment, and status.
           </p>
         </CardHeader>
         <CardContent className="min-w-0 max-w-full overflow-x-hidden space-y-4">
           <div className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_96%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_repeat(5,minmax(0,1fr))] lg:items-center">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_repeat(5,minmax(0,1fr))] lg:items-center">
             <div className="relative min-w-0">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
                 placeholder="Search by order name (e.g. 6008699), #, or customer..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                className="border-border/70 bg-background/90 pl-9"
+              />
+            </div>
+            <div className="relative min-w-0">
+              <Tag className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+              <Input
+                placeholder="MER code..."
+                value={merFilter}
+                onChange={(e) => setMerFilter(e.target.value)}
                 className="border-border/70 bg-background/90 pl-9"
               />
             </div>
@@ -650,7 +652,10 @@ export function OrdersPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {orders.map((order) => (
+                    {orders.map((order) => {
+                      const erpRef = resolveErpOrderRef(order);
+                      const orderLabel = order.name ?? order.orderNumber ?? "—";
+                      return (
                       <tr
                         key={order.id}
                         className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/10 focus-visible:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 last:border-0"
@@ -661,11 +666,11 @@ export function OrdersPanel({
                       >
                         <td className="px-4 py-2">
                           <div className="truncate font-medium" title={order.name ?? order.orderNumber ?? undefined}>
-                            {order.name ?? order.orderNumber ?? "—"}
+                            {orderLabel}
                           </div>
-                          {order.erpnextInvoiceId && order.erpnextInvoiceId !== order.name && (
-                            <div className="truncate text-xs text-muted-foreground" title={order.erpnextInvoiceId}>
-                              {order.erpnextInvoiceId}
+                          {erpRef && erpRef !== orderLabel && (
+                            <div className="truncate text-xs text-muted-foreground" title={erpRef}>
+                              {erpRef}
                             </div>
                           )}
                           <div className="mt-1 flex flex-wrap gap-1">
@@ -741,17 +746,23 @@ export function OrdersPanel({
                         </td>
                         <td className="hidden lg:table-cell px-4 py-2">
                           <div className="flex flex-col gap-1">
-                            {parseFloat(order.totalPrice) < 0 ? (
-                              <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                Credit Note
+                            {getOrderListFulfillmentStageBadges({
+                              fulfillmentStage: order.fulfillmentStage,
+                              pendingPaymentApproval: order.pendingPaymentApproval,
+                              totalPrice: order.totalPrice,
+                              printCount: order.printCount,
+                              packageReadyAt: order.packageReadyAt,
+                              lastPrintedAt: order.lastPrintedAt,
+                              dispatchedAt: order.dispatchedAt,
+                              revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
+                            }).map((badge) => (
+                              <span
+                                key={badge.key}
+                                className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                              >
+                                {badge.label}
                               </span>
-                            ) : order.fulfillmentStage ? (
-                              <span className={`inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium ${FULFILLMENT_STAGE_COLORS[order.fulfillmentStage] ?? "bg-secondary text-secondary-foreground"}`}>
-                                {FULFILLMENT_STAGE_LABELS[order.fulfillmentStage] ?? order.fulfillmentStage}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
+                            ))}
                             {(() => {
                               const allCodes = Array.isArray(order.discountCodes)
                                 ? (order.discountCodes as Array<{ code?: string }>)
@@ -805,7 +816,8 @@ export function OrdersPanel({
                           </Button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

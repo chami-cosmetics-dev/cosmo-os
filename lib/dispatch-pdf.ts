@@ -70,12 +70,21 @@ function formatPayment(raw: string | null) {
   }
   return raw.replace(/[_-]+/g, " ").toUpperCase();
 }
+
+function dispatchHandlerLabel(type: DispatchGroupForPdf["dispatchType"]) {
+  if (type === "rider") return "Rider";
+  if (type === "courier") return "Courier";
+  return "Handler";
+}
+
 export async function generateDispatchGroupPdf(
   group: DispatchGroupForPdf,
   dateFrom: string,
   dateTo: string,
 ): Promise<Buffer> {
   const dateLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
+
+  const grandTotal = group.orders.reduce((sum, order) => sum + (parseFloat(order.totalPrice) || 0), 0);
 
   const tableBody: unknown[][] = [
     [
@@ -90,18 +99,29 @@ export async function generateDispatchGroupPdf(
       { text: "MERCHANT", style: "th" },
       { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
     ],
-    ...group.orders.map((order, index) => [
-      { text: String(index + 1), style: "td", alignment: "center" },
-      { text: order.locationName, style: "td" },
-      { text: formatDate(order.dispatchedAt), style: "td" },
-      { text: order.erpReference ?? order.reference, style: "td" },
-      { text: formatPayment(order.paymentType), style: "td" },
-      { text: order.city ?? "-", style: "td" },
-      { text: order.address ?? "-", style: "td" },
-      { text: order.customerPhone ?? "-", style: "td" },
-      { text: order.merchantName ?? "-", style: "merchantTd" },
-      { text: formatAmount(order.totalPrice), style: "td", alignment: "right", noWrap: true },
-    ]),
+    ...group.orders.map((order, index) => {
+      const invLines: string[] = [order.reference];
+      if (order.erpReference && order.erpReference !== order.reference) {
+        invLines.push(order.erpReference);
+      }
+      return [
+        { text: String(index + 1), style: "td", alignment: "center" },
+        { text: order.locationName, style: "td" },
+        { text: formatDate(order.dispatchedAt), style: "td" },
+        { text: invLines.join("\n"), style: "td" },
+        { text: formatPayment(order.paymentType), style: "td" },
+        { text: order.city ?? "-", style: "td" },
+        { text: order.address ?? "-", style: "td" },
+        { text: order.customerPhone ?? "-", style: "td" },
+        { text: order.merchantName ?? "-", style: "merchantTd" },
+        { text: formatAmount(order.totalPrice), style: "td", alignment: "right", noWrap: true },
+      ];
+    }),
+    [
+      { text: `TOTAL (${group.orders.length} orders)`, style: "totalLabel", colSpan: 9, alignment: "right", bold: true },
+      {}, {}, {}, {}, {}, {}, {}, {},
+      { text: formatAmount(String(grandTotal)), style: "totalAmount", alignment: "right", bold: true, noWrap: true },
+    ],
   ];
 
   const tableLayout = {
@@ -120,7 +140,28 @@ export async function generateDispatchGroupPdf(
     pageOrientation: "landscape",
     pageMargins: [22, 18, 22, 18],
     content: [
-      { text: "Full Delivery Summary", style: "title", margin: [0, 0, 0, 14] },
+      {
+        columns: [
+          { text: "Full Delivery Summary", style: "title" },
+          {
+            stack: [
+              {
+                text: `${dispatchHandlerLabel(group.dispatchType)}: ${group.dispatcherName}`,
+                style: "headerMeta",
+                alignment: "right",
+              },
+              {
+                text: `Date: ${dateLabel}`,
+                style: "headerMeta",
+                alignment: "right",
+                margin: [0, 2, 0, 0],
+              },
+            ],
+          },
+        ],
+        columnGap: 12,
+        margin: [0, 0, 0, 14],
+      },
       {
         table: {
           headerRows: 1,
@@ -129,15 +170,22 @@ export async function generateDispatchGroupPdf(
         },
         layout: {
           ...tableLayout,
-          fillColor: (i: number) => (i === 0 ? "#eeeeee" : null),
+          fillColor: (i: number) => {
+            if (i === 0) return "#eeeeee";
+            if (i === tableBody.length - 1) return "#f5f5f5";
+            return null;
+          },
         },
       },
     ],
     styles: {
       title: { fontSize: 15, bold: true, color: "#000000" },
+      headerMeta: { fontSize: 9, bold: true, color: "#000000" },
       th: { fontSize: 9, bold: true, color: "#6f6f6f" },
       td: { fontSize: 9, color: "#777777" },
       merchantTd: { fontSize: 8, color: "#777777" },
+      totalLabel: { fontSize: 9, bold: true, color: "#000000" },
+      totalAmount: { fontSize: 10, bold: true, color: "#000000" },
     },
     footer: {
       text: `${dateLabel} | ${group.dispatcherName}`,

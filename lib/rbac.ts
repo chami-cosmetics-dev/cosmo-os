@@ -75,11 +75,35 @@ const DEFAULT_PERMISSIONS = [
   // Contacts
   {
     key: "contacts.read",
-    description: "View contact master list, allocation data, and performance",
+    description: "Legacy broad contact access: view contact master, updates, allocation, and performance",
   },
   {
     key: "contacts.manage",
-    description: "Create, import, backfill, and allocate contacts",
+    description: "Legacy broad contact management: create, import, backfill, update, and allocate contacts",
+  },
+  {
+    key: "contacts.master.read",
+    description: "View Contact Master",
+  },
+  {
+    key: "contacts.master.manage",
+    description: "Create, import, backfill, and edit Contact Master records",
+  },
+  {
+    key: "contacts.updates.read",
+    description: "View Contact Updates",
+  },
+  {
+    key: "contacts.updates.manage",
+    description: "Update contacts and follow-up status from Contact Updates",
+  },
+  {
+    key: "contacts.allocation.read",
+    description: "View Contact Allocation",
+  },
+  {
+    key: "contacts.allocation.manage",
+    description: "Allocate contacts to assigned merchants",
   },
   {
     key: "contacts.allocation.settings",
@@ -92,6 +116,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "orders.manage",
     description: "Retry failed order webhooks and manage order fulfillment",
+  },
+  {
+    key: "orders.cancel",
+    description: "Cancel orders at order received or sample/free issue stage",
   },
   {
     key: "orders.update_payment_method",
@@ -294,7 +322,7 @@ const DEFAULT_PERMISSIONS = [
   // Fulfillment - Delivery & Invoice
   {
     key: "fulfillment.delivery_invoice.read",
-    description: "View delivery & invoice page",
+    description: "View delivery page",
   },
   {
     key: "fulfillment.delivery_invoice.mark_delivered",
@@ -303,6 +331,10 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "fulfillment.delivery_invoice.mark_complete",
     description: "Mark invoice complete",
+  },
+  {
+    key: "fulfillment.invoice_complete.read",
+    description: "View invoice complete page",
   },
   // Fulfillment - Falcon Upload
   {
@@ -399,6 +431,12 @@ const DEFAULT_ROLES = [
       "products.storage.manage",
       "contacts.read",
       "contacts.manage",
+      "contacts.master.read",
+      "contacts.master.manage",
+      "contacts.updates.read",
+      "contacts.updates.manage",
+      "contacts.allocation.read",
+      "contacts.allocation.manage",
       "contacts.allocation.settings",
       "orders.read",
       "orders.manage",
@@ -451,6 +489,7 @@ const DEFAULT_ROLES = [
       "fulfillment.delivery_invoice.read",
       "fulfillment.delivery_invoice.mark_delivered",
       "fulfillment.delivery_invoice.mark_complete",
+      "fulfillment.invoice_complete.read",
       "fulfillment.falcon_upload.read",
       "fulfillment.falcon_upload.export",
       "fulfillment.waybill_lookup.read",
@@ -473,6 +512,8 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.approvals.manage",
       "dashboard.view",
+      "fulfillment.invoice_complete.read",
+      "fulfillment.delivery_invoice.mark_complete",
       "orders.read",
       "orders.update_payment_method",
       "returns.read",
@@ -496,6 +537,9 @@ const DEFAULT_ROLES = [
       "staff.read",
       "roles.read",
       "contacts.read",
+      "contacts.master.read",
+      "contacts.updates.read",
+      "contacts.allocation.read",
       "products.read",
       "academy.learn",
       "products.storage.read",

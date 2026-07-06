@@ -54,8 +54,9 @@ model Company {
   vendors                  Vendor[]
   contacts                 ContactMaster[]
   complaints               Complaint[]
-  shippingChargeOptions    ShippingChargeOption[]
-  kokoCompanies            KokoCompany[]
+  shippingChargeOptions        ShippingChargeOption[]
+  erpWarehouses                CompanyLocationWarehouse[]
+  kokoCompanies                KokoCompany[]
   dashboardBrandConfigs    DashboardBrandConfig[]
   contactAllocationOptions ContactAllocationOption[]
   productItemAssets        ProductItemAsset[]
@@ -63,6 +64,7 @@ model Company {
   // in the allocation panel — drives the dashboard performance analysis chart
   contactAllocationUpdates ContactAllocationUpdate[]
   erpnextInstances         ErpnextInstance[]
+  pickListGroups           PickListGroup[]
 }
 
 model ErpnextInstance {
@@ -261,9 +263,11 @@ model User {
   exchangeCreated                 OrderExchange[]           @relation("OrderExchangeCreatedBy")
   exchangeMerchantAssignments     OrderExchange[]           @relation("OrderExchangeMerchantUser")
   ordersInvoiceCompleteBy         Order[]                   @relation("OrderInvoiceCompleteBy")
+  ordersRevertedFromInvoiceCompleteBy Order[]               @relation("OrderRevertedFromInvoiceCompleteBy")
   ordersLastPrintedBy             Order[]                   @relation("OrderLastPrintedBy")
   ordersPackageReadyBy            Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
+  ordersCancelledBy               Order[]                   @relation("OrderCancelledBy")
   orderRemarksAdded               OrderRemark[]
   orderSampleFreeIssuesAdded      OrderSampleFreeIssue[]
   smsLogs                         SmsLog[]
@@ -291,6 +295,7 @@ model User {
   productItemAssets               ProductItemAsset[]
   // Call center performance tracking: records updates made by this merchant user
   contactAllocationUpdates        ContactAllocationUpdate[]
+  pickListGroupsPrinted           PickListGroup[]         @relation("PickListGroupPrintedBy")
 }
 
 model CosmoAcademyExplanation {
@@ -418,7 +423,8 @@ model CompanyLocation {
   riderCashHandoverItems  RiderCashHandoverItem[]
   stickerBatchItems       StickerBatchItem[]
   smsNotificationConfigs  SmsNotificationConfig[]
-  shippingChargeOptions   ShippingChargeOption[]
+  shippingChargeOptions        ShippingChargeOption[]
+  erpWarehouses                CompanyLocationWarehouse[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
@@ -437,6 +443,19 @@ model ShippingChargeOption {
   companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
 
   @@unique([companyLocationId, label])
+  @@index([companyId, companyLocationId])
+}
+
+model CompanyLocationWarehouse {
+  id                String          @id @default(cuid())
+  companyId         String
+  companyLocationId String
+  warehouse         String
+  createdAt         DateTime        @default(now())
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+
+  @@unique([companyLocationId, warehouse])
   @@index([companyId, companyLocationId])
 }
 
@@ -513,10 +532,15 @@ model Order {
   deliveryCompleteById         String?
   dispatchedById               String?
   invoiceCompleteById          String?
+  revertedFromInvoiceCompleteAt   DateTime?
+  revertedFromInvoiceCompleteById String?
   lastPrintedAt                DateTime?
   lastRiderUpdateAt            DateTime?
   lastPrintedById              String?
   packageReadyById             String?
+  cancelledAt                  DateTime?
+  cancelledById                String?
+  cancelReason                 String?
   assignedMerchant             User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
   company                      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation              CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
@@ -527,10 +551,12 @@ model Order {
   dispatchedBy                 User?                  @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id])
   dispatchedByRider            User?                  @relation("OrderDispatchedByRider", fields: [dispatchedByRiderId], references: [id])
   invoiceCompleteBy            User?                  @relation("OrderInvoiceCompleteBy", fields: [invoiceCompleteById], references: [id])
+  revertedFromInvoiceCompleteBy User?                 @relation("OrderRevertedFromInvoiceCompleteBy", fields: [revertedFromInvoiceCompleteById], references: [id])
   lastPrintedBy                User?                  @relation("OrderLastPrintedBy", fields: [lastPrintedById], references: [id])
   packageHoldReason            PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
   packageReadyBy               User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy    User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
+  cancelledBy                  User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
   lineItems                    OrderLineItem[]
   exchangesAsOriginal          OrderExchange[]        @relation("OrderExchangeOriginalOrder")
   exchangesAsReplacement       OrderExchange[]        @relation("OrderExchangeReplacementOrder")
@@ -541,14 +567,20 @@ model Order {
   approvalRequests             ApprovalRequest[]
   sampleFreeIssues             OrderSampleFreeIssue[]
   waybills                     OrderWaybill[]
+  pickListGroupOrders          PickListGroupOrder[]
 
   erpnextInvoiceId             String?
+  erpnextWarehouse             String?
   erpnextSyncError             String?
   erpnextSyncFailedAt          DateTime?
   erpnextSyncAutoRetryCount    Int                    @default(0)
   erpnextSyncLastAutoRetryAt   DateTime?
   erpnextSyncNextAutoRetryAt   DateTime?
   erpnextSyncRetryLeaseExpiresAt DateTime?
+
+  erpPeSyncError                 String?
+  erpPeSyncFailedAt              DateTime?
+  erpPeSyncMop                   String?
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
@@ -559,6 +591,32 @@ model Order {
   @@index([companyId, customerPhone, createdAt(sort: Desc)])
   @@index([erpnextInvoiceId])
   @@index([companyId, erpnextSyncNextAutoRetryAt])
+}
+
+model PickListGroup {
+  id           String    @id @default(cuid())
+  companyId    String
+  printedById  String
+  createdAt    DateTime  @default(now())
+  downloadedAt DateTime?
+
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  printedBy User                 @relation("PickListGroupPrintedBy", fields: [printedById], references: [id])
+  orders    PickListGroupOrder[]
+
+  @@index([companyId, downloadedAt, createdAt(sort: Desc)])
+}
+
+model PickListGroupOrder {
+  id              String @id @default(cuid())
+  pickListGroupId String
+  orderId         String
+
+  pickListGroup PickListGroup @relation(fields: [pickListGroupId], references: [id], onDelete: Cascade)
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([pickListGroupId, orderId])
+  @@index([orderId])
 }
 
 model OrderWaybill {
@@ -1242,6 +1300,13 @@ model ContactMaster {
   name            String
   lastPurchaseAt  DateTime?
   recentMerchant  String?
+  assignedMerchant String?
+  source          String?
+  country         String?
+  zone            String?
+  area            String?
+  exWebCustomer   Boolean?
+  exOffCustomer   Boolean?
   // CRM profile fields
   remarks         String?
   gender          String?
@@ -1276,6 +1341,11 @@ model ContactMaster {
   @@index([companyId, updatedAt(sort: Desc)])
   @@index([companyId, email])
   @@index([companyId, phoneNumber])
+  @@index([companyId, assignedMerchant])
+  @@index([companyId, source])
+  @@index([companyId, country])
+  @@index([companyId, zone])
+  @@index([companyId, area])
 }
 
 model ContactEmail {

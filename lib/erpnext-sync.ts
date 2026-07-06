@@ -49,7 +49,7 @@ type ErpConfig = {
   shippingChargeAccount: string;
 };
 
-function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
+export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
   return {
     baseUrl: (instance?.baseUrl ?? process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, ""),
     apiKey: instance?.apiKey ?? process.env.ERPNEXT_API_KEY ?? "",
@@ -76,6 +76,28 @@ function authHeaders(cfg: ErpConfig): Record<string, string> {
 
 function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+// ERPNext stores posting_date/posting_time as naive datetimes in Asia/Colombo timezone.
+// Sending UTC time causes NegativeStockError when stock was added earlier the same day
+// (ERPNext sees the SI as posted before the stock entry).
+function toColomboDT(): { date: string; time: string } {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    time: `${get("hour")}:${get("minute")}:${get("second")}`,
+  };
 }
 
 type ShopifyAddress = {
@@ -109,7 +131,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   for (const g of gateways) {
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
-    if (lower.includes("webxpay")) return cfg.webxpayMop || null;
+    if (lower.includes("webxpay") || lower === "cc" || lower === "cc checkout") return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
@@ -117,14 +139,17 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   }
   // Return null for unrecognised gateways — passing an unknown value to ERPNext's
   // custom_payment_type Link field causes a LinkValidationError.
+  if (gateways.length > 0) {
+    console.warn(`[ERPNext] resolveErpPaymentType: no mapping for gateways ${JSON.stringify(gateways)} — custom_payment_type will be omitted`);
+  }
   return null;
 }
 
-/** Mode of payment for prepaid gateways (Koko, WebXPay, bank transfer). */
+/** Mode of payment for prepaid gateways (Koko, WebXPay, cc checkout, bank transfer). */
 function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
-  if (cfg.webxpayMop && lower.some((g) => g.includes("webxpay"))) return cfg.webxpayMop;
+  if (lower.some((g) => g.includes("webxpay") || g === "cc" || g === "cc checkout")) return cfg.webxpayMop || null;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
 }
@@ -215,6 +240,10 @@ type CreateErpSalesInvoiceOpts = {
   couponLabel?: string | null;
   /** Net-rate line items for coupon retry after ERP rejects list-rate + coupon_code. */
   netRateItems?: ErpSalesInvoiceItem[];
+  /** Internal guard: prevents the merchant-coupon retry handler from firing recursively. */
+  skipMerchantRetry?: boolean;
+  /** Internal guard: prevents the custom_payment_type fallback retry from firing recursively. */
+  skipPaymentTypeRetry?: boolean;
 };
 
 function withCouponDiscountFallback(
@@ -299,17 +328,30 @@ async function postErpSalesInvoiceCreate(
         shipping_rule: cfg.shippingRule,
       });
     }
-    if (msg.includes("417") && msg.includes("Merchant Coupon Code")) {
+    if (!opts?.skipPaymentTypeRetry && msg.includes("417") && msg.includes("custom_payment_type") && !siBody.custom_payment_type) {
+      console.warn(`[ERPNext] SI creation failed — custom_payment_type mandatory but unresolved, retrying with codMop fallback: ${msg.slice(0, 200)}`);
+      return postErpSalesInvoiceCreate(cfg, { ...siBody, custom_payment_type: cfg.codMop }, { ...opts, skipPaymentTypeRetry: true });
+    }
+    if (!opts?.skipMerchantRetry && msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
+      const originalMerchant = typeof siBody.custom_merchant_coupon_code === "string" && siBody.custom_merchant_coupon_code !== "SHOPIFY"
+        ? siBody.custom_merchant_coupon_code
+        : null;
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
       const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
+      const retryOpts = { ...opts, skipMerchantRetry: true };
       try {
-        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, opts);
+        return await postErpSalesInvoiceCreate(cfg, withoutMerchant, retryOpts);
       } catch (retryErr) {
+        if (originalMerchant) {
+          // Order has a real merchant — don't replace with SHOPIFY, propagate so it appears in failed sync
+          console.warn(`[ERPNext] SI retry without merchant failed for real merchant "${originalMerchant}" — not falling back to SHOPIFY`);
+          throw retryErr;
+        }
         console.warn("[ERPNext] SI retry without merchant failed — falling back to SHOPIFY Sales Person");
         return postErpSalesInvoiceCreate(cfg, {
           ...withoutMerchant,
           custom_merchant_coupon_code: "SHOPIFY",
-        }, opts);
+        }, retryOpts);
       }
     }
     if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in siBody) {
@@ -339,6 +381,10 @@ async function postErpSalesInvoiceCreate(
       const { taxes_and_charges: _t, ...siBodyClean } = siBody;
       return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", siBodyClean);
     }
+    if (msg.includes("payment_terms") && !("payment_terms_template" in siBody)) {
+      console.warn("[ERPNext] SI creation failed — payment_terms error (customer has broken template), retrying with cleared payment_terms_template:", msg.slice(0, 200));
+      return postErpSalesInvoiceCreate(cfg, { ...siBody, payment_terms_template: "" }, opts);
+    }
     throw err;
   }
 }
@@ -354,17 +400,17 @@ async function createErpSalesInvoice(
   if (submitNow && couponCode) {
     console.log(`[ERPNext] Creating draft Sales Invoice with coupon ${couponCode} before submit`);
     try {
+      // siBody already includes coupon_code and discount_amount. We skip the extra PUT save here
+      // because PUT triggers ERP's validate/calculate_taxes_and_totals hook which overrides
+      // discount_amount to 0. API creation (POST) does not fire pricing rules, so values from
+      // siBody are preserved. ensureErpSalesInvoiceCouponLabels sets coupon labels post-submit.
       const draft = await postErpSalesInvoiceCreate(cfg, { ...siBody, docstatus: 0 }, opts);
-      await erpnextSaveSalesInvoice(cfg, draft.name, {
-        coupon_code: couponCode,
-        custom_coupon_code: couponCode,
-      });
-      const draftCheck = await erpnextGet<{ coupon_code?: string | null }>(
+      const draftCheck = await erpnextGet<{ coupon_code?: string | null; discount_amount?: number | null }>(
         cfg,
-        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code"]))}`,
+        `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code", "discount_amount"]))}`,
       );
       console.log(
-        `[ERPNext] Draft ${draft.name} coupon_code before submit: ${draftCheck?.coupon_code?.trim() || "(empty)"}`,
+        `[ERPNext] Draft ${draft.name} before submit: coupon_code=${draftCheck?.coupon_code?.trim() || "(empty)"}, discount_amount=${draftCheck?.discount_amount ?? 0}`,
       );
       await erpnextSubmitSalesInvoice(cfg, draft.name);
       const submitted = await erpnextGet<{
@@ -401,6 +447,8 @@ async function buildErpSalesInvoiceCouponFields(
     discountCodes: unknown;
     rawPayload?: unknown;
     assignedMerchantCouponCodes?: string[] | null;
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
   },
 ): Promise<{ fields: Record<string, string>; discountCodeLabel: string | null }> {
   const resolved = await resolveErpSalesInvoiceCouponFields(cfg, params);
@@ -679,6 +727,27 @@ function detectDeliveryMop(
   return null;
 }
 
+/** Resolve ERP Mode of Payment from Vault order payment gateways (invoice-complete default). */
+export function resolveOrderPaymentMop(
+  cfg: ErpConfig,
+  paymentGatewayPrimary: string | null,
+  paymentGatewayNames: string[],
+): string | null {
+  const gateways = [paymentGatewayPrimary, ...paymentGatewayNames].filter(Boolean) as string[];
+  return (
+    detectDeliveryMop(cfg, paymentGatewayPrimary, paymentGatewayNames) ??
+    resolvePrepaidMop(cfg, gateways) ??
+    resolveErpPaymentType(cfg, gateways)
+  );
+}
+
+export type CreateDeliveryPaymentEntryOptions = {
+  /** Explicit ERP Mode of Payment name (finance invoice-complete / PE retry). */
+  mopNameOverride?: string;
+  /** When true, throw if no MOP can be resolved (invoice complete / explicit retry). */
+  requireMop?: boolean;
+};
+
 export async function createDeliveryPaymentEntry(
   order: {
     name: string | null;
@@ -689,19 +758,38 @@ export async function createDeliveryPaymentEntry(
   },
   location: LocationWithErpInstance,
   completedAt: Date,
+  options?: CreateDeliveryPaymentEntryOptions,
 ): Promise<void> {
   const cfg = getErpConfig(location.erpnextInstance);
-  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
-  if (!location.erpnextCompany) return;
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    if (options?.mopNameOverride) {
+      throw new Error("ERPNext credentials are not configured for this location");
+    }
+    return;
+  }
+  if (!location.erpnextCompany) {
+    if (options?.mopNameOverride) {
+      throw new Error("ERPNext company is not configured for this location");
+    }
+    return;
+  }
 
   const isErpOrder = order.sourceName?.startsWith("erpnext") ?? false;
 
-  // For ERP2 delivery orders there are no Shopify payment gateways — fall back to codMop
-  let mopName = detectDeliveryMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
-  if (!mopName && isErpOrder) {
-    mopName = cfg.codMop || null;
+  let mopName: string | null = options?.mopNameOverride?.trim() || null;
+  if (!mopName) {
+    mopName = resolveOrderPaymentMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+    if (!mopName && isErpOrder) {
+      mopName = cfg.codMop || null;
+    }
   }
   if (!mopName) {
+    if (options?.mopNameOverride) {
+      throw new Error(`ERPNext Mode of Payment "${options.mopNameOverride}" is not configured`);
+    }
+    if (options?.requireMop) {
+      throw new Error("No ERP payment mode matched for this order's payment method");
+    }
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
     return;
   }
@@ -786,6 +874,110 @@ export async function createDeliveryPaymentEntry(
   });
 
   console.log(`[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName})`);
+}
+
+/**
+ * Create a credit note (return Sales Invoice) in ERPNext for an order whose
+ * invoice_complete was reverted by a finance user. Non-fatal — caller must catch.
+ */
+export async function createErpnextCreditNote(
+  order: { id: string; name: string | null; orderNumber: string | null; erpnextInvoiceId?: string | null },
+  location: LocationWithErpInstance,
+): Promise<{ creditNoteName: string }> {
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    throw new Error("[ERPNext] createErpnextCreditNote: ERP credentials not configured");
+  }
+  if (!location.erpnextCompany) {
+    throw new Error("[ERPNext] createErpnextCreditNote: location has no erpnextCompany");
+  }
+
+  const orderName = order.name ?? order.orderNumber;
+  if (!orderName) throw new Error("[ERPNext] createErpnextCreditNote: order has no name");
+
+  // For ERP-native orders (erpnextInvoiceId set), the SI name IS the invoice id — fetch directly.
+  // For Shopify-sourced orders, find the SI by po_no (Shopify order name stored there).
+  let originalSiName: string;
+  if (order.erpnextInvoiceId) {
+    originalSiName = order.erpnextInvoiceId;
+  } else {
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderName],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name"]),
+    );
+    const list = await erpnextGet<Array<{ name: string }>>(
+      cfg,
+      `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
+    );
+    if (!list || list.length === 0) {
+      throw new Error(`[ERPNext] createErpnextCreditNote: no submitted SI found for po_no="${orderName}"`);
+    }
+    originalSiName = list[0].name;
+  }
+
+  // Fetch full SI document to get items, debit_to, and any custom mandatory fields
+  const originalSi = await erpnextGet<{
+    name: string;
+    customer: string;
+    debit_to: string;
+    grand_total: number;
+    custom_payment_type?: string | null;
+    custom_merchant_coupon_code?: string | null;
+    items: Array<{
+      item_code: string;
+      item_name?: string;
+      description?: string;
+      qty: number;
+      rate: number;
+      income_account?: string;
+      cost_center?: string;
+      uom?: string;
+    }>;
+  }>(cfg, `/api/resource/Sales Invoice/${encodeURIComponent(originalSiName)}`);
+
+  if (!originalSi) {
+    throw new Error(`[ERPNext] createErpnextCreditNote: could not fetch SI "${originalSiName}"`);
+  }
+
+  const today = toDateStr(new Date());
+  const returnItems = originalSi.items.map((item) => ({
+    item_code: item.item_code,
+    item_name: item.item_name,
+    description: item.description,
+    qty: -Math.abs(item.qty),
+    rate: item.rate,
+    income_account: item.income_account,
+    cost_center: item.cost_center,
+    uom: item.uom,
+  }));
+
+  const creditNote = await erpnextPost<{ name: string }>(cfg, "/api/resource/Sales Invoice", {
+    doctype: "Sales Invoice",
+    is_return: 1,
+    return_against: originalSiName,
+    company: location.erpnextCompany,
+    customer: originalSi.customer,
+    debit_to: originalSi.debit_to,
+    posting_date: today,
+    po_no: orderName,
+    items: returnItems,
+    docstatus: 1,
+    // Pass through custom mandatory fields from the original SI (e.g. Cosmetics.lk requires these)
+    ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
+    ...(originalSi.custom_merchant_coupon_code ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code } : {}),
+  });
+
+  console.log(
+    `[ERPNext] Credit note ${creditNote.name} created against ${originalSiName} for order ${orderName}`,
+  );
+
+  return { creditNoteName: creditNote.name };
 }
 
 export async function cancelErpnextSalesInvoice(
@@ -918,6 +1110,7 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   order: {
     name: string | null;
     shopifyOrderId: string;
+    erpnextInvoiceId?: string | null;
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
     financialStatus: string | null;
@@ -936,27 +1129,44 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   const mopName = resolvePrepaidMop(cfg, gateways);
   if (!mopName) return;
 
-  const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
-  const filters = encodeURIComponent(
-    JSON.stringify([
-      ["po_no", "=", orderPoNo],
-      ["company", "=", location.erpnextCompany],
-      ["docstatus", "=", "1"],
-    ]),
-  );
-  const fields = encodeURIComponent(
-    JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-  );
-  const list = await erpnextGet<
-    Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
-  >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+  // For ERP-native orders the SI name IS the erpnextInvoiceId — fetch it directly.
+  // For Shopify-synced orders fall back to po_no lookup (SI was created with po_no set).
+  const erpId = order.erpnextInvoiceId?.trim();
+  const directSiName =
+    erpId && erpId !== "pending" && erpId !== "pending_approval"
+      ? erpId
+      : null;
 
-  if (!list || list.length === 0) {
-    console.warn(`[ERPNext] No Sales Invoice found for po_no="${orderPoNo}" — skipping finance-approved PE`);
+  let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
+
+  if (directSiName) {
+    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(directSiName)}`,
+    ) ?? null;
+  } else {
+    const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
+    const filters = encodeURIComponent(
+      JSON.stringify([
+        ["po_no", "=", orderPoNo],
+        ["company", "=", location.erpnextCompany],
+        ["docstatus", "=", "1"],
+      ]),
+    );
+    const fields = encodeURIComponent(
+      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
+    );
+    const list = await erpnextGet<
+      Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
+    >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+    invoice = list?.[0] ?? null;
+  }
+
+  if (!invoice) {
+    console.warn(`[ERPNext] No Sales Invoice found for order "${order.name ?? order.shopifyOrderId}" — skipping finance-approved PE`);
     return;
   }
 
-  const invoice = list[0];
   if (invoice.outstanding_amount <= 0) {
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping finance-approved PE`);
     return;
@@ -1082,7 +1292,10 @@ export async function syncOrderToERPNext(
   // Map Shopify payment gateways to ERPNext mode-of-payment name
   const erpPaymentType = resolveErpPaymentType(cfg, shopifyData.payment_gateway_names ?? []);
 
-  const dateStr = toDateStr(order.createdAt);
+  // Use today's date + current time in Colombo timezone for posting_date/posting_time.
+  // ERPNext treats these as naive Colombo datetimes. Sending UTC time causes NegativeStockError
+  // when stock was added earlier the same day (UTC time < Colombo time of stock entry).
+  const { date: dateStr, time: postingTime } = toColomboDT();
 
   const shopifyShippingAmt = resolveOrderShippingAmountForErp({
     discountCodes: shopifyData.discount_codes,
@@ -1098,18 +1311,18 @@ export async function syncOrderToERPNext(
     sourceName: order.sourceName,
     discountCodes: shopifyData.discount_codes,
     rawPayload: shopifyData,
+    paymentGatewayNames: shopifyData.payment_gateway_names ?? [],
   });
   const erpCouponFields = erpCouponResolved.fields;
   const useCouponPricing = !!erpCouponFields.coupon_code;
 
   const netSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "net");
   const listSiItems = buildErpItemsFromShopifyLineItems(lineItems, location.erpnextWarehouse, "list");
-  const couponSiItems = buildErpItemsFromShopifyLineItems(
-    lineItems,
-    location.erpnextWarehouse,
-    "erp_price_list",
-  );
-  const siItems = useCouponPricing ? [...couponSiItems] : [...netSiItems];
+  // When a coupon is found in ERP we send items at Shopify list (pre-discount) rates and apply
+  // discount_amount explicitly. ERP's coupon pricing rules don't fire during API-based SI creation
+  // (they require client-side UI triggers), so relying on erp_price_list mode + coupon_code alone
+  // leaves the SI at full price. discount_amount at header level is the reliable path.
+  const siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
   const netRateItems = [...netSiItems];
 
   if (useShippingItem) {
@@ -1125,9 +1338,9 @@ export async function syncOrderToERPNext(
   }
 
   const vaultTotal = parseFloat(order.totalPrice.toString());
-  const productItems = useCouponPricing ? listSiItems : netSiItems;
+  // siItems already holds the right base rates (list for coupon orders, net for others).
   const itemsTotal =
-    sumErpInvoiceItemsTotal(productItems) +
+    sumErpInvoiceItemsTotal(siItems) +
     (useShippingTaxRow || useShippingItem ? shopifyShippingAmt : 0);
   const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
@@ -1139,6 +1352,7 @@ export async function syncOrderToERPNext(
     company: location.erpnextCompany,
     customer: erpCustomerName,
     posting_date: dateStr,
+    posting_time: postingTime,
     po_no: orderPoNo,
     update_stock: 1,
     set_warehouse: location.erpnextWarehouse,
@@ -1179,8 +1393,9 @@ export async function syncOrderToERPNext(
       : cfg.taxesAndCharges
         ? { taxes_and_charges: cfg.taxesAndCharges }
         : { taxes: [] }),
-    // ERP Coupon Code pricing rules already reduce line rates; header discount_amount would double-apply.
-    ...(discountAmt > 0 && !erpCouponFields.coupon_code
+    // Apply Shopify-calculated discount as header discount_amount whenever there's a gap between
+    // the Shopify-charged total and the sum of item rates (covers both coupon and non-coupon orders).
+    ...(discountAmt > 0
       ? { discount_amount: discountAmt, apply_discount_on: "Net Total" }
       : {}),
   };
@@ -1204,9 +1419,10 @@ export async function syncOrderToERPNext(
   console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);
 
   if (order.financialStatus === "paid") {
+    let peAttemptedMop: string | null = null;
     try {
-      const prepaidMop = resolvePrepaidMop(cfg, shopifyData.payment_gateway_names ?? []);
-      if (prepaidMop) {
+      peAttemptedMop = resolvePrepaidMop(cfg, shopifyData.payment_gateway_names ?? []);
+      if (peAttemptedMop) {
         await createPrepaidPaymentEntry(
           cfg,
           si.name,
@@ -1215,11 +1431,20 @@ export async function syncOrderToERPNext(
           si.debit_to,
           si.grand_total,
           dateStr,
-          prepaidMop,
+          peAttemptedMop,
         );
       }
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          erpPeSyncError: errMsg.slice(0, 10_000),
+          erpPeSyncFailedAt: new Date(),
+          erpPeSyncMop: peAttemptedMop?.slice(0, 200) ?? null,
+        },
+      }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
     }
   }
 }
@@ -1314,7 +1539,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     .filter((g): g is string => typeof g === "string" && g.length > 0);
   const erpPaymentType = resolveErpPaymentType(cfg, allGateways);
 
-  const dateStr = toDateStr(order.createdAt);
+  const { date: dateStr, time: postingTime } = toColomboDT();
 
   const siItems: Array<{ item_code: string; item_name?: string; qty: number; rate: number; warehouse: string }> = lineItems.map((li) => ({
     item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
@@ -1346,6 +1571,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     sourceName: order.sourceName,
     discountCodes: order.discountCodes,
     rawPayload: order.rawPayload,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
   });
   const erpCouponFields = erpCouponResolved.fields;
 
@@ -1354,6 +1581,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     company: erpnextCompany,
     customer: erpCustomerName,
     posting_date: dateStr,
+    posting_time: postingTime,
     po_no: orderPoNo,
     update_stock: 1,
     set_warehouse: erpnextWarehouse,
@@ -1396,9 +1624,10 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
 
   if (order.financialStatus === "paid") {
+    let peAttemptedMop: string | null = null;
     try {
-      const prepaidMop = resolvePrepaidMop(cfg, allGateways);
-      if (prepaidMop) {
+      peAttemptedMop = resolvePrepaidMop(cfg, allGateways);
+      if (peAttemptedMop) {
         await createPrepaidPaymentEntry(
           cfg,
           si.name,
@@ -1407,11 +1636,20 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
           si.debit_to,
           si.grand_total,
           dateStr,
-          prepaidMop,
+          peAttemptedMop,
         );
       }
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          erpPeSyncError: errMsg.slice(0, 10_000),
+          erpPeSyncFailedAt: new Date(),
+          erpPeSyncMop: peAttemptedMop?.slice(0, 200) ?? null,
+        },
+      }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
     }
   }
 }

@@ -3,13 +3,13 @@ import { BookUser, ChevronLeft } from "lucide-react";
 
 import { ContactAllocationOptionsSettingsForm } from "@/components/molecules/contact-allocation-options-settings-form";
 import { Button } from "@/components/ui/button";
-import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
+import { hasPermission, requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContactAllocationSettingsPage() {
-  const context = await getCurrentUserContext();
-  const canEdit = context ? hasPermission(context, "settings.company") : false;
+  const auth = await requirePermission("contacts.allocation.settings");
+  const canEdit = hasPermission(auth.context!, "contacts.allocation.settings");
 
   return (
     <div className="space-y-6">

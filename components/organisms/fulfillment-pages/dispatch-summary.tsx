@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { CalendarDays, CheckCircle2, Clock, Download, Loader2, Package, RefreshCw, Truck, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,10 +15,6 @@ import { Input } from "@/components/ui/input";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { formatOrderShippingDetail } from "@/lib/order-shipping-display";
 import { notify } from "@/lib/notify";
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function formatPaymentType(raw: string | null) {
   if (!raw) return "—";
@@ -52,10 +47,6 @@ function formatDate(iso: string | null) {
   return Number.isNaN(d.getTime())
     ? "—"
     : d.toLocaleString("en-LK", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function formatRangeLabel(from: string, to: string) {
-  return from === to ? from : `${from} to ${to}`;
 }
 
 function orderStatusLabel(
@@ -143,15 +134,9 @@ type SummaryData = {
 } | null;
 
 export function DispatchSummaryPage() {
-  const searchParams = useSearchParams();
   const dateRef = useRef<HTMLInputElement | null>(null);
-  const initialStatus =
-    searchParams.get("status") === "completed" ? "completed" : "pending";
-  const initialDateFrom = searchParams.get("dateFrom") || todayIso();
-  const initialDateTo = searchParams.get("dateTo") || initialDateFrom;
-  const [status, setStatus] = useState<"pending" | "completed">(initialStatus);
-  const [dateFrom, setDateFrom] = useState(initialDateFrom);
-  const [dateTo, setDateTo] = useState(initialDateTo);
+  const [status, setStatus] = useState<"pending" | "completed">("pending");
+  const [date, setDate] = useState("");
   const [data, setData] = useState<SummaryData>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -193,7 +178,8 @@ export function DispatchSummaryPage() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ status, dateFrom, dateTo });
+        const params = new URLSearchParams({ status });
+        if (date) params.set("dateFrom", date);
         const res = await fetch(`/api/admin/fulfillment/dispatch-summary?${params}`, {
           signal: controller.signal,
         });
@@ -207,15 +193,15 @@ export function DispatchSummaryPage() {
       }
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
-  }, [status, dateFrom, dateTo, refreshTick]);
+  }, [status, date, refreshTick]);
 
   function buildDownloadBody() {
-    return { status, dateFrom, dateTo };
+    return date ? { status, dateFrom: date } : { status };
   }
 
   function fileSuffix() {
-    const suffix = dateFrom === dateTo ? dateFrom : `${dateFrom}-to-${dateTo}`;
-    return status === "pending" ? `pending-${suffix}` : suffix;
+    if (!date) return status === "pending" ? "pending-all" : "all";
+    return status === "pending" ? `pending-${date}` : date;
   }
 
   async function triggerDownload(format: "pdf" | "csv") {
@@ -267,8 +253,8 @@ export function DispatchSummaryPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Dispatch Summary</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {isCompleted
-              ? "Completed deliveries for the selected date, grouped by rider, courier, and customer pickup."
-              : "Outstanding dispatches for the selected date, grouped by rider and courier."}
+              ? "Completed deliveries grouped by rider, courier, and customer pickup. Optionally filter by dispatch date."
+              : "All outstanding dispatches (riders, couriers, and pickup) grouped by handler. Optionally filter by dispatch date."}
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -285,29 +271,30 @@ export function DispatchSummaryPage() {
           </div>
 
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">From date</span>
-            <div className="relative">
+            <span className="font-medium text-muted-foreground">Date (optional)</span>
+            <div className="relative flex items-center gap-1">
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 ref={dateRef}
                 type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
                 onClick={() => dateRef.current?.showPicker?.()}
                 onFocus={() => dateRef.current?.showPicker?.()}
                 className="h-10 min-w-44 pl-9"
               />
+              {date ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 shrink-0 px-2 text-muted-foreground"
+                  onClick={() => setDate("")}
+                >
+                  All
+                </Button>
+              ) : null}
             </div>
-          </label>
-
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-muted-foreground">To date</span>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="h-10 min-w-44"
-            />
           </label>
 
           <Button
@@ -368,8 +355,12 @@ export function DispatchSummaryPage() {
           {data.groups.length === 0 ? (
             <p className="rounded-md border border-border/70 px-4 py-8 text-center text-sm text-muted-foreground">
               {isCompleted
-                ? `No completed deliveries found for ${formatRangeLabel(dateFrom, dateTo)}.`
-                : `No pending dispatches found for ${formatRangeLabel(dateFrom, dateTo)}.`}
+                ? date
+                  ? `No completed deliveries found for ${date}.`
+                  : "No completed deliveries found."
+                : date
+                  ? `No pending dispatches found for ${date}.`
+                  : "No pending dispatches found."}
             </p>
           ) : (
             <div className="space-y-4">

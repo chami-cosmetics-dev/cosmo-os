@@ -3,9 +3,14 @@ import type { Prisma } from "@prisma/client";
 /** Exclude orders blocked because ERP sync failed with out-of-stock. */
 export const excludeErpOutOfStockBlockedOrdersWhere = {
   NOT: {
-    OR: [
-      { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
-      { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+    AND: [
+      { erpnextSyncError: { not: null } },
+      {
+        OR: [
+          { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
+          { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+        ],
+      },
     ],
   },
 } satisfies Prisma.OrderWhereInput;
@@ -23,10 +28,17 @@ export const activeFulfillmentStageWhere = {
   fulfillmentStage: { notIn: [...TERMINAL_FULFILLMENT_STAGES] },
 } satisfies Prisma.OrderWhereInput;
 
-/** Sample / reminder queues — also hide Shopify-marked fulfilled orders still in early stages. */
+/** Sample / reminder queues — hide Shopify-fulfilled unless status is unknown (null). */
 export const activeFulfillmentPipelineWhere = {
   ...activeFulfillmentStageWhere,
-  fulfillmentStatus: { not: "fulfilled" },
+  AND: [
+    {
+      OR: [
+        { fulfillmentStatus: null },
+        { fulfillmentStatus: { not: "fulfilled" } },
+      ],
+    },
+  ],
 } satisfies Prisma.OrderWhereInput;
 
 /** Active fulfillment queues — also block ERP out-of-stock sync failures. */
@@ -34,6 +46,21 @@ export const fulfillableOrderPipelineWhere = {
   ...activeFulfillmentPipelineWhere,
   ...excludeErpOutOfStockBlockedOrdersWhere,
 } satisfies Prisma.OrderWhereInput;
+
+/**
+ * Vault-stage queues (sample, print) — terminal stages + ERP OOS only.
+ * Vault fulfillment stage is the source of truth; do not filter on Shopify fulfillmentStatus.
+ */
+export const vaultFulfillmentPipelineWhere = {
+  ...activeFulfillmentStageWhere,
+  ...excludeErpOutOfStockBlockedOrdersWhere,
+} satisfies Prisma.OrderWhereInput;
+
+/** @deprecated Use vaultFulfillmentPipelineWhere */
+export const sampleFulfillmentPipelineWhere = vaultFulfillmentPipelineWhere;
+
+/** Print queue — same Vault-stage pipeline as sample (no Shopify fulfilled filter). */
+export const printFulfillmentPipelineWhere = vaultFulfillmentPipelineWhere;
 
 const PRE_DISPATCH_STAGES = [
   "order_received",
@@ -80,6 +107,7 @@ export function isDeliveryFulfillmentStages(stages: string[]): boolean {
 
 /**
  * Dispatch list — printed orders waiting to ship, plus unprinted orders already at dispatch stages.
+ * ERP orders at "print" only appear here after being printed (printCount > 0, covered by condition 1).
  */
 export const dispatchStageOrWhere = {
   OR: [
@@ -93,7 +121,7 @@ export const dispatchStageOrWhere = {
     },
     {
       sourceName: "erpnext",
-      fulfillmentStage: { in: ["order_received", "print", "ready_to_dispatch"] },
+      fulfillmentStage: { in: ["order_received", "ready_to_dispatch"] },
     },
   ],
 } satisfies Prisma.OrderWhereInput;
@@ -119,7 +147,7 @@ export const dispatchQueueWhere = {
 
 /** Sample / free-issue queue — still waiting for merchant samples. */
 export const sampleQueueWhere = {
-  ...fulfillableOrderPipelineWhere,
+  ...sampleFulfillmentPipelineWhere,
   sampleFreeIssueCompleteAt: null,
   dispatchedAt: null,
   deliveryCompleteAt: null,

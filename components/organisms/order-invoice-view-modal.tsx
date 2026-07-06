@@ -46,6 +46,10 @@ import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
 } from "@/lib/return-remark-templates";
+import {
+  isPackageReadyMilestoneComplete,
+  resolvePackageReadyMilestoneDate,
+} from "@/lib/fulfillment-stage-display";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -112,6 +116,7 @@ type OrderDetail = {
   shopifyAdminOrderUrl: string | null;
   erpAdminInvoiceUrl?: string | null;
   fulfillmentStage?: string;
+  fulfillmentStageEnteredAt?: string | null;
   printCount?: number;
   packageReadyAt?: string | null;
   packageReadyBy?: UserRef;
@@ -228,10 +233,6 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
-function isErpOrderSource(sourceName: string): boolean {
-  return sourceName === "erpnext" || sourceName === "erpnext-pos";
-}
-
 function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
   if (!fulfillmentStage) return false;
   const printIdx = FULFILLMENT_STAGE_ORDER.indexOf("print");
@@ -242,11 +243,38 @@ function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
   return fulfillmentStage === "returned";
 }
 
-function erpOrderSkippedSampleStage(orderDetail: OrderDetail): boolean {
-  return (
-    isErpOrderSource(orderDetail.sourceName) &&
-    isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage)
-  );
+function approvedPaymentApproval(orderDetail: OrderDetail) {
+  return orderDetail.paymentApproval?.status === "approved" ? orderDetail.paymentApproval : null;
+}
+
+/** Sample step done: items added, explicitly completed, or order advanced to print (ERP / finance-approved). */
+function isSampleStageComplete(orderDetail: OrderDetail): boolean {
+  if ((orderDetail.sampleFreeIssues ?? []).length > 0) return true;
+  if (orderDetail.sampleFreeIssueCompleteAt || orderDetail.sampleFreeIssueCompleteBy) return true;
+  return isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage);
+}
+
+function sampleStageCompletionMeta(orderDetail: OrderDetail) {
+  const approval = approvedPaymentApproval(orderDetail);
+  const autoCompleted =
+    isSampleStageComplete(orderDetail) &&
+    (orderDetail.sampleFreeIssues ?? []).length === 0 &&
+    !orderDetail.sampleFreeIssueCompleteAt;
+
+  return {
+    date:
+      orderDetail.sampleFreeIssueCompleteAt ??
+      approval?.reviewedAt ??
+      (isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage)
+        ? orderDetail.fulfillmentStageEnteredAt ?? null
+        : null),
+    who: orderDetail.sampleFreeIssueCompleteBy
+      ? userName(orderDetail.sampleFreeIssueCompleteBy)
+      : approval?.reviewedBy
+        ? userName(approval.reviewedBy)
+        : "-",
+    detail: autoCompleted && approval ? "Completed on finance approval" : undefined,
+  };
 }
 
 function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
@@ -286,7 +314,12 @@ type TimelineItem = {
   onHold?: boolean;
 };
 
+function isPosOrder(sourceName: string) {
+  return sourceName === "pos" || sourceName === "erpnext-pos";
+}
+
 function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => string): TimelineItem[] {
+  const isPos = isPosOrder(orderDetail.sourceName);
   const items: TimelineItem[] = [];
 
   // 1. Order received (always)
@@ -332,24 +365,16 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
       icon: <Package className="size-4" />,
       detail: [itemsList, addedByLine].filter(Boolean).join(" | "),
     });
-  } else if (orderDetail.sampleFreeIssueCompleteAt || orderDetail.sampleFreeIssueCompleteBy) {
-    // Stage completed without adding samples (Finish Samples & Extras clicked)
+  } else if (isSampleStageComplete(orderDetail)) {
+    const completion = sampleStageCompletionMeta(orderDetail);
     items.push({
       id: "sample_free_issue",
       label: "Sample / Free Issue",
-      date: orderDetail.sampleFreeIssueCompleteAt ?? null,
-      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
+      date: completion.date,
+      who: completion.who,
       done: true,
       icon: <Package className="size-4" />,
-    });
-  } else if (erpOrderSkippedSampleStage(orderDetail)) {
-    items.push({
-      id: "sample_free_issue",
-      label: "Sample / Free Issue",
-      date: orderDetail.sampleFreeIssueCompleteAt ?? orderDetail.createdAt,
-      who: orderDetail.sampleFreeIssueCompleteBy ? userName(orderDetail.sampleFreeIssueCompleteBy) : "-",
-      done: true,
-      icon: <Package className="size-4" />,
+      detail: completion.detail,
     });
   } else {
     items.push({
@@ -364,24 +389,62 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
 
   // 3. Print
   const printed = (orderDetail.printCount ?? 0) > 0;
+  const reachedPrintQueue = isFulfillmentAtOrPastPrint(orderDetail.fulfillmentStage);
   items.push({
     id: "print",
-    label: "Print",
-    date: orderDetail.lastPrintedAt ?? null,
+    label: printed ? "Printed" : "Print",
+    date:
+      orderDetail.lastPrintedAt ??
+      (reachedPrintQueue && !printed ? orderDetail.fulfillmentStageEnteredAt ?? null : null),
     who: orderDetail.lastPrintedBy ? userName(orderDetail.lastPrintedBy) : "-",
-    done: printed,
+    done: printed || reachedPrintQueue,
     icon: <Printer className="size-4" />,
-    detail: printed ? `Printed ${orderDetail.printCount} time(s)` : undefined,
+    detail: printed
+      ? orderDetail.printCount === 1
+        ? undefined
+        : `Printed ${orderDetail.printCount} times`
+      : reachedPrintQueue && !printed
+        ? "In print queue"
+        : undefined,
   });
 
-  // 4. Package Ready
+  if (isPos) {
+    // POS orders are completed in-store — no dispatch/delivery/invoice steps apply.
+    items.push({
+      id: "completed_at_pos",
+      label: "Completed at Store",
+      date: orderDetail.fulfillmentStageEnteredAt ?? null,
+      who: "-",
+      done: true,
+      icon: <Check className="size-4" />,
+    });
+    return items;
+  }
+
+  // 4. Package Ready — only after manual mark or dispatch (not auto on print)
   const onHold = !!orderDetail.packageOnHoldAt;
-  const packageReady = !!orderDetail.packageReadyAt;
+  const packageReady = isPackageReadyMilestoneComplete({
+    packageReadyAt: orderDetail.packageReadyAt,
+    lastPrintedAt: orderDetail.lastPrintedAt,
+    dispatchedAt: orderDetail.dispatchedAt,
+    packageOnHoldAt: orderDetail.packageOnHoldAt,
+  });
   items.push({
     id: "package_ready",
     label: "Package Ready",
-    date: orderDetail.packageReadyAt ?? orderDetail.packageOnHoldAt ?? null,
-    who: orderDetail.packageReadyBy ? userName(orderDetail.packageReadyBy) : "-",
+    date: packageReady
+      ? resolvePackageReadyMilestoneDate({
+          packageReadyAt: orderDetail.packageReadyAt,
+          lastPrintedAt: orderDetail.lastPrintedAt,
+          dispatchedAt: orderDetail.dispatchedAt,
+          packageOnHoldAt: orderDetail.packageOnHoldAt,
+        })
+      : orderDetail.packageOnHoldAt ?? null,
+    who: packageReady && orderDetail.packageReadyBy
+      ? userName(orderDetail.packageReadyBy)
+      : packageReady && orderDetail.dispatchedAt
+        ? userName(orderDetail.dispatchedBy ?? null)
+        : "-",
     done: packageReady || onHold,
     icon: onHold ? <AlertTriangle className="size-4" /> : <Package className="size-4" />,
     detail: onHold ? `On hold: ${orderDetail.packageHoldReason?.name ?? "-"}` : undefined,
@@ -396,7 +459,9 @@ function buildTimeline(orderDetail: OrderDetail, formatDate: (v: string) => stri
     label: "Dispatched",
     date: orderDetail.dispatchedAt ?? null,
     who: dispatched
-      ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${dispatchTarget}`
+      ? dispatchTarget !== "—"
+        ? `${userName(orderDetail.dispatchedBy ?? null)} -> ${dispatchTarget}`
+        : userName(orderDetail.dispatchedBy ?? null) ?? "-"
       : "-",
     done: dispatched,
     icon: <Truck className="size-4" />,
@@ -601,12 +666,16 @@ export function OrderInvoiceViewModal({
           remarkTemplate: revertRemarkTemplate,
         }),
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
+      const data = (await res.json()) as { success?: boolean; error?: string; erpCreditNoteFailed?: boolean; erpCreditNoteError?: string };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to revert stage");
         return;
       }
-      notify.success("Order reverted.");
+      if (data.erpCreditNoteFailed) {
+        notify.error(`Order reverted but ERP credit note could not be created. Create it manually in ERPNext. (${data.erpCreditNoteError ?? "unknown error"})`);
+      } else {
+        notify.success("Order reverted.");
+      }
       setConfirmRevertStage(null);
       setRevertReason("");
       onRefresh?.();
@@ -886,7 +955,12 @@ export function OrderInvoiceViewModal({
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => handleRevertClick(targetDbStage, item.label)}
+                                onClick={() =>
+                                  handleRevertClick(
+                                    targetDbStage,
+                                    item.id === "print" ? "Print" : item.label,
+                                  )
+                                }
                                 disabled={revertingToStage !== null}
                               >
                                 {isReverting ? (

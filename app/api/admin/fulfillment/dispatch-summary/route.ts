@@ -17,6 +17,17 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function printedDateIso() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 function parseDateRange(from: string | null, to: string | null) {
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!from || !re.test(from)) return null;
@@ -31,8 +42,11 @@ function parseDateRange(from: string | null, to: string | null) {
   };
 }
 
-function resolveDateRange(from: string | null, to: string | null): DateRange {
-  const parsed = parseDateRange(from ?? todayIso(), to ?? from ?? todayIso());
+function resolveDateRange(from: string | null, to: string | null): DateRange | null {
+  const fromTrimmed = from?.trim() ?? "";
+  if (!fromTrimmed) return null;
+
+  const parsed = parseDateRange(fromTrimmed, to?.trim() || fromTrimmed);
   if (parsed) return parsed;
 
   const today = todayIso();
@@ -43,6 +57,19 @@ function resolveDateRange(from: string | null, to: string | null): DateRange {
     dateFrom: today,
     dateTo: today,
   };
+}
+
+function dispatchSummaryFileSuffix(
+  status: "pending" | "completed",
+  range: DateRange | null,
+): string {
+  if (!range) {
+    return status === "pending" ? "pending-all" : "all";
+  }
+  if (status === "pending") return `pending-${range.dateFrom}`;
+  return range.dateFrom === range.dateTo
+    ? range.dateFrom
+    : `${range.dateFrom}_to_${range.dateTo}`;
 }
 
 type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
@@ -79,19 +106,26 @@ async function fetchDispatchGroups(
   status: "pending" | "completed",
   range: DateRange | null,
 ) {
+  const dispatchedAtFilter = range
+    ? { gte: range.from, lte: range.to }
+    : undefined;
+
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      fulfillmentStage:
-        status === "pending"
-          ? "dispatched"
-          : { in: ["delivery_complete", "invoice_complete"] },
-      dispatchedAt: range ? { gte: range.from, lte: range.to } : undefined,
-      OR: [
-        { dispatchedByRiderId: { not: null } },
-        { dispatchedByCourierServiceId: { not: null } },
-        { dispatchedToCustomer: true },
-      ],
+      ...(status === "pending"
+        ? {
+            dispatchedAt: dispatchedAtFilter ?? { not: null },
+            deliveryCompleteAt: null,
+            fulfillmentStage: { notIn: ["returned", "returned_to_store"] },
+          }
+        : {
+            OR: [
+              { fulfillmentStage: { in: ["delivery_complete", "invoice_complete"] } },
+              { deliveryCompleteAt: { not: null } },
+            ],
+            ...(dispatchedAtFilter ? { dispatchedAt: dispatchedAtFilter } : {}),
+          }),
     },
     orderBy: { dispatchedAt: "asc" },
     select: {
@@ -118,6 +152,7 @@ async function fetchDispatchGroups(
       discountCodes: true,
       dispatchedByRider: { select: { id: true, name: true } },
       dispatchedByCourierService: { select: { id: true, name: true } },
+      dispatchedBy: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
       assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
     },
@@ -128,16 +163,21 @@ async function fetchDispatchGroups(
   for (const order of orders) {
     const isCustomerPickup = order.dispatchedToCustomer;
     const isRider = !isCustomerPickup && !!order.dispatchedByRider;
+    const isCourier = !isCustomerPickup && !isRider && !!order.dispatchedByCourierService;
     const dispatcherId = isCustomerPickup
       ? "customer-pickup"
       : isRider
         ? order.dispatchedByRider!.id
-        : order.dispatchedByCourierService!.id;
+        : isCourier
+          ? order.dispatchedByCourierService!.id
+          : order.dispatchedBy?.id ?? "unspecified-dispatch";
     const dispatcherName = isCustomerPickup
       ? "Customer pickup"
       : isRider
         ? (order.dispatchedByRider!.name ?? "Unknown Rider")
-        : (order.dispatchedByCourierService!.name ?? "Unknown Courier");
+        : isCourier
+          ? (order.dispatchedByCourierService!.name ?? "Unknown Courier")
+          : (order.dispatchedBy?.name ?? "Unspecified dispatch");
     const dispatchType: "rider" | "courier" | "customer" = isCustomerPickup
       ? "customer"
       : isRider
@@ -235,8 +275,8 @@ async function fetchDispatchGroups(
   return {
     groups,
     totalOrders: orders.length,
-    riderOrders: orders.filter((o) => o.dispatchedByRider).length,
-    courierOrders: orders.filter((o) => o.dispatchedByCourierService && !o.dispatchedByRider).length,
+    riderOrders: orders.filter((o) => o.dispatchedByRider && !o.dispatchedToCustomer).length,
+    courierOrders: orders.filter((o) => !o.dispatchedToCustomer && !o.dispatchedByRider).length,
   };
 }
 
@@ -261,8 +301,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     status,
-    dateFrom: range.dateFrom,
-    dateTo: range.dateTo,
+    dateFrom: range?.dateFrom ?? null,
+    dateTo: range?.dateTo ?? null,
     companyName: company?.name ?? null,
     ...data,
   });
@@ -291,12 +331,7 @@ export async function POST(request: NextRequest) {
   if (groups.length === 0)
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
-  const fileSuffix =
-    status === "pending"
-      ? `pending-${range.dateFrom}`
-      : range.dateFrom === range.dateTo
-        ? range.dateFrom
-        : `${range.dateFrom}_to_${range.dateTo}`;
+  const fileSuffix = dispatchSummaryFileSuffix(status, range);
 
   const headers = [
     "company_group",
@@ -359,6 +394,81 @@ export async function POST(request: NextRequest) {
   }
 
   if (format === "csv") {
+    const headers = [
+      "company_group",
+      "dispatcher_type",
+      "dispatcher_name",
+      "reference",
+      "shopify_reference",
+      "erp_reference",
+      "location",
+      "order_date",
+      "dispatched_at",
+      "delivery_complete_at",
+      "delivery_outcome",
+      "customer_name",
+      "customer_phone",
+      "city",
+      "address",
+      "merchant",
+      "payment_type",
+      "total",
+      "currency",
+    ] as const;
+
+    const emptyRow = (label: string, total: number, currency: string) => ({
+      company_group: "",
+      dispatcher_type: "",
+      dispatcher_name: label,
+      reference: "",
+      shopify_reference: "",
+      erp_reference: "",
+      location: "",
+      order_date: "",
+      dispatched_at: "",
+      delivery_complete_at: "",
+      delivery_outcome: "",
+      customer_name: "",
+      customer_phone: "",
+      city: "",
+      address: "",
+      merchant: "",
+      payment_type: "TOTAL",
+      total: total.toFixed(2),
+      currency,
+    });
+
+    const rows = groups.flatMap((group) => {
+      const orderRows = group.orders.map((order) => ({
+        company_group: order.companyGroup,
+        dispatcher_type: group.dispatchType,
+        dispatcher_name: group.dispatcherName,
+        reference: order.reference,
+        shopify_reference: order.shopifyReference,
+        erp_reference: order.erpReference ?? "",
+        location: order.locationName,
+        order_date: order.orderDate,
+        dispatched_at: order.dispatchedAt,
+        delivery_complete_at: order.deliveryCompleteAt ?? "",
+        delivery_outcome: order.deliveryOutcome ?? "",
+        customer_name: order.customerName,
+        customer_phone: order.customerPhone ?? "",
+        city: order.city ?? "",
+        address: order.address ?? "",
+        merchant: order.merchantName ?? "",
+        payment_type: order.paymentType ?? "",
+        total: order.totalPrice,
+        currency: order.currency,
+      }));
+      const groupTotal = group.orders.reduce((sum, o) => sum + (parseFloat(o.totalPrice) || 0), 0);
+      const currency = group.orders[0]?.currency ?? "";
+      return [...orderRows, emptyRow(`${group.dispatcherName} TOTAL (${group.orders.length} orders)`, groupTotal, currency)];
+    });
+
+    const grandTotal = rows.filter(r => r.payment_type === "TOTAL").reduce((sum, r) => sum + (parseFloat(r.total) || 0), 0);
+    const grandCurrency = groups[0]?.orders[0]?.currency ?? "";
+    rows.push(emptyRow(`GRAND TOTAL (${groups.flatMap(g => g.orders).length} orders)`, grandTotal, grandCurrency));
+
     const companyGroups = Array.from(new Set(rows.map((row) => row.company_group))).sort();
     if (companyGroups.length <= 1) {
       const csv = buildCsv(headers, rows);
@@ -389,8 +499,9 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const pdfDateFrom = range.dateFrom;
-  const pdfDateTo = range.dateTo;
+  const printDate = printedDateIso();
+  const pdfDateFrom = range?.dateFrom ?? printDate;
+  const pdfDateTo = range?.dateTo ?? printDate;
 
   const files: Array<{ name: string; content: Buffer }> = [];
   for (const group of groups) {

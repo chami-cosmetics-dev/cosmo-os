@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
+import { cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
 import { prisma } from "@/lib/prisma";
 
 export const ERP_CREDIT_NOTE_ISSUED_STATUS = "Credit Note Issued";
@@ -119,9 +120,32 @@ export async function applyErpCreditNoteToOriginalOrder(
       financialStatus: true,
       fulfillmentStage: true,
       rawPayload: true,
+      revertedFromInvoiceCompleteAt: true,
+      returns: {
+        select: { actionType: true },
+      },
     },
   });
   if (!original) return null;
+
+  // Credit note was triggered by OS itself at revert time — OS state is already correct ("refunded").
+  // Skip auto-void to prevent the webhook from overwriting the partial-void state.
+  if (original.revertedFromInvoiceCompleteAt) {
+    console.log(`[ERP CN] Skipping auto-void for finance-reverted order ${original.id} (${original.name})`);
+    return original;
+  }
+
+  // Order has been rearranged and is actively moving through the dispatch pipeline again.
+  // A delayed ERP credit note webhook must not re-void it and knock it out of the rearrange queue.
+  const REARRANGED_ACTIVE_STAGES = ["order_received", "sample_free_issue", "print", "ready_to_dispatch"] as const;
+  const hasRearrangeReturn = original.returns.some((r) => r.actionType === "rearrange");
+  if (
+    hasRearrangeReturn &&
+    REARRANGED_ACTIVE_STAGES.includes(original.fulfillmentStage as (typeof REARRANGED_ACTIVE_STAGES)[number])
+  ) {
+    console.log(`[ERP CN] Skipping auto-void for rearranged order ${original.id} (${original.name}) — currently at ${original.fulfillmentStage}`);
+    return original;
+  }
 
   const returnInvoiceName = options?.returnInvoiceName?.trim() || null;
 
@@ -136,6 +160,8 @@ export async function applyErpCreditNoteToOriginalOrder(
         : {}),
     },
   });
+
+  await cancelPendingApprovalsForOrder(original.id);
 
   return original;
 }
@@ -249,6 +275,7 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       financialStatus: true,
       fulfillmentStage: true,
       rawPayload: true,
+      revertedFromInvoiceCompleteAt: true,
       companyLocation: {
         select: {
           erpnextInstance: {
@@ -267,6 +294,11 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
 
   if (order.financialStatus === "voided" && order.fulfillmentStage === "returned") {
     return { updated: false, reason: "already_credit_noted" };
+  }
+
+  // Credit note was issued by OS at revert time — don't overwrite the "refunded" partial-void state.
+  if (order.revertedFromInvoiceCompleteAt) {
+    return { updated: false, reason: "finance_reverted_order_skipped" };
   }
 
   const creds: ErpInstanceCreds = {

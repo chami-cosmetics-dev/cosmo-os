@@ -50,6 +50,7 @@ export async function generatePickListPdf(
   locations: PickListLocation[],
   date: string,
   companyName: string | null,
+  headerLine?: string | null,
 ): Promise<Buffer> {
   const content: unknown[] = [
     {
@@ -59,7 +60,7 @@ export async function generatePickListPdf(
       ],
       margin: [0, 0, 0, 2],
     },
-    { text: "Inventory Pick List", style: "subtitle", margin: [0, 0, 0, 20] },
+    { text: headerLine ?? "Inventory Pick List", style: "subtitle", margin: [0, 0, 0, 20] },
   ];
 
   for (let li = 0; li < locations.length; li++) {

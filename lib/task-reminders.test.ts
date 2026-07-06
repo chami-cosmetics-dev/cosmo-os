@@ -3,18 +3,18 @@ import { describe, expect, it } from "vitest";
 import {
   hasReminderPermission,
   isTaskReminderOverdue,
-  TASK_REMINDER_SLA_MS,
 } from "@/lib/task-reminders";
+import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 
 describe("isTaskReminderOverdue", () => {
   const now = new Date("2026-06-22T12:00:00Z");
 
-  it("returns false under 24 hours", () => {
+  it("returns false under SLA threshold", () => {
     const since = new Date(now.getTime() - TASK_REMINDER_SLA_MS + 60_000);
     expect(isTaskReminderOverdue(since, now)).toBe(false);
   });
 
-  it("returns true at 24 hours", () => {
+  it("returns true at SLA threshold", () => {
     const since = new Date(now.getTime() - TASK_REMINDER_SLA_MS);
     expect(isTaskReminderOverdue(since, now)).toBe(true);
   });

@@ -6,7 +6,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
-import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
@@ -20,6 +20,7 @@ import {
   isDeliveryFulfillmentStages,
   isDispatchFulfillmentStages,
   sampleQueueWhere,
+  printFulfillmentPipelineWhere,
 } from "@/lib/fulfillment-queue-filters";
 
 function pickOrderListCustomerName(order: {
@@ -28,15 +29,17 @@ function pickOrderListCustomerName(order: {
   billingAddress: unknown;
   rawPayload?: unknown;
 }): string | null {
-  if (order.customer?.firstName || order.customer?.lastName) {
-    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
-    if (name) return name;
-  }
-  return resolveStoredOrderCustomerName({
+  const fromAddress = resolveStoredOrderCustomerName({
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
     rawPayload: order.rawPayload,
   });
+  if (fromAddress) return fromAddress;
+  if (order.customer?.firstName || order.customer?.lastName) {
+    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
+    if (name) return name;
+  }
+  return null;
 }
 
 export type OrdersPageParams = {
@@ -58,8 +61,14 @@ export type OrdersPageParams = {
   orderStatusFilter?: OrderStatusFilter;
   sampleSendLater?: "available" | "future" | "all";
   returnFilter?: "normal" | "rearrange";
+  /** Filter orders by MER coupon code (checks discountCodes JSON and ERP rawPayload). */
+  merCode?: string | null;
   /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
   dispatchMode?: boolean;
+  /** Dispatched orders awaiting delivery complete (bulk delivery combobox) */
+  deliveryMode?: boolean;
+  /** Delivered orders awaiting finance invoice complete (bulk invoice combobox) */
+  invoiceCompleteMode?: boolean;
   /** Print queue mode: Shopify at print stage (unprinted); ERP at order_received/ready_to_dispatch/print (unprinted) */
   printMode?: boolean;
   /** Generic unprinted-only filter (printCount === 0) */
@@ -87,11 +96,10 @@ function startOfTomorrowUtc() {
 function applyFulfillmentQueueBaseFilters(where: Prisma.OrderWhereInput) {
   where.financialStatus = { not: "voided" };
   where.totalPrice = { gte: 0 };
-  where.NOT = {
-    approvalRequests: {
-      some: { type: "order_payment_approval", status: "pending" },
-    },
-  };
+  where.AND = [
+    ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+    FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+  ];
 }
 
 async function fetchDistinctPaymentGatewayNames(companyId: string): Promise<string[]> {
@@ -159,6 +167,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     updated: { updatedAt: sortOrder },
     last_printed: { lastPrintedAt: sortOrder },
     dispatched: { dispatchedAt: sortOrder },
+    delivery_complete: { deliveryCompleteAt: sortOrder },
     total: { totalPrice: sortOrder },
     order_number: { orderNumber: sortOrder },
     name: { name: sortOrder },
@@ -228,6 +237,29 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     ];
   }
 
+  if (params.merCode?.trim()) {
+    const pattern = `%${params.merCode.trim()}%`;
+    const merMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM "Order"
+      WHERE "companyId" = ${companyId}
+      AND (
+        (
+          "discountCodes" IS NOT NULL
+          AND jsonb_typeof("discountCodes") = 'array'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements("discountCodes") AS elem
+            WHERE elem->>'code' ILIKE ${pattern}
+          )
+        )
+        OR "rawPayload"->>'merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->'data'->>'merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->>'custom_merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->'data'->>'custom_merchant_coupon_code' ILIKE ${pattern}
+      )
+    `);
+    where.id = { in: merMatches.map((r) => r.id) };
+  }
+
   const VALID_STAGES = [
     "order_received",
     "sample_free_issue",
@@ -241,25 +273,38 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   ] as const;
 
   if (params.printMode) {
-    // Shopify: only at print stage, unprinted
-    // ERP: at order_received / ready_to_dispatch / print, unprinted (covers old and new orders)
+    // Shopify/manual: advance to print after samples; ERP: import marks sample done + print.
     where.OR = [
       { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "print", printCount: 0 },
-      { sourceName: "erpnext", fulfillmentStage: { in: ["order_received", "ready_to_dispatch", "print"] }, printCount: 0 },
+      { sourceName: "erpnext", fulfillmentStage: "print", printCount: 0 },
     ];
     where.financialStatus = { not: "voided" };
     where.totalPrice = { gte: 0 };
-    where.NOT = {
-      approvalRequests: {
-        some: { type: "order_payment_approval", status: "pending" },
-      },
-    };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+    ];
   } else if (params.dispatchMode) {
     where.OR = dispatchStageOrWhere.OR;
     applyFulfillmentQueueBaseFilters(where);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       dispatchPipelineWhere,
+    ];
+  } else if (params.deliveryMode) {
+    where.fulfillmentStage = "dispatched";
+    where.financialStatus = { not: "voided" };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+      deliveryPipelineWhere,
+    ];
+  } else if (params.invoiceCompleteMode) {
+    where.fulfillmentStage = "delivery_complete";
+    where.financialStatus = { not: "voided" };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      deliveryPipelineWhere,
     ];
   } else if (params.fulfillmentStages?.trim()) {
     const stages = params.fulfillmentStages
@@ -278,29 +323,22 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       } else if (isDeliveryFulfillmentStages(stages)) {
         where.OR = deliveryStageOrWhere.OR;
         where.financialStatus = { not: "voided" };
-        where.NOT = {
-          approvalRequests: {
-            some: { type: "order_payment_approval", status: "pending" },
-          },
-        };
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+          FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+        ];
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
           deliveryPipelineWhere,
         ];
       } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      // Sample page (only sample stages) = Shopify only; other pages include ERP non-POS
-      const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
-      const hasDispatchStage = stages.includes("ready_to_dispatch");
-      where.sourceName = (hasSampleStage && !hasDispatchStage)
-        ? { in: ["web", "manual"] }
-        : { in: ["web", "manual", "erpnext"] };
+      where.sourceName = { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
-      where.NOT = {
-        approvalRequests: {
-          some: { type: "order_payment_approval", status: "pending" },
-        },
-      };
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+      ];
       if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
         where.AND = [
           ...(Array.isArray(where.AND) ? where.AND : []),
@@ -334,21 +372,26 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   }
 
   // Exclude orders from locations that have been temporarily blocked from fulfillment
-  if (params.printMode || params.dispatchMode || params.fulfillmentStages?.trim()) {
+  if (params.printMode || params.dispatchMode || params.deliveryMode || params.invoiceCompleteMode || params.fulfillmentStages?.trim()) {
     where.companyLocation = { fulfillmentBlocked: false };
     const stages = params.fulfillmentStages
       ?.trim()
       .split(",")
       .map((s) => s.trim()) ?? [];
     const isDispatchQueue = params.dispatchMode || isDispatchFulfillmentStages(stages);
-    const isDeliveryQueue = isDeliveryFulfillmentStages(stages);
+    const isDeliveryQueue = params.deliveryMode || isDeliveryFulfillmentStages(stages);
+    const isInvoiceCompleteQueue = params.invoiceCompleteMode;
+
+    const hasSampleQueueStage = stages.some(
+      (s) => s === "order_received" || s === "sample_free_issue",
+    );
 
     if (params.printMode) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
-        fulfillableOrderPipelineWhere,
+        printFulfillmentPipelineWhere,
       ];
-    } else if (!isDispatchQueue && !isDeliveryQueue) {
+    } else if (!isDispatchQueue && !isDeliveryQueue && !isInvoiceCompleteQueue && !hasSampleQueueStage) {
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : []),
         fulfillableOrderPipelineWhere,
@@ -402,9 +445,13 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     createdAt: true,
     customer: { select: { firstName: true, lastName: true } },
     fulfillmentStage: true,
+    sampleFreeIssueCompleteAt: true,
     printCount: true,
     lastPrintedAt: true,
     packageOnHoldAt: true,
+    packageReadyAt: true,
+    dispatchedAt: true,
+    revertedFromInvoiceCompleteAt: true,
     sampleFreeIssueSendLaterDate: true,
     companyLocation: { select: { id: true, name: true } },
     assignedMerchant: { select: { id: true, name: true, email: true, couponCodes: true } },
@@ -413,7 +460,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     approvalRequests: {
       where: {
         status: "pending",
-        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] },
+        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
       },
       select: { id: true, type: true },
     },
@@ -479,13 +526,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     lineItemCount: o._count.lineItems,
     printCount: o.printCount,
     lastPrintedAt: o.lastPrintedAt?.toISOString() ?? null,
+    packageReadyAt: o.packageReadyAt?.toISOString() ?? null,
+    dispatchedAt: o.dispatchedAt?.toISOString() ?? null,
+    revertedFromInvoiceCompleteAt: o.revertedFromInvoiceCompleteAt?.toISOString() ?? null,
     packageOnHoldAt: o.packageOnHoldAt?.toISOString() ?? null,
     sampleFreeIssueSendLaterDate: o.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
     packageHoldReason: o.packageHoldReason,
     fulfillmentStage: o.fulfillmentStage,
+    sampleFreeIssueCompleteAt: o.sampleFreeIssueCompleteAt?.toISOString() ?? null,
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
     pendingPaymentApproval: o.approvalRequests.some((a) => a.type === ORDER_PAYMENT_APPROVAL),
+    pendingMethodChangeApproval: o.approvalRequests.some((a) => a.type === PAYMENT_METHOD_CHANGE_APPROVAL),
     pendingDeliveryPaymentApproval:
       DELIVERY_PAYMENT_FINANCE_UI_ENABLED &&
       o.approvalRequests.some((a) => a.type === DELIVERY_PAYMENT_APPROVAL),

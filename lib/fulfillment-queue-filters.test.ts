@@ -3,8 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   deliveryStageOrWhere,
   dispatchStageOrWhere,
+  excludeErpOutOfStockBlockedOrdersWhere,
+  fulfillableOrderPipelineWhere,
   isDeliveryFulfillmentStages,
   isDispatchFulfillmentStages,
+  sampleFulfillmentPipelineWhere,
+  sampleQueueWhere,
+  printFulfillmentPipelineWhere,
 } from "@/lib/fulfillment-queue-filters";
 
 describe("isDispatchFulfillmentStages", () => {
@@ -45,5 +50,57 @@ describe("dispatchStageOrWhere", () => {
 describe("deliveryStageOrWhere", () => {
   it("includes dispatched orders by stage and dispatchedAt", () => {
     expect(deliveryStageOrWhere.OR).toHaveLength(2);
+  });
+});
+
+describe("sampleFulfillmentPipelineWhere", () => {
+  it("does not filter on Shopify fulfillmentStatus", () => {
+    expect(fulfillableOrderPipelineWhere).toMatchObject({
+      AND: [
+        {
+          OR: [
+            { fulfillmentStatus: null },
+            { fulfillmentStatus: { not: "fulfilled" } },
+          ],
+        },
+      ],
+    });
+    expect(sampleFulfillmentPipelineWhere).not.toHaveProperty("fulfillmentStatus");
+  });
+});
+
+describe("printFulfillmentPipelineWhere", () => {
+  it("matches vault stage pipeline without Shopify fulfillmentStatus filter", () => {
+    expect(printFulfillmentPipelineWhere).toEqual(sampleFulfillmentPipelineWhere);
+  });
+});
+
+describe("sampleQueueWhere", () => {
+  it("requires sample step incomplete and no dispatch milestones", () => {
+    expect(sampleQueueWhere).toMatchObject({
+      sampleFreeIssueCompleteAt: null,
+      dispatchedAt: null,
+      deliveryCompleteAt: null,
+      invoiceCompleteAt: null,
+    });
+    expect(sampleQueueWhere).not.toHaveProperty("fulfillmentStatus");
+  });
+});
+
+describe("excludeErpOutOfStockBlockedOrdersWhere", () => {
+  it("only blocks when sync error is present and matches OOS patterns", () => {
+    expect(excludeErpOutOfStockBlockedOrdersWhere).toEqual({
+      NOT: {
+        AND: [
+          { erpnextSyncError: { not: null } },
+          {
+            OR: [
+              { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
+              { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+            ],
+          },
+        ],
+      },
+    });
   });
 });

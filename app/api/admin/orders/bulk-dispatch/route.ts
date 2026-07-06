@@ -10,6 +10,12 @@ import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
+import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import {
+  createOrGetOrderPaymentApproval,
+  getFinancePaymentApprovalBlockReason,
+  isOrderPaymentRequiresApproval,
+} from "@/lib/approval-workflow";
 
 const schema = z.object({
   orderIds: z.array(cuidSchema).min(1).max(50),
@@ -77,12 +83,16 @@ export async function POST(request: NextRequest) {
           shopifyOrderId: true,
           fulfillmentStage: true,
           printCount: true,
+          lastPrintedAt: true,
           packageReadyAt: true,
           packageOnHoldAt: true,
           customerPhone: true,
           shippingAddress: true,
           erpnextInvoiceId: true,
           erpnextSyncError: true,
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
+          totalPrice: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -111,10 +121,38 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      const financeBlock = await getFinancePaymentApprovalBlockReason({
+        id: order.id,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames ?? [],
+        erpnextInvoiceId: order.erpnextInvoiceId,
+      });
+      if (financeBlock) {
+        // If the block is due to a missing approval record (ERP webhook silent failure),
+        // create it now so finance can see and act on it.
+        if (isOrderPaymentRequiresApproval(order)) {
+          void createOrGetOrderPaymentApproval({
+            companyId,
+            orderId: order.id,
+            requestedById: auth.context!.user!.id,
+            invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+            paymentType: order.paymentGatewayPrimary ?? "bank transfer",
+            amount: order.totalPrice.toString(),
+          }).catch((err) => console.error("[dispatch] approval self-heal failed:", err));
+        }
+        results.push({ orderId, ref, success: false, error: financeBlock });
+        continue;
+      }
+
       const riderDeliveryToken = riderId ? randomBytes(16).toString("hex") : null;
 
       // Auto-mark ready if not already — same as single dispatch
-      const needsMarkReady = order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
+      const needsMarkReady =
+        order.fulfillmentStage !== "ready_to_dispatch" ||
+        !isExplicitlyPackageReady({
+          packageReadyAt: order.packageReadyAt,
+          lastPrintedAt: order.lastPrintedAt,
+        });
 
       await prisma.order.update({
         where: { id: orderId },

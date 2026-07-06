@@ -1,20 +1,43 @@
 import { prisma } from "@/lib/prisma";
-import {
-  createOrGetDeliveryPaymentApproval,
-  getApprovedOrderPaymentReviewerId,
-  orderRequiresDeliveryPaymentApproval,
-} from "@/lib/approval-workflow";
-import { inferExpectedPaymentMethod } from "@/lib/mobile/payment";
+import { createOrGetDeliveryPaymentApproval, getApprovedOrderPaymentReviewerId } from "@/lib/approval-workflow";
 
-function invoiceLabel(order: {
-  name: string | null;
-  orderNumber: string | null;
-  shopifyOrderId: string;
-}) {
-  return order.name ?? order.orderNumber ?? order.shopifyOrderId;
+export type PostDeliveryInvoiceResult =
+  | { kind: "awaiting_finance" }
+  | { kind: "invoice_complete"; financeUserId: string; createPe?: boolean };
+
+/**
+ * After store marks delivered: pre-approved KOKO/bank → invoice complete;
+ * otherwise finance uses the invoice-complete queue (no delivery payment approvals).
+ */
+export async function resolvePostDeliveryInvoiceComplete(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+}): Promise<PostDeliveryInvoiceResult> {
+  const order = await prisma.order.findFirst({
+    where: { id: input.orderId, companyId: input.companyId },
+    select: { id: true, financialStatus: true, paymentGatewayPrimary: true },
+  });
+  if (!order) {
+    return { kind: "awaiting_finance" };
+  }
+
+  const earlyFinanceUserId = await getApprovedOrderPaymentReviewerId(order.id);
+  if (earlyFinanceUserId) {
+    return { kind: "invoice_complete", financeUserId: earlyFinanceUserId };
+  }
+
+  // WebXPay is an online payment gateway — money is collected at checkout, not at the door.
+  // Auto-complete to invoice_complete and trigger PE creation so ERP is reconciled.
+  const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
+  if (gateway.includes("webxpay") && order.financialStatus?.toLowerCase() === "paid") {
+    return { kind: "invoice_complete", financeUserId: input.requestedById ?? "", createPe: true };
+  }
+
+  return { kind: "awaiting_finance" };
 }
 
-/** After delivery is marked complete, queue finance approval instead of auto-marking paid. */
+/** Trigger a delivery payment approval so finance can confirm payment was collected at the door. */
 export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
   companyId: string;
   orderId: string;
@@ -27,102 +50,30 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       name: true,
       orderNumber: true,
       shopifyOrderId: true,
-      totalPrice: true,
-      financialStatus: true,
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
+      totalPrice: true,
+      dispatchedByCourierServiceId: true,
+      dispatchedToCustomer: true,
     },
   });
-  if (!order || !orderRequiresDeliveryPaymentApproval(order)) {
-    return null;
-  }
+  if (!order) return null;
 
-  const deliveryPayment = await prisma.deliveryPayment.findUnique({
-    where: { orderId: order.id },
-    select: {
-      paymentMethod: true,
-      collectedAmount: true,
-      bankReference: true,
-      cardReference: true,
-      referenceNote: true,
-    },
-  });
+  // Courier service deliveries (e.g. Citypack) don't require finance to confirm payment collection.
+  if (order.dispatchedByCourierServiceId) return null;
 
-  const paymentType = deliveryPayment?.paymentMethod
-    ? deliveryPayment.paymentMethod.replace(/_/g, " ")
-    : inferExpectedPaymentMethod(order).replace(/_/g, " ");
+  // Customer pickups are collected in-store — no rider payment collection to confirm.
+  if (order.dispatchedToCustomer) return null;
 
-  const collectionNote = deliveryPayment
-    ? [
-        deliveryPayment.bankReference ? `Bank ref: ${deliveryPayment.bankReference}` : null,
-        deliveryPayment.cardReference ? `Card ref: ${deliveryPayment.cardReference}` : null,
-        deliveryPayment.referenceNote ? `Note: ${deliveryPayment.referenceNote}` : null,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    : "Delivery completed — awaiting finance payment confirmation.";
+  const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+  const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";
 
   return createOrGetDeliveryPaymentApproval({
     companyId: input.companyId,
     orderId: order.id,
     requestedById: input.requestedById,
-    invoiceLabel: invoiceLabel(order),
-    paymentType,
-    amount: (deliveryPayment?.collectedAmount ?? order.totalPrice).toString(),
-    collectionNote,
-  });
-}
-
-export type PostDeliveryInvoiceResult =
-  | { kind: "awaiting_finance" }
-  | { kind: "invoice_complete"; financeUserId: string };
-
-/**
- * After store marks delivered: COD → finance delivery payment approval;
- * KOKO/bank with early payment approval → invoice complete under that finance user;
- * prepaid without early approval (e.g. WEBXPAY) → finance confirms invoice complete.
- */
-export async function resolvePostDeliveryInvoiceComplete(input: {
-  companyId: string;
-  orderId: string;
-  requestedById: string | null;
-}): Promise<PostDeliveryInvoiceResult> {
-  const order = await prisma.order.findFirst({
-    where: { id: input.orderId, companyId: input.companyId },
-    select: {
-      id: true,
-      name: true,
-      orderNumber: true,
-      shopifyOrderId: true,
-      totalPrice: true,
-      financialStatus: true,
-      paymentGatewayPrimary: true,
-      paymentGatewayNames: true,
-    },
-  });
-  if (!order) {
-    return { kind: "awaiting_finance" };
-  }
-
-  if (orderRequiresDeliveryPaymentApproval(order)) {
-    await triggerDeliveryPaymentApprovalIfNeeded(input);
-    return { kind: "awaiting_finance" };
-  }
-
-  const earlyFinanceUserId = await getApprovedOrderPaymentReviewerId(order.id);
-  if (earlyFinanceUserId) {
-    return { kind: "invoice_complete", financeUserId: earlyFinanceUserId };
-  }
-
-  const paymentType = (order.paymentGatewayPrimary ?? "prepaid").replace(/_/g, " ");
-  await createOrGetDeliveryPaymentApproval({
-    companyId: input.companyId,
-    orderId: order.id,
-    requestedById: input.requestedById,
-    invoiceLabel: invoiceLabel(order),
+    invoiceLabel,
     paymentType,
     amount: order.totalPrice.toString(),
-    collectionNote: "Delivery complete — finance to confirm invoice completion.",
   });
-  return { kind: "awaiting_finance" };
 }

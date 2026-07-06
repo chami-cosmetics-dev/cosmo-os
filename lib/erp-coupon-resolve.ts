@@ -135,7 +135,63 @@ export async function resolveErpSalesPersonForMerchantCode(
     return null;
   }
 
+  // Shopify may send "MER112-MG" (number + initials) while ERP stores "MER112-Harshani" (number + full name).
+  // Fall back to matching by numeric prefix only: "MER112-MG" → search "MER112-%".
+  const numericPrefix = code.match(/^(MER\d+)/i)?.[1];
+  if (numericPrefix && numericPrefix !== code) {
+    const numPrefixMatches = await listErpDocuments(
+      cfg,
+      "Sales Person",
+      [["name", "like", `${numericPrefix}-%`]],
+      ["name"],
+      10,
+    );
+    const numStrict = numPrefixMatches.filter(
+      (row) => row.name === numericPrefix || row.name.toLowerCase().startsWith(`${numericPrefix.toLowerCase()}-`),
+    );
+    if (numStrict.length === 1) return numStrict[0].name;
+    if (numStrict.length > 1) {
+      console.warn(
+        `[ERPNext] Ambiguous Sales Person numeric-prefix matches for "${code}" (prefix "${numericPrefix}"): ${numStrict.map((r) => r.name).join(", ")}`,
+      );
+    }
+  }
+
   return null;
+}
+
+function normalizePaymentGateways(
+  paymentGatewayPrimary?: string | null,
+  paymentGatewayNames?: string[] | null,
+): string[] {
+  return [paymentGatewayPrimary, ...(paymentGatewayNames ?? [])]
+    .map((g) => g?.trim().toLowerCase() ?? "")
+    .filter(Boolean);
+}
+
+function isCodPaymentGateway(gateways: string[]): boolean {
+  return gateways.some(
+    (g) =>
+      g.includes("cod") ||
+      g.includes("cash on delivery") ||
+      g.includes("cash payment on delivery"),
+  );
+}
+
+/** CODHO* coupons are COD-only in ERP; prepaid gateways use SPVL5 instead. */
+export function remapShopifyDiscountCodeForErpPayment(
+  discountCode: string,
+  paymentGatewayPrimary?: string | null,
+  paymentGatewayNames?: string[] | null,
+): string {
+  const code = discountCode.trim();
+  if (!code) return code;
+
+  const gateways = normalizePaymentGateways(paymentGatewayPrimary, paymentGatewayNames);
+  if (gateways.length === 0 || isCodPaymentGateway(gateways)) return code;
+
+  if (code.toUpperCase().startsWith("CODHO")) return "SPVL5";
+  return code;
 }
 
 export type ResolvedErpSalesInvoiceCoupons = {
@@ -157,6 +213,8 @@ export async function resolveErpSalesInvoiceCouponFields(
     discountCodes: unknown;
     rawPayload?: unknown;
     assignedMerchantCouponCodes?: string[] | null;
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
   },
 ): Promise<ResolvedErpSalesInvoiceCoupons> {
   const merchantShortCode = getMerchantCouponCode({
@@ -166,13 +224,20 @@ export async function resolveErpSalesInvoiceCouponFields(
     assignedMerchantCouponCodes: params.assignedMerchantCouponCodes ?? null,
   });
   const discountCode = getDiscountCouponCode(params.discountCodes);
+  const erpDiscountCode = discountCode
+    ? remapShopifyDiscountCodeForErpPayment(
+        discountCode,
+        params.paymentGatewayPrimary,
+        params.paymentGatewayNames,
+      )
+    : null;
 
   let couponCode: string | null = null;
-  if (discountCode) {
-    couponCode = await resolveErpCouponCodeDocument(cfg, discountCode);
+  if (erpDiscountCode) {
+    couponCode = await resolveErpCouponCodeDocument(cfg, erpDiscountCode);
     if (!couponCode) {
       console.warn(
-        `[ERPNext] Discount coupon "${discountCode}" not found in ERP Coupon Code — omitting coupon_code`,
+        `[ERPNext] Discount coupon "${erpDiscountCode}" not found in ERP Coupon Code — omitting coupon_code`,
       );
     }
   }

@@ -3,6 +3,7 @@
 import packageJson from "@/package.json";
 import {
   AlertCircle,
+  BookUser,
   ContactRound,
   LayoutDashboard,
   Mail,
@@ -12,6 +13,7 @@ import {
   Plus,
   Printer,
   Settings,
+  ShoppingBag,
   ShoppingCart,
   Sticker,
   Store,
@@ -63,6 +65,15 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
+  const canViewContactMaster =
+    hasSidebarPermission("contacts.master.read") ||
+    hasSidebarPermission("contacts.read");
+  const canViewContactUpdates =
+    hasSidebarPermission("contacts.updates.read") ||
+    hasSidebarPermission("contacts.read");
+  const canViewContactAllocation =
+    hasSidebarPermission("contacts.allocation.read") ||
+    hasSidebarPermission("contacts.read");
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
@@ -70,6 +81,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
   const canViewFulfillmentSettings = hasSidebarPermission("settings.fulfillment");
+  const canViewContactAllocationSettings = hasSidebarPermission(
+    "contacts.allocation.settings"
+  );
   const canCreateManualOrder = hasSidebarPermission("orders.create_manual");
   const canViewFailedWebhooks = hasSidebarPermission("failed_webhooks.read");
   const canStickerBatch =
@@ -128,12 +142,18 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     hasSidebarPermission(item.permission)
   )?.href;
   const canViewPeople = canViewUsers || canViewStaff;
-  const canViewContacts = canViewOrders;
+  const canViewContacts =
+    canViewContactMaster ||
+    canViewContactUpdates ||
+    canViewContactAllocation ||
+    canViewOrders ||
+    canViewOutletReviews;
   const canViewSettings =
     canViewCompanySettings ||
     canViewEmailTemplates ||
     canViewSmsSettings ||
-    canViewFulfillmentSettings;
+    canViewFulfillmentSettings ||
+    canViewContactAllocationSettings;
   const canViewOrderManagement =
     canViewOrders || canCreateManualOrder || canViewReturns || canViewExchanges || Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
@@ -241,6 +261,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
               {canViewOrders && (
                 <NavItem href="/dashboard/orders" icon={ShoppingCart} label="Orders" isActive={pathname === "/dashboard/orders"} />
               )}
+              {canViewOrders && (
+                <NavItem href="/dashboard/orders/pos-orders" icon={ShoppingBag} label="POS Orders" isActive={pathname === "/dashboard/orders/pos-orders"} />
+              )}
               {canViewReturns && (
                 <NavItem href="/dashboard/returns" icon={PackageCheck} label="Returned Orders" isActive={pathname === "/dashboard/returns"} />
               )}
@@ -260,24 +283,38 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
           <SidebarGroup>
             <SidebarGroupLabel>Contacts</SidebarGroupLabel>
             <SidebarGroupContent>
-              <NavItem
-                href="/dashboard/contacts"
-                icon={ContactRound}
-                label="Contact Master"
-                isActive={pathname === "/dashboard/contacts"}
-              />
-              <NavItem
-                href="/dashboard/contacts/allocation"
-                icon={ContactRound}
-                label="Contact Allocation"
-                isActive={pathname === "/dashboard/contacts/allocation"}
-              />
-              <NavItem
-                href="/dashboard/contacts/reviews"
-                icon={ContactRound}
-                label="Merchant Reviews"
-                isActive={pathname === "/dashboard/contacts/reviews"}
-              />
+              {canViewContactMaster && (
+                <NavItem
+                  href="/dashboard/contacts"
+                  icon={ContactRound}
+                  label="Contact Master"
+                  isActive={pathname === "/dashboard/contacts"}
+                />
+              )}
+              {canViewContactUpdates && (
+                <NavItem
+                  href="/dashboard/contacts/contact-updates"
+                  icon={ContactRound}
+                  label="Contact Updates"
+                  isActive={pathname === "/dashboard/contacts/contact-updates"}
+                />
+              )}
+              {canViewContactAllocation && (
+                <NavItem
+                  href="/dashboard/contacts/allocation"
+                  icon={ContactRound}
+                  label="Contact Allocation"
+                  isActive={pathname === "/dashboard/contacts/allocation"}
+                />
+              )}
+              {canViewOrders && (
+                <NavItem
+                  href="/dashboard/contacts/reviews"
+                  icon={ContactRound}
+                  label="Merchant Reviews"
+                  isActive={pathname === "/dashboard/contacts/reviews"}
+                />
+              )}
               {canViewOutletReviews && (
                 <NavItem
                   href="/dashboard/contacts/outlet-reviews"
@@ -359,6 +396,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
               )}
               {canViewFulfillmentSettings && (
                 <NavItem href="/dashboard/settings/fulfillment" icon={PackageCheck} label="Fulfillment Data" isActive={pathname === "/dashboard/settings/fulfillment"} />
+              )}
+              {canViewContactAllocationSettings && (
+                <NavItem
+                  href="/dashboard/settings/contact-allocation"
+                  icon={BookUser}
+                  label="Contact Allocation Options"
+                  isActive={pathname === "/dashboard/settings/contact-allocation"}
+                />
               )}
             </SidebarGroupContent>
           </SidebarGroup>

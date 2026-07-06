@@ -32,6 +32,7 @@ type PrintOrder = {
   lastPrintedAt: string | null;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  merchantCouponCode?: string | null;
   financialStatus: string | null;
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[] | null;
@@ -40,6 +41,17 @@ type PrintOrder = {
 
 function orderLabel(order: PrintOrder): string {
   return formatFulfillmentOrderReferenceText(order);
+}
+
+function printMerchantLabel(order: PrintOrder): string {
+  const assigned =
+    order.assignedMerchant?.name?.trim() ||
+    order.assignedMerchant?.email?.trim() ||
+    null;
+  if (assigned) return assigned;
+  const coupon = order.merchantCouponCode?.trim();
+  if (coupon) return coupon;
+  return "—";
 }
 
 function fmtDate(iso: string) {
@@ -57,9 +69,37 @@ function fmtTime(iso: string) {
   });
 }
 
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const PRINT_QUEUE_PAGE_SIZE = 100;
+
+async function fetchAllPrintQueueOrders(search: string): Promise<PrintOrder[]> {
+  const allOrders: PrintOrder[] = [];
+  let page = 1;
+  let total = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      sort_by: "updated",
+      sort_order: "desc",
+      limit: String(PRINT_QUEUE_PAGE_SIZE),
+      page: String(page),
+      print_mode: "true",
+      unprinted_only: "true",
+    });
+    if (search.trim()) params.set("search", search.trim());
+
+    const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`);
+    if (!res.ok) throw new Error("Failed to load print queue");
+
+    const data = (await res.json()) as { orders?: PrintOrder[]; total?: number };
+    const batch = data.orders ?? [];
+    total = data.total ?? batch.length;
+    allOrders.push(...batch);
+
+    if (allOrders.length >= total || batch.length < PRINT_QUEUE_PAGE_SIZE) break;
+    page += 1;
+  }
+
+  return allOrders;
 }
 
 function PrintQueueInner() {
@@ -73,8 +113,9 @@ function PrintQueueInner() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [printing, setPrinting] = useState(false);
   const [view, setView] = useState<"queue" | "history">("queue");
-  const [historyDate, setHistoryDate] = useState(todayStr());
   const [refreshTick, setRefreshTick] = useState(0);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const selectAllRef = useRef<HTMLInputElement>(null);
   const appliedDeepLinkRef = useRef<string | null>(null);
 
@@ -82,6 +123,10 @@ function PrintQueueInner() {
     const t = setTimeout(() => setDebouncedSearch(search), 400);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [debouncedSearch]);
 
   const deepLinkOrderId = searchParams.get(TASK_REMINDER_ORDER_ID_PARAM)?.trim() ?? null;
 
@@ -101,7 +146,10 @@ function PrintQueueInner() {
       try {
         const res = await fetch(`/api/admin/orders/${deepLinkOrderId}`);
         if (!res.ok) return;
-        const data = mapApiOrderToFulfillmentOrder(await res.json());
+        const payload = (await res.json()) as {
+          merchantCouponCode?: string | null;
+        } & Parameters<typeof mapApiOrderToFulfillmentOrder>[0];
+        const data = mapApiOrderToFulfillmentOrder(payload);
         if (cancelled) return;
         const printOrder: PrintOrder = {
           id: data.id,
@@ -117,6 +165,7 @@ function PrintQueueInner() {
           lastPrintedAt: null,
           companyLocation: data.companyLocation,
           assignedMerchant: data.assignedMerchant,
+          merchantCouponCode: payload.merchantCouponCode ?? null,
           financialStatus: null,
           paymentGatewayPrimary: data.paymentGatewayPrimary,
           paymentGatewayNames: data.paymentGatewayNames,
@@ -143,27 +192,30 @@ function PrintQueueInner() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      if (view === "queue") {
+        const nextOrders = await fetchAllPrintQueueOrders(debouncedSearch);
+        setOrders(nextOrders);
+        if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
+          setView("queue");
+          setSelected(new Set([deepLinkOrderId]));
+          appliedDeepLinkRef.current = deepLinkOrderId;
+        } else {
+          setSelected(new Set());
+          if (deepLinkOrderId) appliedDeepLinkRef.current = null;
+        }
+        return;
+      }
+
       const params = new URLSearchParams({
         sort_by: "updated",
         sort_order: "desc",
-        limit: "200",
+        limit: String(PRINT_QUEUE_PAGE_SIZE),
+        page: String(historyPage),
+        print_history_mode: "true",
       });
 
       if (debouncedSearch.trim()) {
         params.set("search", debouncedSearch.trim());
-      }
-
-      if (view === "queue") {
-        params.set("print_mode", "true");
-        params.set("unprinted_only", "true");
-      } else {
-        params.set("print_history_mode", "true");
-        const start = new Date(historyDate);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(historyDate);
-        end.setHours(23, 59, 59, 999);
-        params.set("last_printed_from", start.toISOString());
-        params.set("last_printed_to", end.toISOString());
       }
 
       const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`);
@@ -171,23 +223,18 @@ function PrintQueueInner() {
         notify.error("Failed to load print queue");
         return;
       }
-      const data = (await res.json()) as { orders?: PrintOrder[] };
+      const data = (await res.json()) as { orders?: PrintOrder[]; total?: number };
       const nextOrders = data.orders ?? [];
       setOrders(nextOrders);
-      if (deepLinkOrderId && nextOrders.some((order) => order.id === deepLinkOrderId)) {
-        setView("queue");
-        setSelected(new Set([deepLinkOrderId]));
-        appliedDeepLinkRef.current = deepLinkOrderId;
-      } else {
-        setSelected(new Set());
-        if (deepLinkOrderId) appliedDeepLinkRef.current = null;
-      }
+      setHistoryTotal(data.total ?? nextOrders.length);
+      setSelected(new Set());
+      if (deepLinkOrderId) appliedDeepLinkRef.current = null;
     } catch {
       notify.error("Failed to load print queue");
     } finally {
       setLoading(false);
     }
-  }, [view, historyDate, debouncedSearch, deepLinkOrderId]);
+  }, [view, debouncedSearch, deepLinkOrderId, historyPage]);
 
   useEffect(() => {
     void fetchOrders();
@@ -231,18 +278,33 @@ function PrintQueueInner() {
   }
 
   async function doPrint(ids: string[]) {
-    const idsParam = encodeURIComponent(ids.join(","));
-    window.open(`/api/admin/orders/bulk-print?ids=${idsParam}`, "_blank", "noopener");
-    window.open(
-      `/api/admin/orders/location-pick-list?download=1&ids=${idsParam}`,
-      "_blank",
-      "noopener"
-    );
-    notify.success(`Opened ${ids.length} invoice${ids.length !== 1 ? "s" : ""} for printing`);
-    setTimeout(() => {
-      setRefreshTick((t) => t + 1);
+    setPrinting(true);
+    try {
+      const groupRes = await fetch("/api/admin/fulfillment/pick-list/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: ids }),
+      });
+      if (!groupRes.ok) {
+        const json = (await groupRes.json().catch(() => ({}))) as { error?: string };
+        notify.error(json.error ?? "Failed to create pick list group");
+        setPrinting(false);
+        return;
+      }
+
+      const idsParam = encodeURIComponent(ids.join(","));
+      window.open(`/api/admin/orders/bulk-print?ids=${idsParam}`, "_blank", "noopener");
+      notify.success(
+        `Printing ${ids.length} invoice${ids.length !== 1 ? "s" : ""}. Download the pick list from Inventory Pick List.`,
+      );
+      setTimeout(() => {
+        setRefreshTick((t) => t + 1);
+        setPrinting(false);
+      }, 1500);
+    } catch {
+      notify.error("Bulk print failed");
       setPrinting(false);
-    }, 1500);
+    }
   }
 
   function handlePrintSelected() {
@@ -274,7 +336,7 @@ function PrintQueueInner() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Order Print</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Select invoices to print. Printed orders automatically advance to dispatch.
+            Select invoices to print. Printed orders move to dispatch as &ldquo;Printed&rdquo; — use Package Ready on single dispatch when needed.
           </p>
         </div>
         <Button
@@ -323,12 +385,6 @@ function PrintQueueInner() {
 
           {view === "history" && (
             <>
-              <Input
-                type="date"
-                value={historyDate}
-                onChange={(e) => setHistoryDate(e.target.value)}
-                className="h-9 w-44"
-              />
               {perms.canPrint && (
                 <Button
                   size="sm"
@@ -398,7 +454,7 @@ function PrintQueueInner() {
                 : "No unprinted orders in the queue."
               : debouncedSearch
                 ? "No matching printed orders found."
-                : "No printed orders found for this date."}
+                : "No printed orders found."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -492,7 +548,7 @@ function PrintQueueInner() {
                         {order.companyLocation?.name ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {order.assignedMerchant?.name ?? "—"}
+                        {printMerchantLabel(order)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
                         {order.customerPhone ?? "—"}
@@ -532,11 +588,37 @@ function PrintQueueInner() {
         )}
 
         {!loading && orders.length > 0 && (
-          <div className="border-t border-border/70 px-4 py-2 text-xs text-muted-foreground">
-            {view === "queue"
-              ? `${unprinted.length} unprinted order${unprinted.length !== 1 ? "s" : ""} in queue`
-              : `${orders.length} order${orders.length !== 1 ? "s" : ""} printed`}
-            {selected.size > 0 && ` · ${selected.size} selected`}
+          <div className="flex items-center justify-between border-t border-border/70 px-4 py-2 text-xs text-muted-foreground">
+            <span>
+              {view === "queue"
+                ? `${unprinted.length} unprinted order${unprinted.length !== 1 ? "s" : ""} in queue`
+                : historyTotal > PRINT_QUEUE_PAGE_SIZE
+                  ? `Showing ${(historyPage - 1) * PRINT_QUEUE_PAGE_SIZE + 1}–${(historyPage - 1) * PRINT_QUEUE_PAGE_SIZE + orders.length} of ${historyTotal} printed orders`
+                  : `${historyTotal} printed order${historyTotal !== 1 ? "s" : ""}`}
+              {selected.size > 0 && ` · ${selected.size} selected`}
+            </span>
+            {view === "history" && historyTotal > PRINT_QUEUE_PAGE_SIZE && (
+              <div className="flex gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={historyPage <= 1 || loading}
+                  onClick={() => setHistoryPage((p) => p - 1)}
+                >
+                  ← Prev
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={historyPage >= Math.ceil(historyTotal / PRINT_QUEUE_PAGE_SIZE) || loading}
+                  onClick={() => setHistoryPage((p) => p + 1)}
+                >
+                  Next →
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

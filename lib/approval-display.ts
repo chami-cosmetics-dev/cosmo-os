@@ -1,5 +1,6 @@
 export function parseApprovalRequestNote(requestNote: string | null | undefined) {
   const note = requestNote?.trim() ?? "";
+  if (note.startsWith("{")) return { paymentType: null, amount: null };
   const match = note.match(/^(.+?)\s+—\s+amount:\s+(.+)$/i);
   if (!match) {
     return { paymentType: note || null, amount: null };

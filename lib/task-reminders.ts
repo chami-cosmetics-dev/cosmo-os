@@ -9,18 +9,21 @@ import {
 import {
   deliveryPipelineWhere,
   fulfillableOrderPipelineWhere,
+  printFulfillmentPipelineWhere,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
 import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import {
   canSeeTaskReminderCategory,
+  listVisibleTaskReminderCategories,
   shouldScopeSampleRemindersToMerchant,
   type TaskReminderAccessContext,
 } from "@/lib/task-reminder-access";
 import { taskReminderHref } from "@/lib/task-reminder-links";
+import { TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 
-export const TASK_REMINDER_SLA_MS = 24 * 60 * 60 * 1000;
+export { TASK_REMINDER_SLA_HOURS, TASK_REMINDER_SLA_MS } from "@/lib/task-reminder-sla";
 const REMINDER_LIMIT_PER_CATEGORY = 20;
 
 export type TaskReminderCategory =
@@ -46,6 +49,8 @@ export type TaskReminder = {
 export type TaskRemindersResult = {
   reminders: TaskReminder[];
   totalCount: number;
+  /** Categories this user may monitor (shown in HUD even when count is 0). */
+  visibleCategories: TaskReminderCategory[];
 };
 
 type PermissionContext = TaskReminderAccessContext;
@@ -123,6 +128,16 @@ async function fetchFinanceApprovalReminders(
       status: "pending",
       type: { in: approvalTypes },
       createdAt: { lte: slaCutoff(now) },
+      NOT: {
+        OR: [
+          { order: { financialStatus: { equals: "voided", mode: "insensitive" } } },
+          {
+            orderReturn: {
+              order: { financialStatus: { equals: "voided", mode: "insensitive" } },
+            },
+          },
+        ],
+      },
     },
     orderBy: { createdAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,
@@ -179,13 +194,24 @@ async function fetchSampleReminders(
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...baseFulfillmentOrderWhere,
-      ...sampleQueueWhere,
+      financialStatus: { not: "voided" },
+      packageOnHoldAt: null,
+      companyLocation: { fulfillmentBlocked: false },
       sourceName: { in: ["web", "manual"] },
       fulfillmentStage: { in: ["order_received", "sample_free_issue"] },
       ...(shouldScopeSampleRemindersToMerchant(context) && context.userId
         ? { assignedMerchantId: context.userId }
         : {}),
+      AND: [
+        sampleQueueWhere,
+        {
+          NOT: {
+            approvalRequests: {
+              some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+            },
+          },
+        },
+      ],
       OR: [
         { sampleFreeIssueSendLaterDate: null },
         { sampleFreeIssueSendLaterDate: { lt: tomorrow } },
@@ -236,9 +262,21 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<TaskRe
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      ...baseFulfillmentOrderWhere,
+      financialStatus: { not: "voided" },
+      packageOnHoldAt: null,
+      companyLocation: { fulfillmentBlocked: false },
       printCount: 0,
       totalPrice: { gte: 0 },
+      AND: [
+        printFulfillmentPipelineWhere,
+        {
+          NOT: {
+            approvalRequests: {
+              some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+            },
+          },
+        },
+      ],
       OR: [
         { sourceName: { in: ["web", "manual"] }, fulfillmentStage: "print" },
         {
@@ -450,8 +488,11 @@ export async function fetchTaskReminders(
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
+  const visibleCategories = listVisibleTaskReminderCategories(context);
+
   return {
     reminders,
     totalCount: reminders.length,
+    visibleCategories,
   };
 }

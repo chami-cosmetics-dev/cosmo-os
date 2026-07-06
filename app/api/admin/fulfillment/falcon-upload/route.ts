@@ -7,6 +7,7 @@ import {
 } from "@/lib/falcon-upload";
 import { isCitypakCourier } from "@/lib/courier";
 import { resolveFalconCompanyGroup, resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
+import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
 import { getAddressField, resolveOrderCustomerName } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -31,9 +32,6 @@ function getOrderAmount(order: { financialStatus: string | null; totalPrice: Pri
   return isPrepaid(order.financialStatus) ? "0" : order.totalPrice.toString();
 }
 
-function getOrderReference(order: { name: string | null; orderNumber: string | null; shopifyOrderId: string }) {
-  return order.name ?? order.orderNumber ?? order.shopifyOrderId;
-}
 
 function getFirstBarcode(
   lineItems: Array<{ productItem: { barcode: string | null } }>
@@ -80,6 +78,7 @@ async function getCitypakWaybillRows(
       name: true,
       orderNumber: true,
       shopifyOrderId: true,
+      erpnextInvoiceId: true,
       financialStatus: true,
       totalPrice: true,
       customerEmail: true,
@@ -113,7 +112,7 @@ async function getCitypakWaybillRows(
 
   const allRows: (FalconWaybillRow & { courierName: string })[] = orders.map((order) => {
     const shippingAddress = order.shippingAddress;
-    const reference = getOrderReference(order);
+    const reference = formatFulfillmentOrderReferenceText(order);
     const brand = resolveFalconCompanyGroup();
     const locationReference = order.companyLocation.locationReference ?? "";
     const manualInvoicePrefix = order.companyLocation.manualInvoicePrefix ?? "";

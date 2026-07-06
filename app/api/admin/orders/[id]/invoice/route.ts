@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { findMatchingContacts } from "@/lib/contact-identifiers";
 import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
+import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
@@ -209,13 +210,16 @@ export async function GET(
     }),
   ]);
 
-  const paymentGatewayPrimary = gatewayColumns.hasPaymentGatewayPrimary
-    ? ((order as unknown as Record<string, unknown>)?.paymentGatewayPrimary as string | null ?? null)
-    : null;
-
   if (!order) {
     return new NextResponse("Order not found", { status: 404 });
   }
+
+  const paymentGatewayPrimary = gatewayColumns.hasPaymentGatewayPrimary
+    ? ((order as unknown as Record<string, unknown>)?.paymentGatewayPrimary as string | null ?? null)
+    : null;
+  const paymentGatewayNames = gatewayColumns.hasPaymentGatewayNames
+    ? (((order as unknown as Record<string, unknown>)?.paymentGatewayNames as string[] | null) ?? [])
+    : [];
 
   const erpConfig = resolveErpApiCreds(order.companyLocation.erpnextInstance);
   const lineItemSkus = order.lineItems
@@ -226,20 +230,26 @@ export async function GET(
   const showWatermark = order.printCount > 0;
   const printedAt = new Date();
   if (shouldIncrementPrint) {
+    const financeBlock = await getFinancePaymentApprovalBlockReason({
+      id: order.id,
+      paymentGatewayPrimary,
+      paymentGatewayNames,
+      erpnextInvoiceId: order.erpnextInvoiceId,
+    });
+    if (financeBlock) {
+      return new NextResponse(financeBlock, { status: 409 });
+    }
+
     const userId = auth.context!.user!.id;
     const stage = order.fulfillmentStage;
     const printStageUpdate =
       stage === "order_received" || stage === "sample_free_issue"
         ? orderStageUpdate("print", printedAt)
         : stage === "print"
-          ? {
-              ...orderStageUpdate("ready_to_dispatch", printedAt),
-              packageReadyAt: printedAt,
-              packageReadyById: userId,
-              packageOnHoldAt: null,
-              packageHoldReasonId: null,
-            }
+          ? orderStageUpdate("ready_to_dispatch", printedAt)
           : {};
+    const clearLegacyPackageReady =
+      stage === "print" ? { packageReadyAt: null, packageReadyById: null } : {};
     await prisma.order.update({
       where: { id: order.id },
       data: {
@@ -247,6 +257,7 @@ export async function GET(
         lastPrintedAt: printedAt,
         lastPrintedById: userId,
         ...printStageUpdate,
+        ...clearLegacyPackageReady,
       },
     });
   }

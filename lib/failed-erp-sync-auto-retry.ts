@@ -121,12 +121,19 @@ export function buildFailedErpSyncWhere(companyId?: string, search?: string): Pr
     ...(companyId ? { companyId } : {}),
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
     financialStatus: { not: "voided" },
-    erpnextSyncError: { not: null },
     ...FAILED_ERP_SYNC_PENDING_PAYMENT_APPROVAL_EXCLUSION,
+    // Include orders with a recorded error OR orders stuck at "pending" with no error
+    // (zombie state: sync was claimed but Vercel timed out before error could be written).
     OR: [
-      { erpnextInvoiceId: null },
-      { erpnextInvoiceId: "pending" },
-      { erpnextInvoiceId: "pending_approval" },
+      {
+        erpnextSyncError: { not: null },
+        OR: [
+          { erpnextInvoiceId: null },
+          { erpnextInvoiceId: "pending" },
+          { erpnextInvoiceId: "pending_approval" },
+        ],
+      },
+      { erpnextInvoiceId: "pending", erpnextSyncError: null },
     ],
   };
 

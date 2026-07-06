@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminder-sla";
 
 const HUD_PARTICLES = [
   { className: "left-[4%] top-[20%]", delay: "0s" },
@@ -84,7 +85,9 @@ export function TaskReminderBubbleIcon({ count, active = false, className }: Tas
             <span className="reminder-holo-clock mt-0.5 font-mono text-base font-bold tracking-wider text-cyan-50">
               {clock}
             </span>
-            <span className="mt-1 font-mono text-[9px] font-bold tracking-widest text-red-400">24H+</span>
+            <span className="mt-1 font-mono text-[9px] font-bold tracking-widest text-red-400">
+              {TASK_REMINDER_SLA_HOURS}H+
+            </span>
           </span>
         </span>
       </span>

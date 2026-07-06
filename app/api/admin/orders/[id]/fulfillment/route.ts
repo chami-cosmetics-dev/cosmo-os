@@ -18,17 +18,22 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
-import { createDeliveryPaymentEntry } from "@/lib/erpnext-sync";
+import { createErpnextCreditNote, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
+import { cancelShopifyOrder } from "@/lib/shopify-admin";
+import { markOrderDelivered } from "@/lib/mark-order-delivered";
+import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
+import {
+  isAllowedCompanyErpPaymentMode,
+  listCompanyErpPaymentModes,
+} from "@/lib/erp-payment-modes";
 import {
   createOrGetOrderPaymentApproval,
-  getOrderPaymentApproval,
-  getPendingDeliveryPaymentApproval,
+  getFinancePaymentApprovalBlockReason,
   isOrderPaymentRequiresApproval,
-  orderRequiresDeliveryPaymentApproval,
 } from "@/lib/approval-workflow";
-import { resolvePostDeliveryInvoiceComplete } from "@/lib/delivery-payment-approval";
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
+import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -71,12 +76,17 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("mark_invoice_complete"),
+    modeOfPayment: z.string().trim().min(1).max(200).optional(),
   }),
   z.object({
     action: z.literal("mark_delivered"),
   }),
   z.object({
     action: z.literal("complete_pos"),
+  }),
+  z.object({
+    action: z.literal("cancel_order"),
+    reason: z.string().trim().min(5).max(500),
   }),
   z.object({
     action: z.literal("revert_to_stage"),
@@ -120,7 +130,9 @@ function getRequiredPermissionsForAction(action: string): string[] {
     case "mark_delivered":
       return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
-      return ["finance.approvals.manage"];
+      return ["fulfillment.delivery_invoice.mark_complete"];
+    case "cancel_order":
+      return ["orders.cancel"];
     case "complete_pos":
       return ["orders.manage"];
     case "revert_to_stage":
@@ -305,17 +317,31 @@ export async function PATCH(
     return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
   }
 
+  const financeFulfillmentBlock = await getFinancePaymentApprovalBlockReason({
+    id: order.id,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+    erpnextInvoiceId: order.erpnextInvoiceId,
+  });
+
+  // If the block is due to a missing approval record (ERP webhook silent failure),
+  // create it now so finance can see and act on it.
+  if (financeFulfillmentBlock && isOrderPaymentRequiresApproval(order)) {
+    void createOrGetOrderPaymentApproval({
+      companyId,
+      orderId: order.id,
+      requestedById: auth.context!.user!.id,
+      invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+      paymentType: order.paymentGatewayPrimary ?? "bank transfer",
+      amount: order.totalPrice.toString(),
+    }).catch((err) => console.error("[fulfillment] approval self-heal failed:", err));
+  }
+
   const data = parsed.data;
   const now = new Date();
 
   try {
     if (data.action === "add_samples") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Samples can only be added at sample/free issue stage" },
@@ -395,34 +421,14 @@ export async function PATCH(
     }
 
     if (data.action === "advance_to_print") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/print stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
+      if (financeFulfillmentBlock) {
+        return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
       }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Can only advance to print from sample/free issue stage" },
           { status: 400 }
         );
-      }
-
-      // Block KOKO / bank transfer orders until finance team approves
-      if (isOrderPaymentRequiresApproval(order)) {
-        const approval = await getOrderPaymentApproval(order.id);
-        if (!approval || approval.status === "pending") {
-          return NextResponse.json(
-            { error: "Finance approval is pending for this order. Please wait for the finance team to approve." },
-            { status: 409 }
-          );
-        }
-        if (approval.status === "rejected") {
-          return NextResponse.json(
-            { error: "Finance approval was rejected. Please contact the finance team." },
-            { status: 409 }
-          );
-        }
       }
 
       await prisma.order.update({
@@ -446,12 +452,6 @@ export async function PATCH(
     }
 
     if (data.action === "set_sample_send_later_date") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Send later date can only be set at sample/free issue stage" },
@@ -487,12 +487,6 @@ export async function PATCH(
     }
 
     if (data.action === "send_sample_now") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Send now is only available at sample/free issue stage" },
@@ -526,12 +520,6 @@ export async function PATCH(
     }
 
     if (data.action === "cancel_sample_send_later") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Cancel schedule is only available at sample/free issue stage" },
@@ -599,6 +587,9 @@ export async function PATCH(
     }
 
     if (data.action === "mark_ready") {
+      if (financeFulfillmentBlock) {
+        return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
+      }
       if (order.fulfillmentStage !== "print" && order.fulfillmentStage !== "ready_to_dispatch") {
         return NextResponse.json(
           { error: "Can only mark ready at print or ready to dispatch stage" },
@@ -673,6 +664,9 @@ export async function PATCH(
     }
 
     if (data.action === "dispatch") {
+      if (financeFulfillmentBlock) {
+        return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
+      }
       const dispatchable = DISPATCHABLE_STAGES as readonly string[];
       if (!dispatchable.includes(order.fulfillmentStage)) {
         return NextResponse.json(
@@ -820,7 +814,11 @@ export async function PATCH(
             };
 
       const needsMarkReady =
-        order.fulfillmentStage !== "ready_to_dispatch" || !order.packageReadyAt;
+        order.fulfillmentStage !== "ready_to_dispatch" ||
+        !isExplicitlyPackageReady({
+          packageReadyAt: order.packageReadyAt,
+          lastPrintedAt: order.lastPrintedAt,
+        });
       const userId = auth.context!.user!.id;
 
       const updated = await prisma.order.update({
@@ -934,140 +932,42 @@ export async function PATCH(
     }
 
     if (data.action === "mark_invoice_complete") {
-      if (order.fulfillmentStage !== "delivery_complete") {
-        return NextResponse.json(
-          { error: "Delivery must be marked complete before invoice complete" },
-          { status: 400 }
-        );
-      }
-      if (orderRequiresDeliveryPaymentApproval(order)) {
-        const pendingDeliveryApproval = await getPendingDeliveryPaymentApproval(order.id);
-        if (pendingDeliveryApproval) {
-          return NextResponse.json(
-            { error: "Finance must confirm delivery payment before marking invoice complete." },
-            { status: 409 }
-          );
+      const modeOverride = data.modeOfPayment?.trim();
+      if (modeOverride) {
+        const paymentModes = await listCompanyErpPaymentModes(companyId);
+        if (!isAllowedCompanyErpPaymentMode(paymentModes, modeOverride)) {
+          return NextResponse.json({ error: "Invalid ERP payment mode" }, { status: 400 });
         }
-        return NextResponse.json(
-          { error: "Order payment is not confirmed. Finance must mark this order as paid first." },
-          { status: 409 }
-        );
       }
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          ...orderStageUpdate("invoice_complete", now),
-          fulfillmentStatus: "fulfilled",
-          invoiceCompleteAt: now,
-          invoiceCompleteById: auth.context!.user!.id,
-        },
-      });
-      await logOrderFulfillmentAudit({
+      const outcome = await markOrderInvoiceComplete({
         companyId,
-        actorUserId: auth.context!.user!.id,
         orderId: order.id,
-        summary: `Marked invoice complete for order ${order.orderNumber ?? order.name ?? order.id}`,
-        beforeStage: order.fulfillmentStage,
-        afterStage: "invoice_complete",
-        metadata: { action: data.action },
+        userId: auth.context!.user!.id,
+        modeOfPayment: modeOverride,
       });
-
-      if (order.companyLocationId) {
-        const location = await prisma.companyLocation.findUnique({
-          where: { id: order.companyLocationId },
-          include: { erpnextInstance: true },
-        });
-        if (location) {
-          createDeliveryPaymentEntry(order, location, now).catch((err) =>
-            console.error("[ERPNext] delivery PE failed:", err),
-          );
-        }
+      if (!outcome.success) {
+        return NextResponse.json({ error: outcome.error }, { status: 400 });
       }
-
-      return NextResponse.json({ success: true });
+      return NextResponse.json({
+        success: true,
+        ...(outcome.erpPeError ? { erpPeError: outcome.erpPeError } : {}),
+      });
     }
 
     if (data.action === "mark_delivered") {
-      if (order.fulfillmentStage !== "dispatched") {
-        return NextResponse.json(
-          { error: "Can only mark delivered when order is dispatched" },
-          { status: 400 }
-        );
-      }
-
       const userId = auth.context!.user!.id;
-
-      const updated = await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          ...orderStageUpdate("delivery_complete", now),
-          deliveryCompleteAt: now,
-          deliveryCompleteById: userId,
-          deliveryOutcome: "delivered",
-          deliveryFailedReason: null,
-          lastRiderUpdateAt: now,
-          riderDeliveryToken: null,
-        },
-        include: { companyLocation: true },
-      });
-      await prisma.riderDeliveryTask.updateMany({
-        where: { orderId: order.id },
-        data: {
-          status: "completed",
-          completedAt: now,
-          failedAt: null,
-          failureReason: null,
-          latestSyncAt: now,
-        },
-      });
-
-      const postDelivery = await resolvePostDeliveryInvoiceComplete({
+      const outcome = await markOrderDelivered({
         companyId,
         orderId: order.id,
-        requestedById: userId,
+        userId,
       });
-
-      let afterStage: FulfillmentStage = "delivery_complete";
-      const needsPaymentApproval = postDelivery.kind === "awaiting_finance";
-
-      if (postDelivery.kind === "invoice_complete") {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: {
-            ...orderStageUpdate("invoice_complete", now),
-            fulfillmentStatus: "fulfilled",
-            invoiceCompleteAt: now,
-            invoiceCompleteById: postDelivery.financeUserId,
-          },
-        });
-        afterStage = "invoice_complete";
-
-        // ERP Sales Invoice payment is not created on delivery complete — only via
-        // finance delivery-payment approval or explicit mark_invoice_complete.
+      if (!outcome.success) {
+        return NextResponse.json({ error: outcome.error }, { status: 400 });
       }
-
-      sendOrderSms(companyId, order.id, "delivery_complete", {
-        orderNumber: resolveOrderNumber(updated),
-        invoiceNumber: resolveOrderInvoiceNumber(updated),
-        customerPhone: resolveCustomerPhone(updated),
-        locationName: updated.companyLocation.name,
-      }).catch((err) => console.error("[Order SMS] delivery_complete failed:", err));
-      await logOrderFulfillmentAudit({
-        companyId,
-        actorUserId: userId,
-        orderId: order.id,
-        summary:
-          afterStage === "invoice_complete"
-            ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — invoice complete (finance payment approval)`
-            : needsPaymentApproval
-              ? `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered — awaiting finance confirmation`
-              : `Marked order ${updated.orderNumber ?? updated.name ?? updated.id} as delivered`,
-        beforeStage: order.fulfillmentStage,
-        afterStage,
-        metadata: { action: data.action, needsPaymentApproval },
+      return NextResponse.json({
+        success: true,
+        needsPaymentApproval: outcome.needsPaymentApproval,
       });
-
-      return NextResponse.json({ success: true, needsPaymentApproval });
     }
 
     if (data.action === "revert_to_stage") {
@@ -1093,7 +993,15 @@ export async function PATCH(
       const clearFromStageIdx = targetIdx + 1;
       const dispatchedIdx = FULFILLMENT_STAGE_ORDER.indexOf("dispatched");
       const readyIdx = FULFILLMENT_STAGE_ORDER.indexOf("ready_to_dispatch");
-      const shouldRecordReturn = currentIdx >= dispatchedIdx && targetIdx >= readyIdx && order.dispatchedAt;
+      // Special path: finance reverts a paid+delivered order back from invoice_complete.
+      // Item is physically out with customer (not yet returned), so we track a "refunded" partial-void state.
+      const isInvoiceCompleteRevert =
+        currentStage === "invoice_complete" && targetStage === "delivery_complete";
+      const shouldRecordReturn =
+        !isInvoiceCompleteRevert &&
+        currentIdx >= dispatchedIdx &&
+        targetIdx >= readyIdx &&
+        Boolean(order.dispatchedAt);
       const returnRemark = data.remarkTemplate
         ? buildReturnRemarkText({
             remarkTemplate: data.remarkTemplate,
@@ -1146,6 +1054,11 @@ export async function PATCH(
       if (clearFromStageIdx <= FULFILLMENT_STAGE_ORDER.indexOf("invoice_complete")) {
         updateData.invoiceCompleteAt = null;
         updateData.invoiceCompleteById = null;
+      }
+      if (isInvoiceCompleteRevert) {
+        updateData.revertedFromInvoiceCompleteAt = now;
+        updateData.revertedFromInvoiceCompleteById = auth.context!.user!.id;
+        updateData.financialStatus = "refunded";
       }
       if (shouldRecordReturn) {
         updateData.fulfillmentStatus = "unfulfilled";
@@ -1230,6 +1143,74 @@ export async function PATCH(
           },
         });
       }
+
+      if (isInvoiceCompleteRevert) {
+        const existingRevertReturn = await prisma.orderReturn.findFirst({
+          where: { orderId: order.id, companyId, remarkTemplate: "invoice_revert" },
+          select: { id: true },
+        });
+        if (!existingRevertReturn) {
+          const shipping = getShippingServiceForReturn(order);
+          const createdReturn = await prisma.orderReturn.create({
+            data: {
+              companyId,
+              orderId: order.id,
+              merchantUserId: order.assignedMerchantId,
+              dispatchedAt: order.dispatchedAt ?? now,
+              returnDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
+              shippingServiceType: shipping.type,
+              shippingServiceName: shipping.name,
+              riderId: order.dispatchedByRiderId,
+              courierServiceId: order.dispatchedByCourierServiceId,
+              returnedById: auth.context!.user!.id,
+              returnRemark: data.revertReason,
+              remarkTemplate: "invoice_revert",
+              actionStatus: "pending",
+            },
+          });
+          await writeAuditLog({
+            companyId,
+            actorUserId: auth.context!.user!.id,
+            module: "orders",
+            action: "returned_order_recorded",
+            entityType: "OrderReturn",
+            entityId: createdReturn.id,
+            summary: `Finance reverted order ${order.orderNumber ?? order.name ?? order.id} from invoice complete — credit refund pending`,
+            afterData: { orderId: order.id, remarkTemplate: "invoice_revert", source: "invoice_complete_revert" },
+          });
+        }
+        // Create ERP credit note — awaited; failure surfaced as warning flag (order is already reverted in DB)
+        let erpCreditNoteFailed = false;
+        let erpCreditNoteError: string | undefined;
+        try {
+          const withLocation = await prisma.order.findUnique({
+            where: { id: order.id },
+            include: { companyLocation: { include: { erpnextInstance: true } } },
+          });
+          if (withLocation?.companyLocation) {
+            await createErpnextCreditNote(
+              { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+              withLocation.companyLocation,
+            );
+          }
+        } catch (err) {
+          console.error("[ERPNext] createErpnextCreditNote failed:", err);
+          erpCreditNoteFailed = true;
+          erpCreditNoteError = err instanceof Error ? err.message : String(err);
+        }
+
+        await logOrderFulfillmentAudit({
+          companyId,
+          actorUserId: auth.context!.user!.id,
+          orderId: order.id,
+          summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
+          beforeStage: order.fulfillmentStage,
+          afterStage: targetStage,
+          metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
+        });
+        return NextResponse.json({ success: true, erpCreditNoteFailed, erpCreditNoteError });
+      }
+
       await logOrderFulfillmentAudit({
         companyId,
         actorUserId: auth.context!.user!.id,
@@ -1239,6 +1220,66 @@ export async function PATCH(
         afterStage: targetStage,
         metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
       });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "cancel_order") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Orders can only be cancelled at order received or sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+      if (order.financialStatus?.toLowerCase() === "voided") {
+        return NextResponse.json({ error: "Order is already cancelled" }, { status: 400 });
+      }
+
+      const orderWithLocation = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: { companyLocation: { include: { erpnextInstance: true } } },
+      });
+      const location = orderWithLocation?.companyLocation;
+
+      // Cancel in Shopify first — fatal; if this fails we don't mark as voided
+      if (location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(order.shopifyOrderId, location.shopifyAdminStoreHandle);
+        console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
+      } else {
+        console.warn(`[Cancel] No shopifyAdminStoreHandle on location — skipping Shopify cancel for order ${order.id}`);
+      }
+
+      // Cancel ERP Sales Invoice if one exists — non-fatal
+      if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
+        try {
+          await cancelErpnextSalesInvoice(order.name ?? order.shopifyOrderId, location);
+          console.log(`[Cancel] ERP SI cancelled for order ${order.id}`);
+        } catch (err) {
+          console.error(`[Cancel] ERP SI cancel failed (non-fatal) for order ${order.id}:`, err);
+        }
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          financialStatus: "voided",
+          cancelledAt: now,
+          cancelledById: auth.context!.user!.id,
+          cancelReason: data.reason,
+        },
+      });
+
+      await writeAuditLog({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        module: "orders",
+        action: "order_cancelled",
+        entityType: "Order",
+        entityId: order.id,
+        summary: `Cancelled order ${order.orderNumber ?? order.name ?? order.id}: ${data.reason}`,
+        beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
+        afterData: { financialStatus: "voided", cancelReason: data.reason },
+      });
+
       return NextResponse.json({ success: true });
     }
 

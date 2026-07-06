@@ -75,13 +75,6 @@ type BulkRemarkDraft = {
   customRemark: string;
 };
 
-function formatDateTime(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-LK");
-}
-
 function formatDateOnly(value?: string | null) {
   if (!value) return "N/A";
   const date = new Date(value);
@@ -95,6 +88,12 @@ function formatDateOnly(value?: string | null) {
 }
 
 function actionTypeBadge(item: ReturnTrackingItem) {
+  if (item.remarkTemplate === "invoice_revert") {
+    if (item.actionStatus === "solved" && item.actionType === "void") {
+      return { label: "Finance Reverted — Voided", className: "border-purple-500/30 bg-purple-500/10 text-purple-700" };
+    }
+    return { label: "Finance Reverted", className: "border-orange-500/30 bg-orange-500/10 text-orange-700" };
+  }
   if (item.actionType === "cancel") {
     return item.actionStatus === "pending"
       ? { label: "Cancel Pending", className: "border-rose-500/30 bg-rose-500/10 text-rose-700" }
@@ -109,6 +108,14 @@ function actionTypeBadge(item: ReturnTrackingItem) {
       : { label: "Rearranged", className: "border-sky-500/30 bg-sky-500/10 text-sky-700" };
   }
   return null;
+}
+
+function financeRevertSubStatus(item: ReturnTrackingItem) {
+  if (item.actionStatus === "solved" && item.actionType === "void") return "Voided";
+  if (item.orderFulfillmentStage === "returned_to_store") {
+    return "Refunded — item returned, awaiting void approval";
+  }
+  return "Refunded — item not yet returned to store";
 }
 
 export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
@@ -184,8 +191,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         item.customerName,
         item.customerEmail,
         item.customerPhone,
-        item.merchant?.name,
-        item.merchant?.email,
+        item.merchant,
         item.shippingService,
         item.riderName,
         item.returnRemark,
@@ -296,6 +302,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
 
   function canTakeAction(item: ReturnTrackingItem | null) {
     if (!item || item.actionStatus !== "pending") return false;
+    if (item.remarkTemplate === "invoice_revert") return false;
     if (item.actionType === "cancel") return false;
     if (!item.actionType) return true;
     return isBankTransferRearrangePending(item);
@@ -325,6 +332,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         error?: string;
         returnedOrder?: Partial<ReturnTrackingItem>;
         order?: {
+          fulfillmentStage?: string | null;
           financialStatus?: string | null;
           paymentGatewayPrimary?: string | null;
           requiresBankTransferBeforeRearrange?: boolean;
@@ -342,6 +350,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   ...item,
                   ...data.returnedOrder,
                   returnRemark: data.returnedOrder?.returnRemark ?? item.returnRemark,
+                  orderFulfillmentStage: data.order?.fulfillmentStage ?? item.orderFulfillmentStage,
                   financialStatus: data.order?.financialStatus ?? item.financialStatus,
                   paymentGatewayPrimary: data.order?.paymentGatewayPrimary ?? item.paymentGatewayPrimary,
                   paymentGatewayNames: data.order?.paymentGatewayPrimary
@@ -365,6 +374,63 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       }
     } catch {
       notify.error("Failed to save return action");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resendVoidApproval() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/returns/${selected.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionType: "resend_void_approval" }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to re-send void approval");
+      } else {
+        notify.success("Void approval re-sent to finance.");
+      }
+    } catch {
+      notify.error("Failed to re-send void approval");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function markReturnedToStore() {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/returns/${selected.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actionType: "mark_returned_to_store" }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        returnedOrder?: Partial<ReturnTrackingItem>;
+        order?: { fulfillmentStage?: string | null };
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to mark returned to store");
+        return;
+      }
+      if (data.returnedOrder) {
+        setItems((current) =>
+          current.map((item) =>
+            item.id === selected.id
+              ? { ...item, ...data.returnedOrder, orderFulfillmentStage: data.order?.fulfillmentStage ?? item.orderFulfillmentStage }
+              : item
+          )
+        );
+      }
+      notify.success("Item marked returned to store — void approval sent to finance.");
+    } catch {
+      notify.error("Failed to mark returned to store");
     } finally {
       setSaving(false);
     }
@@ -706,7 +772,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     return (
                       <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
                         <td className="px-3 py-3 font-medium">{item.invoiceNo}</td>
-                        <td className="px-3 py-3">{item.merchant?.name ?? item.merchant?.email ?? "Unassigned"}</td>
+                        <td className="px-3 py-3">{item.merchant ?? "-"}</td>
                         <td className="px-3 py-3">{item.riderName ?? item.shippingService}</td>
                         <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
                         <td className="max-w-[220px] truncate px-3 py-3">{item.returnRemark ?? item.actionRemark ?? "-"}</td>
@@ -740,12 +806,65 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                   <>
                     <div className="rounded-md border border-border/70 px-3 py-2 text-sm">
                       Status: {selected.actionStatus === "solved" ? "Solved" : "Pending"}
+                      {selected.merchant && (
+                        <div className="mt-1 text-muted-foreground">Merchant: {selected.merchant}</div>
+                      )}
                       <div className="mt-1 text-muted-foreground">Payment: {paymentLabel(selected)}</div>
                       <div className="mt-1 text-muted-foreground">Service: {selected.riderName ?? selected.shippingService}</div>
                       {selected.returnRemark && (
                         <div className="mt-1 text-muted-foreground">Return remark: {selected.returnRemark}</div>
                       )}
                     </div>
+                    {selected.remarkTemplate === "invoice_revert" && (
+                      <div className="space-y-2">
+                        <div className="rounded-md border border-orange-500/30 bg-orange-500/10 px-3 py-2 text-sm text-orange-800 dark:text-orange-300">
+                          <p className="font-medium">Finance Reverted — Partial Void</p>
+                          <p className="mt-0.5">{financeRevertSubStatus(selected)}</p>
+                          {selected.revertedFromInvoiceCompleteAt && (
+                            <p className="mt-1 text-xs opacity-75">
+                              Reverted on {formatDateOnly(selected.revertedFromInvoiceCompleteAt)}
+                            </p>
+                          )}
+                        </div>
+                        {selected.actionStatus === "pending" &&
+                          selected.orderFulfillmentStage !== "returned_to_store" &&
+                          selected.orderFulfillmentStage !== "returned" && (
+                            <Button
+                              variant="destructive"
+                              className="w-full"
+                              disabled={saving}
+                              onClick={() => void markReturnedToStore()}
+                            >
+                              {saving ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  Processing...
+                                </>
+                              ) : (
+                                "Mark Item Returned to Store"
+                              )}
+                            </Button>
+                          )}
+                        {selected.remarkTemplate === "invoice_revert" &&
+                          selected.orderFulfillmentStage === "returned_to_store" && (
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              disabled={saving}
+                              onClick={() => void resendVoidApproval()}
+                            >
+                              {saving ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                                  Processing...
+                                </>
+                              ) : (
+                                "Re-send Void Approval"
+                              )}
+                            </Button>
+                          )}
+                      </div>
+                    )}
                     {isBankTransferRearrangePending(selected) && (
                       <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
                         This returned courier order is waiting for bank transfer. Request finance approval before dispatch.
@@ -797,15 +916,19 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                       </>
                     ) : (
                       <p className="text-muted-foreground text-sm">
-                        {selected.actionType === "cancel"
-                          ? selected.actionStatus === "pending"
-                            ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
-                            : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
-                          : selected.actionType === "rearrange"
+                        {selected.remarkTemplate === "invoice_revert"
+                          ? selected.actionStatus === "solved"
+                            ? "Order has been fully voided. Credit note remains in ERP."
+                            : "Finance-reverted order — item has been returned to store, awaiting void approval from finance."
+                          : selected.actionType === "cancel"
                             ? selected.actionStatus === "pending"
-                              ? "Rearrange is awaiting finance approval."
-                              : "This return has been rearranged."
-                            : "This return is already solved."}
+                              ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
+                              : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
+                            : selected.actionType === "rearrange"
+                              ? selected.actionStatus === "pending"
+                                ? "Rearrange is awaiting finance approval."
+                                : "This return has been rearranged."
+                              : "This return is already solved."}
                       </p>
                     )}
                   </>

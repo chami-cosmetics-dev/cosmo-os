@@ -50,6 +50,7 @@ export type FulfillmentOrder = {
   packageHoldReason?: { id: string; name: string } | null;
   sampleFreeIssueSendLaterDate?: string | null;
   fulfillmentStage?: string | null;
+  pendingMethodChangeApproval?: boolean;
 };
 
 interface FulfillmentOrderSelectorProps {
@@ -121,7 +122,7 @@ export function FulfillmentOrderSelector({
         : "created";
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(
-    bulkPrintUnprinted ? 100 : isDispatchOrDeliveryQueue ? 50 : 5,
+    bulkPrintUnprinted ? 100 : isDispatchOrDeliveryQueue || worksheetMode ? 50 : 5,
   );
   const [total, setTotal] = useState(0);
   const [orderOpen, setOrderOpen] = useState(false);
@@ -259,16 +260,24 @@ export function FulfillmentOrderSelector({
       return unprintedOrders.map((order) => order.id).join(",");
     }
 
-    const handleBulkPrintUnprinted = () => {
+    const handleBulkPrintUnprinted = async () => {
       const ids = getUnprintedOrderIds();
       if (!ids) return;
+      const orderIds = ids.split(",");
+      const groupRes = await fetch("/api/admin/fulfillment/pick-list/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds }),
+      });
+      if (!groupRes.ok) {
+        const json = (await groupRes.json().catch(() => ({}))) as { error?: string };
+        notify.error(json.error ?? "Failed to create pick list group");
+        return;
+      }
       window.open(`/api/admin/orders/bulk-print?ids=${encodeURIComponent(ids)}`, "_blank", "noopener");
-      window.open(
-        `/api/admin/orders/location-pick-list?download=1&ids=${encodeURIComponent(ids)}`,
-        "_blank",
-        "noopener"
+      notify.success(
+        `Opened invoices for ${unprintedOrders.length} order(s). Download pick list from Inventory Pick List.`,
       );
-      notify.success(`Opened invoices and downloading location files for ${unprintedOrders.length} order(s).`);
       window.setTimeout(() => {
         void fetchOrders();
       }, 1500);
@@ -349,6 +358,11 @@ export function FulfillmentOrderSelector({
                           );
                         })}
                       </CommandGroup>
+                      {total > orders.length && (
+                        <div className="border-t border-border/60 px-3 py-2 text-center text-xs text-muted-foreground">
+                          Showing {orders.length} of {total} orders — type to search
+                        </div>
+                      )}
                     </CommandList>
                   </Command>
                 </PopoverContent>
