@@ -78,13 +78,13 @@ export async function GET(request: NextRequest) {
     createdAt: Date;
   };
 
-  // invoiceCompleteAt IS NOT NULL covers all orders that passed through store invoice complete,
-  // regardless of what fulfillment stage they're at now (dispatched, delivered, etc.)
+  // OGF is a walk-in store — orders go straight to delivery_complete without passing through
+  // invoice_complete. Accept either stage so no sales are missed.
   const orders = await prisma.$queryRaw<OrderRow[]>(Prisma.sql`
     SELECT "id", "orderNumber", "name", "totalPrice", "paymentGatewayPrimary", "createdAt"
     FROM "Order"
     WHERE "companyLocationId" = ${locationId}
-      AND "invoiceCompleteAt" IS NOT NULL
+      AND ("invoiceCompleteAt" IS NOT NULL OR "fulfillmentStage" = 'delivery_complete')
       AND "ogfSyncedAt" IS NULL
       AND "cancelledAt" IS NULL
     ORDER BY "createdAt" ASC
