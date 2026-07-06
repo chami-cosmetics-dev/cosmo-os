@@ -50,11 +50,9 @@ async function getOgfAccessToken(): Promise<string> {
     return data.access_token;
   }
 
-  // Fallback: token is base64(clientId:clientSecret) — the iMonitor pattern
-  // where getAccessToken() derives the bearer token directly from credentials
-  const clientId = process.env.OGF_CLIENT_ID ?? "";
-  const clientSecret = process.env.OGF_CLIENT_SECRET ?? "";
-  return Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  // Fallback: the clientSecret itself is the bearer token — iMonitor uses the
+  // secret value directly as the Authorization header value (no separate token fetch needed)
+  return process.env.OGF_CLIENT_SECRET ?? "";
 }
 
 export async function GET(request: NextRequest) {
