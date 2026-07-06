@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     path: request.nextUrl.pathname,
   });
 
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("dashboard.view");
   perf.mark("auth");
   if (!auth.ok) {
     perf.end({ status: auth.status, ok: false });

@@ -61,6 +61,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     roleNames.includes("super_admin") ||
     roleNames.includes("admin") ||
     permissionKeys.includes(permission);
+  const canViewDashboard = hasSidebarPermission("dashboard.view");
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
@@ -188,12 +189,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
-            <NavItem
-              href="/dashboard"
-              icon={LayoutDashboard}
-              label="Dashboard"
-              isActive={pathname === "/dashboard"}
-            />
+            {canViewDashboard && (
+              <NavItem
+                href="/dashboard"
+                icon={LayoutDashboard}
+                label="Dashboard"
+                isActive={pathname === "/dashboard"}
+              />
+            )}
             {canViewComplaints && (
               <NavItem
                 href="/dashboard/complaints"
