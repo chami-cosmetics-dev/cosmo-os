@@ -382,6 +382,12 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     const isDeliveryQueue = params.deliveryMode || isDeliveryFulfillmentStages(stages);
     const isInvoiceCompleteQueue = params.invoiceCompleteMode;
 
+    if (isDispatchQueue) {
+      where.approvalRequests = {
+        none: { type: "order_cancel_approval", status: "pending" },
+      };
+    }
+
     const hasSampleQueueStage = stages.some(
       (s) => s === "order_received" || s === "sample_free_issue",
     );

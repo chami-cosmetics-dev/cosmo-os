@@ -122,6 +122,15 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      const pendingCancelApproval = await prisma.approvalRequest.findFirst({
+        where: { orderId: order.id, type: "order_cancel_approval", status: "pending" },
+        select: { id: true },
+      });
+      if (pendingCancelApproval) {
+        results.push({ orderId, ref, success: false, error: "Order has a pending cancel request — awaiting finance approval" });
+        continue;
+      }
+
       const financeBlock = await getFinancePaymentApprovalBlockReason({
         id: order.id,
         paymentGatewayPrimary: order.paymentGatewayPrimary,
