@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
+  AlertTriangle,
   ArrowLeftRight,
   Check,
   Loader2,
@@ -9,6 +10,7 @@ import {
   Printer,
   Send,
   Truck,
+  XCircle,
 } from "lucide-react";
 
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
@@ -25,6 +27,15 @@ import {
   SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS,
 } from "@/lib/order-dispatch";
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -32,6 +43,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 import {
   DISPATCH_CUSTOMER_PICKUP,
@@ -191,6 +203,10 @@ type OrderDetail = {
     linkedOrderName: string | null;
     replacementErpAdminInvoiceUrl: string | null;
   }>;
+  cancelledAt?: string | null;
+  cancelledBy?: { id: string; name: string | null; email: string | null } | null;
+  cancelReason?: string | null;
+  hasPendingCancelApproval?: boolean;
 };
 
 type FulfillmentLookups = {
@@ -238,6 +254,8 @@ export function OrderFulfillmentDetail({
   const [invoiceCompleteMop, setInvoiceCompleteMop] = useState(ERP_PAYMENT_MODE_ORDER_DEFAULT);
   const [remarkType, setRemarkType] = useState<"internal" | "external">("internal");
   const [remarkStage, setRemarkStage] = useState<FulfillmentStage>("order_received");
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelOrderReason, setCancelOrderReason] = useState("");
 
   const isBusy = busyKey !== null;
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
@@ -308,6 +326,32 @@ export function OrderFulfillmentDetail({
     }
   }
 
+  async function handleCancelOrder() {
+    if (!orderId || cancelOrderReason.trim().length < 5) return;
+    setBusyKey("cancel_order");
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel_order", reason: cancelOrderReason.trim() }),
+      });
+      const data = (await res.json()) as { success?: boolean; requiresApproval?: boolean; error?: string };
+      if (!res.ok) { notify.error(data.error ?? "Failed to cancel order"); return; }
+      if (data.requiresApproval) {
+        notify.success("Cancel request sent to finance for approval — order is now blocked from dispatch.");
+      } else {
+        notify.success("Order cancelled.");
+      }
+      setShowCancelDialog(false);
+      setCancelOrderReason("");
+      onRefresh();
+    } catch {
+      notify.error("Failed to cancel order");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   function handlePrint() {
     if (!orderId) return;
     window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
@@ -316,6 +360,7 @@ export function OrderFulfillmentDetail({
   if (!orderDetail && !loading) return null;
 
   return (
+    <>
     <Dialog open={!!orderId} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
@@ -782,6 +827,49 @@ export function OrderFulfillmentDetail({
               </div>
             )}
 
+            {/* Cancel Order */}
+            {orderDetail.financialStatus?.toLowerCase() === "voided" && orderDetail.cancelledAt ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+                <div className="flex items-center gap-2 font-medium text-destructive">
+                  <XCircle className="size-4" />
+                  Order Cancelled
+                </div>
+                {orderDetail.cancelledBy && (
+                  <p className="mt-1 text-muted-foreground">By {orderDetail.cancelledBy.name ?? orderDetail.cancelledBy.email}</p>
+                )}
+                {orderDetail.cancelReason && (
+                  <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
+                )}
+              </div>
+            ) : orderDetail.hasPendingCancelApproval ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-700/40 dark:bg-amber-900/20">
+                <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="size-4" />
+                  Cancel Pending Finance Approval
+                </div>
+                <p className="mt-1 text-amber-700 dark:text-amber-400">
+                  A cancel request has been sent to finance. This order cannot be dispatched until finance approves or rejects the cancel.
+                </p>
+              </div>
+            ) : perms.canCancelOrder && ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
+              <div className="rounded-lg border border-dashed p-4">
+                <h4 className="mb-1 text-sm font-medium">Cancel Order</h4>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Paid orders (KOKO, Bank Transfer, CC Checkout) will require finance approval before cancellation is processed.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => { setCancelOrderReason(""); setShowCancelDialog(true); }}
+                  disabled={isBusy}
+                >
+                  <XCircle className="size-4" />
+                  Cancel Order
+                </Button>
+              </div>
+            ) : null}
+
             {/* Remarks */}
             <div className="rounded-lg border p-4">
               <h4 className="mb-2 text-sm font-medium flex items-center gap-2">
@@ -960,5 +1048,52 @@ export function OrderFulfillmentDetail({
         ) : null}
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelOrderReason(""); } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Cancel Order {orderDetail ? (orderDetail.name ?? orderDetail.orderNumber ?? orderDetail.shopifyOrderId) : ""}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {orderDetail?.financialStatus?.toLowerCase() === "paid" ? (
+              "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
+            ) : (
+              "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="py-1">
+          <label className="mb-1.5 block text-sm font-medium" htmlFor="cancel-order-reason">
+            Cancellation reason <span className="text-destructive">*</span>
+          </label>
+          <Textarea
+            id="cancel-order-reason"
+            value={cancelOrderReason}
+            onChange={(e) => setCancelOrderReason(e.target.value)}
+            placeholder="e.g. Customer called to cancel — changed mind"
+            className="min-h-20"
+            maxLength={500}
+            disabled={busyKey === "cancel_order"}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">{cancelOrderReason.trim().length}/500 — minimum 5 characters</p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busyKey === "cancel_order"}>Back</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={busyKey === "cancel_order" || cancelOrderReason.trim().length < 5}
+            onClick={() => void handleCancelOrder()}
+          >
+            {busyKey === "cancel_order" ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Processing...</>
+            ) : orderDetail?.financialStatus?.toLowerCase() === "paid" ? (
+              "Send to Finance"
+            ) : (
+              "Confirm Cancel"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

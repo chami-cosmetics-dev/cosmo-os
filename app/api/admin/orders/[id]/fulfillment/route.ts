@@ -667,6 +667,16 @@ export async function PATCH(
     }
 
     if (data.action === "dispatch") {
+      const pendingCancelApproval = await prisma.approvalRequest.findFirst({
+        where: { orderId: order.id, type: "order_cancel_approval", status: "pending" },
+        select: { id: true },
+      });
+      if (pendingCancelApproval) {
+        return NextResponse.json(
+          { error: "This order has a pending cancel request — awaiting finance approval.", code: "ORDER_CANCEL_PENDING" },
+          { status: 400 }
+        );
+      }
       if (order.financialStatus?.toLowerCase() === "voided" && order.cancelledAt) {
         let cancellerName = "a user";
         if (order.cancelledById) {
