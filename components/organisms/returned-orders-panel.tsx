@@ -300,6 +300,17 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
     );
   }
 
+  function needsBankTransferChoice(item: ReturnTrackingItem | null): boolean {
+    if (!item || item.actionType) return false;
+    if ((item.shippingServiceType ?? "").trim().toLowerCase() === "rider") return false;
+    const name = (item.shippingService ?? "").trim().toLowerCase().replace(/\s+/g, "");
+    if (!name.includes("citypak") && !name.includes("citypack")) return false;
+    const gateways = [item.paymentGatewayPrimary, ...item.paymentGatewayNames].map((g) => (g ?? "").toLowerCase().trim());
+    const isCod = gateways.some((g) => g === "cod" || g === "cash" || g.includes("cash_on_delivery"));
+    if (item.financialStatus?.toLowerCase() === "paid" && !isCod) return false;
+    return true;
+  }
+
   function canTakeAction(item: ReturnTrackingItem | null) {
     if (!item || item.actionStatus !== "pending") return false;
     if (item.remarkTemplate === "invoice_revert") return false;
@@ -309,7 +320,8 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
   }
 
   async function saveAction(
-    actionType: "save" | "rearrange" | "request_finance_approval" | "request_cancel" = "save"
+    actionType: "save" | "rearrange" | "request_finance_approval" | "request_cancel" = "save",
+    opts?: { requestBankTransfer?: boolean }
   ) {
     if (!selected) return;
     if (actionType === "request_cancel" && !cancelRemark.trim()) {
@@ -326,6 +338,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
           actionRemark: remark.trim() || null,
           cancelRemark: actionType === "request_cancel" ? cancelRemark.trim() : undefined,
           actionType,
+          ...(opts?.requestBankTransfer !== undefined ? { requestBankTransfer: opts.requestBankTransfer } : {}),
         }),
       });
       const data = (await res.json()) as {
@@ -890,7 +903,17 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                           />
                         </div>
                         <div className="grid gap-2">
-                          {!selected.actionType && (
+                          {!selected.actionType && needsBankTransferChoice(selected) && (
+                            <>
+                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: true })} disabled={saving} className="w-full">
+                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Bank Transfer"}
+                              </Button>
+                              <Button onClick={() => void saveAction("rearrange", { requestBankTransfer: false })} disabled={saving} variant="outline" className="w-full">
+                                {saving ? <><Loader2 className="size-4 animate-spin" aria-hidden />Processing...</> : "Rearrange — Keep Original"}
+                              </Button>
+                            </>
+                          )}
+                          {!selected.actionType && !needsBankTransferChoice(selected) && (
                             <Button onClick={() => void saveAction("rearrange")} disabled={saving} className="w-full">
                               {saving ? (
                                 <>
