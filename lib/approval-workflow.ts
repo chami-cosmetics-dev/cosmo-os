@@ -2,7 +2,6 @@ import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { sendFinanceApprovalEmail } from "@/lib/maileroo";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
@@ -13,6 +12,7 @@ export const ORDER_PAYMENT_APPROVAL = "order_payment_approval";
 export const DELIVERY_PAYMENT_APPROVAL = "delivery_payment_approval";
 export const INVOICE_REVERT_VOID_APPROVAL = "invoice_revert_void_approval";
 export const PAYMENT_METHOD_CHANGE_APPROVAL = "payment_method_change_approval";
+export const ORDER_CANCEL_APPROVAL = "order_cancel_approval";
 /** When false, delivery payment approvals stay in DB but are hidden from finance UI (notifications + approvals list). */
 export const DELIVERY_PAYMENT_FINANCE_UI_ENABLED = true;
 export const FINANCE_APPROVAL_TYPES = [
@@ -22,6 +22,7 @@ export const FINANCE_APPROVAL_TYPES = [
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
   PAYMENT_METHOD_CHANGE_APPROVAL,
+  ORDER_CANCEL_APPROVAL,
 ] as const;
 const FINANCE_APPROVAL_PERMISSION = "finance.approvals.manage";
 
@@ -444,13 +445,6 @@ export async function createOrGetOrderPaymentApproval(input: {
       })
     )
   );
-
-  const financeEmails = financeUsers.map((u) => u.email).filter((e): e is string => !!e);
-  if (financeEmails.length > 0) {
-    void sendFinanceApprovalEmail(financeEmails, input.invoiceLabel, input.paymentType, input.amount).catch(
-      (err) => console.error("[Finance approval] Email send failed:", err)
-    );
-  }
 
   return { id, status: "pending" as ApprovalStatus };
 }
@@ -878,12 +872,78 @@ export async function createPaymentMethodChangeApproval(input: {
     )
   );
 
-  const financeEmails = financeUsers.map((u) => u.email).filter((e): e is string => !!e);
-  if (financeEmails.length > 0) {
-    void sendFinanceApprovalEmail(financeEmails, input.invoiceLabel, input.targetPaymentMethod, input.amount).catch(
-      (err) => console.error("[Finance approval] Email send failed:", err)
+  return { id, status: "pending" as ApprovalStatus };
+}
+
+export async function createOrGetOrderCancelApproval(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string;
+  cancelReason: string;
+  invoiceLabel: string;
+  amount: string;
+  companyLocationId?: string | null;
+}) {
+  const existing = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+    Prisma.sql`
+      SELECT "id", "status"
+      FROM "ApprovalRequest"
+      WHERE "companyId" = ${input.companyId}
+        AND "type" = ${ORDER_CANCEL_APPROVAL}
+        AND "orderId" = ${input.orderId}
+        AND "status" = 'pending'
+      ORDER BY "createdAt" DESC
+      LIMIT 1
+    `
+  );
+  if (existing[0]) return existing[0];
+
+  const id = randomUUID();
+  const rowsAffected = await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO "ApprovalRequest" (
+        "id", "companyId", "type", "status", "orderId",
+        "requestedById", "requestNote", "createdAt", "updatedAt"
+      )
+      VALUES (
+        ${id}, ${input.companyId}, ${ORDER_CANCEL_APPROVAL}, ${"pending"}, ${input.orderId},
+        ${input.requestedById}, ${input.cancelReason},
+        ${new Date()}, ${new Date()}
+      )
+      ON CONFLICT DO NOTHING
+    `
+  );
+
+  if (rowsAffected === 0) {
+    const concurrent = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+      Prisma.sql`
+        SELECT "id", "status"
+        FROM "ApprovalRequest"
+        WHERE "companyId" = ${input.companyId}
+          AND "type" = ${ORDER_CANCEL_APPROVAL}
+          AND "orderId" = ${input.orderId}
+          AND "status" = 'pending'
+        LIMIT 1
+      `
     );
+    return concurrent[0]!;
   }
+
+  const financeUsers = await getFinanceApprovalUsers(input.companyId, input.companyLocationId);
+
+  await Promise.all(
+    financeUsers.map((u) =>
+      createNotification({
+        companyId: input.companyId,
+        userId: u.id,
+        type: "approval_requested",
+        title: "Order cancel approval requested",
+        body: `Cancel requested for ${input.invoiceLabel} (LKR ${input.amount}) — reason: ${input.cancelReason}. Cancel in Shopify, create a credit note in ERPNext, then approve.`,
+        entityType: "ApprovalRequest",
+        entityId: id,
+      })
+    )
+  );
 
   return { id, status: "pending" as ApprovalStatus };
 }

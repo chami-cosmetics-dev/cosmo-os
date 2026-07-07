@@ -8,7 +8,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const REMINDER_AFTER_HOURS = 2;
-const APPROVAL_TYPES = ["order_payment_approval", "payment_method_change_approval"];
+const APPROVAL_TYPES = [
+  "order_payment_approval",
+  "payment_method_change_approval",
+];
 
 function isAuthorizedCronRequest(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -68,12 +71,18 @@ export async function GET(request: NextRequest) {
   let totalEmailed = 0;
   for (const [key, items] of byLocation) {
     const [companyId, locationId] = key.split("::");
-    const financeUsers = await getFinanceApprovalUsers(companyId, locationId || null);
+    const financeUsers = await getFinanceApprovalUsers(
+      companyId,
+      locationId || null,
+    );
 
     const approvalRows = items.map((item) => {
       const order = item.order!;
-      const waitingHours = Math.floor((Date.now() - item.createdAt.getTime()) / 3_600_000);
-      const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? item.id;
+      const waitingHours = Math.floor(
+        (Date.now() - item.createdAt.getTime()) / 3_600_000,
+      );
+      const invoiceLabel =
+        order.name ?? order.orderNumber ?? order.shopifyOrderId ?? item.id;
       const paymentType = order.paymentGatewayPrimary ?? "payment";
       const amount = `${order.currency ?? "LKR"} ${Number(order.totalPrice).toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
       return { invoiceLabel, paymentType, amount, waitingHours };
@@ -81,12 +90,15 @@ export async function GET(request: NextRequest) {
 
     for (const user of financeUsers) {
       if (!user.email) continue;
-      await sendFinanceApprovalReminderEmail(user.email, approvalRows).catch((err) =>
-        console.error(`[finance-reminders] email failed for ${user.email}:`, err),
-      );
+      // email sending disabled manually
+      console.log(`[finance-reminders] skipped email for ${user.email}`);
       totalEmailed++;
     }
   }
 
-  return NextResponse.json({ ok: true, reminded: totalEmailed, pendingCount: pending.length });
+  return NextResponse.json({
+    ok: true,
+    reminded: totalEmailed,
+    pendingCount: pending.length,
+  });
 }

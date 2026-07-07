@@ -28,6 +28,7 @@ import {
   Calculator,
   BadgeCheck,
   GraduationCap,
+  XCircle,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -85,6 +86,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     "contacts.allocation.settings"
   );
   const canCreateManualOrder = hasSidebarPermission("orders.create_manual");
+  const canCancelOrders = hasSidebarPermission("orders.cancel");
   const canViewFailedWebhooks = hasSidebarPermission("failed_webhooks.read");
   const canStickerBatch =
     hasSidebarPermission("stickers.batch.read") ||
@@ -272,6 +274,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
               )}
               {canCreateManualOrder && (
                 <NavItem href="/dashboard/orders/create" icon={Plus} label="Create Manual Order" isActive={pathname === "/dashboard/orders/create"} />
+              )}
+              {canCancelOrders && (
+                <NavItem href="/dashboard/orders/cancel" icon={XCircle} label="Cancel Orders" isActive={pathname === "/dashboard/orders/cancel"} />
               )}
               {fulfillmentHref && (
                 <NavItem href={fulfillmentHref} icon={PackageCheck} label="Fulfillment" isActive={pathname.startsWith("/dashboard/fulfillment")} />

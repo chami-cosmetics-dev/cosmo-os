@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronsUpDown, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
@@ -131,10 +130,6 @@ export function FulfillmentSampleFreeIssuePanel({
   const [bankTransferBusy, setBankTransferBusy] = useState(false);
   const [showKokoDialog, setShowKokoDialog] = useState(false);
   const [kokoBusy, setKokoBusy] = useState(false);
-  const [showCancelDialog, setShowCancelDialog] = useState(false);
-  const [cancelReason, setCancelReason] = useState("");
-  const [cancelBusy, setCancelBusy] = useState(false);
-
   const isBusy = busyKey !== null;
 
   useEffect(() => {
@@ -444,33 +439,6 @@ export function FulfillmentSampleFreeIssuePanel({
       notify.error("Failed to request KOKO payment change");
     } finally {
       setKokoBusy(false);
-    }
-  }
-
-  async function handleCancelOrder() {
-    if (!orderId) return;
-    const reason = cancelReason.trim();
-    if (!reason) return;
-    setCancelBusy(true);
-    try {
-      const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel_order", reason }),
-      });
-      const data = (await res.json()) as { error?: string };
-      if (!res.ok) {
-        notify.error(data.error ?? "Failed to cancel order");
-        return;
-      }
-      notify.success("Order cancelled.");
-      setShowCancelDialog(false);
-      setCancelReason("");
-      onRefresh(true);
-    } catch {
-      notify.error("Failed to cancel order");
-    } finally {
-      setCancelBusy(false);
     }
   }
 
@@ -941,68 +909,7 @@ export function FulfillmentSampleFreeIssuePanel({
           </p>
         )}
 
-        {perms.canCancelOrder &&
-          orderId &&
-          (order?.fulfillmentStage === "order_received" || order?.fulfillmentStage === "sample_free_issue") && (
-            <div className="border-t border-border/70 pt-3">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => { setCancelReason(""); setShowCancelDialog(true); }}
-                disabled={isBusy || remarkBusy || cancelBusy}
-                className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              >
-                <XCircle className="size-4" aria-hidden />
-                Cancel Order
-              </Button>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Cancels the order in Shopify and voids the ERP invoice.
-              </p>
-            </div>
-          )}
     </div>
-
-    <AlertDialog
-      open={showCancelDialog}
-      onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelReason(""); } }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Cancel Order</AlertDialogTitle>
-          <AlertDialogDescription>
-            This will cancel the order in Shopify and void the ERP Sales Invoice if one exists. This action cannot be undone.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="py-1">
-          <label className="mb-1.5 block text-sm font-medium" htmlFor="sfi-cancel-reason">
-            Cancellation reason <span className="text-destructive">*</span>
-          </label>
-          <Textarea
-            id="sfi-cancel-reason"
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="e.g. Customer called to cancel — changed mind"
-            className="min-h-20"
-            maxLength={500}
-            disabled={cancelBusy}
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={cancelBusy}>Back</AlertDialogCancel>
-          <Button
-            variant="destructive"
-            disabled={cancelBusy || cancelReason.trim().length < 5}
-            onClick={() => void handleCancelOrder()}
-          >
-            {cancelBusy ? (
-              <><Loader2 className="mr-2 size-4 animate-spin" />Cancelling...</>
-            ) : (
-              "Confirm Cancel"
-            )}
-          </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
 
     <AlertDialog
       open={showBankTransferDialog}
