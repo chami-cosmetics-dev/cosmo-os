@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { OrdersPanel } from "@/components/organisms/orders-panel";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
+import { FulfillmentPermissionsProvider } from "@/components/contexts/fulfillment-permissions-context";
 import {
   getRevertPermissionKeys,
   buildFulfillmentPermissions,
@@ -34,13 +35,15 @@ export default async function OrdersPage() {
   });
 
   return (
-    <OrdersPanel
-      canPrint={permissions.canPrint}
-      canResendRiderSms={permissions.canResendRiderSms}
-      revertPermissionKeys={revertPermissionKeys}
-      canManageFinanceApprovals={canManageFinanceApprovals}
-      canRevertPaid={canRevertPaid}
-      initialData={initialData}
-    />
+    <FulfillmentPermissionsProvider permissions={permissions}>
+      <OrdersPanel
+        canPrint={permissions.canPrint}
+        canResendRiderSms={permissions.canResendRiderSms}
+        revertPermissionKeys={revertPermissionKeys}
+        canManageFinanceApprovals={canManageFinanceApprovals}
+        canRevertPaid={canRevertPaid}
+        initialData={initialData}
+      />
+    </FulfillmentPermissionsProvider>
   );
 }
