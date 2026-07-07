@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   DELIVERY_PAYMENT_APPROVAL,
   INVOICE_REVERT_VOID_APPROVAL,
+  ORDER_CANCEL_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
   PAYMENT_METHOD_CHANGE_APPROVAL,
   RETURN_CANCEL_APPROVAL,
@@ -13,7 +14,13 @@ import {
   notifyApprovalRequester,
 } from "@/lib/approval-workflow";
 import { writeAuditLog } from "@/lib/audit-log";
-import { createDeliveryPaymentEntry, syncBankTransferPaymentToERPNext } from "@/lib/erpnext-sync";
+import {
+  cancelErpnextSalesInvoice,
+  createDeliveryPaymentEntry,
+  createErpnextCreditNote,
+  syncBankTransferPaymentToERPNext,
+} from "@/lib/erpnext-sync";
+import { cancelShopifyOrder } from "@/lib/shopify-admin";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -312,6 +319,17 @@ export async function PATCH(
             exchangePaymentDifference: null,
           },
         });
+      } else if (approval.type === ORDER_CANCEL_APPROVAL && approval.orderId) {
+        // Finance has confirmed Shopify cancel and ERP credit note are done — mark order voided in DB.
+        await tx.order.update({
+          where: { id: approval.orderId },
+          data: {
+            financialStatus: "voided",
+            cancelledAt: now,
+            cancelledById: reviewerId,
+            cancelReason: approval.requestNote,
+          },
+        });
       }
     }
 
@@ -359,6 +377,22 @@ export async function PATCH(
         ? `Finance acknowledged cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} (process in ERPNext)`
         : `Finance rejected cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} — return reset to pending`,
       metadata: { approvalId: approval.id, orderId: approval.orderId },
+    });
+  }
+
+  if (approval.type === ORDER_CANCEL_APPROVAL && approval.orderId) {
+    const label = invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId });
+    await writeAuditLog({
+      companyId,
+      actorUserId: reviewerId,
+      module: "orders",
+      action: nextStatus === "approved" ? "order_cancel_approved" : "order_cancel_rejected",
+      entityType: "Order",
+      entityId: approval.orderId,
+      summary: nextStatus === "approved"
+        ? `Finance approved order cancel for ${label} — order marked voided`
+        : `Finance rejected order cancel for ${label}`,
+      metadata: { approvalId: approval.id, cancelReason: approval.requestNote },
     });
   }
 

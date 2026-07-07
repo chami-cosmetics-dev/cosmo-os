@@ -5,6 +5,7 @@ import {
   DELIVERY_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
   INVOICE_REVERT_VOID_APPROVAL,
+  ORDER_CANCEL_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
   PAYMENT_METHOD_CHANGE_APPROVAL,
   RETURN_CANCEL_APPROVAL,
@@ -118,7 +119,8 @@ export async function GET() {
           ${ORDER_PAYMENT_APPROVAL},
           ${DELIVERY_PAYMENT_APPROVAL},
           ${INVOICE_REVERT_VOID_APPROVAL},
-          ${PAYMENT_METHOD_CHANGE_APPROVAL}
+          ${PAYMENT_METHOD_CHANGE_APPROVAL},
+          ${ORDER_CANCEL_APPROVAL}
         )
         AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
       ORDER BY
@@ -138,6 +140,7 @@ export async function GET() {
         reviewedAt: row.reviewedAt?.toISOString() ?? null,
       });
 
+      const isOrderCancel = row.type === ORDER_CANCEL_APPROVAL;
       return {
         ...enriched,
         shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
@@ -150,12 +153,12 @@ export async function GET() {
         }),
         returnedByName: row.returnedByName,
         returnedByEmail: row.returnedByEmail,
-        cancelRequestedByName: row.cancelRequestedByName,
-        cancelRequestedByEmail: row.cancelRequestedByEmail,
+        cancelRequestedByName: isOrderCancel ? row.reviewedByName : row.cancelRequestedByName,
+        cancelRequestedByEmail: isOrderCancel ? row.reviewedByEmail : row.cancelRequestedByEmail,
         returnRemark: cancelNote?.returnRemark ?? row.returnRemark,
-        cancelRemark: cancelNote?.cancelRemark ?? row.cancelRemark,
+        cancelRemark: isOrderCancel ? row.requestNote : (cancelNote?.cancelRemark ?? row.cancelRemark),
         returnDate: cancelNote?.returnDate ?? row.returnDate?.toISOString() ?? null,
-        cancelRequestedAt: cancelNote?.cancelRequestedAt ?? row.cancelRequestedAt?.toISOString() ?? null,
+        cancelRequestedAt: isOrderCancel ? row.createdAt.toISOString() : (cancelNote?.cancelRequestedAt ?? row.cancelRequestedAt?.toISOString() ?? null),
       };
     }),
   });

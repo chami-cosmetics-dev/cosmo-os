@@ -136,6 +136,9 @@ const orderSelect = {
     orderBy: { createdAt: "desc" },
     include: { addedBy: { select: { id: true, name: true, email: true } } },
   },
+  cancelledAt: true,
+  cancelReason: true,
+  cancelledBy: { select: { id: true, name: true, email: true } },
   approvalRequests: {
     where: { type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] } },
     orderBy: { createdAt: "desc" },
@@ -546,5 +549,10 @@ export async function GET(
         reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
       };
     })(),
+    cancelledAt: details.cancelledAt?.toISOString() ?? null,
+    cancelledBy: details.cancelledBy
+      ? { id: details.cancelledBy.id, name: details.cancelledBy.name, email: details.cancelledBy.email }
+      : null,
+    cancelReason: details.cancelReason ?? null,
   });
 }

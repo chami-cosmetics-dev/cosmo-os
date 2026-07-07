@@ -41,6 +41,14 @@ export type FinanceApprovalItem = {
   cancelRequestedAt?: string | null;
 };
 
+type CategoryFilter = "all" | "payments" | "returns" | "cancellations";
+
+const CATEGORY_TYPES: Record<Exclude<CategoryFilter, "all">, string[]> = {
+  payments: ["order_payment_approval", "delivery_payment_approval", "payment_method_change_approval"],
+  returns: ["return_rearrange_payment", "return_cancel", "invoice_revert_void_approval"],
+  cancellations: ["order_cancel_approval"],
+};
+
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
   if (type === "return_rearrange_payment") return "Return Rearrange";
@@ -48,6 +56,7 @@ function typeLabel(type: string) {
   if (type === "delivery_payment_approval") return "Delivery Payment";
   if (type === "invoice_revert_void_approval") return "Invoice Revert Void";
   if (type === "payment_method_change_approval") return "Payment Method Change";
+  if (type === "order_cancel_approval") return "Order Cancel";
   return type;
 }
 
@@ -75,6 +84,10 @@ const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   invoice_revert_void_approval: {
     label: "Invoice Revert",
     cls: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/50 dark:text-slate-300 dark:border-slate-600/40",
+  },
+  order_cancel_approval: {
+    label: "Order Cancel",
+    cls: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700/40",
   },
 };
 
@@ -138,12 +151,20 @@ function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
   return haystack.some((value) => value?.toLowerCase().includes(q));
 }
 
+function filterByCategory(approvals: FinanceApprovalItem[], category: CategoryFilter) {
+  if (category === "all") return approvals;
+  const types = CATEGORY_TYPES[category];
+  return approvals.filter((a) => types.includes(a.type));
+}
+
 function selectFirstInView(
   approvals: FinanceApprovalItem[],
   view: "pending" | "history",
+  category: CategoryFilter,
   currentId: string
 ) {
-  const visible = view === "pending" ? approvals.filter(isPendingApproval) : approvals.filter((item) => !isPendingApproval(item));
+  const byView = view === "pending" ? approvals.filter(isPendingApproval) : approvals.filter((item) => !isPendingApproval(item));
+  const visible = filterByCategory(byView, category);
   if (visible.some((item) => item.id === currentId)) return currentId;
   return visible[0]?.id ?? "";
 }
@@ -159,8 +180,9 @@ export function FinanceApprovalsPanel({
   const appliedDeepLinkRef = useRef<string | null>(null);
   const [approvals, setApprovals] = useState(initialApprovals);
   const [view, setView] = useState<"pending" | "history">("pending");
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [selectedId, setSelectedId] = useState(() =>
-    selectFirstInView(initialApprovals, "pending", "")
+    selectFirstInView(initialApprovals, "pending", "all", "")
   );
   const [reviewNote, setReviewNote] = useState("");
   const [hodPassword, setHodPassword] = useState("");
@@ -190,12 +212,20 @@ export function FinanceApprovalsPanel({
 
   const pendingApprovals = approvals.filter(isPendingApproval);
   const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
-  const visibleApprovals = view === "pending" ? pendingApprovals : historyApprovals;
+  const byView = view === "pending" ? pendingApprovals : historyApprovals;
+  const visibleApprovals = filterByCategory(byView, categoryFilter);
   const searchedApprovals = useMemo(() => {
     if (!effectiveSearch) return visibleApprovals;
     return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
   }, [visibleApprovals, effectiveSearch]);
   const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
+
+  const pendingCountByCategory = useMemo<Record<CategoryFilter, number>>(() => ({
+    all: pendingApprovals.length,
+    payments: pendingApprovals.filter((a) => CATEGORY_TYPES.payments.includes(a.type)).length,
+    returns: pendingApprovals.filter((a) => CATEGORY_TYPES.returns.includes(a.type)).length,
+    cancellations: pendingApprovals.filter((a) => CATEGORY_TYPES.cancellations.includes(a.type)).length,
+  }), [pendingApprovals]);
 
   useEffect(() => {
     if (searchedApprovals.length === 0) {
@@ -209,7 +239,13 @@ export function FinanceApprovalsPanel({
 
   function switchView(next: "pending" | "history") {
     setView(next);
-    setSelectedId(selectFirstInView(approvals, next, selectedId));
+    setSelectedId(selectFirstInView(approvals, next, categoryFilter, selectedId));
+    setReviewNote("");
+  }
+
+  function switchCategory(next: CategoryFilter) {
+    setCategoryFilter(next);
+    setSelectedId(selectFirstInView(approvals, view, next, selectedId));
     setReviewNote("");
   }
 
@@ -223,7 +259,7 @@ export function FinanceApprovalsPanel({
         return;
       }
       setApprovals(data.approvals ?? []);
-      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, currentId));
+      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, categoryFilter, currentId));
     } catch {
       notify.error("Failed to load approvals");
     } finally {
@@ -321,7 +357,7 @@ export function FinanceApprovalsPanel({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Finance Approvals</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Review KOKO, bank transfer, delivery collection, and return rearrangement payment requests.
+            Review payment, return, and order cancellation requests.
           </p>
         </div>
         <Button variant="outline" onClick={() => void refresh()} disabled={busy !== null} className="gap-2">
@@ -330,25 +366,53 @@ export function FinanceApprovalsPanel({
         </Button>
       </div>
 
-      <div className="inline-flex rounded-xl border border-border/70 bg-background/70 p-1 shadow-xs">
-        <Button
-          type="button"
-          size="sm"
-          variant={view === "pending" ? "default" : "ghost"}
-          onClick={() => switchView("pending")}
-          className={view === "pending" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
-        >
-          Pending{pendingApprovals.length > 0 ? ` (${pendingApprovals.length})` : ""}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={view === "history" ? "default" : "ghost"}
-          onClick={() => switchView("history")}
-          className={view === "history" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
-        >
-          History
-        </Button>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-xl border border-border/70 bg-background/70 p-1 shadow-xs">
+          <Button
+            type="button"
+            size="sm"
+            variant={view === "pending" ? "default" : "ghost"}
+            onClick={() => switchView("pending")}
+            className={view === "pending" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
+          >
+            Pending{pendingCountByCategory.all > 0 ? ` (${pendingCountByCategory.all})` : ""}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={view === "history" ? "default" : "ghost"}
+            onClick={() => switchView("history")}
+            className={view === "history" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
+          >
+            History
+          </Button>
+        </div>
+
+        <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
+          {(["all", "payments", "returns", "cancellations"] as CategoryFilter[]).map((cat) => {
+            const count = view === "pending" ? pendingCountByCategory[cat] : 0;
+            const label = cat === "all" ? "All" : cat.charAt(0).toUpperCase() + cat.slice(1);
+            return (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => switchCategory(cat)}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  categoryFilter === cat
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {label}
+                {view === "pending" && count > 0 && (
+                  <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -468,7 +532,20 @@ export function FinanceApprovalsPanel({
                       </div>
                     </div>
                   )}
-                  {selected.requestNote && selected.type !== "return_cancel" && (
+                  {selected.type === "order_cancel_approval" && (
+                    <div className="space-y-2 border-t border-border/60 pt-3">
+                      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-700/40 dark:bg-red-900/20 dark:text-red-200">
+                        Order cancel approval — cancel the order in Shopify and create a credit note in ERPNext, then approve here to mark the order as voided.
+                      </div>
+                      {selected.cancelRemark && (
+                        <p className="text-sm"><span className="font-medium">Cancel reason:</span> {selected.cancelRemark}</p>
+                      )}
+                      {selected.cancelRequestedAt && (
+                        <p className="text-sm text-muted-foreground"><span className="font-medium text-foreground">Requested at:</span> {formatDate(selected.cancelRequestedAt)}</p>
+                      )}
+                    </div>
+                  )}
+                  {selected.requestNote && selected.type !== "return_cancel" && selected.type !== "order_cancel_approval" && (
                     <p className="whitespace-pre-wrap text-muted-foreground">{selected.requestNote}</p>
                   )}
                 </div>
@@ -492,7 +569,9 @@ export function FinanceApprovalsPanel({
                           )}
                           {selected.type === "return_cancel"
                             ? "Mark processed (cancel in ERPNext)"
-                            : `Approve — ${typeLabel(selected.type)}`}
+                            : selected.type === "order_cancel_approval"
+                              ? "Confirm Cancel (Shopify + ERP done)"
+                              : `Approve — ${typeLabel(selected.type)}`}
                         </Button>
                       )}
                       <Button variant="outline" onClick={() => void review("reject")} disabled={busy !== null} className="gap-2">
