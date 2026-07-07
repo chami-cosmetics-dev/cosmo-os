@@ -21,6 +21,7 @@ const returnActionSchema = z.object({
   actionType: z
     .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel", "mark_returned_to_store", "resend_void_approval"])
     .optional(),
+  requestBankTransfer: z.boolean().optional(),
 });
 
 function normalizeText(value: string | null | undefined) {
@@ -219,6 +220,7 @@ export async function PUT(
 
   const requiresBankTransferBeforeRearrange =
     isRearrange &&
+    parsed.data.requestBankTransfer === true &&
     requiresCourierBankTransferBeforeRearrange(existing) &&
     !isAlreadyApprovedPayment(existing.order);
   const isApprovalRequestFlow =
