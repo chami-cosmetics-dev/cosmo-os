@@ -360,6 +360,7 @@ export function OrderFulfillmentDetail({
   if (!orderDetail && !loading) return null;
 
   return (
+    <>
     <Dialog open={!!orderId} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
@@ -1093,5 +1094,6 @@ export function OrderFulfillmentDetail({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    </>
   );
 }
