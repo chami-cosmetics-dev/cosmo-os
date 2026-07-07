@@ -42,6 +42,7 @@ export default async function OrdersPage() {
         revertPermissionKeys={revertPermissionKeys}
         canManageFinanceApprovals={canManageFinanceApprovals}
         canRevertPaid={canRevertPaid}
+        canCancelOrder={permissions.canCancelOrder}
         initialData={initialData}
       />
     </FulfillmentPermissionsProvider>
