@@ -499,6 +499,7 @@ export async function POST(request: NextRequest) {
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
       erpnextWarehouse: data.set_warehouse ?? null,
+      erpnextSyncError: null,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       ...(isPOS
         ? orderStageUpdate("delivery_complete", new Date())

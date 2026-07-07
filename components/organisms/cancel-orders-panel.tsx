@@ -84,16 +84,16 @@ export function CancelOrdersPanel() {
     setLoading(true);
     try {
       const params = new URLSearchParams({
-        fulfillmentStages: "order_received,sample_free_issue,print,ready_to_dispatch",
-        pageSize: "100",
+        fulfillment_stages: "order_received,sample_free_issue,print,ready_to_dispatch",
+        limit: "200",
       });
       if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
-      const res = await fetch(`/api/admin/orders?${params.toString()}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/orders/page-data?${params.toString()}`, { cache: "no-store" });
       if (!res.ok) {
         notify.error("Failed to load orders");
         return;
       }
-      const data = (await res.json()) as { orders?: CancelOrder[] };
+      const data = (await res.json()) as { orders?: CancelOrder[]; error?: string };
       setOrders(
         (data.orders ?? []).filter((o) => o.financialStatus?.toLowerCase() !== "voided")
       );
