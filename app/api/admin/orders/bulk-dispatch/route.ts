@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
 
   const now = new Date();
   const results: Array<{ orderId: string; ref: string; success: boolean; error?: string }> = [];
+  const smsTasks: Promise<void>[] = [];
 
   for (const orderId of orderIds) {
     try {
@@ -235,32 +236,39 @@ export async function POST(request: NextRequest) {
       const locationName = order.companyLocation?.name ?? "";
       const customerPhone = resolveCustomerPhone(order);
 
+      const deliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
+
       if (needsMarkReady) {
-        sendOrderSms(companyId, orderId, "package_ready", {
+        smsTasks.push(
+          sendOrderSms(companyId, orderId, "package_ready", {
+            orderNumber: orderNum,
+            invoiceNumber,
+            customerPhone,
+            locationName,
+          }).catch((err) => console.error("[bulk-dispatch] package_ready SMS failed:", err))
+        );
+      }
+
+      smsTasks.push(
+        sendOrderSms(companyId, orderId, "dispatched", {
           orderNumber: orderNum,
           invoiceNumber,
           customerPhone,
           locationName,
-        }).catch((err) => console.error("[bulk-dispatch] package_ready SMS failed:", err));
-      }
-
-      const deliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
-      sendOrderSms(companyId, orderId, "dispatched", {
-        orderNumber: orderNum,
-        invoiceNumber,
-        customerPhone,
-        locationName,
-        deliveryUrl,
-      }).catch((err) => console.error("[bulk-dispatch] dispatched SMS failed:", err));
+          deliveryUrl,
+        }).catch((err) => console.error("[bulk-dispatch] dispatched SMS failed:", err))
+      );
 
       if (riderId && riderDeliveryToken) {
-        sendOrderSms(companyId, orderId, "rider_dispatched", {
-          orderNumber: orderNum,
-          invoiceNumber,
-          orderReference: [orderNum, invoiceNumber].filter(Boolean).join(" / "),
-          deliveryUrl,
-          riderPhone: riderMobile ?? undefined,
-        }).catch((err) => console.error("[bulk-dispatch] rider SMS failed:", err));
+        smsTasks.push(
+          sendOrderSms(companyId, orderId, "rider_dispatched", {
+            orderNumber: orderNum,
+            invoiceNumber,
+            orderReference: [orderNum, invoiceNumber].filter(Boolean).join(" / "),
+            deliveryUrl,
+            riderPhone: riderMobile ?? undefined,
+          }).catch((err) => console.error("[bulk-dispatch] rider SMS failed:", err))
+        );
       }
 
       await writeAuditLog({
@@ -288,6 +296,8 @@ export async function POST(request: NextRequest) {
       results.push({ orderId, ref: orderId, success: false, error: "Internal error" });
     }
   }
+
+  await Promise.allSettled(smsTasks);
 
   return NextResponse.json({ results });
 }
