@@ -97,7 +97,7 @@ async function resolveLocationByOrderSeries(
   }> = [
     { prefix: "100", nameParts: ["cool planet", "nugegoda"] },
     { prefix: "200", nameParts: ["kiribathgoda"] },
-    { prefix: "300", nameParts: ["ogf"] },
+    { prefix: "300", nameParts: ["lwk"] },
     { prefix: "400", nameParts: ["pepiliyana"] },
     { prefix: "500", nameParts: ["chami"] },
     { prefix: "600", nameParts: ["cosmetics.lk", "new web"] },

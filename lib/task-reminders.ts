@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import {
   DELIVERY_PAYMENT_APPROVAL,
@@ -27,6 +27,7 @@ export { TASK_REMINDER_SLA_HOURS, TASK_REMINDER_SLA_MS } from "@/lib/task-remind
 const REMINDER_LIMIT_PER_CATEGORY = 20;
 
 export type TaskReminderCategory =
+  | "erp_sync_warning"
   | "finance_approval"
   | "add_samples"
   | "print"
@@ -418,6 +419,33 @@ async function fetchReturnActionReminders(companyId: string, now: Date): Promise
   });
 }
 
+async function fetchErpSyncWarnings(companyId: string, userId: string, now: Date): Promise<TaskReminder[]> {
+  const alerts = await prisma.$queryRaw<
+    Array<{ id: string; title: string; body: string | null; createdAt: Date }>
+  >(
+    Prisma.sql`
+      SELECT "id", "title", "body", "createdAt"
+      FROM "Notification"
+      WHERE "companyId" = ${companyId}
+        AND "userId" = ${userId}
+        AND "type" = 'erp_sync_failure'
+        AND "readAt" IS NULL
+      ORDER BY "createdAt" DESC
+      LIMIT 10
+    `
+  );
+
+  return alerts.map((alert) => ({
+    id: `erp_sync_warning:${alert.id}`,
+    category: "erp_sync_warning" as const,
+    title: alert.title,
+    body: alert.body ?? "ERP sync failed. Dismiss when reviewed.",
+    href: "/dashboard",
+    waitingHours: waitingHoursSince(alert.createdAt, now),
+    invoiceLabel: "ERP sync",
+  }));
+}
+
 async function fetchDeliveryPendingReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
   const orders = await prisma.order.findMany({
     where: {
@@ -464,6 +492,9 @@ export async function fetchTaskReminders(
   // Run sequentially — Neon pooler often has connection_limit=1; parallel queries exhaust the pool.
   const reminders: TaskReminder[] = [];
 
+  if (canSeeTaskReminderCategory(context, "erp_sync_warning") && context.userId) {
+    reminders.push(...(await fetchErpSyncWarnings(companyId, context.userId, now)));
+  }
   if (canSeeTaskReminderCategory(context, "finance_approval")) {
     reminders.push(...(await fetchFinanceApprovalReminders(companyId, now)));
   }

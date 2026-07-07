@@ -156,6 +156,149 @@ export async function sendFinanceApprovalEmail(
   }
 }
 
+export async function sendFinanceApprovalReminderEmail(
+  toEmail: string,
+  pendingApprovals: Array<{ invoiceLabel: string; paymentType: string; amount: string; waitingHours: number }>,
+): Promise<{ success: boolean; message?: string }> {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromEmail = process.env.MAILEROO_FROM_EMAIL;
+
+  if (!apiKey || !fromEmail) return { success: false, message: "Email service not configured" };
+
+  const email = toEmail.trim().toLowerCase();
+  if (!email || !email.includes("@")) return { success: false, message: "No valid recipient" };
+
+  const rows = pendingApprovals
+    .map(
+      (a) =>
+        `<tr>
+          <td style="padding:8px;border:1px solid #ddd;">${a.invoiceLabel}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${a.paymentType}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${a.amount}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${a.waitingHours}h</td>
+        </tr>`,
+    )
+    .join("");
+
+  const count = pendingApprovals.length;
+  const subject = `Reminder: ${count} finance approval${count === 1 ? "" : "s"} pending`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+  <h2 style="color:#1a1a1a;">Finance Approvals Pending</h2>
+  <p>You have <strong>${count}</strong> pending finance approval${count === 1 ? "" : "s"} that require your attention.</p>
+  <table style="border-collapse:collapse;width:100%;margin:16px 0;">
+    <thead>
+      <tr style="background:#f9f9f9;">
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Invoice</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Payment type</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Amount</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Waiting</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <p>Please log in to ${APP_NAME} and visit <strong>Finance Approvals</strong> to review these requests.</p>
+</body>
+</html>`.trim();
+
+  const plain = `Finance Approvals Pending\n\nYou have ${count} pending finance approval(s).\n\n${pendingApprovals.map((a) => `${a.invoiceLabel} | ${a.paymentType} | ${a.amount} | waiting ${a.waitingHours}h`).join("\n")}\n\nPlease log in to ${APP_NAME} and visit Finance Approvals.`;
+
+  try {
+    const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
+      body: JSON.stringify({
+        from: { address: fromEmail, display_name: APP_NAME },
+        to: [{ address: email }],
+        subject,
+        html,
+        plain,
+      }),
+    });
+    const { raw, data } = await readMailerooResponse(response);
+    if (!response.ok) {
+      console.error("Maileroo reminder email error:", { status: response.status, body: data ?? raw });
+      return { success: false, message: data?.message ?? `Maileroo error (${response.status})` };
+    }
+    return { success: data?.success ?? true };
+  } catch (error) {
+    console.error("Failed to send finance approval reminder email:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Failed to send email" };
+  }
+}
+
+export async function sendOgfSyncSummaryEmail(
+  toEmail: string,
+  synced: number,
+  batchCode: string,
+  orders: Array<{ receiptNo: string; totalStr: string; paymentMethod: string }>,
+): Promise<{ success: boolean; message?: string }> {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromEmail = process.env.MAILEROO_FROM_EMAIL;
+  if (!apiKey || !fromEmail) return { success: false, message: "Email service not configured" };
+
+  const rows = orders
+    .map(
+      (o) =>
+        `<tr>
+          <td style="padding:8px;border:1px solid #ddd;">${o.receiptNo}</td>
+          <td style="padding:8px;border:1px solid #ddd;text-align:right;">LKR ${o.totalStr}</td>
+          <td style="padding:8px;border:1px solid #ddd;">${o.paymentMethod}</td>
+        </tr>`,
+    )
+    .join("");
+
+  const subject = `OGF Sales Sync — ${synced} order${synced === 1 ? "" : "s"} sent (Batch ${batchCode})`;
+
+  const html = `
+<!DOCTYPE html>
+<html>
+<body style="font-family:system-ui,sans-serif;max-width:600px;margin:0 auto;padding:20px;color:#333;">
+  <h2 style="color:#1a1a1a;">OGF Daily Sales Sync</h2>
+  <p><strong>${synced}</strong> order${synced === 1 ? "" : "s"} successfully sent to iMonitor.</p>
+  <p style="color:#666;font-size:13px;">Batch: ${batchCode}</p>
+  <table style="border-collapse:collapse;width:100%;margin:16px 0;">
+    <thead>
+      <tr style="background:#f9f9f9;">
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Receipt No</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:right;">Amount</th>
+        <th style="padding:8px;border:1px solid #ddd;text-align:left;">Payment</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+</body>
+</html>`.trim();
+
+  const plain = `OGF Daily Sales Sync\n\n${synced} order(s) sent. Batch: ${batchCode}\n\n${orders.map((o) => `${o.receiptNo} | LKR ${o.totalStr} | ${o.paymentMethod}`).join("\n")}`;
+
+  try {
+    const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Api-Key": apiKey },
+      body: JSON.stringify({
+        from: { address: fromEmail, display_name: APP_NAME },
+        to: [{ address: toEmail }],
+        subject,
+        html,
+        plain,
+      }),
+    });
+    const { raw, data } = await readMailerooResponse(response);
+    if (!response.ok) {
+      console.error("Maileroo OGF sync email error:", { status: response.status, body: data ?? raw });
+      return { success: false, message: data?.message ?? `Maileroo error (${response.status})` };
+    }
+    return { success: data?.success ?? true };
+  } catch (error) {
+    console.error("Failed to send OGF sync summary email:", error);
+    return { success: false, message: error instanceof Error ? error.message : "Failed to send email" };
+  }
+}
+
 export type ResignationStaffData = {
   staffName: string;
   resignationDate: string;

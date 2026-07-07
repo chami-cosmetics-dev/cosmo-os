@@ -557,6 +557,7 @@ export async function POST(request: NextRequest) {
           invoiceLabel: order.name ?? data.name,
           paymentType: order.paymentGatewayPrimary ?? resolvedPaymentMethods[0] ?? "bank transfer",
           amount: grandTotal.toString(),
+          companyLocationId: location.id,
         }).catch((err) =>
           console.error("[ERP webhook] approval creation failed:", err),
         );
