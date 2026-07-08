@@ -110,95 +110,51 @@ export function StickerPrintClient({
     void handleLoadBatch(targetBatchId);
   }, [initialSelectedBatchId, batches]);
 
-  async function waitForStickerAssets() {
-    if (typeof document === "undefined") return;
-
-    // Ensure web fonts are ready before opening print dialog.
-    if ("fonts" in document) {
-      await (document as Document & { fonts: { ready: Promise<unknown> } }).fonts.ready;
-    }
-
-  }
-
   async function handlePrint() {
-    await waitForStickerAssets();
-    window.print();
+    const stickerSheetEl = document.querySelector<HTMLElement>(".sticker-sheet");
+    if (!stickerSheetEl) return;
+
+    // Collect compiled CSS from the page so Tailwind classes work in the new window.
+    const allCss = Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules).map((r) => r.cssText);
+        } catch {
+          return [];
+        }
+      })
+      .join("\n");
+
+    const printWin = window.open("", "_blank", "width=900,height=600");
+    if (!printWin) { window.print(); return; }
+
+    printWin.document.write(`<!DOCTYPE html><html><head><style>
+      ${allCss}
+      *{box-sizing:border-box}
+      body{margin:0;padding:0;background:white}
+      @page{margin:0}
+      .sticker-sheet{gap:0!important}
+      .sticker-card{
+        -webkit-print-color-adjust:exact!important;
+        print-color-adjust:exact!important;
+        background:#fde047!important;
+        break-inside:avoid!important;
+        page-break-inside:avoid!important;
+      }
+    </style></head><body>${stickerSheetEl.outerHTML}</body></html>`);
+    printWin.document.close();
+
+    // Small delay lets the new window finish layout before the print dialog opens.
+    setTimeout(() => {
+      printWin.focus();
+      printWin.print();
+      setTimeout(() => printWin.close(), 500);
+    }, 300);
   }
 
   return (
     <div className="space-y-6" data-print-root="stickers">
       <style jsx global>{`
-        @media print {
-          html,
-          body {
-            margin: 0 !important;
-            padding: 0 !important;
-            height: auto !important;
-            min-height: 0 !important;
-            background: white !important;
-          }
-          body * {
-            visibility: hidden !important;
-          }
-          [data-print-root="stickers"],
-          [data-print-root="stickers"] * {
-            visibility: visible !important;
-          }
-          [data-print-root="stickers"] {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          .no-print {
-            display: none !important;
-          }
-          @page {
-            margin: 0;
-          }
-          [data-slot="sidebar"],
-          [data-slot="sidebar-gap"],
-          [data-slot="sidebar-container"] {
-            display: none !important;
-          }
-          [data-slot="sidebar-wrapper"],
-          [data-slot="sidebar-inset"],
-          [data-slot="sidebar-inset"] > div {
-            display: block !important;
-            min-height: auto !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-          }
-          [data-slot="sidebar-inset"] > header {
-            display: none !important;
-          }
-          .sticker-sheet {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            align-content: flex-start !important;
-            gap: 0 !important;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          .sticker-card {
-            display: inline-block !important;
-            width: 2in !important;
-            height: 1in !important;
-            background: #fde047 !important;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-            margin: 0 !important;
-            padding: 0.08in 0.125in 0.125in !important;
-            overflow: hidden !important;
-          }
-        }
         .sticker-card {
           width: 2in;
           height: 1in;
