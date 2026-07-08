@@ -184,8 +184,6 @@ export function StickerPrintClient({
             width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
-            break-after: auto !important;
-            page-break-after: auto !important;
           }
           .sticker-card {
             display: inline-block !important;
@@ -196,8 +194,6 @@ export function StickerPrintClient({
             print-color-adjust: exact;
             break-inside: avoid !important;
             page-break-inside: avoid !important;
-            break-after: avoid-page !important;
-            page-break-after: avoid !important;
             margin: 0 !important;
             padding: 0.08in 0.125in 0.125in !important;
             overflow: hidden !important;
