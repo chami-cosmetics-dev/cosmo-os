@@ -1126,7 +1126,7 @@ export function StickerBatchClient({
                 <SelectContent>
                   {locations.map((location) => (
                     <SelectItem key={location.id} value={location.id}>
-                      {location.locationReference?.trim() || location.name}
+                      {location.locationReference?.trim() ? `${location.locationReference.trim()} — ${location.name}` : location.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1216,8 +1216,8 @@ export function StickerBatchClient({
                         <SelectContent>
                           {locations.map((location) => (
                             <SelectItem key={location.id} value={location.id}>
-                              {location.locationReference?.trim() || location.name}
-                            </SelectItem>
+                              {location.locationReference?.trim() ? `${location.locationReference.trim()} — ${location.name}` : location.name}
+    </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
