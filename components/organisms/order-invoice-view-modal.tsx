@@ -733,8 +733,8 @@ export function OrderInvoiceViewModal({
             <span>Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? "Details"}</span>
             {(() => {
               const coupon =
-                orderDetail?.discountCouponCode ??
                 orderDetail?.merchantCouponCode ??
+                orderDetail?.discountCouponCode ??
                 formatAllDiscountCodeLabels(orderDetail?.discountCodes);
               if (!coupon) return null;
               return <span className="text-sm font-normal text-muted-foreground">{coupon}</span>;

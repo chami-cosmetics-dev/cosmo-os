@@ -25,12 +25,19 @@ export function getMerchantCouponCode(params: {
           ? (p.data as Record<string, unknown>)
           : p;
       const code = payload.merchant_coupon_code ?? payload.custom_merchant_coupon_code;
-      if (typeof code === "string" && code.trim()) return code.trim();
+      // ERP sends Python's None as the literal string "None" — treat it as absent
+      if (typeof code === "string" && code.trim() && code.trim().toLowerCase() !== "none")
+        return code.trim();
     }
-    // ERP inbound webhook stores the coupon in discountCodes — use it as fallback
+    // ERP inbound webhook stores the coupon in discountCodes — prefer MER-prefixed code
     if (Array.isArray(discountCodes) && discountCodes.length > 0) {
-      const first = discountCodes[0] as Record<string, unknown>;
-      if (typeof first?.code === "string" && first.code.trim()) return first.code.trim();
+      const codes = discountCodes as Array<Record<string, unknown>>;
+      const merEntry = codes.find((d) => {
+        const c = typeof d?.code === "string" ? d.code.trim() : "";
+        return c.toUpperCase().startsWith("MER");
+      });
+      if (merEntry && typeof merEntry.code === "string" && merEntry.code.trim())
+        return merEntry.code.trim();
     }
     // Last resort: if the merchant was assigned (e.g. via ERP owner field) but no coupon
     // code was in the payload, show the merchant's own registered coupon code
