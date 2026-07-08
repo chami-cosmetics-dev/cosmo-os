@@ -695,14 +695,11 @@ export function OrdersPanel({
                             </div>
                           )}
                           {(() => {
-                            const merchant = order.assignedMerchant?.name ?? order.assignedMerchant?.email ?? null;
-                            const coupon = Array.isArray(order.discountCodes)
-                              ? ((order.discountCodes as Array<{ code?: string }>)
-                                  .map((d) => d?.code?.trim())
-                                  .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
-                                  .join(", ") || null)
-                              : null;
-                            const display = merchant ?? coupon;
+                            const display =
+                              order.assignedMerchant?.name ??
+                              order.assignedMerchant?.email ??
+                              order.merchantCouponCode ??
+                              null;
                             if (!display) return null;
                             return (
                               <div className="truncate text-xs text-muted-foreground" title={display}>
@@ -764,13 +761,7 @@ export function OrdersPanel({
                               </span>
                             ))}
                             {(() => {
-                              const allCodes = Array.isArray(order.discountCodes)
-                                ? (order.discountCodes as Array<{ code?: string }>)
-                                    .map((d) => d?.code?.trim())
-                                    .filter((c): c is string => !!c && c.toLowerCase() !== "shopify")
-                                    .join(", ")
-                                : null;
-                              const badge = allCodes || order.merchantCouponCode;
+                              const badge = order.merchantCouponCode ?? null;
                               if (!badge) return null;
                               return (
                                 <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
