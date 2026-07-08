@@ -293,22 +293,20 @@ export function StickerBatchClient({
   const allRowsComplete = useMemo(
     () =>
       rows.length > 0 &&
-      rows.every(
-        (row) => {
-          const mfg = parseDDMMYYYY(row.manufactureDate.trim());
-          const exp = parseDDMMYYYY(row.expireDate.trim());
-          return Boolean(
-            row.locationId.trim() &&
-            row.itemCode.trim() &&
-              row.itemName.trim() &&
-              row.unitPrice.trim() &&
-              row.quantity.trim() &&
-              mfg &&
-              exp &&
-              exp >= mfg
-          );
-        }
-      ),
+      rows.every((row) => {
+        const baseValid = Boolean(
+          row.locationId.trim() &&
+          row.itemCode.trim() &&
+          row.itemName.trim() &&
+          row.unitPrice.trim() &&
+          row.quantity.trim()
+        );
+        if (!baseValid) return false;
+        if (isVault) return true;
+        const mfg = parseDDMMYYYY(row.manufactureDate.trim());
+        const exp = parseDDMMYYYY(row.expireDate.trim());
+        return Boolean(mfg && exp && exp >= mfg);
+      }),
     [rows]
   );
 
@@ -386,8 +384,7 @@ export function StickerBatchClient({
         row.itemName.trim() &&
         row.unitPrice.trim() &&
         row.quantity.trim() &&
-        row.manufactureDate.trim() &&
-        row.expireDate.trim()
+        (isVault || (row.manufactureDate.trim() && row.expireDate.trim()))
     );
   }
 
@@ -1324,6 +1321,7 @@ export function StickerBatchClient({
                 <VaultStickerPreviewCard
                   sku={activeRow.itemCode}
                   itemName={activeRow.itemName}
+                  supplierCode={suppliers.find((s) => s.id === supplierId)?.code}
                   locationRef={
                     activeRowLocation?.locationReference?.trim() ||
                     selectedLocation?.locationReference?.trim() ||

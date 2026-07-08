@@ -50,14 +50,14 @@ export async function GET(
           batchName: true;
           batchDate: true;
           remark: true;
-          supplier: { select: { name: true } };
+          supplier: { select: { name: true; code: true } };
         };
       }) => Promise<{
         id: string;
         batchName: string;
         batchDate: Date;
         remark: string | null;
-        supplier: { name: string };
+        supplier: { name: string; code: string };
       } | null>;
     };
   }).stickerBatch.findFirst({
@@ -67,7 +67,7 @@ export async function GET(
       batchName: true,
       batchDate: true,
       remark: true,
-      supplier: { select: { name: true } },
+      supplier: { select: { name: true, code: true } },
     },
   });
 
@@ -109,8 +109,8 @@ export async function GET(
         itemName: string;
         unitPrice: { toString(): string };
         quantity: number;
-        manufactureDate: Date;
-        expireDate: Date;
+        manufactureDate: Date | null;
+        expireDate: Date | null;
         companyLocation: {
           locationReference: string | null;
           id: string;
@@ -149,6 +149,7 @@ export async function GET(
     batchDate: batch.batchDate,
     remark: batch.remark,
     supplierName: batch.supplier.name,
+    supplierCode: batch.supplier.code,
     companyName: company?.name ?? "",
     companyAddress: company?.address ?? "",
     items: items.map((item) => ({

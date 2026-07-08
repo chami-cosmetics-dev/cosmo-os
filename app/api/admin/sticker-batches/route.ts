@@ -24,8 +24,8 @@ const createStickerBatchSchema = z.object({
         itemName: z.string().trim().min(1).max(500),
         unitPrice: z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
         quantity: z.number().int().positive().max(100000),
-        manufactureDate: dateStringSchema,
-        expireDate: dateStringSchema,
+        manufactureDate: z.union([dateStringSchema, z.literal(""), z.undefined()]).transform((v) => v || null),
+        expireDate: z.union([dateStringSchema, z.literal(""), z.undefined()]).transform((v) => v || null),
       })
     )
     .default([]),
@@ -198,19 +198,25 @@ export async function POST(request: NextRequest) {
     itemName: string;
     unitPrice: string;
     quantity: number;
-    manufactureDate: Date;
-    expireDate: Date;
+    manufactureDate: Date | null;
+    expireDate: Date | null;
   }> = [];
   for (const item of parsed.data.items) {
-    const manufactureDate = parseDDMMYYYY(item.manufactureDate);
-    const expireDate = parseDDMMYYYY(item.expireDate);
-    if (!manufactureDate || !expireDate) {
+    const manufactureDate = item.manufactureDate ? parseDDMMYYYY(item.manufactureDate) : null;
+    const expireDate = item.expireDate ? parseDDMMYYYY(item.expireDate) : null;
+    if (item.manufactureDate && !manufactureDate) {
       return NextResponse.json(
-        { error: "Invalid manufacture or expire date in rows" },
+        { error: "Invalid manufacture date in rows" },
         { status: 400 }
       );
     }
-    if (expireDate < manufactureDate) {
+    if (item.expireDate && !expireDate) {
+      return NextResponse.json(
+        { error: "Invalid expire date in rows" },
+        { status: 400 }
+      );
+    }
+    if (manufactureDate && expireDate && expireDate < manufactureDate) {
       return NextResponse.json(
         { error: "Expire date must be after manufacture date" },
         { status: 400 }
