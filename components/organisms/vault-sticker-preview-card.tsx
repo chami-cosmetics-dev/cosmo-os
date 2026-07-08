@@ -32,17 +32,17 @@ export function VaultStickerPreviewCard({
       <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
         {/* SKU */}
         {sku?.trim() && (
-          <div className="text-[7px] font-semibold leading-none tracking-wide">
+          <div className="text-[10px] font-semibold leading-none tracking-wide">
             {sku.trim()}
           </div>
         )}
         {/* Item name */}
-        <div className="text-[9px] font-bold leading-[1.1] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden px-1">
+        <div className="text-[13px] font-bold leading-[1.15] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden px-1">
           {displayName}
         </div>
 
         {/* Supplier code and ref — centered under name */}
-        <div className="flex items-center gap-3 text-[7px] font-semibold leading-none">
+        <div className="flex items-center gap-4 text-[10px] font-semibold leading-none">
           {supplierCode?.trim() && <span>{supplierCode.trim()}</span>}
           {locationRef?.trim() && <span>{locationRef.trim()}</span>}
         </div>
