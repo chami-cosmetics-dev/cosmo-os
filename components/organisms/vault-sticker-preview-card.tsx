@@ -8,6 +8,11 @@ interface VaultStickerPreviewCardProps {
   className?: string;
 }
 
+function cleanItemName(name: string | null | undefined): string {
+  if (!name) return "-";
+  return name.trim().replace(/\s*\(Default Title\)\s*$/i, "").trim() || "-";
+}
+
 export function VaultStickerPreviewCard({
   sku,
   itemName,
@@ -15,6 +20,7 @@ export function VaultStickerPreviewCard({
   locationRef,
   className,
 }: VaultStickerPreviewCardProps) {
+  const displayName = cleanItemName(itemName);
   return (
     <div
       style={{ fontFamily: '"Aptos", "Segoe UI", Arial, sans-serif' }}
@@ -32,7 +38,7 @@ export function VaultStickerPreviewCard({
         )}
         {/* Item name */}
         <div className="text-[9px] font-bold leading-[1.1] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] overflow-hidden px-1">
-          {itemName?.trim() || "-"}
+          {displayName}
         </div>
 
         {/* Supplier code and ref — centered under name */}
