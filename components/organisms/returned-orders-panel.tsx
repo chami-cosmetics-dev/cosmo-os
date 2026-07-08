@@ -125,8 +125,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"__all" | ReturnTrackingItem["actionStatus"]>("pending");
   const [selectedId, setSelectedId] = useState(initialData.returns[0]?.id ?? "");
-  const selected = items.find((item) => item.id === selectedId) ?? null;
-  const [remark, setRemark] = useState(selected?.returnRemark ?? selected?.actionRemark ?? "");
+  const [remark, setRemark] = useState("");
   const [cancelRemark, setCancelRemark] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -202,6 +201,8 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
         .some((value) => value!.toLowerCase().includes(query));
     });
   }, [items, search, statusFilter]);
+
+  const selected = filtered.find((item) => item.id === selectedId) ?? null;
 
   useEffect(() => {
     let cancelled = false;

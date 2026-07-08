@@ -153,9 +153,9 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
     const payload = {
       name: form.name.trim(),
       code: form.code.trim(),
-      contactNumber: form.contactNumber?.trim() || null,
+      contactNumber: form.contactNumber?.trim() || "",
       email: form.email?.trim() || null,
-      address: form.address?.trim() || null,
+      address: form.address?.trim() || "",
     };
 
     if (sheetMode === "add") {
@@ -247,9 +247,9 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
         body: JSON.stringify({
           name: quickName.trim(),
           code: quickCode.trim(),
-          contactNumber: null,
+          contactNumber: "",
           email: null,
-          address: null,
+          address: "",
         }),
       });
 
@@ -453,35 +453,45 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
           <div className="flex flex-1 flex-col gap-6 py-4">
             <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
               <h4 className="text-sm font-semibold">Basic Details</h4>
-              <Input
-                placeholder="Supplier Name *"
-                value={form.name ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                disabled={isBusy}
-                maxLength={200}
-              />
-              <Input
-                placeholder="Supplier Code *"
-                value={form.code ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-                disabled={isBusy}
-                maxLength={100}
-              />
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Supplier Name <span className="text-destructive">*</span></label>
+                <Input
+                  placeholder="Supplier name"
+                  value={form.name ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  disabled={isBusy}
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Supplier Code <span className="text-destructive">*</span></label>
+                <Input
+                  placeholder="Supplier code"
+                  value={form.code ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                  disabled={isBusy}
+                  maxLength={100}
+                />
+              </div>
             </div>
             <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-              <h4 className="text-sm font-semibold">Contact Details</h4>
-              <Input
-                placeholder="Supplier Contact Number"
-                value={form.contactNumber ?? ""}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, contactNumber: e.target.value }))
-                }
-                disabled={isBusy}
-                maxLength={100}
-              />
-              <div className="space-y-1">
+              <h4 className="text-sm font-semibold">Contact Details <span className="text-xs font-normal text-muted-foreground">(optional)</span></h4>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Contact Number</label>
                 <Input
-                  placeholder="Supplier Email"
+                  placeholder="Contact number"
+                  value={form.contactNumber ?? ""}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, contactNumber: e.target.value }))
+                  }
+                  disabled={isBusy}
+                  maxLength={100}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Email</label>
+                <Input
+                  placeholder="Email address"
                   type="email"
                   value={form.email ?? ""}
                   onChange={(e) => {
@@ -505,9 +515,9 @@ export function SuppliersSettingsForm({ canEdit }: SuppliersSettingsFormProps) {
               </div>
             </div>
             <div className="space-y-3 rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] p-4 shadow-xs">
-              <h4 className="text-sm font-semibold">Address</h4>
+              <h4 className="text-sm font-semibold">Address <span className="text-xs font-normal text-muted-foreground">(optional)</span></h4>
               <Textarea
-                placeholder="Supplier Address"
+                placeholder="Supplier address"
                 value={form.address ?? ""}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, address: e.target.value }))

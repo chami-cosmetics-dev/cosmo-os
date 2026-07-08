@@ -26,6 +26,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
+import { VaultStickerPreviewCard } from "@/components/organisms/vault-sticker-preview-card";
+
+const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 import { notify } from "@/lib/notify";
 
 type SupplierOption = {
@@ -1317,23 +1320,35 @@ export function StickerBatchClient({
                 isPreviewLifted ? "bottom-35" : "bottom-4"
               }`}
             >
-              <StickerPreviewCard
-                manufactureDate={activeRow.manufactureDate}
-                expireDate={activeRow.expireDate}
-                itemCode={activeRow.itemCode}
-                itemName={activeRow.itemName}
-                unitPrice={activeRow.unitPrice}
-                locationReference={
-                  activeRowLocation?.locationReference?.trim() ||
-                  selectedLocation?.locationReference?.trim() ||
-                  previewMeta.locationReference
-                }
-                supplierName={previewMeta.supplierName}
-                companyName={previewMeta.companyName}
-                locationAddress={previewMeta.locationAddress}
-                companyAddress={previewMeta.companyAddress}
-                locationPhone={previewMeta.locationPhone}
-              />
+              {isVault ? (
+                <VaultStickerPreviewCard
+                  sku={activeRow.itemCode}
+                  itemName={activeRow.itemName}
+                  locationRef={
+                    activeRowLocation?.locationReference?.trim() ||
+                    selectedLocation?.locationReference?.trim() ||
+                    previewMeta.locationReference
+                  }
+                />
+              ) : (
+                <StickerPreviewCard
+                  manufactureDate={activeRow.manufactureDate}
+                  expireDate={activeRow.expireDate}
+                  itemCode={activeRow.itemCode}
+                  itemName={activeRow.itemName}
+                  unitPrice={activeRow.unitPrice}
+                  locationReference={
+                    activeRowLocation?.locationReference?.trim() ||
+                    selectedLocation?.locationReference?.trim() ||
+                    previewMeta.locationReference
+                  }
+                  supplierName={previewMeta.supplierName}
+                  companyName={previewMeta.companyName}
+                  locationAddress={previewMeta.locationAddress}
+                  companyAddress={previewMeta.companyAddress}
+                  locationPhone={previewMeta.locationPhone}
+                />
+              )}
             </div>
           ) : null}
           <div className="flex justify-end">
