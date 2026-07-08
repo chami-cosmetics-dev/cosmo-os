@@ -191,7 +191,7 @@ export function StickerPrintClient({
             display: inline-block !important;
             width: 2in !important;
             height: 1in !important;
-            background: #d9f56b !important;
+            background: #fde047 !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
             break-inside: avoid !important;
