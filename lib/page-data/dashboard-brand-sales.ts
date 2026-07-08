@@ -1,5 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  buildDashboardSalesDateFilter,
+  isDashboardSalesOrderEligible,
+} from "@/lib/page-data/dashboard-sales";
 import { prisma } from "@/lib/prisma";
 
 export type BrandMerchantRow = {
@@ -36,38 +41,12 @@ function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
-/**
- * Extracts coupon/discount codes from an Order.discountCodes JSON field.
- * Shopify stores discount_codes as an array of {code, amount, type} objects,
- * but we also handle plain string arrays and flat strings defensively.
- */
-function extractDiscountCodes(discountCodes: Prisma.JsonValue | null): string[] {
-  if (!discountCodes) return [];
-  const codes: string[] = [];
-
-  function pushCode(val: unknown) {
-    if (typeof val === "string") {
-      const trimmed = val.trim().toUpperCase();
-      if (trimmed) codes.push(trimmed);
-    }
-  }
-
-  if (Array.isArray(discountCodes)) {
-    for (const item of discountCodes) {
-      if (typeof item === "string") {
-        pushCode(item);
-      } else if (item && typeof item === "object" && "code" in item) {
-        pushCode((item as { code: unknown }).code);
-      }
-    }
-  } else if (typeof discountCodes === "string") {
-    // Comma-separated fallback
-    for (const part of discountCodes.split(",")) {
-      pushCode(part);
-    }
-  }
-
-  return codes;
+function getUserDisplayName(user: {
+  knownName?: string | null;
+  name?: string | null;
+  email?: string | null;
+} | null | undefined) {
+  return user?.knownName?.trim() || user?.name?.trim() || user?.email?.trim() || null;
 }
 
 /**
@@ -75,7 +54,7 @@ function extractDiscountCodes(discountCodes: Prisma.JsonValue | null): string[] 
  *
  * Brand is determined by case-insensitive substring match of the configured brand
  * name against the product title. Merchant is identified by matching discount codes
- * in the order against staff member coupon codes. Unmatched orders go under "DM General".
+ * in the order against staff member coupon codes. Unmatched orders go under "DM-General".
  */
 export async function fetchDashboardBrandSales(
   companyId: string,
@@ -98,17 +77,16 @@ export async function fetchDashboardBrandSales(
     };
   }
 
-  const dateFilter: Prisma.OrderWhereInput =
-    params.dateType === "order"
-      ? { createdAt: { gte: fromDate, lte: toDate } }
-      : { invoiceCompleteAt: { not: null, gte: fromDate, lte: toDate } };
+  const dateFilter = buildDashboardSalesDateFilter({
+    fromDate,
+    toDate,
+    dateType: params.dateType,
+  });
 
   const orderWhere: Prisma.OrderWhereInput = {
     companyId,
     ...dateFilter,
     ...(params.locationId ? { companyLocationId: params.locationId } : {}),
-    // Exclude fully cancelled/refunded orders — their line items should not count
-    financialStatus: { notIn: ["refunded", "voided"] },
   };
 
   // Run all queries in parallel
@@ -122,7 +100,7 @@ export async function fetchDashboardBrandSales(
     // Fetch all users in the company that have coupon codes
     prisma.user.findMany({
       where: { companyId, couponCodes: { isEmpty: false } },
-      select: { id: true, name: true, couponCodes: true },
+      select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
     }),
 
     // Fetch orders with their discount codes and line items
@@ -130,7 +108,18 @@ export async function fetchDashboardBrandSales(
       where: orderWhere,
       select: {
         id: true,
+        sourceName: true,
+        financialStatus: true,
+        fulfillmentStatus: true,
+        fulfillmentStage: true,
+        deliveryOutcome: true,
+        deliveryCompleteAt: true,
         discountCodes: true,
+        rawPayload: true,
+        assignedMerchantId: true,
+        assignedMerchant: {
+          select: { id: true, knownName: true, name: true, email: true, couponCodes: true },
+        },
         lineItems: {
           select: {
             price: true,
@@ -148,10 +137,11 @@ export async function fetchDashboardBrandSales(
   // A single coupon code is unique to one staff member
   const couponToUser = new Map<string, { id: string; name: string }>();
   for (const user of usersWithCoupons) {
+    const name = getUserDisplayName(user) ?? "Unknown";
     for (const code of user.couponCodes) {
-      const upper = code.trim().toUpperCase();
-      if (upper) {
-        couponToUser.set(upper, { id: user.id, name: user.name ?? "Unknown" });
+      const normalized = code.trim().toLowerCase();
+      if (normalized && !couponToUser.has(normalized)) {
+        couponToUser.set(normalized, { id: user.id, name });
       }
     }
   }
@@ -164,15 +154,36 @@ export async function fetchDashboardBrandSales(
   const configuredBrands = brandConfigs.map((b) => ({ ...b, nameLower: b.name.toLowerCase() }));
 
   for (const order of orders) {
+    if (!isDashboardSalesOrderEligible(order, params.dateType)) continue;
+
     // Determine merchant for this order
-    const orderCodes = extractDiscountCodes(order.discountCodes);
-    let merchant: { id: string | null; name: string } = { id: null, name: "DM General" };
-    for (const code of orderCodes) {
+    let merchant: { id: string | null; name: string } | null = null;
+
+    const merchantCouponCode = getMerchantCouponCode({
+      sourceName: order.sourceName,
+      discountCodes: order.discountCodes,
+      rawPayload: order.rawPayload,
+      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      joinAllDiscountCodes: true,
+    });
+    const merchantCoupons = (merchantCouponCode ?? "")
+      .split(",")
+      .map((coupon) => coupon.trim().toLowerCase())
+      .filter(Boolean);
+
+    for (const code of merchantCoupons) {
       const found = couponToUser.get(code);
       if (found) {
         merchant = { id: found.id, name: found.name };
         break;
       }
+    }
+
+    if (!merchant) {
+      merchant = {
+        id: order.assignedMerchantId,
+        name: getUserDisplayName(order.assignedMerchant) ?? "DM-General",
+      };
     }
 
     // Process each line item

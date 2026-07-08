@@ -44,13 +44,13 @@ function pickCustomerName(order: {
   shippingAddress: unknown;
   name: string | null;
 }) {
-  if (order.customer?.firstName || order.customer?.lastName) {
-    return [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
-  }
   if (order.shippingAddress && typeof order.shippingAddress === "object") {
     const shipping = order.shippingAddress as Record<string, unknown>;
     const raw = shipping.name ?? [shipping.first_name, shipping.last_name].filter(Boolean).join(" ").trim();
     if (typeof raw === "string" && raw.trim()) return raw.trim();
+  }
+  if (order.customer?.firstName || order.customer?.lastName) {
+    return [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
   }
   return order.name;
 }
@@ -74,6 +74,19 @@ export async function fetchReturnsTrackingData(input: {
   canManage: boolean;
 }): Promise<ReturnsTrackingData> {
   try {
+    // Sweep stale "cancel pending" returns for orders already voided in Vault.
+    // Handles cases where the order was voided via a path that didn't go through
+    // cancelPendingApprovalsForOrder (e.g. manual ERP cancellation before the fix).
+    await prisma.orderReturn.updateMany({
+      where: {
+        companyId: input.companyId,
+        actionType: "cancel",
+        actionStatus: "pending",
+        order: { financialStatus: { equals: "voided", mode: "insensitive" } },
+      },
+      data: { actionStatus: "solved", actionDate: new Date() },
+    });
+
     const rows = await prisma.orderReturn.findMany({
       where: {
         companyId: input.companyId,

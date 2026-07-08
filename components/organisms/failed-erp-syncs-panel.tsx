@@ -283,7 +283,7 @@ export function FailedErpSyncsPanel() {
             />
           </div>
           {loading ? (
-            <TableSkeleton columns={7} rows={5} />
+            <TableSkeleton columns={8} rows={5} />
           ) : items.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground text-sm">
               {effectiveSearch
@@ -299,6 +299,7 @@ export function FailedErpSyncsPanel() {
                       <th className="px-4 py-2 text-left font-medium">Order</th>
                       <th className="px-4 py-2 text-left font-medium">Customer</th>
                       <th className="px-4 py-2 text-left font-medium">Location</th>
+                      <th className="px-4 py-2 text-left font-medium">Order date</th>
                       <th className="px-4 py-2 text-left font-medium">Error</th>
                       <th className="px-4 py-2 text-left font-medium">Failed at</th>
                       <th className="px-4 py-2 text-left font-medium">Auto-retry</th>
@@ -317,7 +318,8 @@ export function FailedErpSyncsPanel() {
                           <div className="text-xs text-muted-foreground">{item.customerPhone ?? ""}</div>
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{item.companyLocation.name}</td>
-                        <td className="max-w-[280px] px-4 py-2 align-top text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
+                        <td className="px-4 py-2 text-xs text-muted-foreground">{formatDate(item.createdAt)}</td>
+                        <td className="max-w-70 px-4 py-2 align-top text-xs" title={formatSyncError(item.erpnextSyncError) ?? ""}>
                           {item.erpnextSyncError ? (
                             renderSyncError(item.erpnextSyncError, item.lineItems)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (

@@ -5,6 +5,7 @@ import {
   resolvePostDeliveryInvoiceComplete,
   triggerDeliveryPaymentApprovalIfNeeded,
 } from "@/lib/delivery-payment-approval";
+import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import {
   resolveCustomerPhone,
@@ -96,15 +97,24 @@ export async function markOrderDelivered(input: {
   }
 
   if (postDelivery.kind === "invoice_complete") {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        ...orderStageUpdate("invoice_complete", now),
-        fulfillmentStatus: "fulfilled",
-        invoiceCompleteAt: now,
-        invoiceCompleteById: postDelivery.financeUserId,
-      },
-    });
+    if (postDelivery.createPe) {
+      // WebXPay auto-complete: delegate to markOrderInvoiceComplete so a PE is created in ERP.
+      await markOrderInvoiceComplete({
+        companyId: input.companyId,
+        orderId: order.id,
+        userId: postDelivery.financeUserId || input.userId,
+      });
+    } else {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          ...orderStageUpdate("invoice_complete", now),
+          fulfillmentStatus: "fulfilled",
+          invoiceCompleteAt: now,
+          invoiceCompleteById: postDelivery.financeUserId,
+        },
+      });
+    }
     afterStage = "invoice_complete";
   }
 

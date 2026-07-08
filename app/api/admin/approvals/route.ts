@@ -4,11 +4,16 @@ import { Prisma } from "@prisma/client";
 import {
   DELIVERY_PAYMENT_APPROVAL,
   DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
+  INVOICE_REVERT_VOID_APPROVAL,
   ORDER_PAYMENT_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
   reconcilePendingApprovalsForVoidedOrders,
+  reconcilePendingDeliveryApprovalsForCourierOrders,
+  reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
+  reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -31,7 +36,12 @@ export async function GET() {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  await reconcilePendingApprovalsForVoidedOrders(companyId);
+  await Promise.all([
+    reconcilePendingApprovalsForVoidedOrders(companyId),
+    reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders(companyId),
+    reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
+    reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),
+  ]);
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;
@@ -106,7 +116,9 @@ export async function GET() {
           ${RETURN_REARRANGE_PAYMENT_APPROVAL},
           ${RETURN_CANCEL_APPROVAL},
           ${ORDER_PAYMENT_APPROVAL},
-          ${DELIVERY_PAYMENT_APPROVAL}
+          ${DELIVERY_PAYMENT_APPROVAL},
+          ${INVOICE_REVERT_VOID_APPROVAL},
+          ${PAYMENT_METHOD_CHANGE_APPROVAL}
         )
         AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
       ORDER BY

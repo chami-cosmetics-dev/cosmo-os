@@ -6,7 +6,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
-import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
@@ -29,15 +29,17 @@ function pickOrderListCustomerName(order: {
   billingAddress: unknown;
   rawPayload?: unknown;
 }): string | null {
-  if (order.customer?.firstName || order.customer?.lastName) {
-    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
-    if (name) return name;
-  }
-  return resolveStoredOrderCustomerName({
+  const fromAddress = resolveStoredOrderCustomerName({
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
     rawPayload: order.rawPayload,
   });
+  if (fromAddress) return fromAddress;
+  if (order.customer?.firstName || order.customer?.lastName) {
+    const name = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ").trim();
+    if (name) return name;
+  }
+  return null;
 }
 
 export type OrdersPageParams = {
@@ -59,6 +61,8 @@ export type OrdersPageParams = {
   orderStatusFilter?: OrderStatusFilter;
   sampleSendLater?: "available" | "future" | "all";
   returnFilter?: "normal" | "rearrange";
+  /** Filter orders by MER coupon code (checks discountCodes JSON and ERP rawPayload). */
+  merCode?: string | null;
   /** Dispatch search mode: Shopify at ready_to_dispatch only; ERP at order_received or ready_to_dispatch */
   dispatchMode?: boolean;
   /** Dispatched orders awaiting delivery complete (bulk delivery combobox) */
@@ -233,6 +237,29 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     ];
   }
 
+  if (params.merCode?.trim()) {
+    const pattern = `%${params.merCode.trim()}%`;
+    const merMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM "Order"
+      WHERE "companyId" = ${companyId}
+      AND (
+        (
+          "discountCodes" IS NOT NULL
+          AND jsonb_typeof("discountCodes") = 'array'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements("discountCodes") AS elem
+            WHERE elem->>'code' ILIKE ${pattern}
+          )
+        )
+        OR "rawPayload"->>'merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->'data'->>'merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->>'custom_merchant_coupon_code' ILIKE ${pattern}
+        OR "rawPayload"->'data'->>'custom_merchant_coupon_code' ILIKE ${pattern}
+      )
+    `);
+    where.id = { in: merMatches.map((r) => r.id) };
+  }
+
   const VALID_STAGES = [
     "order_received",
     "sample_free_issue",
@@ -306,12 +333,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
         ];
       } else {
       where.fulfillmentStage = { in: stages as FulfillmentStage[] };
-      // Sample / free-issue queue — Shopify & manual only (ERP skips this step).
-      const hasSampleStage = stages.some((s) => s === "order_received" || s === "sample_free_issue");
-      const hasDispatchStage = stages.includes("ready_to_dispatch");
-      where.sourceName = (hasSampleStage && !hasDispatchStage)
-        ? { in: ["web", "manual"] }
-        : { in: ["web", "manual", "erpnext"] };
+      where.sourceName = { in: ["web", "manual", "erpnext"] };
       where.financialStatus = { not: "voided" };
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
@@ -429,6 +451,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     packageOnHoldAt: true,
     packageReadyAt: true,
     dispatchedAt: true,
+    revertedFromInvoiceCompleteAt: true,
     sampleFreeIssueSendLaterDate: true,
     companyLocation: { select: { id: true, name: true } },
     assignedMerchant: { select: { id: true, name: true, email: true, couponCodes: true } },
@@ -437,7 +460,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     approvalRequests: {
       where: {
         status: "pending",
-        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] },
+        type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL] },
       },
       select: { id: true, type: true },
     },
@@ -505,6 +528,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     lastPrintedAt: o.lastPrintedAt?.toISOString() ?? null,
     packageReadyAt: o.packageReadyAt?.toISOString() ?? null,
     dispatchedAt: o.dispatchedAt?.toISOString() ?? null,
+    revertedFromInvoiceCompleteAt: o.revertedFromInvoiceCompleteAt?.toISOString() ?? null,
     packageOnHoldAt: o.packageOnHoldAt?.toISOString() ?? null,
     sampleFreeIssueSendLaterDate: o.sampleFreeIssueSendLaterDate?.toISOString() ?? null,
     packageHoldReason: o.packageHoldReason,
@@ -513,6 +537,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     paymentGatewayNames: "paymentGatewayNames" in o ? o.paymentGatewayNames : [],
     paymentGatewayPrimary: "paymentGatewayPrimary" in o ? o.paymentGatewayPrimary : null,
     pendingPaymentApproval: o.approvalRequests.some((a) => a.type === ORDER_PAYMENT_APPROVAL),
+    pendingMethodChangeApproval: o.approvalRequests.some((a) => a.type === PAYMENT_METHOD_CHANGE_APPROVAL),
     pendingDeliveryPaymentApproval:
       DELIVERY_PAYMENT_FINANCE_UI_ENABLED &&
       o.approvalRequests.some((a) => a.type === DELIVERY_PAYMENT_APPROVAL),

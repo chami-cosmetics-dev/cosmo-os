@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
     orderStatusFilter: orderStatusResult.success ? orderStatusResult.data : undefined,
     sampleSendLater,
     returnFilter,
+    merCode: searchParams.get("mer_code")?.trim() || undefined,
   });
   perf.mark("query");
 

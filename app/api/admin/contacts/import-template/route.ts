@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { buildCsv } from "@/lib/reports/csv";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 
 export async function GET() {
-  const auth = await requirePermission("contacts.manage");
+  const auth = await requireAnyPermission(["contacts.master.manage", "contacts.manage"]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }

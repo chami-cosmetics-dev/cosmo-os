@@ -3,12 +3,12 @@ import { redirect } from "next/navigation";
 import { ContactsPanel } from "@/components/organisms/contacts-panel";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { fetchContactsPageData } from "@/lib/page-data/contacts";
-import { requirePermission } from "@/lib/rbac";
+import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContactsPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requireAnyPermission(["contacts.master.read", "contacts.read"]);
   if (!auth.ok) {
     if (auth.status === 401) {
       redirect("/login");
@@ -41,7 +41,13 @@ export default async function ContactsPage() {
           Track customer records, purchase activity, and contact history from one searchable workspace.
         </p>
       </section>
-      <ContactsPanel initialData={initialData} canManage={auth.context!.permissionKeys.includes("orders.manage")} />
+      <ContactsPanel
+        initialData={initialData}
+        canManage={
+          hasPermission(auth.context!, "contacts.master.manage") ||
+          hasPermission(auth.context!, "contacts.manage")
+        }
+      />
     </div>
   );
 }

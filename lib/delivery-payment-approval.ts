@@ -3,7 +3,19 @@ import { createOrGetDeliveryPaymentApproval, getApprovedOrderPaymentReviewerId }
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_finance" }
-  | { kind: "invoice_complete"; financeUserId: string };
+  | { kind: "invoice_complete"; financeUserId: string; createPe?: boolean };
+
+// Gateways where payment is collected before or at time of sale — never at the door.
+// These never need a delivery payment approval from finance.
+function isPrePaidGateway(gateway: string): boolean {
+  return (
+    gateway.includes("koko") ||
+    gateway.includes("bank") ||
+    gateway.includes("webxpay") ||
+    gateway === "cc" ||
+    gateway === "cc checkout"
+  );
+}
 
 /**
  * After store marks delivered: pre-approved KOKO/bank → invoice complete;
@@ -16,7 +28,7 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
 }): Promise<PostDeliveryInvoiceResult> {
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, companyId: input.companyId },
-    select: { id: true },
+    select: { id: true, financialStatus: true, paymentGatewayPrimary: true },
   });
   if (!order) {
     return { kind: "awaiting_finance" };
@@ -25,6 +37,14 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   const earlyFinanceUserId = await getApprovedOrderPaymentReviewerId(order.id);
   if (earlyFinanceUserId) {
     return { kind: "invoice_complete", financeUserId: earlyFinanceUserId };
+  }
+
+  // Pre-paid gateways (KOKO, bank transfer, WebXPay, CC checkout) — money is collected
+  // before or at time of sale, never at the door. Auto-complete and create a PE in ERP.
+  // createDeliveryPaymentEntry already skips if outstanding_amount <= 0 (already paid in ERP).
+  const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
+  if (isPrePaidGateway(gateway) && order.financialStatus?.toLowerCase() === "paid") {
+    return { kind: "invoice_complete", financeUserId: input.requestedById ?? "", createPe: true };
   }
 
   return { kind: "awaiting_finance" };
@@ -45,10 +65,25 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       shopifyOrderId: true,
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
+      financialStatus: true,
       totalPrice: true,
+      dispatchedByCourierServiceId: true,
+      dispatchedToCustomer: true,
+      companyLocationId: true,
     },
   });
   if (!order) return null;
+
+  // Courier service deliveries (e.g. Citypack) don't require finance to confirm payment collection.
+  if (order.dispatchedByCourierServiceId) return null;
+
+  // Customer pickups are collected in-store — no rider payment collection to confirm.
+  if (order.dispatchedToCustomer) return null;
+
+  // Pre-paid gateways (KOKO, bank transfer, WebXPay, CC checkout) — payment already received,
+  // no cash collected at the door, so no finance confirmation needed.
+  const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
+  if (isPrePaidGateway(gateway)) return null;
 
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
   const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";
@@ -60,5 +95,6 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
     invoiceLabel,
     paymentType,
     amount: order.totalPrice.toString(),
+    companyLocationId: order.companyLocationId,
   });
 }

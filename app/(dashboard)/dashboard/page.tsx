@@ -1,6 +1,19 @@
+import { redirect } from "next/navigation";
+
+import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
+import { requirePermission } from "@/lib/rbac";
+
 export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const auth = await requirePermission("dashboard.view");
+  if (!auth.ok) {
+    if (auth.status === 401) {
+      redirect("/login");
+    }
+    return <PermissionDeniedCard />;
+  }
+
   return (
     <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-5 shadow-[0_18px_40px_-28px_var(--primary)] sm:p-6">
       <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.42),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />

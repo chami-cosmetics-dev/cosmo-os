@@ -54,8 +54,9 @@ model Company {
   vendors                  Vendor[]
   contacts                 ContactMaster[]
   complaints               Complaint[]
-  shippingChargeOptions    ShippingChargeOption[]
-  kokoCompanies            KokoCompany[]
+  shippingChargeOptions        ShippingChargeOption[]
+  erpWarehouses                CompanyLocationWarehouse[]
+  kokoCompanies                KokoCompany[]
   dashboardBrandConfigs    DashboardBrandConfig[]
   contactAllocationOptions ContactAllocationOption[]
   productItemAssets        ProductItemAsset[]
@@ -299,6 +300,7 @@ model User {
   ordersLastPrintedBy             Order[]                   @relation("OrderLastPrintedBy")
   ordersPackageReadyBy            Order[]                   @relation("OrderPackageReadyBy")
   ordersSampleFreeIssueCompleteBy Order[]                   @relation("OrderSampleFreeIssueCompleteBy")
+  ordersCancelledBy               Order[]                   @relation("OrderCancelledBy")
   orderRemarksAdded               OrderRemark[]
   orderSampleFreeIssuesAdded      OrderSampleFreeIssue[]
   smsLogs                         SmsLog[]
@@ -457,7 +459,8 @@ model CompanyLocation {
   riderCashHandoverItems  RiderCashHandoverItem[]
   stickerBatchItems       StickerBatchItem[]
   smsNotificationConfigs  SmsNotificationConfig[]
-  shippingChargeOptions   ShippingChargeOption[]
+  shippingChargeOptions        ShippingChargeOption[]
+  erpWarehouses                CompanyLocationWarehouse[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
@@ -476,6 +479,19 @@ model ShippingChargeOption {
   companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
 
   @@unique([companyLocationId, label])
+  @@index([companyId, companyLocationId])
+}
+
+model CompanyLocationWarehouse {
+  id                String          @id @default(cuid())
+  companyId         String
+  companyLocationId String
+  warehouse         String
+  createdAt         DateTime        @default(now())
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+
+  @@unique([companyLocationId, warehouse])
   @@index([companyId, companyLocationId])
 }
 
@@ -558,6 +574,9 @@ model Order {
   lastRiderUpdateAt            DateTime?
   lastPrintedById              String?
   packageReadyById             String?
+  cancelledAt                  DateTime?
+  cancelledById                String?
+  cancelReason                 String?
   assignedMerchant             User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
   company                      Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation              CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
@@ -573,6 +592,7 @@ model Order {
   packageHoldReason            PackageHoldReason?     @relation(fields: [packageHoldReasonId], references: [id])
   packageReadyBy               User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy    User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
+  cancelledBy                  User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
   lineItems                    OrderLineItem[]
   exchangesAsOriginal          OrderExchange[]        @relation("OrderExchangeOriginalOrder")
   exchangesAsReplacement       OrderExchange[]        @relation("OrderExchangeReplacementOrder")
@@ -586,6 +606,7 @@ model Order {
   pickListGroupOrders          PickListGroupOrder[]
 
   erpnextInvoiceId             String?
+  erpnextWarehouse             String?
   erpnextSyncError             String?
   erpnextSyncFailedAt          DateTime?
   erpnextSyncAutoRetryCount    Int                    @default(0)
@@ -596,6 +617,10 @@ model Order {
   erpPeSyncError                 String?
   erpPeSyncFailedAt              DateTime?
   erpPeSyncMop                   String?
+
+  ogfSyncedAt                    DateTime?
+  ogfSyncBatchCode               String?
+  ogfSyncError                   String?
 
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, fulfillmentStage, createdAt(sort: Desc)])
@@ -1315,6 +1340,13 @@ model ContactMaster {
   name            String
   lastPurchaseAt  DateTime?
   recentMerchant  String?
+  assignedMerchant String?
+  source          String?
+  country         String?
+  zone            String?
+  area            String?
+  exWebCustomer   Boolean?
+  exOffCustomer   Boolean?
   // CRM profile fields
   remarks         String?
   gender          String?
@@ -1349,6 +1381,11 @@ model ContactMaster {
   @@index([companyId, updatedAt(sort: Desc)])
   @@index([companyId, email])
   @@index([companyId, phoneNumber])
+  @@index([companyId, assignedMerchant])
+  @@index([companyId, source])
+  @@index([companyId, country])
+  @@index([companyId, zone])
+  @@index([companyId, area])
 }
 
 model ContactEmail {

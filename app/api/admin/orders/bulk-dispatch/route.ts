@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
           paymentGatewayPrimary: true,
           paymentGatewayNames: true,
           totalPrice: true,
+          companyLocationId: true,
           companyLocation: { select: { name: true } },
         },
       });
@@ -138,6 +139,7 @@ export async function POST(request: NextRequest) {
             invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
             paymentType: order.paymentGatewayPrimary ?? "bank transfer",
             amount: order.totalPrice.toString(),
+            companyLocationId: order.companyLocationId,
           }).catch((err) => console.error("[dispatch] approval self-heal failed:", err));
         }
         results.push({ orderId, ref, success: false, error: financeBlock });
@@ -246,6 +248,7 @@ export async function POST(request: NextRequest) {
         sendOrderSms(companyId, orderId, "rider_dispatched", {
           orderNumber: orderNum,
           invoiceNumber,
+          orderReference: [orderNum, invoiceNumber].filter(Boolean).join(" / "),
           deliveryUrl,
           riderPhone: riderMobile ?? undefined,
         }).catch((err) => console.error("[bulk-dispatch] rider SMS failed:", err));

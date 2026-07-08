@@ -158,7 +158,7 @@ const instances = await prisma.erpnextInstance.findMany({
 
 let targets = names;
 if (targets.length === 0 && series) {
-  const erp2 = instances.find((i) => i.label === "ERP_2-Main");
+  const erp2 = instances.find((i) => i.label.replace(/\s/g, "").toLowerCase() === "erp_2-main");
   if (!erp2) {
     console.error("ERP_2-Main instance not found");
     process.exit(1);

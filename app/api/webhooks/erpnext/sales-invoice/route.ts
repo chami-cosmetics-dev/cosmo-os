@@ -263,33 +263,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
-  // Find location — prefer warehouse match, fall back to company match
+  // Find location — match by warehouse field, then warehouse list, then company fallback
+  const locationSelect = {
+    id: true,
+    companyId: true,
+    defaultMerchantUserId: true,
+    shadowParentLocationId: true,
+    shopifyLocationId: true,
+  } as const;
   const location = await (async () => {
     if (data.set_warehouse) {
-      const byWarehouse = await prisma.companyLocation.findFirst({
-        where: {
-          erpnextWarehouse: data.set_warehouse,
-          erpnextCompany: data.company,
-        },
-        select: {
-          id: true,
-          companyId: true,
-          defaultMerchantUserId: true,
-          shadowParentLocationId: true,
-          shopifyLocationId: true,
-        },
+      // 1. Primary field match (single-warehouse locations)
+      const byField = await prisma.companyLocation.findFirst({
+        where: { erpnextWarehouse: data.set_warehouse, erpnextCompany: data.company },
+        select: locationSelect,
       });
-      if (byWarehouse) return byWarehouse;
+      if (byField) return byField;
+      // 2. Warehouse list match (multi-warehouse locations)
+      const byList = await prisma.companyLocation.findFirst({
+        where: {
+          erpnextCompany: data.company,
+          erpWarehouses: { some: { warehouse: data.set_warehouse } },
+        },
+        select: locationSelect,
+      });
+      if (byList) return byList;
     }
+    // 3. Company-only fallback
     return prisma.companyLocation.findFirst({
       where: { erpnextCompany: data.company },
-      select: {
-        id: true,
-        companyId: true,
-        defaultMerchantUserId: true,
-        shadowParentLocationId: true,
-        shopifyLocationId: true,
-      },
+      select: locationSelect,
     });
   })();
   if (!location) {
@@ -445,8 +448,9 @@ export async function POST(request: NextRequest) {
       : {}),
   };
 
-  const skipSampleStage = !isCreditNoted;
-  const sampleStageCompletedAt = skipSampleStage ? new Date() : undefined;
+  // POS orders skip the sample/free-issue stage (delivered immediately at counter).
+  // Regular ERP orders start at order_received so staff can add samples before advancing to print.
+  const sampleStageCompletedAt = isPOS ? new Date() : undefined;
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
@@ -457,6 +461,7 @@ export async function POST(request: NextRequest) {
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       name: data.name,
       erpnextInvoiceId: data.name,
+      erpnextWarehouse: data.set_warehouse ?? null,
       totalPrice: grandTotal,
       ...pricingFields,
       ...(erpShipping.totalShipping
@@ -469,7 +474,7 @@ export async function POST(request: NextRequest) {
         ? orderStageUpdate("delivery_complete", sampleStageCompletedAt ?? new Date())
         : isCreditNoted
           ? orderStageUpdate("returned", sampleStageCompletedAt ?? new Date())
-          : orderStageUpdate("print", sampleStageCompletedAt ?? new Date())),
+          : orderStageUpdate("order_received", new Date())),
       ...(sampleStageCompletedAt ? { sampleFreeIssueCompleteAt: sampleStageCompletedAt } : {}),
       customerEmail,
       customerPhone,
@@ -493,6 +498,7 @@ export async function POST(request: NextRequest) {
       ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
+      erpnextWarehouse: data.set_warehouse ?? null,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       ...(isPOS
         ? orderStageUpdate("delivery_complete", new Date())
@@ -512,7 +518,7 @@ export async function POST(request: NextRequest) {
         : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
-    select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true },
+    select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true, financialStatus: true },
   });
 
   if (financialStatus === "voided" || isCreditNoted) {
@@ -531,7 +537,10 @@ export async function POST(request: NextRequest) {
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames,
     });
-    if (needsApproval) {
+    // Skip if the OS order is already paid — payment was confirmed via finance approval or
+    // payment method change; the ERP invoice may still be "Unpaid" until a PE is posted.
+    const osOrderAlreadyPaid = order.financialStatus === "paid";
+    if (needsApproval && !osOrderAlreadyPaid) {
       const existingApproval = await prisma.approvalRequest.findFirst({
         where: {
           orderId: order.id,
@@ -548,6 +557,7 @@ export async function POST(request: NextRequest) {
           invoiceLabel: order.name ?? data.name,
           paymentType: order.paymentGatewayPrimary ?? resolvedPaymentMethods[0] ?? "bank transfer",
           amount: grandTotal.toString(),
+          companyLocationId: location.id,
         }).catch((err) =>
           console.error("[ERP webhook] approval creation failed:", err),
         );

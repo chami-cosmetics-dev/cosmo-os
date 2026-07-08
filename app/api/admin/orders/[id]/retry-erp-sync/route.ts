@@ -59,7 +59,8 @@ export async function POST(
   }
 
   const isPendingApproval = order.erpnextInvoiceId === "pending_approval";
-  if (!order.erpnextSyncError && !isPendingApproval) {
+  const isZombiePending = order.erpnextInvoiceId === "pending" && !order.erpnextSyncError;
+  if (!order.erpnextSyncError && !isPendingApproval && !isZombiePending) {
     return NextResponse.json({ error: "No failed ERP sync on this order" }, { status: 400 });
   }
 
@@ -81,6 +82,7 @@ export async function POST(
     return NextResponse.json({ ok: true, message: "ERP sync succeeded" });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[ERPNext] manual retry failed for order", order.id, errMsg);
     await markOrderErpSyncFailed(order.id, errMsg, {
       scheduleAutoRetry: true,
       incrementAutoRetryCount: true,

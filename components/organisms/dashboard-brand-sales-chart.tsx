@@ -74,22 +74,27 @@ type ChartRow = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DM_GENERAL = "DM General";
+const DM_GENERAL = "DM-General";
 const OTHER_BRANDS_LABEL = "Other Brands";
-const MAX_MERCHANT_SEGS = 10;
-
 const CHART_COLORS = [
-  "#f97316", // orange
-  "#6366f1", // indigo
-  "#ec4899", // pink
-  "#eab308", // yellow
-  "#14b8a6", // teal
-  "#ef4444", // red
-  "#a3e635", // lime
-  "#3b82f6", // blue
-  "#d946ef", // fuchsia
-  "#22c55e", // green
-  "#f59e0b", // amber
+  "#a78bfa",
+  "#5eead4",
+  "#fb7185",
+  "#60a5fa",
+  "#fbbf24",
+  "#34d399",
+  "#f472b6",
+  "#38bdf8",
+  "#c084fc",
+  "#f97316",
+  "#84cc16",
+  "#e879f9",
+  "#22c55e",
+  "#f43f5e",
+  "#06b6d4",
+  "#facc15",
+  "#818cf8",
+  "#14b8a6",
 ];
 
 function formatCompact(value: number) {
@@ -345,25 +350,18 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
     }
     accumulateMerchants(data.otherBrands);
 
-    // Sort merchants by global total, cap at MAX_MERCHANT_SEGS
+    // Sort merchants by global total; every merchant gets its own segment.
     const sortedMerchants = [...globalMerchantTotals.entries()].sort((a, b) => b[1] - a[1]);
-    const topMerchants = sortedMerchants.slice(0, MAX_MERCHANT_SEGS).map(([n]) => n);
-    const restMerchants = new Set(
-      sortedMerchants.slice(MAX_MERCHANT_SEGS).map(([n]) => n),
-    );
-    const hasRest = restMerchants.size > 0;
-    const otherMerchantsKey = "__other_merchants";
+    const merchants = sortedMerchants.map(([n]) => n);
 
     // Segment keys
-    const keys: string[] = topMerchants.map((_, i) => `m_${i}`);
-    if (hasRest) keys.push(otherMerchantsKey);
+    const keys: string[] = merchants.map((_, i) => `m_${i}`);
 
     // Color map
     const cMap = new Map<string, string>();
-    topMerchants.forEach((name, i) => {
+    merchants.forEach((name, i) => {
       cMap.set(`m_${i}`, CHART_COLORS[i % CHART_COLORS.length]!);
     });
-    if (hasRest) cMap.set(otherMerchantsKey, "#94a3b8");
 
     // Build rows for selected brands
     const buildRow = (brandRow: BrandSalesRow): ChartRow => {
@@ -371,16 +369,10 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
       for (const key of keys) row[key] = 0;
 
       for (const m of brandRow.merchants) {
-        if (restMerchants.has(m.merchantName)) {
-          row[otherMerchantsKey] = (row[otherMerchantsKey] as number) + m.total;
-        } else {
-          const idx = topMerchants.indexOf(m.merchantName);
-          if (idx >= 0) {
-            const k = `m_${idx}`;
-            row[k] = (row[k] as number) + m.total;
-          } else {
-            if (hasRest) row[otherMerchantsKey] = (row[otherMerchantsKey] as number) + m.total;
-          }
+        const idx = merchants.indexOf(m.merchantName);
+        if (idx >= 0) {
+          const k = `m_${idx}`;
+          row[k] = (row[k] as number) + m.total;
         }
       }
       return row;
@@ -396,12 +388,11 @@ export function DashboardBrandSalesChart({ canEditDashboard }: DashboardBrandSal
     }
 
     // Legend payload
-    const lp = topMerchants.map((name, i) => ({
+    const lp = merchants.map((name, i) => ({
       dataKey: `m_${i}`,
       value: name,
       color: CHART_COLORS[i % CHART_COLORS.length]!,
     }));
-    if (hasRest) lp.push({ dataKey: otherMerchantsKey, value: "Other Merchants", color: "#94a3b8" });
 
     return { chartRows: rows, segmentKeys: keys, colorMap: cMap, legendPayload: lp };
   }, [data]);

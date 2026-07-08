@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import { notify } from "@/lib/notify";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ export function DashboardDeliverySummaryChart() {
   const [data, setData] = useState<DeliveryCourierRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exportingStatus, setExportingStatus] = useState<"pending" | "completed" | null>(null);
 
   const fetchIdRef = useRef(0);
 
@@ -157,6 +159,46 @@ export function DashboardDeliverySummaryChart() {
     mode === "count"
       ? (v: number) => (v === 0 ? "" : String(v))
       : (v: number) => (v === 0 ? "" : formatValue(v));
+
+  const exportDispatchSummary = useCallback(
+    async (status: "pending" | "completed") => {
+      setExportingStatus(status);
+      try {
+        const res = await fetch("/api/admin/fulfillment/dispatch-summary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status,
+            dateFrom: fromDate,
+            dateTo: toDate,
+            format: "xlsx",
+          }),
+        });
+        if (!res.ok) {
+          const json = (await res.json().catch(() => ({}))) as { error?: string };
+          notify.error(json.error ?? "Export failed.");
+          return;
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const disposition = res.headers.get("Content-Disposition") ?? "";
+        const match = /filename="([^"]+)"/.exec(disposition);
+        link.href = url;
+        link.download = match?.[1] ?? `dispatch-summary-${status}-${fromDate}-to-${toDate}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch {
+        notify.error("Export failed.");
+      } finally {
+        setExportingStatus(null);
+      }
+    },
+    [fromDate, toDate],
+  );
 
   return (
     <Card className="border-border/70 bg-card shadow-xs">
@@ -233,7 +275,16 @@ export function DashboardDeliverySummaryChart() {
               />
               <Tooltip content={<DeliveryTooltip mode={mode} />} />
               <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4 }} />
-              <Bar dataKey="Completed" fill={COLOR_COMPLETED} maxBarSize={48} radius={[3, 3, 0, 0]}>
+              <Bar
+                dataKey="Completed"
+                fill={COLOR_COMPLETED}
+                maxBarSize={48}
+                radius={[3, 3, 0, 0]}
+                className="cursor-pointer"
+                onClick={() => {
+                  if (exportingStatus == null) void exportDispatchSummary("completed");
+                }}
+              >
                 <LabelList
                   dataKey="Completed"
                   position="top"
@@ -241,7 +292,16 @@ export function DashboardDeliverySummaryChart() {
                   style={{ fontSize: 10, fill: "currentColor" }}
                 />
               </Bar>
-              <Bar dataKey="Pending" fill={COLOR_PENDING} maxBarSize={48} radius={[3, 3, 0, 0]}>
+              <Bar
+                dataKey="Pending"
+                fill={COLOR_PENDING}
+                maxBarSize={48}
+                radius={[3, 3, 0, 0]}
+                className="cursor-pointer"
+                onClick={() => {
+                  if (exportingStatus == null) void exportDispatchSummary("pending");
+                }}
+              >
                 <LabelList
                   dataKey="Pending"
                   position="top"

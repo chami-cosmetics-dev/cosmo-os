@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as XLSX from "xlsx";
 
 import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
@@ -323,7 +324,7 @@ export async function POST(request: NextRequest) {
   };
 
   const status = body.status === "completed" ? "completed" : "pending";
-  const format = body.format === "csv" ? "csv" : "pdf";
+  const format = body.format === "csv" ? "csv" : body.format === "xlsx" ? "xlsx" : "pdf";
   const range = resolveDateRange(body.dateFrom ?? null, body.dateTo ?? null);
 
   const { groups } = await fetchDispatchGroups(companyId, status, range);
@@ -331,6 +332,66 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
   const fileSuffix = dispatchSummaryFileSuffix(status, range);
+
+  const headers = [
+    "company_group",
+    "dispatcher_type",
+    "dispatcher_name",
+    "reference",
+    "shopify_reference",
+    "erp_reference",
+    "location",
+    "order_date",
+    "dispatched_at",
+    "delivery_complete_at",
+    "delivery_outcome",
+    "customer_name",
+    "customer_phone",
+    "city",
+    "address",
+    "merchant",
+    "payment_type",
+    "total",
+    "currency",
+  ] as const;
+
+  const rows = groups.flatMap((group) =>
+    group.orders.map((order) => ({
+      company_group: order.companyGroup,
+      dispatcher_type: group.dispatchType,
+      dispatcher_name: group.dispatcherName,
+      reference: order.reference,
+      shopify_reference: order.shopifyReference,
+      erp_reference: order.erpReference ?? "",
+      location: order.locationName,
+      order_date: order.orderDate,
+      dispatched_at: order.dispatchedAt,
+      delivery_complete_at: order.deliveryCompleteAt ?? "",
+      delivery_outcome: order.deliveryOutcome ?? "",
+      customer_name: order.customerName,
+      customer_phone: order.customerPhone ?? "",
+      city: order.city ?? "",
+      address: order.address ?? "",
+      merchant: order.merchantName ?? "",
+      payment_type: order.paymentType ?? "",
+      total: order.totalPrice,
+      currency: order.currency,
+    })),
+  );
+
+  if (format === "xlsx") {
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.json_to_sheet(rows, { header: [...headers] });
+    XLSX.utils.book_append_sheet(workbook, sheet, "Dispatch Summary");
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="dispatch-summary-${fileSuffix}.xlsx"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   if (format === "csv") {
     const headers = [
@@ -355,8 +416,30 @@ export async function POST(request: NextRequest) {
       "currency",
     ] as const;
 
-    const rows = groups.flatMap((group) =>
-      group.orders.map((order) => ({
+    const emptyRow = (label: string, total: number, currency: string) => ({
+      company_group: "",
+      dispatcher_type: "",
+      dispatcher_name: label,
+      reference: "",
+      shopify_reference: "",
+      erp_reference: "",
+      location: "",
+      order_date: "",
+      dispatched_at: "",
+      delivery_complete_at: "",
+      delivery_outcome: "",
+      customer_name: "",
+      customer_phone: "",
+      city: "",
+      address: "",
+      merchant: "",
+      payment_type: "TOTAL",
+      total: total.toFixed(2),
+      currency,
+    });
+
+    const rows = groups.flatMap((group) => {
+      const orderRows = group.orders.map((order) => ({
         company_group: order.companyGroup,
         dispatcher_type: group.dispatchType,
         dispatcher_name: group.dispatcherName,
@@ -376,8 +459,15 @@ export async function POST(request: NextRequest) {
         payment_type: order.paymentType ?? "",
         total: order.totalPrice,
         currency: order.currency,
-      })),
-    );
+      }));
+      const groupTotal = group.orders.reduce((sum, o) => sum + (parseFloat(o.totalPrice) || 0), 0);
+      const currency = group.orders[0]?.currency ?? "";
+      return [...orderRows, emptyRow(`${group.dispatcherName} TOTAL (${group.orders.length} orders)`, groupTotal, currency)];
+    });
+
+    const grandTotal = rows.filter(r => r.payment_type === "TOTAL").reduce((sum, r) => sum + (parseFloat(r.total) || 0), 0);
+    const grandCurrency = groups[0]?.orders[0]?.currency ?? "";
+    rows.push(emptyRow(`GRAND TOTAL (${groups.flatMap(g => g.orders).length} orders)`, grandTotal, grandCurrency));
 
     const companyGroups = Array.from(new Set(rows.map((row) => row.company_group))).sort();
     if (companyGroups.length <= 1) {

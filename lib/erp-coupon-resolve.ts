@@ -135,6 +135,28 @@ export async function resolveErpSalesPersonForMerchantCode(
     return null;
   }
 
+  // Shopify may send "MER112-MG" (number + initials) while ERP stores "MER112-Harshani" (number + full name).
+  // Fall back to matching by numeric prefix only: "MER112-MG" → search "MER112-%".
+  const numericPrefix = code.match(/^(MER\d+)/i)?.[1];
+  if (numericPrefix && numericPrefix !== code) {
+    const numPrefixMatches = await listErpDocuments(
+      cfg,
+      "Sales Person",
+      [["name", "like", `${numericPrefix}-%`]],
+      ["name"],
+      10,
+    );
+    const numStrict = numPrefixMatches.filter(
+      (row) => row.name === numericPrefix || row.name.toLowerCase().startsWith(`${numericPrefix.toLowerCase()}-`),
+    );
+    if (numStrict.length === 1) return numStrict[0].name;
+    if (numStrict.length > 1) {
+      console.warn(
+        `[ERPNext] Ambiguous Sales Person numeric-prefix matches for "${code}" (prefix "${numericPrefix}"): ${numStrict.map((r) => r.name).join(", ")}`,
+      );
+    }
+  }
+
   return null;
 }
 

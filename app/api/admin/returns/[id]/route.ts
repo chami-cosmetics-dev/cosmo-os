@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
+  createInvoiceRevertVoidApproval,
   createOrGetReturnCancelApproval,
   createOrGetReturnRearrangeApproval,
   serializeReturnCancelApprovalNote,
@@ -18,8 +19,9 @@ const returnActionSchema = z.object({
   actionRemark: z.string().trim().max(5000).nullable().optional(),
   cancelRemark: z.string().trim().max(5000).optional(),
   actionType: z
-    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel"])
+    .enum(["save", "rearrange", "confirm_rearrange_paid", "request_finance_approval", "request_cancel", "mark_returned_to_store", "resend_void_approval"])
     .optional(),
+  requestBankTransfer: z.boolean().optional(),
 });
 
 function normalizeText(value: string | null | undefined) {
@@ -41,6 +43,17 @@ function requiresCourierBankTransferBeforeRearrange(orderReturn: {
 }) {
   if (isRiderReturn(orderReturn.shippingServiceType)) return false;
   return isCitypakCourier(orderReturn.shippingServiceName);
+}
+
+function isAlreadyApprovedPayment(order: {
+  financialStatus: string | null;
+  paymentGatewayPrimary: string | null;
+  paymentGatewayNames: string[];
+}) {
+  if (normalizeText(order.financialStatus) !== "paid") return false;
+  const gateways = [order.paymentGatewayPrimary, ...order.paymentGatewayNames].map(normalizeText);
+  const isCod = gateways.some((v) => v === "cod" || v === "cash" || v.includes("cash_on_delivery"));
+  return !isCod;
 }
 
 export async function PUT(
@@ -93,6 +106,8 @@ export async function PUT(
           financialStatus: true,
           paymentGatewayPrimary: true,
           paymentGatewayNames: true,
+          revertedFromInvoiceCompleteAt: true,
+          companyLocationId: true,
         },
       },
     },
@@ -108,6 +123,8 @@ export async function PUT(
   const isConfirmRearrangePaid = parsed.data.actionType === "confirm_rearrange_paid";
   const isFinanceApprovalRequest = parsed.data.actionType === "request_finance_approval";
   const isCancelRequest = parsed.data.actionType === "request_cancel";
+  const isMarkReturnedToStore = parsed.data.actionType === "mark_returned_to_store";
+  const isResendVoidApproval = parsed.data.actionType === "resend_void_approval";
 
   if (isCancelRequest) {
     const cancelRemark = parsed.data.cancelRemark?.trim();
@@ -116,8 +133,96 @@ export async function PUT(
     }
   }
 
+  if (isMarkReturnedToStore) {
+    if (existing.remarkTemplate !== "invoice_revert") {
+      return NextResponse.json({ error: "Only finance-reverted orders can use this action" }, { status: 400 });
+    }
+    if (!existing.order.revertedFromInvoiceCompleteAt) {
+      return NextResponse.json({ error: "Order is not in partial void state" }, { status: 400 });
+    }
+    if (existing.order.fulfillmentStage === "returned_to_store" || existing.order.fulfillmentStage === "returned") {
+      return NextResponse.json({ error: "Order has already been returned to store" }, { status: 400 });
+    }
+
+    const orderLabel = existing.order.name ?? existing.order.orderNumber ?? existing.order.shopifyOrderId ?? existing.orderId;
+    await prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: existing.orderId },
+        data: orderStageUpdate("returned_to_store", actionDate),
+      });
+      await tx.orderReturn.update({
+        where: { id: existing.id },
+        data: { actionDate, actionById: viewerUserId },
+      });
+    });
+
+    await createInvoiceRevertVoidApproval({
+      companyId,
+      orderId: existing.orderId,
+      invoiceLabel: orderLabel,
+      revertedAt: existing.order.revertedFromInvoiceCompleteAt,
+      companyLocationId: existing.order.companyLocationId,
+    });
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: viewerUserId,
+      module: "orders",
+      action: "fulfillment_updated",
+      entityType: "Order",
+      entityId: existing.orderId,
+      summary: `Finance-reverted order ${orderLabel} marked returned to store — void approval sent`,
+      beforeData: { fulfillmentStage: existing.order.fulfillmentStage },
+      afterData: { fulfillmentStage: "returned_to_store" },
+      metadata: { action: "finance_revert_returned_to_store", orderReturnId: existing.id },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      returnedOrder: { id: existing.id, actionDate: actionDate.toISOString(), actionById: viewerUserId },
+      order: { id: existing.orderId, fulfillmentStage: "returned_to_store" },
+    });
+  }
+
+  if (isResendVoidApproval) {
+    if (existing.remarkTemplate !== "invoice_revert") {
+      return NextResponse.json({ error: "Only finance-reverted orders can use this action" }, { status: 400 });
+    }
+    if (!existing.order.revertedFromInvoiceCompleteAt) {
+      return NextResponse.json({ error: "Order is not in partial void state" }, { status: 400 });
+    }
+    if (existing.order.fulfillmentStage !== "returned_to_store") {
+      return NextResponse.json({ error: "Order must be marked returned to store first" }, { status: 400 });
+    }
+
+    const orderLabel = existing.order.name ?? existing.order.orderNumber ?? existing.order.shopifyOrderId ?? existing.orderId;
+    await createInvoiceRevertVoidApproval({
+      companyId,
+      orderId: existing.orderId,
+      invoiceLabel: orderLabel,
+      revertedAt: existing.order.revertedFromInvoiceCompleteAt,
+      companyLocationId: existing.order.companyLocationId,
+    });
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: viewerUserId,
+      module: "orders",
+      action: "fulfillment_updated",
+      entityType: "Order",
+      entityId: existing.orderId,
+      summary: `Void approval re-sent for finance-reverted order ${orderLabel}`,
+      metadata: { action: "finance_revert_void_approval_resent", orderReturnId: existing.id },
+    });
+
+    return NextResponse.json({ ok: true });
+  }
+
   const requiresBankTransferBeforeRearrange =
-    isRearrange && requiresCourierBankTransferBeforeRearrange(existing);
+    isRearrange &&
+    parsed.data.requestBankTransfer === true &&
+    requiresCourierBankTransferBeforeRearrange(existing) &&
+    !isAlreadyApprovedPayment(existing.order);
   const isApprovalRequestFlow =
     isFinanceApprovalRequest &&
     (requiresCourierBankTransferBeforeRearrange(existing) || isPendingBankTransferOrder(existing.order));
@@ -232,6 +337,7 @@ export async function PUT(
       orderReturnId: existing.id,
       requestedById: viewerUserId,
       invoiceLabel,
+      companyLocationId: existing.order.companyLocationId,
       requestNote: serializeReturnCancelApprovalNote({
         invoiceLabel,
         shopifyOrderId: existing.order.shopifyOrderId,
@@ -268,6 +374,7 @@ export async function PUT(
       requestedById: viewerUserId,
       requestNote: remark,
       invoiceLabel: existing.order.orderNumber ?? existing.order.name ?? existing.orderId,
+      companyLocationId: existing.order.companyLocationId,
     });
     approvalRequestId = approval.id;
   }

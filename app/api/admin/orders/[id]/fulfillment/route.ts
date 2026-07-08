@@ -18,7 +18,8 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
-import { createErpnextCreditNote } from "@/lib/erpnext-sync";
+import { createErpnextCreditNote, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
+import { cancelShopifyOrder } from "@/lib/shopify-admin";
 import { markOrderDelivered } from "@/lib/mark-order-delivered";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import {
@@ -84,6 +85,10 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
     action: z.literal("complete_pos"),
   }),
   z.object({
+    action: z.literal("cancel_order"),
+    reason: z.string().trim().min(5).max(500),
+  }),
+  z.object({
     action: z.literal("revert_to_stage"),
     targetStage: z.enum([
       "order_received",
@@ -126,6 +131,8 @@ function getRequiredPermissionsForAction(action: string): string[] {
       return ["fulfillment.delivery_invoice.mark_delivered"];
     case "mark_invoice_complete":
       return ["fulfillment.delivery_invoice.mark_complete"];
+    case "cancel_order":
+      return ["orders.cancel"];
     case "complete_pos":
       return ["orders.manage"];
     case "revert_to_stage":
@@ -327,6 +334,7 @@ export async function PATCH(
       invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
       paymentType: order.paymentGatewayPrimary ?? "bank transfer",
       amount: order.totalPrice.toString(),
+      companyLocationId: order.companyLocationId,
     }).catch((err) => console.error("[fulfillment] approval self-heal failed:", err));
   }
 
@@ -335,12 +343,6 @@ export async function PATCH(
 
   try {
     if (data.action === "add_samples") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Samples can only be added at sample/free issue stage" },
@@ -403,6 +405,7 @@ export async function PATCH(
           invoiceLabel,
           paymentType,
           amount,
+          companyLocationId: order.companyLocationId,
         });
       }
 
@@ -422,12 +425,6 @@ export async function PATCH(
     if (data.action === "advance_to_print") {
       if (financeFulfillmentBlock) {
         return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
-      }
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/print stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
       }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
@@ -457,12 +454,6 @@ export async function PATCH(
     }
 
     if (data.action === "set_sample_send_later_date") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Send later date can only be set at sample/free issue stage" },
@@ -498,12 +489,6 @@ export async function PATCH(
     }
 
     if (data.action === "send_sample_now") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Send now is only available at sample/free issue stage" },
@@ -537,12 +522,6 @@ export async function PATCH(
     }
 
     if (data.action === "cancel_sample_send_later") {
-      if (order.sourceName === "erpnext" || order.sourceName === "erpnext-pos") {
-        return NextResponse.json(
-          { error: "Sample/free issue stage does not apply to ERPNext orders" },
-          { status: 400 }
-        );
-      }
       if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
         return NextResponse.json(
           { error: "Cancel schedule is only available at sample/free issue stage" },
@@ -926,6 +905,7 @@ export async function PATCH(
         sendOrderSms(companyId, order.id, "rider_dispatched", {
           orderNumber: orderNum,
           invoiceNumber: invoiceNum,
+          orderReference: [orderNum, invoiceNum].filter(Boolean).join(" / "),
           riderName: rider?.name ?? undefined,
           riderPhone: rider?.mobile ?? undefined,
           deliveryUrl,
@@ -1202,23 +1182,36 @@ export async function PATCH(
             afterData: { orderId: order.id, remarkTemplate: "invoice_revert", source: "invoice_complete_revert" },
           });
         }
-        // Fire-and-forget ERP credit note — non-fatal
-        void (async () => {
-          try {
-            const withLocation = await prisma.order.findUnique({
-              where: { id: order.id },
-              include: { companyLocation: { include: { erpnextInstance: true } } },
-            });
-            if (withLocation?.companyLocation) {
-              await createErpnextCreditNote(
-                { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
-                withLocation.companyLocation,
-              );
-            }
-          } catch (err) {
-            console.error("[ERPNext] createErpnextCreditNote failed (non-fatal):", err);
+        // Create ERP credit note — awaited; failure surfaced as warning flag (order is already reverted in DB)
+        let erpCreditNoteFailed = false;
+        let erpCreditNoteError: string | undefined;
+        try {
+          const withLocation = await prisma.order.findUnique({
+            where: { id: order.id },
+            include: { companyLocation: { include: { erpnextInstance: true } } },
+          });
+          if (withLocation?.companyLocation) {
+            await createErpnextCreditNote(
+              { ...order, erpnextInvoiceId: withLocation.erpnextInvoiceId },
+              withLocation.companyLocation,
+            );
           }
-        })();
+        } catch (err) {
+          console.error("[ERPNext] createErpnextCreditNote failed:", err);
+          erpCreditNoteFailed = true;
+          erpCreditNoteError = err instanceof Error ? err.message : String(err);
+        }
+
+        await logOrderFulfillmentAudit({
+          companyId,
+          actorUserId: auth.context!.user!.id,
+          orderId: order.id,
+          summary: `Reverted order ${order.orderNumber ?? order.name ?? order.id} to ${targetStage}`,
+          beforeStage: order.fulfillmentStage,
+          afterStage: targetStage,
+          metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
+        });
+        return NextResponse.json({ success: true, erpCreditNoteFailed, erpCreditNoteError });
       }
 
       await logOrderFulfillmentAudit({
@@ -1230,6 +1223,75 @@ export async function PATCH(
         afterStage: targetStage,
         metadata: { action: data.action, targetStage, returnRecorded: shouldRecordReturn, revertReason: data.revertReason },
       });
+      return NextResponse.json({ success: true });
+    }
+
+    if (data.action === "cancel_order") {
+      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+        return NextResponse.json(
+          { error: "Orders can only be cancelled at order received or sample/free issue stage" },
+          { status: 400 }
+        );
+      }
+      if (order.financialStatus?.toLowerCase() === "voided") {
+        return NextResponse.json({ error: "Order is already cancelled" }, { status: 400 });
+      }
+
+      const orderWithLocation = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: { companyLocation: { include: { erpnextInstance: true } } },
+      });
+      const location = orderWithLocation?.companyLocation;
+
+      // Cancel in Shopify first — fatal; if this fails we don't mark as voided.
+      // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
+      const isRealShopifyOrder = order.shopifyOrderId && !order.shopifyOrderId.startsWith("erp-");
+      if (isRealShopifyOrder && location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(order.shopifyOrderId, location.shopifyAdminStoreHandle);
+        console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
+      } else {
+        console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);
+      }
+
+      // Cancel ERP Sales Invoice if one exists — non-fatal
+      if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
+        try {
+          // ERP-native orders (shopifyOrderId starts with "erp-") have no po_no in ERP —
+          // pass the invoice name directly so the lookup is skipped.
+          const isErpNative = order.shopifyOrderId?.startsWith("erp-");
+          await cancelErpnextSalesInvoice(
+            order.name ?? order.shopifyOrderId,
+            location,
+            isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
+          );
+          console.log(`[Cancel] ERP SI cancelled for order ${order.id}`);
+        } catch (err) {
+          console.error(`[Cancel] ERP SI cancel failed (non-fatal) for order ${order.id}:`, err);
+        }
+      }
+
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          financialStatus: "voided",
+          cancelledAt: now,
+          cancelledById: auth.context!.user!.id,
+          cancelReason: data.reason,
+        },
+      });
+
+      await writeAuditLog({
+        companyId,
+        actorUserId: auth.context!.user!.id,
+        module: "orders",
+        action: "order_cancelled",
+        entityType: "Order",
+        entityId: order.id,
+        summary: `Cancelled order ${order.orderNumber ?? order.name ?? order.id}: ${data.reason}`,
+        beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
+        afterData: { financialStatus: "voided", cancelReason: data.reason },
+      });
+
       return NextResponse.json({ success: true });
     }
 

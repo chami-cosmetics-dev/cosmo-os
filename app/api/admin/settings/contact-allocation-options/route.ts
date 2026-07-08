@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { LIMITS, trimmedString } from "@/lib/validation";
+import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 
 const VALID_TYPES = [
   "serviceProvider",
@@ -17,6 +17,10 @@ const VALID_TYPES = [
 const createSchema = z.object({
   type: z.enum(VALID_TYPES),
   value: trimmedString(1, LIMITS.contactAllocationOptionValue.max),
+});
+
+const deleteManySchema = z.object({
+  ids: z.array(cuidSchema).min(1).max(1000),
 });
 
 async function getCompanyId(userId: string): Promise<string | null> {
@@ -93,4 +97,37 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json(item, { status: 201 });
+}
+
+export async function DELETE(request: NextRequest) {
+  const auth = await requirePermission("contacts.allocation.settings");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const companyId = await getCompanyId(auth.context!.user!.id);
+  if (!companyId) {
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 }
+    );
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const parsed = deleteManySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const result = await prisma.contactAllocationOption.deleteMany({
+    where: {
+      companyId,
+      id: { in: parsed.data.ids },
+    },
+  });
+
+  return NextResponse.json({ success: true, deleted: result.count });
 }

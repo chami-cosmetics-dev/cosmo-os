@@ -1,5 +1,5 @@
 import { APP_NAME } from "@/lib/branding";
-import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
+import { isVaultOsDeployment, resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 
 type CsvRow = Record<string, string>;
 
@@ -57,15 +57,40 @@ export type FalconWaybillRow = {
 
 const FALCON_COLUMNS = 25;
 
-const SENDER = {
+type SenderConfig = {
+  name: string;
+  address1: string;
+  city: string;
+  contact1: string;
+  contact2: string;
+  description: string;
+};
+
+const VAULT_SENDER: SenderConfig = {
   name: "SupplementVault.lk",
   address1: "347/34, 3/1, Nirmala Mawatha, Lake Road, Boralesgamuwa.",
   city: "Boralesgamuwa",
+  contact1: "0761800288",
+  contact2: "",
+  description: "Supplements & Vitamins",
+};
+
+const COSMO_SENDER: SenderConfig = {
+  name: "cosmetics.lk",
+  address1: "7/1A, Pepiliyana Mawatha, Nugegoda.",
+  city: "Nugegoda",
   contact1: "715930200",
   contact2: "703050482",
+  description: "Cosmetics",
+};
+
+function resolveSender(): SenderConfig {
+  return isVaultOsDeployment() ? VAULT_SENDER : COSMO_SENDER;
+}
+
+const SENDER_FIXED = {
   billingType: "SENDER ACCOUNT",
   itemType: "PARCEL",
-  description: "Supplements & Vitamins",
 };
 
 function parseCsvLine(line: string) {
@@ -183,6 +208,7 @@ function getWaybillPieces(row: FalconWaybillRow) {
 }
 
 function toFalconRowFromWaybill(row: FalconWaybillRow) {
+  const sender = resolveSender();
   const reference = clean(row.reference) || clean(row.shopdropRef);
   const amount = formatCod(row.amount);
   const receiverName = clean(row.receiverName);
@@ -190,14 +216,14 @@ function toFalconRowFromWaybill(row: FalconWaybillRow) {
   return [
     "",
     reference,
-    SENDER.name,
-    SENDER.address1,
+    sender.name,
+    sender.address1,
     "",
     "",
-    SENDER.city,
+    sender.city,
     "",
-    SENDER.contact1,
-    SENDER.contact2,
+    sender.contact1,
+    sender.contact2,
     receiverName,
     clean(row.receiverAddress1),
     clean(row.receiverAddress2),
@@ -207,10 +233,10 @@ function toFalconRowFromWaybill(row: FalconWaybillRow) {
     "",
     "",
     getWaybillWeightGrams(row),
-    SENDER.billingType,
-    SENDER.itemType,
+    SENDER_FIXED.billingType,
+    SENDER_FIXED.itemType,
     getWaybillPieces(row),
-    clean(row.itemName) || SENDER.description,
+    clean(row.itemName) || sender.description,
     isCod(row.amount),
     amount,
   ];
@@ -489,7 +515,7 @@ export function buildFalconUploadWorkbook(
     : rows;
 
   return {
-    buffer: createWorkbook(matched.map(toFalconRow)),
+    buffer: createWorkbook(matched.map((row) => toFalconRow(row))),
     totalRows: rows.length,
     matchedRows: matched.length,
   };
@@ -502,7 +528,7 @@ export function buildFalconUploadWorkbookFromWaybillRows(
   const matched = filterFalconWaybillRows(rows, options);
 
   return {
-    buffer: createWorkbook(matched.map(toFalconRowFromWaybill)),
+    buffer: createWorkbook(matched.map((row) => toFalconRowFromWaybill(row))),
     totalRows: rows.length,
     matchedRows: matched.length,
   };
@@ -514,7 +540,7 @@ function getExportGroupKey(row: FalconWaybillRow) {
 
 export function buildGroupedFalconUploadZip(
   rows: FalconWaybillRow[],
-  dispatchDate: string
+  dispatchDate: string,
 ): FalconGroupedUploadResult {
   const grouped = new Map<string, FalconWaybillRow[]>();
   for (const row of rows) {
@@ -532,7 +558,7 @@ export function buildGroupedFalconUploadZip(
     const fileName = `falcon-upload-${dispatchDate}-${groupKey}.xlsx`;
     return {
       name: fileName,
-      content: createWorkbook(groupRows.map(toFalconRowFromWaybill)),
+      content: createWorkbook(groupRows.map((row) => toFalconRowFromWaybill(row))),
       rowCount: groupRows.length,
       prefix: groupKey,
       fileName,
