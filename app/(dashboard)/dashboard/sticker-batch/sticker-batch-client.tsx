@@ -728,6 +728,7 @@ export function StickerBatchClient({
       setLoadedSnapshot(null);
       setPreviewMeta({
         supplierName: "",
+        supplierCode: "",
         companyName: "",
         companyAddress: "",
         locationReference: "",
@@ -762,6 +763,7 @@ export function StickerBatchClient({
           nextRowIdRef.current = 1;
           setPreviewMeta({
             supplierName: data.supplierName ?? "",
+            supplierCode: data.supplierCode ?? "",
             companyName: data.companyName ?? "",
             companyAddress: data.companyAddress ?? "",
             locationReference: "",
