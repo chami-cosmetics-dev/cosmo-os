@@ -5,6 +5,9 @@ import { Loader2, Printer } from "lucide-react";
 import Link from "next/link";
 
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
+import { VaultStickerPreviewCard } from "@/components/organisms/vault-sticker-preview-card";
+
+const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -321,22 +324,31 @@ export function StickerPrintClient({
 
       {!loading && detail && stickers.length > 0 && (
         <div className="sticker-sheet flex flex-wrap gap-2">
-          {stickers.map((item) => (
-            <StickerPreviewCard
-              key={item.id}
-              manufactureDate={item.manufactureDate}
-              expireDate={item.expireDate}
-              itemCode={item.itemCode}
-              itemName={item.itemName}
-              unitPrice={item.unitPrice}
-              locationReference={item.locationReference}
-              supplierName={detail.supplierName}
-              companyName={detail.companyName}
-              locationAddress={item.locationAddress}
-              companyAddress={detail.companyAddress}
-              locationPhone={item.locationPhone}
-            />
-          ))}
+          {stickers.map((item) =>
+            isVault ? (
+              <VaultStickerPreviewCard
+                key={item.id}
+                sku={item.itemCode}
+                itemName={item.itemName}
+                locationRef={item.locationReference}
+              />
+            ) : (
+              <StickerPreviewCard
+                key={item.id}
+                manufactureDate={item.manufactureDate}
+                expireDate={item.expireDate}
+                itemCode={item.itemCode}
+                itemName={item.itemName}
+                unitPrice={item.unitPrice}
+                locationReference={item.locationReference}
+                supplierName={detail.supplierName}
+                companyName={detail.companyName}
+                locationAddress={item.locationAddress}
+                companyAddress={detail.companyAddress}
+                locationPhone={item.locationPhone}
+              />
+            )
+          )}
         </div>
       )}
     </div>
