@@ -43,6 +43,7 @@ type BatchDetail = {
   batchName: string;
   batchDate: string;
   supplierName: string;
+  supplierCode: string;
   companyName: string;
   companyAddress: string;
   items: StickerItem[];
@@ -330,6 +331,7 @@ export function StickerPrintClient({
                 key={item.id}
                 sku={item.itemCode}
                 itemName={item.itemName}
+                supplierCode={detail.supplierCode}
                 locationRef={item.locationReference}
               />
             ) : (

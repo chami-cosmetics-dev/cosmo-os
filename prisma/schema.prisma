@@ -1015,8 +1015,8 @@ model StickerBatchItem {
   itemName          String
   unitPrice         Decimal         @db.Decimal(12, 2)
   quantity          Int
-  manufactureDate   DateTime
-  expireDate        DateTime
+  manufactureDate   DateTime?
+  expireDate        DateTime?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
