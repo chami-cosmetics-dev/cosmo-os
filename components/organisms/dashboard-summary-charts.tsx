@@ -6,8 +6,6 @@ import { Label, Pie, PieChart, Sector } from "recharts";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
 
@@ -144,6 +142,12 @@ function SummaryChartCard({
     };
     return config;
   }, {});
+  const activeSegment =
+    activeIndex == null ? null : chartData[activeIndex] ?? null;
+  const displayedLabel = activeSegment?.label ?? centerLabel;
+  const displayedValue = activeSegment
+    ? formatMetric(activeSegment.value)
+    : centerValue;
 
   return (
     <Card className="overflow-hidden border-border/70 bg-card shadow-xs">
@@ -159,26 +163,6 @@ function SummaryChartCard({
         <div className="mx-auto mt-2 h-[23rem] w-[23rem] max-w-full">
           <ChartContainer id={chartId} config={chartConfig} className="mx-auto aspect-square h-full w-full">
             <PieChart>
-              <ChartTooltip
-                cursor={false}
-                content={
-                  <ChartTooltipContent
-                    hideLabel
-                    formatter={(chartValue, _name, item) => {
-                      const payload = item.payload as {
-                        label: string;
-                        value: number;
-                      };
-                      return (
-                        <div className="flex w-full items-center justify-between gap-3">
-                          <span>{payload.label}</span>
-                          <span className="font-medium tabular-nums">{Number(chartValue).toLocaleString()}</span>
-                        </div>
-                      );
-                    }}
-                  />
-                }
-              />
               <Pie
                 data={chartData}
                 dataKey="value"
@@ -211,14 +195,14 @@ function SummaryChartCard({
                             y={(viewBox.cy || 0) - 10}
                             className="fill-slate-950 text-[28px] font-semibold dark:fill-white"
                           >
-                            {centerLabel}
+                            {displayedLabel}
                           </tspan>
                           <tspan
                             x={viewBox.cx}
                             y={(viewBox.cy || 0) + 42}
                             className="fill-slate-950 text-[30px] font-bold dark:fill-white"
                           >
-                            {centerValue}
+                            {displayedValue}
                           </tspan>
                         </text>
                       );

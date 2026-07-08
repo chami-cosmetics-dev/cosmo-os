@@ -47,6 +47,10 @@ type ChartRow = {
   Pending: number;
 };
 
+type BarClickPayload = {
+  payload?: ChartRow;
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COLOR_COMPLETED = "#3b82f6"; // blue-500
@@ -161,7 +165,7 @@ export function DashboardDeliverySummaryChart() {
       : (v: number) => (v === 0 ? "" : formatValue(v));
 
   const exportDispatchSummary = useCallback(
-    async (status: "pending" | "completed") => {
+    async (status: "pending" | "completed", dispatcherName: string) => {
       setExportingStatus(status);
       try {
         const res = await fetch("/api/admin/fulfillment/dispatch-summary", {
@@ -172,6 +176,7 @@ export function DashboardDeliverySummaryChart() {
             dateFrom: fromDate,
             dateTo: toDate,
             format: "xlsx",
+            dispatcherName,
           }),
         });
         if (!res.ok) {
@@ -186,7 +191,7 @@ export function DashboardDeliverySummaryChart() {
         const disposition = res.headers.get("Content-Disposition") ?? "";
         const match = /filename="([^"]+)"/.exec(disposition);
         link.href = url;
-        link.download = match?.[1] ?? `dispatch-summary-${status}-${fromDate}-to-${toDate}.xlsx`;
+        link.download = match?.[1] ?? `dispatch-summary-${status}-${dispatcherName}-${fromDate}-to-${toDate}.xlsx`;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -281,8 +286,11 @@ export function DashboardDeliverySummaryChart() {
                 maxBarSize={48}
                 radius={[3, 3, 0, 0]}
                 className="cursor-pointer"
-                onClick={() => {
-                  if (exportingStatus == null) void exportDispatchSummary("completed");
+                onClick={(bar: BarClickPayload) => {
+                  const dispatcherName = bar.payload?.name;
+                  if (exportingStatus == null && dispatcherName) {
+                    void exportDispatchSummary("completed", dispatcherName);
+                  }
                 }}
               >
                 <LabelList
@@ -298,8 +306,11 @@ export function DashboardDeliverySummaryChart() {
                 maxBarSize={48}
                 radius={[3, 3, 0, 0]}
                 className="cursor-pointer"
-                onClick={() => {
-                  if (exportingStatus == null) void exportDispatchSummary("pending");
+                onClick={(bar: BarClickPayload) => {
+                  const dispatcherName = bar.payload?.name;
+                  if (exportingStatus == null && dispatcherName) {
+                    void exportDispatchSummary("pending", dispatcherName);
+                  }
                 }}
               >
                 <LabelList
