@@ -73,6 +73,7 @@ type BatchOption = {
 
 type BatchDetailsResponse = {
   supplierName?: string;
+  supplierCode?: string;
   companyName?: string;
   companyAddress?: string;
   items?: Array<{
@@ -93,6 +94,7 @@ type BatchDetailsResponse = {
 
 type BatchPreviewMeta = {
   supplierName: string;
+  supplierCode: string;
   companyName: string;
   companyAddress: string;
   locationReference: string;
@@ -276,6 +278,7 @@ export function StickerBatchClient({
   const [loadedSnapshot, setLoadedSnapshot] = useState<LoadedBatchSnapshot | null>(null);
   const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
     supplierName: "",
+    supplierCode: "",
     companyName: "",
     companyAddress: "",
     locationReference: "",
@@ -571,6 +574,7 @@ export function StickerBatchClient({
     setSelectedLocationId("");
     setPreviewMeta({
       supplierName: "",
+      supplierCode: "",
       companyName: "",
       companyAddress: "",
       locationReference: "",
@@ -724,6 +728,7 @@ export function StickerBatchClient({
       setLoadedSnapshot(null);
       setPreviewMeta({
         supplierName: "",
+        supplierCode: "",
         companyName: "",
         companyAddress: "",
         locationReference: "",
@@ -758,6 +763,7 @@ export function StickerBatchClient({
           nextRowIdRef.current = 1;
           setPreviewMeta({
             supplierName: data.supplierName ?? "",
+            supplierCode: data.supplierCode ?? "",
             companyName: data.companyName ?? "",
             companyAddress: data.companyAddress ?? "",
             locationReference: "",
@@ -804,6 +810,7 @@ export function StickerBatchClient({
         setSelectedLocationId(uniqueLocationIds.size === 1 ? resolvedLocationId : "");
         setPreviewMeta({
           supplierName: data.supplierName ?? "",
+          supplierCode: data.supplierCode ?? "",
           companyName: data.companyName ?? "",
           companyAddress: data.companyAddress ?? "",
           locationReference,
@@ -1321,7 +1328,7 @@ export function StickerBatchClient({
                 <VaultStickerPreviewCard
                   sku={activeRow.itemCode}
                   itemName={activeRow.itemName}
-                  supplierCode={suppliers.find((s) => s.id === supplierId)?.code}
+                  supplierCode={suppliers.find((s) => s.id === supplierId)?.code ?? previewMeta.supplierCode}
                   locationRef={
                     activeRowLocation?.locationReference?.trim() ||
                     selectedLocation?.locationReference?.trim() ||
