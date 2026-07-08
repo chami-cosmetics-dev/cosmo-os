@@ -288,8 +288,8 @@ export async function POST(request: NextRequest) {
                   itemName: string;
                   unitPrice: string;
                   quantity: number;
-                  manufactureDate: Date;
-                  expireDate: Date;
+                  manufactureDate: Date | null;
+                  expireDate: Date | null;
                 }>;
               }) => Promise<unknown>;
             };

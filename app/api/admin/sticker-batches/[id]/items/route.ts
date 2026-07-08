@@ -214,8 +214,8 @@ export async function POST(
         itemName: string;
             unitPrice: string;
             quantity: number;
-            manufactureDate: Date;
-            expireDate: Date;
+            manufactureDate: Date | null;
+            expireDate: Date | null;
           }>;
         }) => Promise<{ count: number }>;
       };
