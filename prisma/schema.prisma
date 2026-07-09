@@ -60,11 +60,44 @@ model Company {
   dashboardBrandConfigs    DashboardBrandConfig[]
   contactAllocationOptions ContactAllocationOption[]
   productItemAssets        ProductItemAsset[]
+  printFormats             PrintFormat[]
+  files                    File[]
   // Call center performance tracking: records each time a merchant clicks Update
   // in the allocation panel — drives the dashboard performance analysis chart
   contactAllocationUpdates ContactAllocationUpdate[]
   erpnextInstances         ErpnextInstance[]
   pickListGroups           PickListGroup[]
+}
+
+model PrintFormat {
+  id                 String    @id @default(cuid())
+  companyId          String
+  name               String
+  html               String
+  isEnabled          Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  defaultForLocations CompanyLocation[] @relation("LocationDefaultOrderPrintFormat")
+
+  @@unique([companyId, name])
+  @@index([companyId, isEnabled, name])
+}
+
+model File {
+  id           String   @id @default(cuid())
+  companyId    String
+  fileName     String
+  blobUrl      String
+  fileSize     Int?
+  mimeType     String?
+  provider     String   @default("vercel_blob")
+  uploadedById String
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([companyId, createdAt(sort: Desc)])
 }
 
 model ErpnextInstance {
@@ -293,6 +326,7 @@ model User {
   cosmoAcademyExplanationsCreated CosmoAcademyExplanation[] @relation("CosmoAcademyExplanationCreatedBy")
   cosmoAcademyProgress            CosmoAcademyProgress[]
   productItemAssets               ProductItemAsset[]
+  uploadedFiles                   File[]
   // Call center performance tracking: records updates made by this merchant user
   contactAllocationUpdates        ContactAllocationUpdate[]
   pickListGroupsPrinted           PickListGroup[]         @relation("PickListGroupPrintedBy")
@@ -400,6 +434,7 @@ model CompanyLocation {
   shortName               String?
   locationReference       String?
   defaultMerchantUserId   String?
+  defaultOrderPrintFormatId String?
   logoUrl                 String?
   shopifyAdminStoreHandle String?
   manualInvoicePrefix     String?
@@ -412,6 +447,7 @@ model CompanyLocation {
   isMainCompany           Boolean                 @default(false)
   company                 Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
   erpnextInstance         ErpnextInstance?        @relation(fields: [erpnextInstanceId], references: [id], onDelete: SetNull)
+  defaultOrderPrintFormat PrintFormat?            @relation("LocationDefaultOrderPrintFormat", fields: [defaultOrderPrintFormatId], references: [id], onDelete: SetNull)
   defaultMerchant         User?                   @relation("LocationDefaultMerchant", fields: [defaultMerchantUserId], references: [id])
   shadowParentLocation    CompanyLocation?        @relation("LocationShadowParent", fields: [shadowParentLocationId], references: [id], onDelete: SetNull)
   shadowLocations         CompanyLocation[]       @relation("LocationShadowParent")

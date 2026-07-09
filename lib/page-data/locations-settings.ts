@@ -23,6 +23,7 @@ export type LocationsSettingsLocation = {
   shopifyAdminStoreHandle: string | null;
   locationReference: string | null;
   defaultMerchantUserId: string | null;
+  defaultOrderPrintFormatId: string | null;
   manualInvoicePrefix: string | null;
   manualInvoiceNextSeq: number;
   manualInvoiceSeqPadding: number;
@@ -76,6 +77,7 @@ export async function getLocationsSettingsInitialData(
         shopifyAdminStoreHandle: true,
         locationReference: true,
         defaultMerchantUserId: true,
+        defaultOrderPrintFormatId: true,
         erpnextCompany: true,
         erpnextWarehouse: true,
         fulfillmentBlocked: true,

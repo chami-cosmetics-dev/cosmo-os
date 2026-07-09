@@ -29,6 +29,7 @@ const createLocationSchema = z.object({
   shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
   locationReference: z.string().max(LIMITS.locationReference.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
+  defaultOrderPrintFormatId: cuidSchema.nullable().optional(),
   isMainCompany: z.boolean().optional(),
 });
 
@@ -79,6 +80,7 @@ export async function GET(request: NextRequest) {
         shopifyAdminStoreHandle: true,
         locationReference: true,
         defaultMerchantUserId: true,
+        defaultOrderPrintFormatId: true,
         erpnextCompany: true,
         erpnextWarehouse: true,
         erpnextInstanceId: true,
@@ -151,6 +153,15 @@ export async function POST(request: NextRequest) {
       );
     }
   }
+  if (d.defaultOrderPrintFormatId) {
+    const format = await prisma.printFormat.findFirst({
+      where: { id: d.defaultOrderPrintFormatId, companyId, isEnabled: true },
+      select: { id: true },
+    });
+    if (!format) {
+      return NextResponse.json({ error: "Default print format must be an enabled print format." }, { status: 400 });
+    }
+  }
   if (d.shadowParentLocationId) {
     const parent = await prisma.companyLocation.findFirst({
       where: { id: d.shadowParentLocationId, companyId },
@@ -178,6 +189,7 @@ export async function POST(request: NextRequest) {
       shopifyAdminStoreHandle: d.shopifyAdminStoreHandle?.trim() || null,
       locationReference: d.locationReference?.trim() || null,
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
+      defaultOrderPrintFormatId: d.defaultOrderPrintFormatId ?? null,
       isMainCompany: d.isMainCompany ?? false,
     },
     select: {
@@ -200,6 +212,7 @@ export async function POST(request: NextRequest) {
       shopifyAdminStoreHandle: true,
       locationReference: true,
       defaultMerchantUserId: true,
+      defaultOrderPrintFormatId: true,
       manualInvoicePrefix: true,
       manualInvoiceNextSeq: true,
       manualInvoiceSeqPadding: true,
