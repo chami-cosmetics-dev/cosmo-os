@@ -28,6 +28,7 @@ import {
   Calculator,
   BadgeCheck,
   GraduationCap,
+  SendHorizonal,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -53,9 +54,10 @@ interface AppSidebarProps {
   };
   permissionKeys?: string[];
   roleNames?: string[];
+  hasOgf?: boolean;
 }
 
-export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSidebarProps) {
+export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf = false }: AppSidebarProps) {
   const { setOpen, state } = useSidebar();
   const hasSidebarPermission = (permission: string) =>
     roleNames.includes("super_admin") ||
@@ -376,6 +378,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                   icon={History}
                   label="Audit Trail"
                   isActive={pathname === "/dashboard/audit" || pathname.startsWith("/dashboard/audit/")}
+                />
+              )}
+              {canViewAudit && hasOgf && (
+                <NavItem
+                  href="/dashboard/ogf-logs"
+                  icon={SendHorizonal}
+                  label="OGF Email Logs"
+                  isActive={pathname === "/dashboard/ogf-logs"}
                 />
               )}
             </SidebarGroupContent>

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { sendOgfSyncSummaryEmail } from "@/lib/maileroo";
+import { logOgfEmail } from "@/lib/ogf-email-log";
 
 const OGF_NOTIFY_EMAIL = "chami@cosmetics.lk";
 
@@ -215,9 +216,30 @@ export async function GET(request: NextRequest) {
         paymentMethod: isCard ? "Card" : "Cash",
       };
     });
-    sendOgfSyncSummaryEmail(OGF_NOTIFY_EMAIL, orders.length, batchCode, emailRows).catch((err) =>
-      console.error("[ogf-sale] summary email failed:", err),
-    );
+
+    // Resolve companyId from location for logging
+    const locationRow = await prisma.companyLocation.findUnique({
+      where: { id: locationId },
+      select: { companyId: true },
+    });
+    const companyId = locationRow?.companyId ?? "";
+
+    const emailResult = await sendOgfSyncSummaryEmail(OGF_NOTIFY_EMAIL, orders.length, batchCode, emailRows).catch((err) => {
+      console.error("[ogf-sale] summary email failed:", err);
+      return { success: false, message: err instanceof Error ? err.message : String(err) };
+    });
+    if (companyId) {
+      await logOgfEmail({
+        companyId,
+        batchCode,
+        orderCount: orders.length,
+        emailTo: OGF_NOTIFY_EMAIL,
+        status: emailResult.success ? "sent" : "failed",
+        errorMessage: emailResult.success ? undefined : (emailResult.message ?? "Unknown error"),
+        source: "cron",
+      });
+    }
+
     return NextResponse.json({ ok: true, synced: orders.length, batchCode });
   }
 

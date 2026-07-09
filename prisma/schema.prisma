@@ -65,6 +65,7 @@ model Company {
   contactAllocationUpdates ContactAllocationUpdate[]
   erpnextInstances         ErpnextInstance[]
   pickListGroups           PickListGroup[]
+  ogfEmailLogs             OgfEmailLog[]
 }
 
 model ErpnextInstance {
@@ -1166,6 +1167,21 @@ model Permission {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   rolePermissions RolePermission[]
+}
+
+model OgfEmailLog {
+  id           String   @id @default(cuid())
+  companyId    String
+  batchCode    String
+  orderCount   Int
+  emailTo      String
+  status       String
+  errorMessage String?
+  source       String   @default("cron")
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
 }
 
 model UserRole {

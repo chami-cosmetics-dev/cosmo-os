@@ -35,6 +35,7 @@ export default async function DashboardLayout({
       permissionKeys={permissionKeys}
       roleNames={roleNames}
       seoOnly={isSeoOnly}
+      hasOgf={Boolean(process.env.OGF_LOCATION_ID)}
     >
       {children}
     </DashboardTemplate>
