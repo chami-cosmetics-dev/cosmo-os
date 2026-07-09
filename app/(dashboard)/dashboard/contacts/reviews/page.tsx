@@ -2,12 +2,12 @@ import { redirect } from "next/navigation";
 
 import { MerchantReviewPanel } from "@/components/organisms/merchant-review-panel";
 import { fetchMerchantReviewSheetData } from "@/lib/page-data/merchant-review-sheet";
-import { requirePermission } from "@/lib/rbac";
+import { hasPermission, requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function MerchantReviewsPage() {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("merchant_reviews.read");
   if (!auth.ok) {
     if (auth.status === 401) {
       redirect("/login");
@@ -19,17 +19,18 @@ export default async function MerchantReviewsPage() {
   if (!companyId) {
     redirect("/dashboard");
   }
+  const canManageMerchantReviews = hasPermission(auth.context!, "merchant_reviews.manage");
 
   const initialData = await fetchMerchantReviewSheetData({
     companyId,
     viewerUserId: auth.context!.user!.id,
-    canManage: auth.context!.permissionKeys.includes("orders.manage"),
+    canManage: canManageMerchantReviews,
   });
 
   return (
     <MerchantReviewPanel
       initialData={initialData}
-      canManage={auth.context!.permissionKeys.includes("orders.manage")}
+      canManage={canManageMerchantReviews}
     />
   );
 }

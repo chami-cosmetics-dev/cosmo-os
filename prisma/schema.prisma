@@ -680,12 +680,19 @@ model MerchantOrderReview {
   itemFeedback     String?
   merchantNotes    String?
   followUpNeeded   Boolean   @default(false)
-  reviewMarkedAt   DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  merchantUser     User?     @relation("MerchantOrderReviewUser", fields: [merchantUserId], references: [id], onDelete: SetNull)
-  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  callMade               Boolean   @default(false)
+  callbackDate           DateTime?
+  customerResponseStatus String?
+  reviewerFirstName      String?
+  reviewerLastName       String?
+  reviewerEmail          String?
+  reason                 String?
+  reviewMarkedAt         DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  company                Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  merchantUser           User?     @relation("MerchantOrderReviewUser", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  order                  Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([companyId, reviewStatus, updatedAt(sort: Desc)])
   @@index([companyId, merchantUserId, reviewStatus, updatedAt(sort: Desc)])

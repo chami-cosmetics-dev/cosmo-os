@@ -15,7 +15,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("returns.manage");
+  const auth = await requirePermission("merchant_reviews.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -38,7 +38,7 @@ export async function PUT(
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const canManage = hasPermission(auth.context!, "orders.manage");
+  const canManage = hasPermission(auth.context!, "merchant_reviews.manage");
   const existing = await prisma.orderReturn.findFirst({
     where: {
       id: parsedId.data,
