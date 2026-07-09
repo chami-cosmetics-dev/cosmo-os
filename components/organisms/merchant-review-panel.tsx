@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Mail, MessageSquare, Phone, Search, ShoppingBag, Star, UserRoundCheck } from "lucide-react";
+import { CalendarDays, Download, Loader2, Mail, Phone, Search, ShoppingBag, UserRoundCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,13 +21,18 @@ type QueueItem = {
   currency: string | null;
   createdAt: string;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
+  reviewMerchant: { id: string; name: string };
   reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
-  customerRating: number | null;
   reviewMarkedAt: string | null;
 };
 
 type MerchantReviewPanelInitialData = {
   orders: QueueItem[];
+  merchantOptions: Array<{ id: string; name: string }>;
+  defaultMerchantFilter: string;
+  defaultStatusFilter: "__all" | QueueItem["reviewStatus"];
+  defaultDateFrom: string;
+  defaultDateTo: string;
   counts: {
     all: number;
     pending: number;
@@ -63,11 +68,13 @@ type DetailResponse = {
   };
   review: {
     reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
-    customerRating: number | null;
-    customerFeedback: string | null;
-    itemFeedback: string | null;
-    merchantNotes: string | null;
-    followUpNeeded: boolean;
+    callMade: boolean;
+    callbackDate: string | null;
+    customerResponseStatus: string | null;
+    reviewerFirstName: string | null;
+    reviewerLastName: string | null;
+    reviewerEmail: string | null;
+    reason: string | null;
     reviewMarkedAt: string | null;
     updatedAt: string;
   } | null;
@@ -75,18 +82,43 @@ type DetailResponse = {
 
 type ReviewForm = {
   reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
-  customerRating: string;
-  customerFeedback: string;
-  itemFeedback: string;
-  merchantNotes: string;
-  followUpNeeded: "yes" | "no";
+  callMade: "yes" | "no";
+  callbackDate: string;
+  customerResponseStatus: string;
+  reviewerFirstName: string;
+  reviewerLastName: string;
+  reviewerEmail: string;
+  reason: string;
 };
+
+const ORDER_DATE_TIME_ZONE = "Asia/Colombo";
 
 function formatDateTime(value?: string | null) {
   if (!value) return "N/A";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "N/A";
   return date.toLocaleString("en-LK");
+}
+
+function formatDateInputValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ORDER_DATE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isInDateRange(value: string, from: string, to: string) {
+  const dateValue = formatDateInputValue(value);
+  if (!dateValue) return false;
+  if (from && dateValue < from) return false;
+  if (to && dateValue > to) return false;
+  return true;
 }
 
 function formatAmount(value: string, currency?: string | null) {
@@ -102,11 +134,13 @@ function formatAmount(value: string, currency?: string | null) {
 function buildInitialForm(review: DetailResponse["review"]): ReviewForm {
   return {
     reviewStatus: review?.reviewStatus ?? "pending",
-    customerRating: review?.customerRating != null ? String(review.customerRating) : "__none",
-    customerFeedback: review?.customerFeedback ?? "",
-    itemFeedback: review?.itemFeedback ?? "",
-    merchantNotes: review?.merchantNotes ?? "",
-    followUpNeeded: review?.followUpNeeded ? "yes" : "no",
+    callMade: review?.callMade ? "yes" : "no",
+    callbackDate: review?.callbackDate?.slice(0, 10) ?? "",
+    customerResponseStatus: review?.customerResponseStatus ?? "__none",
+    reviewerFirstName: review?.reviewerFirstName ?? "",
+    reviewerLastName: review?.reviewerLastName ?? "",
+    reviewerEmail: review?.reviewerEmail ?? "",
+    reason: review?.reason ?? "",
   };
 }
 
@@ -146,16 +180,47 @@ export function MerchantReviewPanel({
 }) {
   const [queueOrders, setQueueOrders] = useState(initialData.orders);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"__all" | QueueItem["reviewStatus"]>("__all");
+  const [statusFilter, setStatusFilter] = useState<"__all" | QueueItem["reviewStatus"]>(
+    initialData.defaultStatusFilter
+  );
+  const [merchantFilter, setMerchantFilter] = useState(initialData.defaultMerchantFilter);
+  const [dateFrom, setDateFrom] = useState(initialData.defaultDateFrom);
+  const [dateTo, setDateTo] = useState(initialData.defaultDateTo);
   const [selectedOrderId, setSelectedOrderId] = useState(initialData.orders[0]?.orderId ?? "");
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<DetailResponse | null>(null);
   const [form, setForm] = useState<ReviewForm>(buildInitialForm(null));
 
+  const dateScopedOrders = useMemo(
+    () => queueOrders.filter((order) => isInDateRange(order.createdAt, dateFrom, dateTo)),
+    [queueOrders, dateFrom, dateTo]
+  );
+
+  const filteredOrders = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return dateScopedOrders.filter((order) => {
+      if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) return false;
+      if (merchantFilter !== "__all" && order.reviewMerchant.id !== merchantFilter) return false;
+      if (!query) return true;
+      return [
+        order.orderLabel,
+        order.orderNumber,
+        order.customerName,
+        order.customerEmail,
+        order.customerPhone,
+        order.assignedMerchant?.name,
+        order.assignedMerchant?.email,
+        order.reviewMerchant.name,
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(query));
+    });
+  }, [dateScopedOrders, search, statusFilter, merchantFilter]);
+
   const counts = useMemo(
     () =>
-      queueOrders.reduce(
+      filteredOrders.reduce(
         (acc, item) => {
           acc.all += 1;
           if (item.reviewStatus === "reviewed") acc.reviewed += 1;
@@ -166,27 +231,8 @@ export function MerchantReviewPanel({
         },
         { all: 0, pending: 0, reviewed: 0, followUp: 0, noResponse: 0 }
       ),
-    [queueOrders]
+    [filteredOrders]
   );
-
-  const filteredOrders = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return queueOrders.filter((order) => {
-      if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) return false;
-      if (!query) return true;
-      return [
-        order.orderLabel,
-        order.orderNumber,
-        order.customerName,
-        order.customerEmail,
-        order.customerPhone,
-        order.assignedMerchant?.name,
-        order.assignedMerchant?.email,
-      ]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(query));
-    });
-  }, [queueOrders, search, statusFilter]);
 
   useEffect(() => {
     if (!filteredOrders.some((item) => item.orderId === selectedOrderId)) {
@@ -228,7 +274,7 @@ export function MerchantReviewPanel({
   }, [selectedOrderId]);
 
   async function saveReview() {
-    if (!detail) return;
+    if (!detail || !canManage) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/merchant-reviews/orders/${detail.order.id}`, {
@@ -236,11 +282,14 @@ export function MerchantReviewPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reviewStatus: form.reviewStatus,
-          customerRating: form.customerRating === "__none" ? null : Number(form.customerRating),
-          customerFeedback: form.customerFeedback.trim() || null,
-          itemFeedback: form.itemFeedback.trim() || null,
-          merchantNotes: form.merchantNotes.trim() || null,
-          followUpNeeded: form.followUpNeeded === "yes",
+          callMade: form.callMade === "yes",
+          callbackDate: form.callbackDate || null,
+          customerResponseStatus:
+            form.customerResponseStatus === "__none" ? null : form.customerResponseStatus,
+          reviewerFirstName: form.reviewerFirstName.trim() || null,
+          reviewerLastName: form.reviewerLastName.trim() || null,
+          reviewerEmail: form.reviewerEmail.trim() || null,
+          reason: form.reason.trim() || null,
         }),
       });
       const data = (await res.json()) as { error?: string; review?: DetailResponse["review"] };
@@ -255,7 +304,6 @@ export function MerchantReviewPanel({
             ? {
                 ...item,
                 reviewStatus: data.review?.reviewStatus ?? item.reviewStatus,
-                customerRating: data.review?.customerRating ?? item.customerRating,
                 reviewMarkedAt: data.review?.reviewMarkedAt ?? item.reviewMarkedAt,
               }
             : item
@@ -271,8 +319,21 @@ export function MerchantReviewPanel({
   }
 
   function exportReviews() {
-    const exportStatus = statusFilter === "__all" ? "reviewed" : statusFilter;
+    const exportStatus = statusFilter === "__all" ? "all" : statusFilter;
     const params = new URLSearchParams({ status: exportStatus });
+    if (merchantFilter !== "__all") {
+      params.set("merchant", merchantFilter);
+    }
+    if (dateFrom) {
+      params.set("dateFrom", dateFrom);
+    }
+    if (dateTo) {
+      params.set("dateTo", dateTo);
+    }
+    const query = search.trim();
+    if (query) {
+      params.set("search", query);
+    }
     window.location.href = `/api/admin/merchant-reviews/export?${params.toString()}`;
   }
 
@@ -287,8 +348,8 @@ export function MerchantReviewPanel({
               <CardTitle>Merchant Reviews</CardTitle>
               <CardDescription>
                 {canManage
-                  ? "Review assigned customer orders across merchants, capture customer feedback, and update review status."
-                  : "Review your assigned customer orders, capture customer feedback, and mark the order review status."}
+                  ? "Review assigned customer orders across merchants, capture call details, and update review status."
+                  : "View assigned customer orders, call details, and review status."}
               </CardDescription>
             </div>
             <Button type="button" variant="outline" onClick={exportReviews}>
@@ -323,6 +384,31 @@ export function MerchantReviewPanel({
                     <SelectItem value="no_response">No Response</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={merchantFilter} onValueChange={setMerchantFilter}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all">All merchants</SelectItem>
+                    {initialData.merchantOptions.map((merchant) => (
+                      <SelectItem key={merchant.id} value={merchant.id}>{merchant.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <CalendarDays className="size-4 text-primary" />
+                      From
+                    </label>
+                    <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <CalendarDays className="size-4 text-primary" />
+                      To
+                    </label>
+                    <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} />
+                  </div>
+                </div>
               </div>
 
               <div className="overflow-hidden rounded-xl border border-border/70">
@@ -377,10 +463,10 @@ export function MerchantReviewPanel({
                     </CardHeader>
                     <CardContent className="space-y-5 pt-6">
                       <div className="grid gap-4 lg:grid-cols-4">
-                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><UserRoundCheck className="size-4 text-primary" />Customer</div><p className="font-medium">{selectedQueueItem.customerName || "Unknown customer"}</p><p className="text-muted-foreground text-sm">{detail.order.customerEmail || "No email"}</p></div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><UserRoundCheck className="size-4 text-primary" />Customer</div><p className="font-medium">{selectedQueueItem.customerName || "Unknown customer"}</p><p className="break-all text-muted-foreground text-sm">{detail.order.customerEmail || "No email"}</p></div>
                         <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><Phone className="size-4 text-primary" />Contact Number</div><p className="font-medium">{detail.order.customerPhone || "No phone"}</p><p className="text-muted-foreground text-sm">{extractShippingAddress(detail.order.shippingAddress) || "No shipping address"}</p></div>
                         <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><ShoppingBag className="size-4 text-primary" />Order Value</div><p className="font-medium">{formatAmount(detail.order.totalPrice, detail.order.currency)}</p><p className="text-muted-foreground text-sm">{detail.order.sourceName}</p></div>
-                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><Mail className="size-4 text-primary" />Merchant</div><p className="font-medium">{detail.order.assignedMerchant?.name ?? detail.order.assignedMerchant?.email ?? "Unassigned"}</p><p className="text-muted-foreground text-sm">{detail.review?.reviewMarkedAt ? `Reviewed on ${formatDateTime(detail.review.reviewMarkedAt)}` : "Not marked reviewed yet"}</p></div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-4"><div className="mb-2 flex items-center gap-2 text-sm font-medium"><Mail className="size-4 text-primary" />Merchant</div><p className="font-medium">{selectedQueueItem.reviewMerchant.name}</p><p className="text-muted-foreground text-sm">{detail.review?.reviewMarkedAt ? `Reviewed on ${formatDateTime(detail.review.reviewMarkedAt)}` : "Not marked reviewed yet"}</p></div>
                       </div>
 
                       <div className="rounded-xl border border-border/70">
@@ -400,21 +486,27 @@ export function MerchantReviewPanel({
                   </Card>
 
                   <Card className="border-border/70">
-                    <CardHeader className="border-b border-border/50"><CardTitle>Review Capture Form</CardTitle><CardDescription>Fill the customer review details after the merchant call and save the order review status.</CardDescription></CardHeader>
+                    <CardHeader className="border-b border-border/50"><CardTitle>Review Capture Form</CardTitle><CardDescription>Fill the call details and save the order review status.</CardDescription></CardHeader>
                     <CardContent className="space-y-5 pt-6">
                       <div className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2"><label className="text-sm font-medium">Review Status</label><Select value={form.reviewStatus} onValueChange={(value) => setForm((current) => ({ ...current, reviewStatus: value as ReviewForm["reviewStatus"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="follow_up">Follow Up</SelectItem><SelectItem value="no_response">No Response</SelectItem></SelectContent></Select></div>
-                        <div className="space-y-2"><label className="text-sm font-medium">Customer Rating</label><Select value={form.customerRating} onValueChange={(value) => setForm((current) => ({ ...current, customerRating: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none">Not given</SelectItem><SelectItem value="1">1 Star</SelectItem><SelectItem value="2">2 Stars</SelectItem><SelectItem value="3">3 Stars</SelectItem><SelectItem value="4">4 Stars</SelectItem><SelectItem value="5">5 Stars</SelectItem></SelectContent></Select></div>
-                        <div className="space-y-2"><label className="text-sm font-medium">Follow Up Needed</label><Select value={form.followUpNeeded} onValueChange={(value) => setForm((current) => ({ ...current, followUpNeeded: value as ReviewForm["followUpNeeded"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Review Status</label><Select value={form.reviewStatus} disabled={!canManage} onValueChange={(value) => setForm((current) => ({ ...current, reviewStatus: value as ReviewForm["reviewStatus"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="follow_up">Follow Up</SelectItem><SelectItem value="no_response">No Response</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Call Made</label><Select value={form.callMade} disabled={!canManage} onValueChange={(value) => setForm((current) => ({ ...current, callMade: value as ReviewForm["callMade"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><CalendarDays className="size-4 text-primary" />Callback Date</label><Input type="date" value={form.callbackDate} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, callbackDate: event.target.value }))} /></div>
                       </div>
                       <div className="grid gap-5">
-                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><MessageSquare className="size-4 text-primary" />Customer Feedback</label><Textarea value={form.customerFeedback} onChange={(event) => setForm((current) => ({ ...current, customerFeedback: event.target.value }))} placeholder="What did the customer say about the order, service, or overall experience?" className="min-h-28" /></div>
-                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><ShoppingBag className="size-4 text-primary" />Item Feedback</label><Textarea value={form.itemFeedback} onChange={(event) => setForm((current) => ({ ...current, itemFeedback: event.target.value }))} placeholder="Mention which items the customer liked, disliked, or asked about." className="min-h-24" /></div>
-                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><Star className="size-4 text-primary" />Merchant Notes</label><Textarea value={form.merchantNotes} onChange={(event) => setForm((current) => ({ ...current, merchantNotes: event.target.value }))} placeholder="Internal notes for the team, next steps, promises made, or callback reminders." className="min-h-24" /></div>
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <div className="space-y-2"><label className="text-sm font-medium">Customer Response Status</label><Select value={form.customerResponseStatus} disabled={!canManage} onValueChange={(value) => setForm((current) => ({ ...current, customerResponseStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none">Not selected</SelectItem><SelectItem value="answered">Answered</SelectItem><SelectItem value="no_answer">No Answer</SelectItem><SelectItem value="busy">Busy</SelectItem><SelectItem value="wrong_number">Wrong Number</SelectItem><SelectItem value="callback_requested">Callback Requested</SelectItem><SelectItem value="not_interested">Not Interested</SelectItem></SelectContent></Select></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Customer First Name</label><Input value={form.reviewerFirstName} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reviewerFirstName: event.target.value }))} /></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Customer Last Name</label><Input value={form.reviewerLastName} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reviewerLastName: event.target.value }))} /></div>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                          <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><Mail className="size-4 text-primary" />Customer Email</label><Input type="email" value={form.reviewerEmail} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reviewerEmail: event.target.value }))} /></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Reason</label><Textarea value={form.reason} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Type any reason or notes from the call." className="min-h-24" /></div>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-muted-foreground text-sm">{detail.review?.updatedAt ? `Last saved ${formatDateTime(detail.review.updatedAt)}` : "No review saved for this order yet."}</p>
-                        <Button onClick={() => void saveReview()} disabled={saving}>{saving ? "Saving..." : "Save Review"}</Button>
+                        <Button onClick={() => void saveReview()} disabled={!canManage || saving}>{saving ? "Saving..." : "Save Review"}</Button>
                       </div>
                     </CardContent>
                   </Card>

@@ -13,6 +13,13 @@ export type MerchantOrderReviewRecord = {
   itemFeedback: string | null;
   merchantNotes: string | null;
   followUpNeeded: boolean;
+  callMade: boolean;
+  callbackDate: Date | null;
+  customerResponseStatus: string | null;
+  reviewerFirstName: string | null;
+  reviewerLastName: string | null;
+  reviewerEmail: string | null;
+  reason: string | null;
   reviewMarkedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -65,6 +72,13 @@ export async function saveMerchantOrderReview(input: {
   itemFeedback: string | null;
   merchantNotes: string | null;
   followUpNeeded: boolean;
+  callMade: boolean;
+  callbackDate: Date | null;
+  customerResponseStatus: string | null;
+  reviewerFirstName: string | null;
+  reviewerLastName: string | null;
+  reviewerEmail: string | null;
+  reason: string | null;
   reviewMarkedAt: Date | null;
 }) {
   const model = getMerchantOrderReviewModel();
@@ -83,6 +97,13 @@ export async function saveMerchantOrderReview(input: {
       itemFeedback: input.itemFeedback,
       merchantNotes: input.merchantNotes,
       followUpNeeded: input.followUpNeeded,
+      callMade: input.callMade,
+      callbackDate: input.callbackDate,
+      customerResponseStatus: input.customerResponseStatus,
+      reviewerFirstName: input.reviewerFirstName,
+      reviewerLastName: input.reviewerLastName,
+      reviewerEmail: input.reviewerEmail,
+      reason: input.reason,
       reviewMarkedAt: input.reviewMarkedAt,
     },
   });

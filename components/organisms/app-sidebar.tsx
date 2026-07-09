@@ -112,6 +112,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
   const canViewOutletReviews =
     hasSidebarPermission("outlets.read.all") ||
     hasSidebarPermission("outlets.read.assigned");
+  const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -146,7 +147,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
     canViewContactMaster ||
     canViewContactUpdates ||
     canViewContactAllocation ||
-    canViewOrders ||
+    canViewMerchantReviews ||
     canViewOutletReviews;
   const canViewSettings =
     canViewCompanySettings ||
@@ -307,7 +308,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [] }: AppSid
                   isActive={pathname === "/dashboard/contacts/allocation"}
                 />
               )}
-              {canViewOrders && (
+              {canViewMerchantReviews && (
                 <NavItem
                   href="/dashboard/contacts/reviews"
                   icon={ContactRound}

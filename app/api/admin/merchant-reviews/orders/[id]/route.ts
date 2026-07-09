@@ -9,12 +9,20 @@ import { cuidSchema } from "@/lib/validation";
 
 const reviewSchema = z.object({
   reviewStatus: z.enum(["pending", "reviewed", "follow_up", "no_response"]),
-  customerRating: z.number().int().min(1).max(5).nullable(),
-  customerFeedback: z.string().trim().max(5000).nullable(),
-  itemFeedback: z.string().trim().max(5000).nullable(),
-  merchantNotes: z.string().trim().max(5000).nullable(),
-  followUpNeeded: z.boolean(),
+  callMade: z.boolean(),
+  callbackDate: z.string().trim().nullable(),
+  customerResponseStatus: z.string().trim().max(100).nullable(),
+  reviewerFirstName: z.string().trim().max(100).nullable(),
+  reviewerLastName: z.string().trim().max(100).nullable(),
+  reviewerEmail: z.string().trim().email().max(255).nullable(),
+  reason: z.string().trim().max(5000).nullable(),
 });
+
+function parseCallbackDate(value: string | null) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 async function resolveOrderForViewer(orderId: string, companyId: string) {
   return prisma.order.findFirst({
@@ -57,7 +65,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("merchant_reviews.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -68,7 +76,6 @@ export async function GET(
     return NextResponse.json({ error: "Invalid order ID" }, { status: 400 });
   }
 
-  const viewerUserId = auth.context!.user!.id;
   const companyId = auth.context!.user!.companyId;
   if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
@@ -107,11 +114,13 @@ export async function GET(
     review: review
       ? {
           reviewStatus: review.reviewStatus,
-          customerRating: review.customerRating,
-          customerFeedback: review.customerFeedback,
-          itemFeedback: review.itemFeedback,
-          merchantNotes: review.merchantNotes,
-          followUpNeeded: review.followUpNeeded,
+          callMade: review.callMade,
+          callbackDate: review.callbackDate?.toISOString() ?? null,
+          customerResponseStatus: review.customerResponseStatus,
+          reviewerFirstName: review.reviewerFirstName,
+          reviewerLastName: review.reviewerLastName,
+          reviewerEmail: review.reviewerEmail,
+          reason: review.reason,
           reviewMarkedAt: review.reviewMarkedAt?.toISOString() ?? null,
           updatedAt: review.updatedAt.toISOString(),
         }
@@ -123,7 +132,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("orders.read");
+  const auth = await requirePermission("merchant_reviews.manage");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -156,11 +165,18 @@ export async function PUT(
       orderId: order.id,
       merchantUserId: order.assignedMerchantId ?? viewerUserId,
       reviewStatus: parsed.data.reviewStatus,
-      customerRating: parsed.data.customerRating,
-      customerFeedback: parsed.data.customerFeedback?.trim() || null,
-      itemFeedback: parsed.data.itemFeedback?.trim() || null,
-      merchantNotes: parsed.data.merchantNotes?.trim() || null,
-      followUpNeeded: parsed.data.followUpNeeded,
+      customerRating: null,
+      customerFeedback: null,
+      itemFeedback: null,
+      merchantNotes: null,
+      followUpNeeded: false,
+      callMade: parsed.data.callMade,
+      callbackDate: parseCallbackDate(parsed.data.callbackDate),
+      customerResponseStatus: parsed.data.customerResponseStatus?.trim() || null,
+      reviewerFirstName: parsed.data.reviewerFirstName?.trim() || null,
+      reviewerLastName: parsed.data.reviewerLastName?.trim() || null,
+      reviewerEmail: parsed.data.reviewerEmail?.trim() || null,
+      reason: parsed.data.reason?.trim() || null,
       reviewMarkedAt: parsed.data.reviewStatus === "reviewed" ? new Date() : null,
     });
 
@@ -174,8 +190,9 @@ export async function PUT(
       summary: `Saved merchant review for order ${order.orderNumber ?? order.name ?? order.id}`,
       afterData: {
         reviewStatus: review.reviewStatus,
-        customerRating: review.customerRating,
-        followUpNeeded: review.followUpNeeded,
+        callMade: review.callMade,
+        callbackDate: review.callbackDate,
+        customerResponseStatus: review.customerResponseStatus,
       },
     });
 
@@ -183,11 +200,13 @@ export async function PUT(
       ok: true,
       review: {
         reviewStatus: review.reviewStatus,
-        customerRating: review.customerRating,
-        customerFeedback: review.customerFeedback,
-        itemFeedback: review.itemFeedback,
-        merchantNotes: review.merchantNotes,
-        followUpNeeded: review.followUpNeeded,
+        callMade: review.callMade,
+        callbackDate: review.callbackDate?.toISOString() ?? null,
+        customerResponseStatus: review.customerResponseStatus,
+        reviewerFirstName: review.reviewerFirstName,
+        reviewerLastName: review.reviewerLastName,
+        reviewerEmail: review.reviewerEmail,
+        reason: review.reason,
         reviewMarkedAt: review.reviewMarkedAt?.toISOString() ?? null,
         updatedAt: review.updatedAt.toISOString(),
       },
