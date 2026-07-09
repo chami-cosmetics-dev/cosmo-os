@@ -608,6 +608,7 @@ model Order {
 
   erpnextInvoiceId             String?
   erpnextWarehouse             String?
+  posProfile                   String?
   erpnextSyncError             String?
   erpnextSyncFailedAt          DateTime?
   erpnextSyncAutoRetryCount    Int                    @default(0)
