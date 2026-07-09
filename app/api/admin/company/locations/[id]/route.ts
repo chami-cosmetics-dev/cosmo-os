@@ -29,6 +29,7 @@ const updateLocationSchema = z.object({
   shopifyAdminStoreHandle: z.string().max(LIMITS.shopifyAdminStoreHandle.max).optional(),
   locationReference: z.string().max(LIMITS.locationReference.max).optional(),
   defaultMerchantUserId: cuidSchema.nullable().optional(),
+  defaultOrderPrintFormatId: cuidSchema.nullable().optional(),
   manualInvoicePrefix: z
     .union([manualInvoicePrefixSchema, z.literal("")])
     .nullable()
@@ -102,6 +103,15 @@ export async function PATCH(
       );
     }
   }
+  if (d.defaultOrderPrintFormatId) {
+    const format = await prisma.printFormat.findFirst({
+      where: { id: d.defaultOrderPrintFormatId, companyId, isEnabled: true },
+      select: { id: true },
+    });
+    if (!format) {
+      return NextResponse.json({ error: "Default print format must be an enabled print format." }, { status: 400 });
+    }
+  }
   if (d.shadowParentLocationId) {
     if (d.shadowParentLocationId === idResult.data) {
       return NextResponse.json(
@@ -139,6 +149,7 @@ export async function PATCH(
       shopifyAdminStoreHandle: toOpt(d.shopifyAdminStoreHandle),
       locationReference: toOpt(d.locationReference),
       defaultMerchantUserId: d.defaultMerchantUserId ?? null,
+      defaultOrderPrintFormatId: d.defaultOrderPrintFormatId ?? null,
       ...(d.manualInvoicePrefix !== undefined && {
         manualInvoicePrefix:
           d.manualInvoicePrefix === null || d.manualInvoicePrefix === ""
@@ -174,6 +185,7 @@ export async function PATCH(
       shopifyAdminStoreHandle: true,
       locationReference: true,
       defaultMerchantUserId: true,
+      defaultOrderPrintFormatId: true,
       manualInvoicePrefix: true,
       manualInvoiceNextSeq: true,
       manualInvoiceSeqPadding: true,

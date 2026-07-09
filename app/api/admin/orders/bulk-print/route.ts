@@ -49,14 +49,37 @@ export async function GET(request: NextRequest) {
     const root = document.getElementById("bulk-root");
     const loader = document.getElementById("bulk-loader");
 
-    function appendInvoiceStyles(doc) {
-      if (document.getElementById("invoice-styles")) return;
-      const style = doc.querySelector("style");
-      if (!style) return;
-      const copy = document.createElement("style");
-      copy.id = "invoice-styles";
-      copy.textContent = style.textContent;
-      document.head.appendChild(copy);
+    function getInvoiceHeadHtml(doc) {
+      return Array.from(doc.head.querySelectorAll("style, link[rel='stylesheet'], link[rel='preconnect'], link[rel='preload']"))
+        .map((node) => node.outerHTML)
+        .join("");
+    }
+
+    function waitForImage(img) {
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      if (typeof img.decode === "function") {
+        return img.decode().catch(() => undefined);
+      }
+      return new Promise((resolve) => {
+        const done = () => resolve();
+        img.addEventListener("load", done, { once: true });
+        img.addEventListener("error", done, { once: true });
+      });
+    }
+
+    async function waitForPrintAssets() {
+      const images = Array.from(document.images);
+      await Promise.race([
+        Promise.all(images.map(waitForImage)),
+        new Promise((resolve) => window.setTimeout(resolve, 5000)),
+      ]);
+
+      if (document.fonts?.ready) {
+        await Promise.race([
+          document.fonts.ready,
+          new Promise((resolve) => window.setTimeout(resolve, 2000)),
+        ]);
+      }
     }
 
     async function loadInvoices() {
@@ -74,20 +97,18 @@ export async function GET(request: NextRequest) {
 
         const html = await response.text();
         const doc = new DOMParser().parseFromString(html, "text/html");
-        appendInvoiceStyles(doc);
 
         const invoice = document.createElement("section");
         invoice.className = "bulk-invoice";
-        invoice.innerHTML = doc.body.innerHTML;
+        invoice.innerHTML = getInvoiceHeadHtml(doc) + doc.body.innerHTML;
         invoice.querySelectorAll("script").forEach((script) => script.remove());
         root.appendChild(invoice);
       }
 
       loader.textContent = "Ready to print.";
-      window.setTimeout(() => {
-        loader.style.display = "none";
-        window.print();
-      }, 500);
+      await waitForPrintAssets();
+      loader.style.display = "none";
+      window.print();
     }
 
     loadInvoices().catch((error) => {

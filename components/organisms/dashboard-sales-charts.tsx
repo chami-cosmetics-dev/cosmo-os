@@ -118,11 +118,11 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
     data: rows,
     margin: { top: 16, right: 24, left: 12, bottom: 56 },
   };
-  const axisTick = { fontSize: 12, fill: "#dbeafe", fontWeight: 700 };
-  const axisLine = { stroke: "rgba(219, 234, 254, 0.52)" };
-  const gridStroke = "rgba(219, 234, 254, 0.38)";
+  const axisTick = { fontSize: 12, fill: "var(--foreground)", fontWeight: 700 };
+  const axisLine = { stroke: "var(--border)" };
+  const gridStroke = "color-mix(in srgb, var(--muted-foreground) 35%, transparent)";
   const legendFormatter = (value: string) => (
-    <span className="font-semibold text-blue-50">{value}</span>
+    <span className="font-semibold text-foreground">{value}</span>
   );
 
   if (mode === "line") {
@@ -154,7 +154,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
           tickLine={axisLine}
           allowDecimals={false}
         />
-        <Tooltip content={<SalesTooltip />} cursor={{ stroke: "rgba(255,255,255,0.42)", strokeWidth: 1.5 }} />
+        <Tooltip content={<SalesTooltip />} cursor={{ stroke: "var(--foreground)", strokeOpacity: 0.28, strokeWidth: 1.5 }} />
         <Legend formatter={legendFormatter} />
         <Line
           yAxisId="value"
@@ -219,7 +219,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
           tickLine={axisLine}
           allowDecimals={false}
         />
-        <Tooltip content={<SalesTooltip />} cursor={{ stroke: "rgba(255,255,255,0.42)", strokeWidth: 1.5 }} />
+        <Tooltip content={<SalesTooltip />} cursor={{ stroke: "var(--foreground)", strokeOpacity: 0.28, strokeWidth: 1.5 }} />
         <Legend formatter={legendFormatter} />
         <Area
           yAxisId="value"
@@ -273,7 +273,7 @@ function renderChart(mode: ChartMode, rows: BaseRow[]) {
       />
       <Tooltip
         content={<SalesTooltip />}
-        cursor={{ fill: "rgba(255,255,255,0.16)" }}
+        cursor={{ fill: "var(--muted-foreground)", fillOpacity: 0.12 }}
       />
       <Legend formatter={legendFormatter} />
       <Bar

@@ -170,6 +170,14 @@ const DEFAULT_PERMISSIONS = [
     description: "Update complaint status and resolution",
   },
   {
+    key: "merchant_reviews.read",
+    description: "View and export merchant reviews",
+  },
+  {
+    key: "merchant_reviews.manage",
+    description: "Create and update merchant reviews",
+  },
+  {
     key: "finance.approvals.read",
     description: "View finance approval requests",
   },
@@ -451,6 +459,8 @@ const DEFAULT_ROLES = [
       "complaints.create",
       "complaints.read",
       "complaints.manage",
+      "merchant_reviews.read",
+      "merchant_reviews.manage",
       "finance.approvals.read",
       "finance.approvals.manage",
       "finance.hod.revert_paid_to_unpaid",
@@ -548,6 +558,7 @@ const DEFAULT_ROLES = [
       "returns.read",
       "exchanges.read",
       "orders.view_timeline",
+      "merchant_reviews.read",
       "stickers.batch.read",
       "stickers.print.read",
       "fulfillment.sample_free_issue.read",
