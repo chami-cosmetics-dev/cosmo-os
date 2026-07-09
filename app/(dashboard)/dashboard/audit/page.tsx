@@ -113,7 +113,7 @@ function formatDateTime(value: string) {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString();
+  return date.toLocaleString("en-GB", { timeZone: "Asia/Colombo" });
 }
 
 function parsePage(value: string | undefined) {
