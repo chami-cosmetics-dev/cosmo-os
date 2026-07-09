@@ -1058,7 +1058,7 @@ export function OrderInvoiceViewModal({
                       <span className="text-muted-foreground text-xs">Source</span>
                       <p>{orderDetail.sourceName}</p>
                     </div>
-                    {orderDetail.paymentApproval && orderDetail.paymentApproval.status !== "cancelled" && (
+                    {orderDetail.paymentApproval && !(orderDetail.paymentApproval.status === "cancelled" && !!orderDetail.invoiceCompleteAt) && (
                       <div>
                         <span className="text-muted-foreground text-xs">Order Payment Approval</span>
                         {orderDetail.paymentApproval.status === "pending" ? (
@@ -1088,7 +1088,7 @@ export function OrderInvoiceViewModal({
                         )}
                       </div>
                     )}
-                    {orderDetail.deliveryPaymentApproval && orderDetail.deliveryPaymentApproval.status !== "cancelled" && (
+                    {orderDetail.deliveryPaymentApproval && !(orderDetail.deliveryPaymentApproval.status === "cancelled" && !!orderDetail.invoiceCompleteAt) && (
                       <div>
                         <span className="text-muted-foreground text-xs">Delivery Payment Approval</span>
                         {orderDetail.deliveryPaymentApproval.status === "pending" ? (
