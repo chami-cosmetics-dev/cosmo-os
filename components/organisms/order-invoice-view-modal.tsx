@@ -14,6 +14,7 @@ import {
   Send,
   ShoppingCart,
   Truck,
+  XCircle,
 } from "lucide-react";
 
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
@@ -165,6 +166,10 @@ type OrderDetail = {
     showOnInvoice?: boolean;
     addedBy?: UserRef;
   }>;
+  cancelledAt?: string | null;
+  cancelledBy?: UserRef;
+  cancelReason?: string | null;
+  hasPendingCancelApproval?: boolean;
   paymentApproval?: {
     id: string;
     status: string;
@@ -201,6 +206,7 @@ interface OrderInvoiceViewModalProps {
   canRevertToStage?: (targetStage: string, currentStage: string) => boolean;
   canManageFinanceApprovals?: boolean;
   canRevertPaid?: boolean;
+  canCancelOrder?: boolean;
 }
 
 const TIMELINE_ID_TO_DB_STAGE: Record<string, string> = {
@@ -515,8 +521,12 @@ export function OrderInvoiceViewModal({
   canRevertToStage,
   canManageFinanceApprovals = false,
   canRevertPaid = false,
+  canCancelOrder = false,
 }: OrderInvoiceViewModalProps) {
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [showJsonModal, setShowJsonModal] = useState(false);
   const [revertingToStage, setRevertingToStage] = useState<string | null>(null);
   const [confirmRevertStage, setConfirmRevertStage] = useState<{ targetStage: string; label: string } | null>(null);
@@ -633,6 +643,32 @@ export function OrderInvoiceViewModal({
       notify.error("Failed to resend SMS");
     } finally {
       setResendSmsBusy(false);
+    }
+  }
+
+  async function handleCancelOrder() {
+    if (!orderId || cancelReason.trim().length < 5) return;
+    setCancelBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel_order", reason: cancelReason.trim() }),
+      });
+      const data = (await res.json()) as { error?: string; requiresApproval?: boolean };
+      if (!res.ok) { notify.error(data.error ?? "Failed to cancel order"); return; }
+      if (data.requiresApproval) {
+        notify.success("Cancel request sent to finance for approval — order is now blocked from dispatch.");
+      } else {
+        notify.success("Order cancelled.");
+      }
+      setShowCancelDialog(false);
+      setCancelReason("");
+      onRefresh?.();
+    } catch {
+      notify.error("Failed to cancel order");
+    } finally {
+      setCancelBusy(false);
     }
   }
 
@@ -1266,6 +1302,48 @@ export function OrderInvoiceViewModal({
               </div>
             )}
 
+            {/* Cancel Order */}
+            {orderDetail.financialStatus?.toLowerCase() === "voided" && orderDetail.cancelledAt ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+                <div className="flex items-center gap-2 font-medium text-destructive">
+                  <XCircle className="size-4" />
+                  Order Cancelled
+                </div>
+                {orderDetail.cancelledBy && (
+                  <p className="mt-1 text-muted-foreground">By {orderDetail.cancelledBy.name ?? orderDetail.cancelledBy.email}</p>
+                )}
+                {orderDetail.cancelReason && (
+                  <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
+                )}
+              </div>
+            ) : orderDetail.hasPendingCancelApproval ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-700/40 dark:bg-amber-900/20">
+                <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="size-4" />
+                  Cancel Pending Finance Approval
+                </div>
+                <p className="mt-1 text-amber-700 dark:text-amber-400">
+                  A cancel request has been sent to finance. This order cannot be dispatched until finance approves or rejects the cancel.
+                </p>
+              </div>
+            ) : canCancelOrder && ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
+              <div className="rounded-lg border border-dashed p-4">
+                <h4 className="mb-1 text-sm font-medium">Cancel Order</h4>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Paid orders (KOKO, Bank Transfer, CC Checkout) will require finance approval before cancellation is processed.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => { setCancelReason(""); setShowCancelDialog(true); }}
+                >
+                  <XCircle className="size-4" />
+                  Cancel Order
+                </Button>
+              </div>
+            ) : null}
+
             {/* Remarks */}
             {orderDetail.remarks && orderDetail.remarks.length > 0 && (
               <div className="rounded-lg border p-4">
@@ -1338,6 +1416,45 @@ export function OrderInvoiceViewModal({
         )}
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelReason(""); } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Cancel Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? ""}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {orderDetail && ["koko", "bank_transfer", "cc_checkout"].some((g) => orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g))
+              ? "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
+              : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="py-1">
+          <label className="mb-1.5 block text-sm font-medium" htmlFor="modal-cancel-reason">
+            Cancellation reason <span className="text-destructive">*</span>
+          </label>
+          <Textarea
+            id="modal-cancel-reason"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="e.g. Customer called to cancel — changed mind"
+            maxLength={500}
+            rows={3}
+            disabled={cancelBusy}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">{cancelReason.trim().length}/500 — minimum 5 characters</p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={cancelBusy}>Back</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={cancelBusy || cancelReason.trim().length < 5}
+            onClick={() => void handleCancelOrder()}
+          >
+            {cancelBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <XCircle className="size-4" aria-hidden />}
+            Confirm Cancel
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
 
     <AlertDialog open={!!confirmRevertStage} onOpenChange={(open) => { if (!open) { setConfirmRevertStage(null); setRevertReason(""); setRevertRemarkTemplate("UTC"); } }}>
       <AlertDialogContent>

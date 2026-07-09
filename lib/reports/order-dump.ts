@@ -66,7 +66,9 @@ export type OrderInvoiceCsvRow = {
   status: string;
   payment_gateway: string;
   payment_status: string;
-  location_name: string;
+  company_name: string;
+  pos_profile: string;
+  pos_warehouse: string;
   shipping_service: string;
   dispatched_date: string;
   dispatched_time: string;
@@ -128,7 +130,9 @@ const ORDER_INVOICE_HEADERS = [
   "fulfillment_status",
   "payment_gateway",
   "payment_status",
-  "location_name",
+  "company_name",
+  "pos_profile",
+  "pos_warehouse",
   "printed_on",
   "printed_time",
   "printed_by",
@@ -216,7 +220,9 @@ export function createOrderInvoiceRow(input: {
   financialStatus: string | null;
   shippingService: string;
   createdAt: Date;
-  locationName: string;
+  companyName: string;
+  posProfile: string | null;
+  posWarehouse: string | null;
   customerName: string;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -266,7 +272,9 @@ export function createOrderInvoiceRow(input: {
     status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     payment_status: input.financialStatus ?? "",
-    location_name: input.locationName,
+    company_name: input.companyName,
+    pos_profile: input.posProfile ?? "",
+    pos_warehouse: input.posWarehouse ?? "",
     shipping_service: input.shippingService,
     dispatched_date: formatIsoDate(input.dispatchedAt),
     dispatched_time: formatIsoTime(input.dispatchedAt),

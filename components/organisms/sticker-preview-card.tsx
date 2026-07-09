@@ -95,7 +95,7 @@ export function StickerPreviewCard({
     <div
       style={{ fontFamily: '"Aptos", "Segoe UI", Arial, sans-serif' }}
       className={cn(
-        "sticker-card relative h-[1in] w-[2in] overflow-hidden rounded-md border border-black/30 bg-lime-300 p-2 text-black shadow-sm",
+        "sticker-card relative h-[1in] w-[2in] overflow-hidden rounded-md border border-black/30 bg-yellow-300 p-2 text-black shadow-sm",
         className
       )}
     >

@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   });
   const auth = await requireAnyPermission([
     "orders.read",
+    "orders.cancel",
     "fulfillment.sample_free_issue.read",
     "fulfillment.order_print.read",
     "fulfillment.ready_dispatch.read",

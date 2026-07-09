@@ -6,11 +6,6 @@ import { resolveStoredOrderCustomerName } from "@/lib/erpnext-customer-display-n
 
 export const dynamic = "force-dynamic";
 
-function resolveWarehouse(erpnextWarehouse: string | null, locationWarehouse: string | null): string {
-  if (erpnextWarehouse && erpnextWarehouse !== "None") return erpnextWarehouse;
-  return locationWarehouse ?? "—";
-}
-
 export async function GET() {
   const auth = await requireAnyPermission(["orders.read"]);
   if (!auth.ok) {
@@ -30,6 +25,7 @@ export async function GET() {
       name: true,
       orderNumber: true,
       erpnextWarehouse: true,
+      posProfile: true,
       fulfillmentStage: true,
       financialStatus: true,
       paymentGatewayPrimary: true,
@@ -59,6 +55,7 @@ export async function GET() {
     company: string;
     companyLocationId: string | null;
     companyLocationName: string | null;
+    posProfile: string | null;
     warehouse: string;
     fulfillmentStage: string | null;
     financialStatus: string | null;
@@ -72,10 +69,12 @@ export async function GET() {
 
   const flat: PosOrder[] = orders.map((o) => {
     const company = o.companyLocation?.erpnextCompany ?? o.companyLocation?.name ?? "Unknown";
-    const warehouse = resolveWarehouse(
-      o.erpnextWarehouse ?? null,
-      o.companyLocation?.erpnextWarehouse ?? null,
-    );
+
+    // For POS orders, erpnextWarehouse = set_warehouse from the Sales Invoice = the POS profile's
+    // warehouse. Never fall back to the location's main warehouse — that's a different warehouse.
+    const rawWarehouse = o.erpnextWarehouse?.trim();
+    const warehouse =
+      rawWarehouse && rawWarehouse.toLowerCase() !== "none" ? rawWarehouse : "—";
 
     let customerName: string | null = null;
     if (o.customer?.firstName || o.customer?.lastName) {
@@ -95,6 +94,7 @@ export async function GET() {
       company,
       companyLocationId: o.companyLocation?.id ?? null,
       companyLocationName: o.companyLocation?.name ?? null,
+      posProfile: o.posProfile ?? null,
       warehouse,
       fulfillmentStage: o.fulfillmentStage ?? null,
       financialStatus: o.financialStatus ?? null,
@@ -107,19 +107,19 @@ export async function GET() {
     };
   });
 
-  // Build grouped summary
-  const groupMap = new Map<string, { company: string; warehouse: string; count: number }>();
+  // Group by company + posProfile — each POS profile maps to one warehouse
+  const groupMap = new Map<string, { company: string; posProfile: string | null; warehouse: string; count: number }>();
   for (const o of flat) {
-    const key = `${o.company}||${o.warehouse}`;
+    const key = `${o.company}||${o.posProfile ?? ""}`;
     const existing = groupMap.get(key);
     if (existing) {
       existing.count++;
     } else {
-      groupMap.set(key, { company: o.company, warehouse: o.warehouse, count: 1 });
+      groupMap.set(key, { company: o.company, posProfile: o.posProfile, warehouse: o.warehouse, count: 1 });
     }
   }
   const groups = Array.from(groupMap.values()).sort((a, b) =>
-    a.company.localeCompare(b.company) || a.warehouse.localeCompare(b.warehouse),
+    a.company.localeCompare(b.company) || (a.posProfile ?? "").localeCompare(b.posProfile ?? ""),
   );
 
   return NextResponse.json({ orders: flat, groups, total: flat.length });

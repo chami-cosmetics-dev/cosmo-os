@@ -35,9 +35,10 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "cash") {
     return { label: "Cash", variant: "cash" };
   }
+  if (normalized === "cc" || normalized === "cc checkout") {
+    return { label: "CC Checkout", variant: "card" };
+  }
   if (
-    normalized === "cc" ||
-    normalized === "cc checkout" ||
     normalized.includes("credit card") ||
     normalized.includes("card") ||
     normalized.includes("shopify payments") ||

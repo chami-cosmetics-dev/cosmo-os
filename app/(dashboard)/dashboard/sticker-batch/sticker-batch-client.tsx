@@ -26,6 +26,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
+import { VaultStickerPreviewCard } from "@/components/organisms/vault-sticker-preview-card";
+
+const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 import { notify } from "@/lib/notify";
 
 type SupplierOption = {
@@ -70,6 +73,7 @@ type BatchOption = {
 
 type BatchDetailsResponse = {
   supplierName?: string;
+  supplierCode?: string;
   companyName?: string;
   companyAddress?: string;
   items?: Array<{
@@ -90,6 +94,7 @@ type BatchDetailsResponse = {
 
 type BatchPreviewMeta = {
   supplierName: string;
+  supplierCode: string;
   companyName: string;
   companyAddress: string;
   locationReference: string;
@@ -273,6 +278,7 @@ export function StickerBatchClient({
   const [loadedSnapshot, setLoadedSnapshot] = useState<LoadedBatchSnapshot | null>(null);
   const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
     supplierName: "",
+    supplierCode: "",
     companyName: "",
     companyAddress: "",
     locationReference: "",
@@ -290,22 +296,20 @@ export function StickerBatchClient({
   const allRowsComplete = useMemo(
     () =>
       rows.length > 0 &&
-      rows.every(
-        (row) => {
-          const mfg = parseDDMMYYYY(row.manufactureDate.trim());
-          const exp = parseDDMMYYYY(row.expireDate.trim());
-          return Boolean(
-            row.locationId.trim() &&
-            row.itemCode.trim() &&
-              row.itemName.trim() &&
-              row.unitPrice.trim() &&
-              row.quantity.trim() &&
-              mfg &&
-              exp &&
-              exp >= mfg
-          );
-        }
-      ),
+      rows.every((row) => {
+        const baseValid = Boolean(
+          row.locationId.trim() &&
+          row.itemCode.trim() &&
+          row.itemName.trim() &&
+          row.unitPrice.trim() &&
+          row.quantity.trim()
+        );
+        if (!baseValid) return false;
+        if (isVault) return true;
+        const mfg = parseDDMMYYYY(row.manufactureDate.trim());
+        const exp = parseDDMMYYYY(row.expireDate.trim());
+        return Boolean(mfg && exp && exp >= mfg);
+      }),
     [rows]
   );
 
@@ -383,8 +387,7 @@ export function StickerBatchClient({
         row.itemName.trim() &&
         row.unitPrice.trim() &&
         row.quantity.trim() &&
-        row.manufactureDate.trim() &&
-        row.expireDate.trim()
+        (isVault || (row.manufactureDate.trim() && row.expireDate.trim()))
     );
   }
 
@@ -571,6 +574,7 @@ export function StickerBatchClient({
     setSelectedLocationId("");
     setPreviewMeta({
       supplierName: "",
+      supplierCode: "",
       companyName: "",
       companyAddress: "",
       locationReference: "",
@@ -724,6 +728,7 @@ export function StickerBatchClient({
       setLoadedSnapshot(null);
       setPreviewMeta({
         supplierName: "",
+        supplierCode: "",
         companyName: "",
         companyAddress: "",
         locationReference: "",
@@ -758,6 +763,7 @@ export function StickerBatchClient({
           nextRowIdRef.current = 1;
           setPreviewMeta({
             supplierName: data.supplierName ?? "",
+            supplierCode: data.supplierCode ?? "",
             companyName: data.companyName ?? "",
             companyAddress: data.companyAddress ?? "",
             locationReference: "",
@@ -804,6 +810,7 @@ export function StickerBatchClient({
         setSelectedLocationId(uniqueLocationIds.size === 1 ? resolvedLocationId : "");
         setPreviewMeta({
           supplierName: data.supplierName ?? "",
+          supplierCode: data.supplierCode ?? "",
           companyName: data.companyName ?? "",
           companyAddress: data.companyAddress ?? "",
           locationReference,
@@ -1126,7 +1133,7 @@ export function StickerBatchClient({
                 <SelectContent>
                   {locations.map((location) => (
                     <SelectItem key={location.id} value={location.id}>
-                      {location.locationReference?.trim() || location.name}
+                      {location.locationReference?.trim() ? `${location.locationReference.trim()} — ${location.name}` : location.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1216,8 +1223,8 @@ export function StickerBatchClient({
                         <SelectContent>
                           {locations.map((location) => (
                             <SelectItem key={location.id} value={location.id}>
-                              {location.locationReference?.trim() || location.name}
-                            </SelectItem>
+                              {location.locationReference?.trim() ? `${location.locationReference.trim()} — ${location.name}` : location.name}
+    </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -1317,23 +1324,36 @@ export function StickerBatchClient({
                 isPreviewLifted ? "bottom-35" : "bottom-4"
               }`}
             >
-              <StickerPreviewCard
-                manufactureDate={activeRow.manufactureDate}
-                expireDate={activeRow.expireDate}
-                itemCode={activeRow.itemCode}
-                itemName={activeRow.itemName}
-                unitPrice={activeRow.unitPrice}
-                locationReference={
-                  activeRowLocation?.locationReference?.trim() ||
-                  selectedLocation?.locationReference?.trim() ||
-                  previewMeta.locationReference
-                }
-                supplierName={previewMeta.supplierName}
-                companyName={previewMeta.companyName}
-                locationAddress={previewMeta.locationAddress}
-                companyAddress={previewMeta.companyAddress}
-                locationPhone={previewMeta.locationPhone}
-              />
+              {isVault ? (
+                <VaultStickerPreviewCard
+                  sku={activeRow.itemCode}
+                  itemName={activeRow.itemName}
+                  supplierCode={suppliers.find((s) => s.id === supplierId)?.code ?? previewMeta.supplierCode}
+                  locationRef={
+                    activeRowLocation?.locationReference?.trim() ||
+                    selectedLocation?.locationReference?.trim() ||
+                    previewMeta.locationReference
+                  }
+                />
+              ) : (
+                <StickerPreviewCard
+                  manufactureDate={activeRow.manufactureDate}
+                  expireDate={activeRow.expireDate}
+                  itemCode={activeRow.itemCode}
+                  itemName={activeRow.itemName}
+                  unitPrice={activeRow.unitPrice}
+                  locationReference={
+                    activeRowLocation?.locationReference?.trim() ||
+                    selectedLocation?.locationReference?.trim() ||
+                    previewMeta.locationReference
+                  }
+                  supplierName={previewMeta.supplierName}
+                  companyName={previewMeta.companyName}
+                  locationAddress={previewMeta.locationAddress}
+                  companyAddress={previewMeta.companyAddress}
+                  locationPhone={previewMeta.locationPhone}
+                />
+              )}
             </div>
           ) : null}
           <div className="flex justify-end">

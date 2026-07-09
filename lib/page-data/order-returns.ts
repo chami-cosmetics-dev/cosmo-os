@@ -74,13 +74,11 @@ export async function fetchReturnsTrackingData(input: {
   canManage: boolean;
 }): Promise<ReturnsTrackingData> {
   try {
-    // Sweep stale "cancel pending" returns for orders already voided in Vault.
-    // Handles cases where the order was voided via a path that didn't go through
-    // cancelPendingApprovalsForOrder (e.g. manual ERP cancellation before the fix).
+    // Sweep all pending returns for orders already voided — regardless of actionType.
+    // A voided order can't be rearranged or cancelled further, so mark them solved.
     await prisma.orderReturn.updateMany({
       where: {
         companyId: input.companyId,
-        actionType: "cancel",
         actionStatus: "pending",
         order: { financialStatus: { equals: "voided", mode: "insensitive" } },
       },

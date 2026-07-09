@@ -27,6 +27,7 @@ import {
   listCompanyErpPaymentModes,
 } from "@/lib/erp-payment-modes";
 import {
+  createOrGetOrderCancelApproval,
   createOrGetOrderPaymentApproval,
   getFinancePaymentApprovalBlockReason,
   isOrderPaymentRequiresApproval,
@@ -666,6 +667,33 @@ export async function PATCH(
     }
 
     if (data.action === "dispatch") {
+      const pendingCancelApproval = await prisma.approvalRequest.findFirst({
+        where: { orderId: order.id, type: "order_cancel_approval", status: "pending" },
+        select: { id: true },
+      });
+      if (pendingCancelApproval) {
+        return NextResponse.json(
+          { error: "This order has a pending cancel request — awaiting finance approval.", code: "ORDER_CANCEL_PENDING" },
+          { status: 400 }
+        );
+      }
+      if (order.financialStatus?.toLowerCase() === "voided" && order.cancelledAt) {
+        let cancellerName = "a user";
+        if (order.cancelledById) {
+          const canceller = await prisma.user.findUnique({
+            where: { id: order.cancelledById },
+            select: { name: true },
+          });
+          cancellerName = canceller?.name ?? "a user";
+        }
+        return NextResponse.json(
+          {
+            error: `This order cannot be dispatched — it was cancelled by ${cancellerName}.${order.cancelReason ? ` Reason: ${order.cancelReason}` : ""}`,
+            code: "ORDER_CANCELLED",
+          },
+          { status: 400 }
+        );
+      }
       if (financeFulfillmentBlock) {
         return NextResponse.json({ error: financeFulfillmentBlock }, { status: 409 });
       }
@@ -1227,9 +1255,10 @@ export async function PATCH(
     }
 
     if (data.action === "cancel_order") {
-      if (order.fulfillmentStage !== "sample_free_issue" && order.fulfillmentStage !== "order_received") {
+      const cancelableStages = ["order_received", "sample_free_issue", "print", "ready_to_dispatch"] as const;
+      if (!(cancelableStages as readonly string[]).includes(order.fulfillmentStage)) {
         return NextResponse.json(
-          { error: "Orders can only be cancelled at order received or sample/free issue stage" },
+          { error: "Orders can only be cancelled before dispatch" },
           { status: 400 }
         );
       }
@@ -1243,6 +1272,46 @@ export async function PATCH(
       });
       const location = orderWithLocation?.companyLocation;
 
+      // Pre-paid orders (KOKO, bank transfer, CC Checkout) require finance approval to cancel —
+      // finance must process the credit note in ERPNext and then approve in Cosmo OS.
+      const gateway = (order.paymentGatewayPrimary ?? "").toLowerCase().trim();
+      const isPaidCancelableGateway =
+        gateway.includes("koko") ||
+        gateway.includes("bank") ||
+        gateway === "cc" ||
+        gateway === "cc checkout" ||
+        gateway.includes("webxpay");
+      const requiresFinanceApproval =
+        order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway;
+
+      if (requiresFinanceApproval) {
+        const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id;
+        const approval = await createOrGetOrderCancelApproval({
+          companyId,
+          orderId: order.id,
+          requestedById: auth.context!.user!.id,
+          cancelReason: data.reason,
+          invoiceLabel,
+          amount: order.totalPrice?.toString() ?? "0",
+          companyLocationId: order.companyLocationId,
+        });
+
+        await writeAuditLog({
+          companyId,
+          actorUserId: auth.context!.user!.id,
+          module: "orders",
+          action: "order_cancel_requested",
+          entityType: "Order",
+          entityId: order.id,
+          summary: `Cancel approval requested for order ${invoiceLabel}: ${data.reason}`,
+          beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
+          afterData: { cancelReason: data.reason, approvalId: approval.id },
+        });
+
+        return NextResponse.json({ requiresApproval: true, approvalId: approval.id });
+      }
+
+      // Unpaid orders — cancel directly without finance approval.
       // Cancel in Shopify first — fatal; if this fails we don't mark as voided.
       // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
       const isRealShopifyOrder = order.shopifyOrderId && !order.shopifyOrderId.startsWith("erp-");
@@ -1256,8 +1325,6 @@ export async function PATCH(
       // Cancel ERP Sales Invoice if one exists — non-fatal
       if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
         try {
-          // ERP-native orders (shopifyOrderId starts with "erp-") have no po_no in ERP —
-          // pass the invoice name directly so the lookup is skipped.
           const isErpNative = order.shopifyOrderId?.startsWith("erp-");
           await cancelErpnextSalesInvoice(
             order.name ?? order.shopifyOrderId,

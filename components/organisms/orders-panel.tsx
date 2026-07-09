@@ -243,6 +243,7 @@ interface OrdersPanelProps {
   revertPermissionKeys?: string[];
   canManageFinanceApprovals?: boolean;
   canRevertPaid?: boolean;
+  canCancelOrder?: boolean;
   initialData?: OrdersPanelInitialData | null;
 }
 
@@ -252,6 +253,7 @@ export function OrdersPanel({
   revertPermissionKeys = [],
   canManageFinanceApprovals = false,
   canRevertPaid = false,
+  canCancelOrder = false,
   initialData,
 }: OrdersPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
@@ -845,6 +847,7 @@ export function OrdersPanel({
         canRevertToStage={canRevertToStage}
         canManageFinanceApprovals={canManageFinanceApprovals}
         canRevertPaid={canRevertPaid}
+        canCancelOrder={canCancelOrder}
       />
     </div>
   );

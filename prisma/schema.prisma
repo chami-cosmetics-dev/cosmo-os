@@ -67,6 +67,7 @@ model Company {
   contactAllocationUpdates ContactAllocationUpdate[]
   erpnextInstances         ErpnextInstance[]
   pickListGroups           PickListGroup[]
+  ogfEmailLogs             OgfEmailLog[]
 }
 
 model PrintFormat {
@@ -607,6 +608,7 @@ model Order {
 
   erpnextInvoiceId             String?
   erpnextWarehouse             String?
+  posProfile                   String?
   erpnextSyncError             String?
   erpnextSyncFailedAt          DateTime?
   erpnextSyncAutoRetryCount    Int                    @default(0)
@@ -1058,8 +1060,8 @@ model StickerBatchItem {
   itemName          String
   unitPrice         Decimal         @db.Decimal(12, 2)
   quantity          Int
-  manufactureDate   DateTime
-  expireDate        DateTime
+  manufactureDate   DateTime?
+  expireDate        DateTime?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1209,6 +1211,21 @@ model Permission {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   rolePermissions RolePermission[]
+}
+
+model OgfEmailLog {
+  id           String   @id @default(cuid())
+  companyId    String
+  batchCode    String
+  orderCount   Int
+  emailTo      String
+  status       String
+  errorMessage String?
+  source       String   @default("cron")
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
 }
 
 model UserRole {

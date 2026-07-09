@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Prisma } from "@prisma/client";
 
-import { DELIVERY_PAYMENT_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, ORDER_CANCEL_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import {
@@ -136,8 +136,11 @@ const orderSelect = {
     orderBy: { createdAt: "desc" },
     include: { addedBy: { select: { id: true, name: true, email: true } } },
   },
+  cancelledAt: true,
+  cancelReason: true,
+  cancelledBy: { select: { id: true, name: true, email: true } },
   approvalRequests: {
-    where: { type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL] } },
+    where: { type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL, ORDER_CANCEL_APPROVAL] } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -546,5 +549,13 @@ export async function GET(
         reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
       };
     })(),
+    cancelledAt: details.cancelledAt?.toISOString() ?? null,
+    cancelledBy: details.cancelledBy
+      ? { id: details.cancelledBy.id, name: details.cancelledBy.name, email: details.cancelledBy.email }
+      : null,
+    cancelReason: details.cancelReason ?? null,
+    hasPendingCancelApproval: details.approvalRequests.some(
+      (a) => a.type === ORDER_CANCEL_APPROVAL && a.status === "pending"
+    ),
   });
 }
