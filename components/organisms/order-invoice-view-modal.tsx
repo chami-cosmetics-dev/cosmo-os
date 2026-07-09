@@ -1058,7 +1058,7 @@ export function OrderInvoiceViewModal({
                       <span className="text-muted-foreground text-xs">Source</span>
                       <p>{orderDetail.sourceName}</p>
                     </div>
-                    {orderDetail.paymentApproval && (
+                    {orderDetail.paymentApproval && orderDetail.paymentApproval.status !== "cancelled" && (
                       <div>
                         <span className="text-muted-foreground text-xs">Order Payment Approval</span>
                         {orderDetail.paymentApproval.status === "pending" ? (
@@ -1079,12 +1079,6 @@ export function OrderInvoiceViewModal({
                               </span>
                             )}
                           </p>
-                        ) : orderDetail.paymentApproval.status === "cancelled" ? (
-                          <p>
-                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
-                              Cancelled
-                            </span>
-                          </p>
                         ) : (
                           <p>
                             <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
@@ -1094,7 +1088,7 @@ export function OrderInvoiceViewModal({
                         )}
                       </div>
                     )}
-                    {orderDetail.deliveryPaymentApproval && (
+                    {orderDetail.deliveryPaymentApproval && orderDetail.deliveryPaymentApproval.status !== "cancelled" && (
                       <div>
                         <span className="text-muted-foreground text-xs">Delivery Payment Approval</span>
                         {orderDetail.deliveryPaymentApproval.status === "pending" ? (
@@ -1114,12 +1108,6 @@ export function OrderInvoiceViewModal({
                                 by {orderDetail.deliveryPaymentApproval.reviewedBy.name ?? orderDetail.deliveryPaymentApproval.reviewedBy.email}
                               </span>
                             )}
-                          </p>
-                        ) : orderDetail.deliveryPaymentApproval.status === "cancelled" ? (
-                          <p>
-                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
-                              Cancelled
-                            </span>
                           </p>
                         ) : (
                           <p>
