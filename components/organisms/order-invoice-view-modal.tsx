@@ -1079,6 +1079,12 @@ export function OrderInvoiceViewModal({
                               </span>
                             )}
                           </p>
+                        ) : orderDetail.paymentApproval.status === "cancelled" ? (
+                          <p>
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
+                              Cancelled
+                            </span>
+                          </p>
                         ) : (
                           <p>
                             <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
@@ -1108,6 +1114,12 @@ export function OrderInvoiceViewModal({
                                 by {orderDetail.deliveryPaymentApproval.reviewedBy.name ?? orderDetail.deliveryPaymentApproval.reviewedBy.email}
                               </span>
                             )}
+                          </p>
+                        ) : orderDetail.deliveryPaymentApproval.status === "cancelled" ? (
+                          <p>
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground">
+                              Cancelled
+                            </span>
                           </p>
                         ) : (
                           <p>

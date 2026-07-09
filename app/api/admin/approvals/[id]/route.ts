@@ -320,7 +320,7 @@ export async function PATCH(
           },
         });
       } else if (approval.type === ORDER_CANCEL_APPROVAL && approval.orderId) {
-        // Finance has confirmed Shopify cancel and ERP credit note are done — mark order voided in DB.
+        // Finance approved — mark order voided in DB. Shopify cancel fires automatically after the tx.
         await tx.order.update({
           where: { id: approval.orderId },
           data: {
@@ -394,6 +394,34 @@ export async function PATCH(
         : `Finance rejected order cancel for ${label}`,
       metadata: { approvalId: approval.id, cancelReason: approval.requestNote },
     });
+  }
+
+  // Auto-cancel in Shopify when a paid order cancel is approved.
+  // Non-fatal — ERP credit note and DB void are already committed at this point.
+  if (nextStatus === "approved" && approval.type === ORDER_CANCEL_APPROVAL && approval.orderId && approval.shopifyOrderId) {
+    const isRealShopifyOrder = !approval.shopifyOrderId.startsWith("erp-");
+    if (isRealShopifyOrder) {
+      try {
+        const orderForCancel = await prisma.order.findUnique({
+          where: { id: approval.orderId },
+          select: { companyLocationId: true },
+        });
+        const location = orderForCancel?.companyLocationId
+          ? await prisma.companyLocation.findUnique({
+              where: { id: orderForCancel.companyLocationId },
+              select: { shopifyAdminStoreHandle: true },
+            })
+          : null;
+        if (location?.shopifyAdminStoreHandle) {
+          await cancelShopifyOrder(approval.shopifyOrderId, location.shopifyAdminStoreHandle);
+          console.log(`[Cancel] Shopify order ${approval.shopifyOrderId} cancelled via approval ${approval.id}`);
+        } else {
+          console.warn(`[Cancel] No shopifyAdminStoreHandle for order ${approval.orderId} — skipping Shopify cancel`);
+        }
+      } catch (err) {
+        console.error(`[Cancel] Shopify cancel failed (non-fatal) for order ${approval.orderId}:`, err);
+      }
+    }
   }
 
   let erpSyncFailed = false;

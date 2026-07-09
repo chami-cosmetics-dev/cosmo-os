@@ -506,10 +506,6 @@ export function FinanceApprovalsPanel({
                   <p><span className="font-medium">Requested:</span> {formatDate(selected.createdAt)}</p>
                   {selected.type === "return_cancel" && (
                     <div className="space-y-3 border-t border-border/60 pt-3">
-                      <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-200">
-                        Cancellation and credit notes are created in ERPNext only. Cosmo OS does not create credit notes.
-                        Use the button below to open the Sales Invoice in ERPNext, cancel it there, and mark this request as processed.
-                      </div>
                       {!selected.erpAdminInvoiceUrl && (
                         <p className="text-amber-700 text-sm dark:text-amber-300">
                           ERP Sales Invoice link is unavailable. Open ERPNext manually using invoice{" "}
