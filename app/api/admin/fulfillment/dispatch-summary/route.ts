@@ -62,14 +62,23 @@ function resolveDateRange(from: string | null, to: string | null): DateRange | n
 function dispatchSummaryFileSuffix(
   status: "pending" | "completed",
   range: DateRange | null,
+  dispatcherName?: string,
 ): string {
+  const dispatcherSuffix = dispatcherName
+    ? `-${dispatcherName
+        .replace(/[^a-zA-Z0-9_ -]/g, "")
+        .trim()
+        .replace(/\s+/g, "-")
+        .toLowerCase()}`
+    : "";
   if (!range) {
-    return status === "pending" ? "pending-all" : "all";
+    return `${status === "pending" ? "pending-all" : "all"}${dispatcherSuffix}`;
   }
-  if (status === "pending") return `pending-${range.dateFrom}`;
-  return range.dateFrom === range.dateTo
+  if (status === "pending") return `pending-${range.dateFrom}${dispatcherSuffix}`;
+  const rangeSuffix = range.dateFrom === range.dateTo
     ? range.dateFrom
     : `${range.dateFrom}_to_${range.dateTo}`;
+  return `${rangeSuffix}${dispatcherSuffix}`;
 }
 
 type DateRange = NonNullable<ReturnType<typeof parseDateRange>>;
@@ -321,17 +330,22 @@ export async function POST(request: NextRequest) {
     dateTo?: string;
     status?: string;
     format?: string;
+    dispatcherName?: string;
   };
 
   const status = body.status === "completed" ? "completed" : "pending";
   const format = body.format === "csv" ? "csv" : body.format === "xlsx" ? "xlsx" : "pdf";
   const range = resolveDateRange(body.dateFrom ?? null, body.dateTo ?? null);
+  const dispatcherName = body.dispatcherName?.trim();
 
-  const { groups } = await fetchDispatchGroups(companyId, status, range);
+  const data = await fetchDispatchGroups(companyId, status, range);
+  const groups = dispatcherName
+    ? data.groups.filter((group) => group.dispatcherName === dispatcherName)
+    : data.groups;
   if (groups.length === 0)
     return NextResponse.json({ error: "No dispatches found." }, { status: 404 });
 
-  const fileSuffix = dispatchSummaryFileSuffix(status, range);
+  const fileSuffix = dispatchSummaryFileSuffix(status, range, dispatcherName);
 
   const headers = [
     "company_group",
