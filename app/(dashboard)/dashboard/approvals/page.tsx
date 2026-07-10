@@ -14,6 +14,7 @@ import {
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   parseReturnCancelApprovalNote,
   reconcilePendingApprovalsForVoidedOrders,
+  resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -22,7 +23,17 @@ import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
-async function fetchInitialApprovals(companyId: string): Promise<FinanceApprovalItem[]> {
+async function fetchInitialApprovals(
+  companyId: string,
+  financeLocationIds: string[] | null
+): Promise<FinanceApprovalItem[]> {
+  const locationFilter =
+    financeLocationIds === null
+      ? Prisma.empty
+      : financeLocationIds.length === 0
+        ? Prisma.sql`AND FALSE`
+        : Prisma.sql`AND COALESCE(o."companyLocationId", ort_order."companyLocationId") IN (${Prisma.join(financeLocationIds)})`;
+
   const rows = await prisma.$queryRaw<Array<{
     id: string;
     type: string;
@@ -87,6 +98,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
       LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
+      LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
       LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
       WHERE ar."companyId" = ${companyId}
@@ -100,6 +112,7 @@ async function fetchInitialApprovals(companyId: string): Promise<FinanceApproval
           ${ORDER_CANCEL_APPROVAL}
         )
         AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
+        ${locationFilter}
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC
@@ -150,11 +163,19 @@ export default async function FinanceApprovalsPage() {
   }
 
   const companyId = auth.context?.user?.companyId;
-  if (!companyId) return <PermissionDeniedCard message="No company associated with your account." />;
+  const userId = auth.context?.user?.id;
+  if (!companyId || !userId) {
+    return <PermissionDeniedCard message="No company associated with your account." />;
+  }
 
   await reconcilePendingApprovalsForVoidedOrders(companyId);
 
-  const approvals = await fetchInitialApprovals(companyId);
+  const financeLocationIds = await resolveViewerFinanceLocationIds(
+    userId,
+    companyId,
+    (auth.context?.roleNames as string[]) ?? []
+  );
+  const approvals = await fetchInitialApprovals(companyId, financeLocationIds);
   const canRevertPaid = hasPermission(auth.context!, "finance.hod.revert_paid_to_unpaid");
   return <FinanceApprovalsPanel initialApprovals={approvals} canRevertPaid={canRevertPaid} />;
 }

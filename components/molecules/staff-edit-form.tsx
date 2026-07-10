@@ -529,10 +529,10 @@ export function StaffEditForm({
         <>
           <div className="border-t pt-4">
             <p className="text-muted-foreground mb-1 text-sm font-medium">
-              Finance notification scope
+              Finance location scope
             </p>
             <p className="text-muted-foreground mb-3 text-xs">
-              Which company locations this user receives finance approval notifications for. Leave all unchecked to receive notifications for all locations.
+              Which company locations this user can see on Finance Approvals and in finance approval notifications. Leave all unchecked for all locations.
             </p>
           </div>
           <div className="flex flex-col gap-2">
