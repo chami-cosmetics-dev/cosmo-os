@@ -744,9 +744,23 @@ export function resolveOrderPaymentMop(
 export type CreateDeliveryPaymentEntryOptions = {
   /** Explicit ERP Mode of Payment name (finance invoice-complete / PE retry). */
   mopNameOverride?: string;
-  /** When true, throw if no MOP can be resolved (invoice complete / explicit retry). */
+  /** When true, throw if no MOP / SI / credentials (invoice complete / explicit retry). */
   requireMop?: boolean;
 };
+
+export type CreateDeliveryPaymentEntryResult = {
+  outcome: "created" | "already_paid" | "skipped";
+};
+
+function isUsableErpInvoiceId(value: string | null | undefined): value is string {
+  const id = value?.trim();
+  return Boolean(id && id !== "pending" && id !== "pending_approval");
+}
+
+/** Exported for unit tests — true when erpnextInvoiceId can be used for direct SI fetch. */
+export function isUsableErpSalesInvoiceId(value: string | null | undefined): boolean {
+  return isUsableErpInvoiceId(value);
+}
 
 export async function createDeliveryPaymentEntry(
   order: {
@@ -755,23 +769,25 @@ export async function createDeliveryPaymentEntry(
     sourceName: string | null;
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
+    erpnextInvoiceId?: string | null;
   },
   location: LocationWithErpInstance,
   completedAt: Date,
   options?: CreateDeliveryPaymentEntryOptions,
-): Promise<void> {
+): Promise<CreateDeliveryPaymentEntryResult> {
+  const requireStrict = Boolean(options?.requireMop || options?.mopNameOverride);
   const cfg = getErpConfig(location.erpnextInstance);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
-    if (options?.mopNameOverride) {
+    if (requireStrict) {
       throw new Error("ERPNext credentials are not configured for this location");
     }
-    return;
+    return { outcome: "skipped" };
   }
   if (!location.erpnextCompany) {
-    if (options?.mopNameOverride) {
+    if (requireStrict) {
       throw new Error("ERPNext company is not configured for this location");
     }
-    return;
+    return { outcome: "skipped" };
   }
 
   const isErpOrder = order.sourceName?.startsWith("erpnext") ?? false;
@@ -791,24 +807,30 @@ export async function createDeliveryPaymentEntry(
       throw new Error("No ERP payment mode matched for this order's payment method");
     }
     console.log(`[ERPNext] No delivery MOP matched for order ${order.name} — skipping PE`);
-    return;
+    return { outcome: "skipped" };
   }
 
-  // ERP2: order.name IS the invoice name — look up directly by document name
-  // Shopify/ERP1: look up by po_no (invoice was created by Vault OS with po_no = order name)
+  const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
   let invoice: { name: string; outstanding_amount: number; debit_to: string; customer: string } | null = null;
 
-  if (isErpOrder && order.name) {
-    const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]));
-    invoice = await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
-      cfg,
-      `/api/resource/Sales Invoice/${encodeURIComponent(order.name)}?fields=${fields}`,
-    );
-    if (!invoice) {
-      console.warn(`[ERPNext] Sales Invoice "${order.name}" not found in ERP — skipping delivery PE`);
-      return;
-    }
-  } else {
+  // Prefer canonical SI id (Shopify orders often have erpnextInvoiceId ≠ order.name / po_no).
+  if (isUsableErpInvoiceId(order.erpnextInvoiceId)) {
+    invoice =
+      (await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+        cfg,
+        `/api/resource/Sales Invoice/${encodeURIComponent(order.erpnextInvoiceId)}?fields=${fields}`,
+      )) ?? null;
+  }
+
+  if (!invoice && isErpOrder && order.name) {
+    invoice =
+      (await erpnextGet<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>(
+        cfg,
+        `/api/resource/Sales Invoice/${encodeURIComponent(order.name)}?fields=${fields}`,
+      )) ?? null;
+  }
+
+  if (!invoice) {
     const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
     const filters = encodeURIComponent(
       JSON.stringify([
@@ -817,23 +839,24 @@ export async function createDeliveryPaymentEntry(
         ["docstatus", "=", "1"],
       ]),
     );
-    const fields = encodeURIComponent(
-      JSON.stringify(["name", "outstanding_amount", "debit_to", "customer"]),
-    );
     const list = await erpnextGet<
       Array<{ name: string; outstanding_amount: number; debit_to: string; customer: string }>
     >(cfg, `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`);
+    invoice = list?.[0] ?? null;
+  }
 
-    if (!list || list.length === 0) {
-      console.warn(`[ERPNext] No submitted Sales Invoice for po_no="${orderPoNo}" — skipping delivery PE`);
-      return;
+  if (!invoice) {
+    const label = order.erpnextInvoiceId ?? order.name ?? order.shopifyOrderId;
+    if (requireStrict) {
+      throw new Error(`No submitted Sales Invoice found for order "${label}"`);
     }
-    invoice = list[0];
+    console.warn(`[ERPNext] No submitted Sales Invoice for "${label}" — skipping delivery PE`);
+    return { outcome: "skipped" };
   }
 
   if (invoice.outstanding_amount <= 0) {
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping delivery PE`);
-    return;
+    return { outcome: "already_paid" };
   }
 
   const mop = await erpnextGet<{
@@ -874,6 +897,7 @@ export async function createDeliveryPaymentEntry(
   });
 
   console.log(`[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName})`);
+  return { outcome: "created" };
 }
 
 /**
@@ -1127,20 +1151,31 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   },
   location: LocationWithErpInstance,
   paidAt: Date,
+  options?: { requirePe?: boolean },
 ): Promise<void> {
   if (order.financialStatus !== "paid") return;
 
+  const requirePe = Boolean(options?.requirePe);
   const cfg = getErpConfig(location.erpnextInstance);
-  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
-  if (!location.erpnextCompany) return;
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    if (requirePe) throw new Error("ERPNext credentials are not configured for this location");
+    return;
+  }
+  if (!location.erpnextCompany) {
+    if (requirePe) throw new Error("ERPNext company is not configured for this location");
+    return;
+  }
 
   const gateways = ([order.paymentGatewayPrimary, ...order.paymentGatewayNames] as (string | null)[])
     .filter((g): g is string => typeof g === "string" && g.length > 0);
   const mopName = resolvePrepaidMop(cfg, gateways);
-  if (!mopName) return;
+  if (!mopName) {
+    if (requirePe) {
+      throw new Error("No ERP prepaid payment mode matched for this order's payment method");
+    }
+    return;
+  }
 
-  // For ERP-native orders the SI name IS the erpnextInvoiceId — fetch it directly.
-  // For Shopify-synced orders fall back to po_no lookup (SI was created with po_no set).
   const erpId = order.erpnextInvoiceId?.trim();
   const directSiName =
     erpId && erpId !== "pending" && erpId !== "pending_approval"
@@ -1173,7 +1208,11 @@ export async function syncFinanceApprovedPrepaidPaymentToERPNext(
   }
 
   if (!invoice) {
-    console.warn(`[ERPNext] No Sales Invoice found for order "${order.name ?? order.shopifyOrderId}" — skipping finance-approved PE`);
+    const label = order.name ?? order.shopifyOrderId;
+    if (requirePe) {
+      throw new Error(`No Sales Invoice found for order "${label}" — cannot create finance-approved PE`);
+    }
+    console.warn(`[ERPNext] No Sales Invoice found for order "${label}" — skipping finance-approved PE`);
     return;
   }
 

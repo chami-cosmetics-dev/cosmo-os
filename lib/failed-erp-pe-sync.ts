@@ -11,6 +11,8 @@ import { prisma } from "@/lib/prisma";
 /** Stored when invoice-complete used order payment gateways (legacy label). */
 export const ERP_PE_SYNC_MOP_ORDER_AUTO = "order payment mode";
 
+export const ERP_PE_GAP_ERROR_PREFIX = "PE missing";
+
 function clampErrorMessage(message: string) {
   return formatFailedErpSyncErrorMessage(message).slice(0, 10_000);
 }
@@ -45,6 +47,87 @@ export function buildFailedErpPeSyncWhere(companyId?: string, search?: string): 
       },
     ],
   };
+}
+
+/** Candidates that may be silent PE gaps (no error row yet). */
+export function buildSilentErpPeGapCandidateWhere(
+  companyId: string,
+  search?: string,
+): Prisma.OrderWhereInput {
+  const base: Prisma.OrderWhereInput = {
+    companyId,
+    financialStatus: { not: "voided" },
+    fulfillmentStage: "invoice_complete",
+    erpPeSyncError: null,
+    erpnextInvoiceId: { not: null },
+    NOT: {
+      erpnextInvoiceId: { in: ["pending", "pending_approval"] },
+    },
+  };
+
+  const term = search?.trim();
+  if (!term) return base;
+
+  return {
+    AND: [
+      base,
+      {
+        OR: [
+          { orderNumber: { endsWith: term, mode: "insensitive" } },
+          { name: { endsWith: term, mode: "insensitive" } },
+          { erpnextInvoiceId: { endsWith: term, mode: "insensitive" } },
+          { shopifyOrderId: { contains: term, mode: "insensitive" } },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Probe ERP for invoice-complete orders with no PE failure row; seed erpPeSync*
+ * when SI still has outstanding so they appear on the Failed PE tab.
+ */
+export async function seedSilentErpPeGaps(companyId: string, limit = 15): Promise<number> {
+  const candidates = await prisma.order.findMany({
+    where: buildSilentErpPeGapCandidateWhere(companyId),
+    orderBy: { invoiceCompleteAt: "desc" },
+    take: limit,
+    include: { companyLocation: { include: { erpnextInstance: true } } },
+  });
+
+  let seeded = 0;
+  for (const order of candidates) {
+    if (!order.companyLocation?.erpnextInstance || !order.erpnextInvoiceId) continue;
+    try {
+      const cfg = getErpConfig(order.companyLocation.erpnextInstance);
+      if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) continue;
+      const fields = encodeURIComponent(JSON.stringify(["name", "outstanding_amount"]));
+      const res = await fetch(
+        `${cfg.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice/${encodeURIComponent(order.erpnextInvoiceId)}?fields=${fields}`,
+        { headers: { Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}` } },
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as { data?: { outstanding_amount?: number } };
+      const outstanding = Number(json.data?.outstanding_amount ?? 0);
+      if (outstanding <= 0) continue;
+
+      const mop =
+        resolveOrderPaymentMop(
+          cfg,
+          order.paymentGatewayPrimary,
+          order.paymentGatewayNames,
+        ) ?? ERP_PE_SYNC_MOP_ORDER_AUTO;
+      await markOrderErpPeSyncFailed(
+        order.id,
+        `${ERP_PE_GAP_ERROR_PREFIX} — Sales Invoice ${order.erpnextInvoiceId} still has outstanding ${outstanding}`,
+        mop,
+      );
+      seeded += 1;
+    } catch (err) {
+      console.warn("[ERP PE gap scan] failed for order", order.id, err);
+    }
+  }
+  return seeded;
 }
 
 export async function markOrderErpPeSyncFailed(
@@ -106,6 +189,8 @@ export async function retryOrderErpPeSync(input: {
   companyId: string;
   /** Explicit ERP MOP for this retry (from stored failure or optional override). */
   mopName: string;
+  /** Allow repair for invoice_complete orders even before an error row exists. */
+  allowWithoutPriorError?: boolean;
 }) {
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, companyId: input.companyId },
@@ -114,7 +199,10 @@ export async function retryOrderErpPeSync(input: {
   if (!order?.companyLocation) {
     throw new Error("Order or company location not found");
   }
-  if (!order.erpPeSyncError) {
+  if (order.fulfillmentStage !== "invoice_complete") {
+    throw new Error("Order must be invoice complete to retry ERP payment entry");
+  }
+  if (!order.erpPeSyncError && !input.allowWithoutPriorError) {
     throw new Error("No failed ERP payment entry on this order");
   }
 
@@ -130,6 +218,7 @@ export async function retryOrderErpPeSync(input: {
       sourceName: order.sourceName,
       paymentGatewayPrimary: order.paymentGatewayPrimary,
       paymentGatewayNames: order.paymentGatewayNames,
+      erpnextInvoiceId: order.erpnextInvoiceId,
     },
     order.companyLocation,
     new Date(),

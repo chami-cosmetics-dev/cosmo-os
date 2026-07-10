@@ -335,7 +335,9 @@ export async function runPostApprovalErpSync(orderId: string, paidAt: Date = new
     throw new Error("Order or company location not found");
   }
 
-  await syncFinanceApprovedPrepaidPaymentToERPNext(orderAfter, orderAfter.companyLocation, paidAt);
+  await syncFinanceApprovedPrepaidPaymentToERPNext(orderAfter, orderAfter.companyLocation, paidAt, {
+    requirePe: true,
+  });
 }
 
 async function claimDueFailedErpSyncs(companyId: string | null, limit: number) {

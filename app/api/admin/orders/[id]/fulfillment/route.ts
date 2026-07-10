@@ -983,6 +983,7 @@ export async function PATCH(
       return NextResponse.json({
         success: true,
         ...(outcome.erpPeError ? { erpPeError: outcome.erpPeError } : {}),
+        ...(outcome.peStatus ? { peStatus: outcome.peStatus } : {}),
       });
     }
 
