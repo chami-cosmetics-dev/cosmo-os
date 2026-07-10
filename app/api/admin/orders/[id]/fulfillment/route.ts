@@ -314,7 +314,8 @@ export async function PATCH(
   }
 
   const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
-  if (erpOutOfStockBlock) {
+  // cancel_order is exempt — no ERP SI exists for out-of-stock orders, so it's OS→Shopify only
+  if (erpOutOfStockBlock && parsed.data.action !== "cancel_order") {
     return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
   }
 
