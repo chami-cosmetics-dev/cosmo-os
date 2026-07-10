@@ -15,6 +15,7 @@ import {
   reconcilePendingDeliveryApprovalsForCourierOrders,
   reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
   reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
+  resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -33,9 +34,16 @@ export async function GET() {
   }
 
   const companyId = auth.context?.user?.companyId;
-  if (!companyId) {
+  const userId = auth.context?.user?.id;
+  if (!companyId || !userId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
+
+  const financeLocationIds = await resolveViewerFinanceLocationIds(
+    userId,
+    companyId,
+    (auth.context?.roleNames as string[]) ?? []
+  );
 
   await Promise.all([
     reconcilePendingApprovalsForVoidedOrders(companyId),
@@ -43,6 +51,13 @@ export async function GET() {
     reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
     reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),
   ]);
+
+  const locationFilter =
+    financeLocationIds === null
+      ? Prisma.empty
+      : financeLocationIds.length === 0
+        ? Prisma.sql`AND FALSE`
+        : Prisma.sql`AND COALESCE(o."companyLocationId", ort_order."companyLocationId") IN (${Prisma.join(financeLocationIds)})`;
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;
@@ -110,6 +125,7 @@ export async function GET() {
       LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
+      LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
       LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
       WHERE ar."companyId" = ${companyId}
@@ -123,6 +139,7 @@ export async function GET() {
           ${ORDER_CANCEL_APPROVAL}
         )
         AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
+        ${locationFilter}
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC

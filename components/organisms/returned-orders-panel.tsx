@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
 import type { ReturnsTrackingData, ReturnTrackingItem } from "@/lib/page-data/order-returns";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
@@ -118,6 +119,27 @@ function financeRevertSubStatus(item: ReturnTrackingItem) {
   return "Refunded — item not yet returned to store";
 }
 
+function ReturnInvoiceRefs({ item }: { item: ReturnTrackingItem }) {
+  const refs = formatInvoiceOrderReference({
+    name: item.orderName,
+    orderNumber: item.orderNumber,
+    shopifyOrderId: item.shopifyOrderId,
+    erpnextInvoiceId: item.erpnextInvoiceId,
+    sourceName: item.sourceName,
+  });
+
+  if (!refs.showBoth) {
+    return <span>{refs.shopifyRef ?? refs.erpRef ?? item.invoiceNo}</span>;
+  }
+
+  return (
+    <div className="flex flex-col leading-tight">
+      <span>{refs.shopifyRef}</span>
+      <span className="text-xs font-normal text-muted-foreground">{refs.erpRef}</span>
+    </div>
+  );
+}
+
 export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
   const searchParams = useSearchParams();
   const appliedDeepLinkRef = useRef<string | null>(null);
@@ -187,6 +209,10 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       if (!query) return true;
       return [
         item.invoiceNo,
+        item.orderName,
+        item.orderNumber,
+        item.shopifyOrderId,
+        item.erpnextInvoiceId,
         item.customerName,
         item.customerEmail,
         item.customerPhone,
@@ -785,7 +811,9 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     const badge = actionTypeBadge(item);
                     return (
                       <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
-                        <td className="px-3 py-3 font-medium">{item.invoiceNo}</td>
+                        <td className="px-3 py-3 font-medium">
+                          <ReturnInvoiceRefs item={item} />
+                        </td>
                         <td className="px-3 py-3">{item.merchant ?? "-"}</td>
                         <td className="px-3 py-3">{item.riderName ?? item.shippingService}</td>
                         <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
@@ -813,7 +841,16 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
             <Card className="border-border/70">
               <CardHeader>
                 <CardTitle>Return Action</CardTitle>
-                <CardDescription>{selected ? `${selected.invoiceNo} | ${selected.customerPhone ?? "No phone"}` : "Select a returned order"}</CardDescription>
+                <CardDescription>
+                  {selected ? (
+                    <div className="flex flex-col gap-1">
+                      <ReturnInvoiceRefs item={selected} />
+                      <span className="text-muted-foreground">{selected.customerPhone ?? "No phone"}</span>
+                    </div>
+                  ) : (
+                    "Select a returned order"
+                  )}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {selected ? (
