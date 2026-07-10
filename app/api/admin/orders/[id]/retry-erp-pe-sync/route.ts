@@ -52,7 +52,10 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
   if (!order.erpPeSyncError) {
-    return NextResponse.json({ error: "No failed ERP payment entry on this order" }, { status: 400 });
+    if (order.fulfillmentStage !== "invoice_complete") {
+      return NextResponse.json({ error: "No failed ERP payment entry on this order" }, { status: 400 });
+    }
+    // Allow repair of silent gaps (invoice complete, no error row yet).
   }
 
   const mopOverride = parsed.data.modeOfPayment?.trim();
@@ -76,6 +79,7 @@ export async function POST(
       orderId: order.id,
       companyId,
       mopName,
+      allowWithoutPriorError: !order.erpPeSyncError,
     });
     return NextResponse.json({ ok: true, message: "ERP payment entry created" });
   } catch (err) {

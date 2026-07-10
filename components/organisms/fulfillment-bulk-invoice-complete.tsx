@@ -221,6 +221,9 @@ export function FulfillmentBulkInvoiceComplete({
         if (data.erpPeError) {
           notify.info(`Invoice complete for ${ref}. ERP PE failed — check Failed ERP Syncs → Payment Entry.`);
           setResults([{ orderId: order.id, ref, success: true, erpPeError: data.erpPeError }]);
+        } else if ((data as { peStatus?: string }).peStatus === "already_paid") {
+          notify.success(`Invoice complete for ${ref}. ERP Sales Invoice was already paid.`);
+          setSelectedOrders((prev) => prev.filter((o) => o.id !== order.id));
         } else {
           notify.success(`Invoice complete for ${ref}. ERP payment entry created.`);
           setSelectedOrders((prev) => prev.filter((o) => o.id !== order.id));

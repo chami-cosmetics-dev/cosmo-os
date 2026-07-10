@@ -24,6 +24,13 @@ export type MarkOrderDeliveredResult =
     }
   | { success: false; ref: string; error: string };
 
+/**
+ * Mark dispatched → delivery_complete.
+ *
+ * Flow A (finance-approved prepaid): already invoice-complete + PE at approval, then print→…→deliver.
+ *   On deliver, close fulfillment stage to invoice_complete (PE usually already paid).
+ * Flow B (normal): stay delivery_complete so staff use /fulfillment/invoice-complete manually.
+ */
 export async function markOrderDelivered(input: {
   companyId: string;
   orderId: string;
@@ -86,36 +93,24 @@ export async function markOrderDelivered(input: {
   });
 
   let afterStage: FulfillmentStage = "delivery_complete";
-  const needsPaymentApproval = postDelivery.kind === "awaiting_finance";
+  let needsPaymentApproval = false;
 
-  if (postDelivery.kind === "awaiting_finance") {
-    await triggerDeliveryPaymentApprovalIfNeeded({
+  if (postDelivery.kind === "close_invoice_complete") {
+    // Finance path: invoice complete + PE already done at approval — close stage after delivery.
+    await markOrderInvoiceComplete({
+      companyId: input.companyId,
+      orderId: order.id,
+      userId: postDelivery.financeUserId || input.userId,
+    });
+    afterStage = "invoice_complete";
+  } else {
+    // Normal path: remain on invoice-complete queue for manual action.
+    const deliveryApproval = await triggerDeliveryPaymentApprovalIfNeeded({
       companyId: input.companyId,
       orderId: order.id,
       requestedById: input.userId,
     });
-  }
-
-  if (postDelivery.kind === "invoice_complete") {
-    if (postDelivery.createPe) {
-      // WebXPay auto-complete: delegate to markOrderInvoiceComplete so a PE is created in ERP.
-      await markOrderInvoiceComplete({
-        companyId: input.companyId,
-        orderId: order.id,
-        userId: postDelivery.financeUserId || input.userId,
-      });
-    } else {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          ...orderStageUpdate("invoice_complete", now),
-          fulfillmentStatus: "fulfilled",
-          invoiceCompleteAt: now,
-          invoiceCompleteById: postDelivery.financeUserId,
-        },
-      });
-    }
-    afterStage = "invoice_complete";
+    needsPaymentApproval = Boolean(deliveryApproval);
   }
 
   sendOrderSms(input.companyId, order.id, "delivery_complete", {
@@ -135,9 +130,9 @@ export async function markOrderDelivered(input: {
     entityId: order.id,
     summary:
       afterStage === "invoice_complete"
-        ? `Marked order ${orderNum} as delivered — invoice complete (finance payment approval)`
+        ? `Marked order ${orderNum} as delivered — closed invoice complete (finance path)`
         : needsPaymentApproval
-          ? `Marked order ${orderNum} as delivered — awaiting finance invoice complete`
+          ? `Marked order ${orderNum} as delivered — awaiting manual invoice complete`
           : `Marked order ${orderNum} as delivered`,
     beforeData: { fulfillmentStage: order.fulfillmentStage },
     afterData: { fulfillmentStage: afterStage },

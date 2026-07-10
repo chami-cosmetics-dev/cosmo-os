@@ -28,6 +28,10 @@ import {
   markOrderErpSyncFailed,
   runPostApprovalErpSync,
 } from "@/lib/failed-erp-sync-auto-retry";
+import {
+  ERP_PE_SYNC_MOP_ORDER_AUTO,
+  markOrderErpPeSyncFailed,
+} from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export const dynamic = "force-dynamic";
@@ -201,30 +205,36 @@ export async function PATCH(
 
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
-        // Bank / KOKO / WebXPay: invoice is financially complete at approval; advance to print queue for physical fulfillment.
-        await tx.order.update({
+        const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },
-          data: {
-            financialStatus: "paid",
-            ...orderStageUpdate("print", now),
-            sampleFreeIssueCompleteAt: now,
-            sampleFreeIssueCompleteById: reviewerId,
-            invoiceCompleteAt: now,
-            invoiceCompleteById: reviewerId,
-          },
+          select: { fulfillmentStage: true },
         });
+        // Already fully invoice-complete: keep stage (do not re-queue via print).
+        if (orderForStage?.fulfillmentStage === "invoice_complete") {
+          await tx.order.update({
+            where: { id: approval.orderId! },
+            data: { financialStatus: "paid" },
+          });
+        } else {
+          // Finance-approval orders: mark invoice complete + paid, create PE (post-tx),
+          // then go to print and continue fulfillment (dispatch/deliver).
+          await tx.order.update({
+            where: { id: approval.orderId! },
+            data: {
+              financialStatus: "paid",
+              ...orderStageUpdate("print", now),
+              sampleFreeIssueCompleteAt: now,
+              sampleFreeIssueCompleteById: reviewerId,
+              invoiceCompleteAt: now,
+              invoiceCompleteById: reviewerId,
+            },
+          });
+        }
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
+        // Door-collection confirm: paid only — invoice complete stays manual on the queue.
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: isPaymentReapproval
-            ? { financialStatus: "paid" }
-            : {
-                financialStatus: "paid",
-                ...orderStageUpdate("invoice_complete", now),
-                fulfillmentStatus: "fulfilled",
-                invoiceCompleteAt: now,
-                invoiceCompleteById: reviewerId,
-              },
+          data: { financialStatus: "paid" },
         });
       } else if (approval.type === INVOICE_REVERT_VOID_APPROVAL) {
         await tx.order.update({
@@ -260,22 +270,27 @@ export async function PATCH(
           where: { id: approval.orderId! },
           select: { fulfillmentStage: true },
         });
-        // Post-delivery orders (delivery_complete) go to invoice_complete, not back to print.
-        const isPostDelivery = orderForStage?.fulfillmentStage === "delivery_complete";
-        const stageData = isPostDelivery
-          ? {
-              ...orderStageUpdate("invoice_complete", now),
-              fulfillmentStatus: "fulfilled",
-              invoiceCompleteAt: now,
-              invoiceCompleteById: reviewerId,
-            }
-          : {
-              ...orderStageUpdate("print", now),
-              sampleFreeIssueCompleteAt: now,
-              sampleFreeIssueCompleteById: reviewerId,
-              invoiceCompleteAt: now,
-              invoiceCompleteById: reviewerId,
-            };
+        const stage = orderForStage?.fulfillmentStage;
+        // Already at fulfillment invoice_complete: keep stage.
+        // At delivery_complete: close invoice complete (prepaid change after deliver).
+        // Earlier: print + mark invoice complete financially, continue fulfillment (Flow 1).
+        const stageData =
+          stage === "invoice_complete"
+            ? {}
+            : stage === "delivery_complete"
+              ? {
+                  ...orderStageUpdate("invoice_complete", now),
+                  fulfillmentStatus: "fulfilled" as const,
+                  invoiceCompleteAt: now,
+                  invoiceCompleteById: reviewerId,
+                }
+              : {
+                  ...orderStageUpdate("print", now),
+                  sampleFreeIssueCompleteAt: now,
+                  sampleFreeIssueCompleteById: reviewerId,
+                  invoiceCompleteAt: now,
+                  invoiceCompleteById: reviewerId,
+                };
         await tx.order.update({
           where: { id: approval.orderId! },
           data: {
@@ -462,7 +477,13 @@ export async function PATCH(
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] post-approval sync failed:", errMsg);
-      await markOrderErpSyncFailed(approval.orderId, errMsg);
+      const isPeFailure =
+        /payment entry|payment mode|Sales Invoice|Mode of Payment|prepaid/i.test(errMsg);
+      if (isPeFailure) {
+        await markOrderErpPeSyncFailed(approval.orderId, errMsg, ERP_PE_SYNC_MOP_ORDER_AUTO);
+      } else {
+        await markOrderErpSyncFailed(approval.orderId, errMsg);
+      }
       erpSyncFailed = true;
       erpSyncError = errMsg;
     }
@@ -486,6 +507,7 @@ export async function PATCH(
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           console.error("[ERPNext] bank transfer PE failed:", errMsg);
+          await markOrderErpPeSyncFailed(approval.orderId, errMsg, "bank_transfer");
           erpSyncFailed = true;
           erpSyncError = errMsg;
         }
@@ -505,10 +527,15 @@ export async function PATCH(
     });
     if (order?.companyLocation) {
       try {
-        await createDeliveryPaymentEntry(order, order.companyLocation, now);
+        await createDeliveryPaymentEntry(order, order.companyLocation, now, { requireMop: true });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error("[ERPNext] delivery payment approval PE failed:", errMsg);
+        await markOrderErpPeSyncFailed(
+          order.id,
+          errMsg,
+          order.paymentGatewayPrimary ?? ERP_PE_SYNC_MOP_ORDER_AUTO,
+        );
         erpSyncFailed = true;
         erpSyncError = errMsg;
       }
