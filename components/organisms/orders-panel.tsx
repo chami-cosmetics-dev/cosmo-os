@@ -747,6 +747,7 @@ export function OrdersPanel({
                           <div className="flex flex-col gap-1">
                             {getOrderListFulfillmentStageBadges({
                               fulfillmentStage: order.fulfillmentStage,
+                              financialStatus: order.financialStatus,
                               pendingPaymentApproval: order.pendingPaymentApproval,
                               totalPrice: order.totalPrice,
                               printCount: order.printCount,
