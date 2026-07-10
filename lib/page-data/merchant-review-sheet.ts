@@ -19,6 +19,7 @@ export type MerchantReviewQueueItem = {
   totalPrice: string;
   currency: string | null;
   createdAt: string;
+  deliveryCompleteAt: string;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   reviewMerchant: { id: string; name: string };
   reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
@@ -116,7 +117,6 @@ function resolveReviewMerchant(input: {
     sourceName: input.sourceName,
     discountCodes: input.discountCodes,
     rawPayload: input.rawPayload,
-    joinAllDiscountCodes: true,
   });
   const merchantCoupons = (merchantCouponCode ?? "")
     .split(",")
@@ -217,6 +217,8 @@ export async function fetchMerchantReviewSheetData(input: {
   const startedAt = Date.now();
   const where: Prisma.OrderWhereInput = {
     companyId: input.companyId,
+    deliveryCompleteAt: { not: null },
+    sourceName: { notIn: ["pos", "erpnext-pos"] },
   };
 
   const [usersWithCoupons, orders] = await Promise.all([
@@ -234,6 +236,7 @@ export async function fetchMerchantReviewSheetData(input: {
         totalPrice: true,
         currency: true,
         createdAt: true,
+        deliveryCompleteAt: true,
         customerEmail: true,
         customerPhone: true,
         shippingAddress: true,
@@ -268,6 +271,7 @@ export async function fetchMerchantReviewSheetData(input: {
       totalPrice: order.totalPrice.toString(),
       currency: order.currency,
       createdAt: order.createdAt.toISOString(),
+      deliveryCompleteAt: order.deliveryCompleteAt!.toISOString(),
       assignedMerchant: order.assignedMerchant,
       reviewMerchant,
       reviewStatus: review?.reviewStatus ?? "pending",
@@ -294,12 +298,12 @@ export async function fetchMerchantReviewSheetData(input: {
   });
   const defaultDateRange = getDefaultOrderDateRange();
   const hasViewerPendingOrders = items.some((item) => {
-    const orderDate = formatDateInTimeZone(new Date(item.createdAt), ORDER_DATE_TIME_ZONE);
+    const deliveryCompleteDate = formatDateInTimeZone(new Date(item.deliveryCompleteAt), ORDER_DATE_TIME_ZONE);
     return (
       item.reviewMerchant.id === input.viewerUserId &&
       item.reviewStatus === "pending" &&
-      orderDate >= defaultDateRange.from &&
-      orderDate <= defaultDateRange.to
+      deliveryCompleteDate >= defaultDateRange.from &&
+      deliveryCompleteDate <= defaultDateRange.to
     );
   });
   const defaultMerchantFilter = hasViewerPendingOrders ? input.viewerUserId : "__all";
