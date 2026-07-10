@@ -70,6 +70,7 @@ export async function processOrderWebhook(
       invoiceCompleteAt: true,
       companyLocationId: true,
       erpnextInvoiceId: true,
+      financialStatus: true,
     },
   });
 
@@ -187,10 +188,6 @@ export async function processOrderWebhook(
   // When we cancel via the API we set financialStatus="voided"; Shopify may then
   // fire an orders/updated webhook still carrying financial_status="paid", which
   // would silently overwrite our voided status and make the order reappear.
-  const existingOrder = await prisma.order.findUnique({
-    where: { shopifyOrderId: String(data.id) },
-    select: { financialStatus: true },
-  });
   const isAlreadyVoided = existingOrder?.financialStatus?.toLowerCase() === "voided";
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
