@@ -77,14 +77,39 @@ export async function createNotification(input: NotificationInput) {
   );
 }
 
+/**
+ * Location IDs the viewer may see for finance approvals/notifications.
+ * `null` = unrestricted (admin/super_admin, or no UserFinanceScope rows = all locations).
+ */
+export async function resolveViewerFinanceLocationIds(
+  userId: string,
+  companyId: string,
+  roleNames: string[]
+): Promise<string[] | null> {
+  if (roleNames.includes("admin") || roleNames.includes("super_admin")) {
+    return null;
+  }
+  const scopes = await prisma.$queryRaw<Array<{ locationId: string }>>(
+    Prisma.sql`
+      SELECT "locationId"
+      FROM "UserFinanceScope"
+      WHERE "userId" = ${userId}
+        AND "companyId" = ${companyId}
+    `
+  );
+  if (scopes.length === 0) return null;
+  return scopes.map((s) => s.locationId);
+}
+
 export async function getFinanceApprovalUsers(companyId: string, locationId?: string | null) {
   // When locationId is provided, include users who:
   //   a) have a UserFinanceScope row for this location, OR
   //   b) have NO UserFinanceScope rows at all (company-wide fallback), OR
   //   c) are admin/super_admin (always receive all).
-  // If the scoped query returns 0 users, fall through to company-wide.
+  // Do not fall through to company-wide when empty — that would re-include
+  // users scoped to other locations only.
   if (locationId) {
-    const scoped = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
+    return prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
       Prisma.sql`
         SELECT DISTINCT u."id", u."email"
         FROM "User" u
@@ -104,11 +129,9 @@ export async function getFinanceApprovalUsers(companyId: string, locationId?: st
           )
       `
     );
-    if (scoped.length > 0) return scoped;
-    // Nobody configured for this location — fall through to company-wide
   }
 
-  const rows = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
+  return prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
     Prisma.sql`
       SELECT DISTINCT u."id", u."email"
       FROM "User" u
@@ -123,7 +146,6 @@ export async function getFinanceApprovalUsers(companyId: string, locationId?: st
         )
     `
   );
-  return rows;
 }
 
 export async function getFinanceApprovalUserIds(companyId: string, locationId?: string | null) {

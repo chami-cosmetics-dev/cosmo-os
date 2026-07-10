@@ -12,6 +12,7 @@ import {
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
   notifyApprovalRequester,
+  resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
@@ -75,6 +76,7 @@ export async function PATCH(
     orderName: string | null;
     orderNumber: string | null;
     shopifyOrderId: string | null;
+    companyLocationId: string | null;
   }>>(
     Prisma.sql`
       SELECT
@@ -88,9 +90,12 @@ export async function PATCH(
         (o."id" IS NOT NULL) AS "orderLinked",
         o."name" AS "orderName",
         o."orderNumber",
-        o."shopifyOrderId"
+        o."shopifyOrderId",
+        COALESCE(o."companyLocationId", ort_order."companyLocationId") AS "companyLocationId"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
+      LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
+      LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       WHERE ar."id" = ${id}
         AND ar."companyId" = ${companyId}
       LIMIT 1
@@ -100,6 +105,22 @@ export async function PATCH(
   if (!approval) {
     return NextResponse.json({ error: "Approval request not found" }, { status: 404 });
   }
+
+  const financeLocationIds = await resolveViewerFinanceLocationIds(
+    reviewerId,
+    companyId,
+    (auth.context?.roleNames as string[]) ?? []
+  );
+  if (
+    financeLocationIds !== null &&
+    (!approval.companyLocationId || !financeLocationIds.includes(approval.companyLocationId))
+  ) {
+    return NextResponse.json(
+      { error: "This approval is outside your finance notification scope" },
+      { status: 403 }
+    );
+  }
+
   if (approval.status !== "pending") {
     return NextResponse.json({ error: "Approval request is already reviewed" }, { status: 400 });
   }
