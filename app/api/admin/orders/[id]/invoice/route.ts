@@ -374,6 +374,19 @@ export async function GET(
     return `Rs ${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
   }
 
+  function parseMoney(value: unknown) {
+    const cleaned = String(value || "").replace(/[^0-9.-]/g, "");
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  function formatMoney(value: number) {
+    return `Rs ${Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
   const [printFormat, files] = await Promise.all([
     Promise.resolve(loc.defaultOrderPrintFormat),
     prisma.file.findMany({
@@ -429,6 +442,10 @@ export async function GET(
     quantity: sample.quantity,
   }));
 
+  const discountTotal = renderedLineItems.reduce((sum, item) => {
+    return sum + parseMoney(item.discountFormatted);
+  }, 0);
+
   const context = {
     company: {
       name: companyName,
@@ -476,6 +493,8 @@ export async function GET(
       productTotal,
       shippingTotal,
       grandTotal,
+      discountTotal,
+      discountTotalFormatted: `- ${formatMoney(discountTotal)}`,
       productTotalFormatted: formatInvoiceMoney(productTotal),
       shippingTotalFormatted: formatInvoiceMoney(shippingTotal),
       grandTotalFormatted: formatInvoiceMoney(grandTotal),
