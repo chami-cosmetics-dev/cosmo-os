@@ -183,10 +183,19 @@ export async function processOrderWebhook(
     paymentGatewayNames: paymentGateways.names,
   });
 
+  // Don't let Shopify webhooks un-cancel an order we've already voided.
+  // When we cancel via the API we set financialStatus="voided"; Shopify may then
+  // fire an orders/updated webhook still carrying financial_status="paid", which
+  // would silently overwrite our voided status and make the order reappear.
+  const existingOrder = await prisma.order.findUnique({
+    where: { shopifyOrderId: String(data.id) },
+    select: { financialStatus: true },
+  });
+  const isAlreadyVoided = existingOrder?.financialStatus?.toLowerCase() === "voided";
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
     create: orderData,
-    update: orderData,
+    update: isAlreadyVoided ? { ...orderData, financialStatus: "voided" } : orderData,
   });
   if (isNewOrder && requiresApproval) {
     // Mark as pending_approval so ERP sync is skipped until finance approves
