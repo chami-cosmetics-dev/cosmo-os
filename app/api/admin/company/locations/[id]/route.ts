@@ -148,8 +148,8 @@ export async function PATCH(
       shopifyShopName: toOpt(d.shopifyShopName),
       shopifyAdminStoreHandle: toOpt(d.shopifyAdminStoreHandle),
       locationReference: toOpt(d.locationReference),
-      defaultMerchantUserId: d.defaultMerchantUserId ?? null,
-      defaultOrderPrintFormatId: d.defaultOrderPrintFormatId ?? null,
+      ...(d.defaultMerchantUserId !== undefined && { defaultMerchantUserId: d.defaultMerchantUserId }),
+      ...(d.defaultOrderPrintFormatId !== undefined && { defaultOrderPrintFormatId: d.defaultOrderPrintFormatId }),
       ...(d.manualInvoicePrefix !== undefined && {
         manualInvoicePrefix:
           d.manualInvoicePrefix === null || d.manualInvoicePrefix === ""
@@ -161,7 +161,7 @@ export async function PATCH(
       }),
       erpnextCompany: toOpt(d.erpnextCompany ?? undefined),
       erpnextWarehouse: toOpt(d.erpnextWarehouse ?? undefined),
-      erpnextInstanceId: d.erpnextInstanceId ?? null,
+      ...(d.erpnextInstanceId !== undefined && { erpnextInstanceId: d.erpnextInstanceId }),
       ...(d.fulfillmentBlocked !== undefined && { fulfillmentBlocked: d.fulfillmentBlocked }),
       ...(d.isMainCompany !== undefined && { isMainCompany: d.isMainCompany }),
     },

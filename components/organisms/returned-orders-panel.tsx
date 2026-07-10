@@ -947,7 +947,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                           : selected.actionType === "cancel"
                             ? selected.actionStatus === "pending"
                               ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
-                              : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
+                              : "Cancel request processed. Order voids automatically when ERPNext posts the credit note."
                             : selected.actionType === "rearrange"
                               ? selected.actionStatus === "pending"
                                 ? "Rearrange is awaiting finance approval."
