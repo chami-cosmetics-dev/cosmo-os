@@ -78,10 +78,11 @@ export async function createNotification(input: NotificationInput) {
 }
 
 export async function getFinanceApprovalUsers(companyId: string, locationId?: string | null) {
-  // When a locationId is supplied, prefer finance users assigned to that location.
-  // Included: users with ep.locationId = locationId, users with ep.locationId IS NULL
-  // (company-wide), and admins/super_admins regardless of their profile.
-  // Fallback: if no users match at all, retry without location filter.
+  // When locationId is provided, include users who:
+  //   a) have a UserFinanceScope row for this location, OR
+  //   b) have NO UserFinanceScope rows at all (company-wide fallback), OR
+  //   c) are admin/super_admin (always receive all).
+  // If the scoped query returns 0 users, fall through to company-wide.
   if (locationId) {
     const scoped = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
       Prisma.sql`
@@ -91,15 +92,14 @@ export async function getFinanceApprovalUsers(companyId: string, locationId?: st
         JOIN "Role" r ON r."id" = ur."roleId"
         LEFT JOIN "RolePermission" rp ON rp."roleId" = ur."roleId"
         LEFT JOIN "Permission" p ON p."id" = rp."permissionId"
-        LEFT JOIN "EmployeeProfile" ep ON ep."userId" = u."id"
         WHERE u."companyId" = ${companyId}
           AND (
             p."key" = ${FINANCE_APPROVAL_PERMISSION}
             OR r."name" IN ('admin', 'super_admin')
           )
           AND (
-            ep."locationId" = ${locationId}
-            OR ep."locationId" IS NULL
+            EXISTS (SELECT 1 FROM "UserFinanceScope" ufs WHERE ufs."userId" = u."id" AND ufs."locationId" = ${locationId})
+            OR NOT EXISTS (SELECT 1 FROM "UserFinanceScope" ufs2 WHERE ufs2."userId" = u."id" AND ufs2."companyId" = ${companyId})
             OR r."name" IN ('admin', 'super_admin')
           )
       `

@@ -68,6 +68,7 @@ model Company {
   erpnextInstances         ErpnextInstance[]
   pickListGroups           PickListGroup[]
   ogfEmailLogs             OgfEmailLog[]
+  financeScopes            UserFinanceScope[]
 }
 
 model PrintFormat {
@@ -331,6 +332,7 @@ model User {
   // Call center performance tracking: records updates made by this merchant user
   contactAllocationUpdates        ContactAllocationUpdate[]
   pickListGroupsPrinted           PickListGroup[]         @relation("PickListGroupPrintedBy")
+  financeScopes                   UserFinanceScope[]
 }
 
 model CosmoAcademyExplanation {
@@ -462,9 +464,25 @@ model CompanyLocation {
   smsNotificationConfigs  SmsNotificationConfig[]
   shippingChargeOptions        ShippingChargeOption[]
   erpWarehouses                CompanyLocationWarehouse[]
+  financeScopes                UserFinanceScope[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
+}
+
+model UserFinanceScope {
+  id         String          @id @default(cuid())
+  userId     String
+  locationId String
+  companyId  String
+  createdAt  DateTime        @default(now())
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location CompanyLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@index([companyId, locationId])
 }
 
 model ShippingChargeOption {
