@@ -385,7 +385,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                 <NavItem
                   href="/dashboard/ogf-logs"
                   icon={SendHorizonal}
-                  label="OGF Email Logs"
+                  label="OGF & Sales Logs"
                   isActive={pathname === "/dashboard/ogf-logs"}
                 />
               )}

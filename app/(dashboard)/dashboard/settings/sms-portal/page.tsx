@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { SmsPortalSettingsForm } from "@/components/molecules/sms-portal-settings-form";
+import { DailySalesSmsSettingsForm } from "@/components/molecules/daily-sales-sms-settings-form";
 import { Button } from "@/components/ui/button";
 import { hasPermission, requirePermission } from "@/lib/rbac";
 import { ChevronLeft } from "lucide-react";
@@ -27,6 +28,7 @@ export default async function SmsPortalSettingsPage() {
         </Button>
       </div>
       <SmsPortalSettingsForm canEdit={canManageSmsPortal} />
+      <DailySalesSmsSettingsForm canEdit={canManageSmsPortal} />
     </div>
   );
 }
