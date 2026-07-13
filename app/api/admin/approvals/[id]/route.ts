@@ -21,7 +21,11 @@ import {
   createErpnextCreditNote,
   syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
-import { cancelShopifyOrder } from "@/lib/shopify-admin";
+import {
+  cancelShopifyOrder,
+  isRealShopifyOrderId,
+  shouldBlockShopifyCancelInOs,
+} from "@/lib/shopify-admin";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -432,32 +436,45 @@ export async function PATCH(
     });
   }
 
-  // Auto-cancel in Shopify when a paid order cancel is approved.
+  // Auto-cancel in Shopify when a paid order cancel is approved (Cosmo only).
+  // Vault has no Admin API — staff cancel in Shopify; webhook syncs OS/ERP.
   // Non-fatal — ERP credit note and DB void are already committed at this point.
-  if (nextStatus === "approved" && approval.type === ORDER_CANCEL_APPROVAL && approval.orderId && approval.shopifyOrderId) {
-    const isRealShopifyOrder = !approval.shopifyOrderId.startsWith("erp-");
-    if (isRealShopifyOrder) {
-      try {
-        const orderForCancel = await prisma.order.findUnique({
-          where: { id: approval.orderId },
-          select: { companyLocationId: true },
-        });
-        const location = orderForCancel?.companyLocationId
-          ? await prisma.companyLocation.findUnique({
-              where: { id: orderForCancel.companyLocationId },
-              select: { shopifyAdminStoreHandle: true },
-            })
-          : null;
-        if (location?.shopifyAdminStoreHandle) {
-          await cancelShopifyOrder(approval.shopifyOrderId, location.shopifyAdminStoreHandle);
-          console.log(`[Cancel] Shopify order ${approval.shopifyOrderId} cancelled via approval ${approval.id}`);
-        } else {
-          console.warn(`[Cancel] No shopifyAdminStoreHandle for order ${approval.orderId} — skipping Shopify cancel`);
-        }
-      } catch (err) {
-        console.error(`[Cancel] Shopify cancel failed (non-fatal) for order ${approval.orderId}:`, err);
+  if (
+    nextStatus === "approved" &&
+    approval.type === ORDER_CANCEL_APPROVAL &&
+    approval.orderId &&
+    approval.shopifyOrderId &&
+    isRealShopifyOrderId(approval.shopifyOrderId) &&
+    !shouldBlockShopifyCancelInOs(approval.shopifyOrderId)
+  ) {
+    try {
+      const orderForCancel = await prisma.order.findUnique({
+        where: { id: approval.orderId },
+        select: { companyLocationId: true },
+      });
+      const location = orderForCancel?.companyLocationId
+        ? await prisma.companyLocation.findUnique({
+            where: { id: orderForCancel.companyLocationId },
+            select: { shopifyAdminStoreHandle: true },
+          })
+        : null;
+      if (location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(approval.shopifyOrderId, location.shopifyAdminStoreHandle);
+        console.log(`[Cancel] Shopify order ${approval.shopifyOrderId} cancelled via approval ${approval.id}`);
+      } else {
+        console.warn(`[Cancel] No shopifyAdminStoreHandle for order ${approval.orderId} — skipping Shopify cancel`);
       }
+    } catch (err) {
+      console.error(`[Cancel] Shopify cancel failed (non-fatal) for order ${approval.orderId}:`, err);
     }
+  } else if (
+    nextStatus === "approved" &&
+    approval.type === ORDER_CANCEL_APPROVAL &&
+    shouldBlockShopifyCancelInOs(approval.shopifyOrderId)
+  ) {
+    console.warn(
+      `[Cancel] Skipping Shopify Admin cancel on Vault for order ${approval.orderId} — cancel in Shopify instead`,
+    );
   }
 
   let erpSyncFailed = false;
