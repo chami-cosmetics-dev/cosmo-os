@@ -1,4 +1,18 @@
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+
 const SHOPIFY_API_VERSION = "2024-10";
+
+export const VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE =
+  "You can't cancel this order in Vault OS. Cancel the order in Shopify. Vault will update when Shopify sends the cancellation.";
+
+export function isRealShopifyOrderId(shopifyOrderId: string | null | undefined): boolean {
+  return Boolean(shopifyOrderId && !shopifyOrderId.startsWith("erp-"));
+}
+
+/** Vault has no Admin API token — staff must cancel real Shopify orders in Shopify. */
+export function shouldBlockShopifyCancelInOs(shopifyOrderId: string | null | undefined): boolean {
+  return isVaultOsDeployment() && isRealShopifyOrderId(shopifyOrderId);
+}
 
 function getAdminToken(): string {
   const token = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;

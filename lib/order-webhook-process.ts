@@ -49,6 +49,19 @@ function getShopifyOrderCreatedAt(order: ShopifyOrderWebhookPayload) {
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
 }
 
+function parseShopifyCancelledAt(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isShopifyOrderCancelled(data: ShopifyOrderWebhookPayload): boolean {
+  return (
+    parseShopifyCancelledAt(data.cancelled_at) != null ||
+    data.financial_status?.toLowerCase() === "voided"
+  );
+}
+
 export async function processOrderWebhook(
   data: ShopifyOrderWebhookPayload,
   location: LocationWithErpInstance,
@@ -71,6 +84,8 @@ export async function processOrderWebhook(
       companyLocationId: true,
       erpnextInvoiceId: true,
       financialStatus: true,
+      cancelledAt: true,
+      cancelReason: true,
     },
   });
 
@@ -132,6 +147,12 @@ export async function processOrderWebhook(
     data.customer?.phone ??
     null;
   const paymentGateways = normalizePaymentGateways(data.payment_gateway_names);
+  const cancelledAtFromShopify = parseShopifyCancelledAt(data.cancelled_at);
+  const isCancelledFromShopify = isShopifyOrderCancelled(data);
+  const shopifyCancelReason =
+    typeof data.cancel_reason === "string" && data.cancel_reason.trim()
+      ? data.cancel_reason.trim().slice(0, 500)
+      : null;
 
   const orderData = {
     companyId,
@@ -149,9 +170,10 @@ export async function processOrderWebhook(
     totalTax,
     totalShipping,
     currency: data.currency?.slice(0, 10) ?? null,
-    financialStatus: totalPrice.lessThan(0)
-      ? "voided"
-      : data.financial_status?.slice(0, 50) ?? null,
+    financialStatus:
+      totalPrice.lessThan(0) || isCancelledFromShopify
+        ? "voided"
+        : data.financial_status?.slice(0, 50) ?? null,
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
     paymentGatewayNames: paymentGateways.names,
     paymentGatewayPrimary: paymentGateways.primary,
@@ -177,6 +199,14 @@ export async function processOrderWebhook(
         ? (data.shipping_lines as Prisma.InputJsonValue)
         : Prisma.JsonNull,
     rawPayload: rawPayload as Prisma.InputJsonValue,
+    ...(isCancelledFromShopify
+      ? {
+          cancelledAt:
+            existingOrder?.cancelledAt ?? cancelledAtFromShopify ?? new Date(),
+          cancelReason:
+            existingOrder?.cancelReason ?? shopifyCancelReason ?? "Cancelled in Shopify",
+        }
+      : {}),
   };
 
   const requiresApproval = isOrderPaymentRequiresApproval({
@@ -192,7 +222,14 @@ export async function processOrderWebhook(
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: String(data.id) },
     create: orderData,
-    update: isAlreadyVoided ? { ...orderData, financialStatus: "voided" } : orderData,
+    update: isAlreadyVoided
+      ? {
+          ...orderData,
+          financialStatus: "voided",
+          cancelledAt: existingOrder?.cancelledAt ?? orderData.cancelledAt ?? new Date(),
+          cancelReason: existingOrder?.cancelReason ?? orderData.cancelReason ?? null,
+        }
+      : orderData,
   });
   if (isNewOrder && requiresApproval) {
     // Mark as pending_approval so ERP sync is skipped until finance approves
@@ -290,7 +327,7 @@ export async function processOrderWebhook(
     }
   }
 
-  if (data.financial_status?.toLowerCase() === "voided") {
+  if (isCancelledFromShopify) {
     try {
       await cancelErpnextSalesInvoice(
         order.name ?? order.shopifyOrderId,
