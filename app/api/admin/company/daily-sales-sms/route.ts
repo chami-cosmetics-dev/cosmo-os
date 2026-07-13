@@ -83,7 +83,7 @@ export async function PUT(request: NextRequest) {
     companyId,
     actorUserId: auth.context!.user!.id,
     module: "settings",
-    action: "update",
+    action: "setting_updated",
     entityType: "DailySalesSmsConfig",
     entityId: config.id,
     summary: `Updated daily sales SMS config (enabled=${parsed.data.enabled}, recipients=${recipients.length})`,
