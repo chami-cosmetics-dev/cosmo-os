@@ -6,6 +6,7 @@ import { Boxes, Download, History, Loader2, MapPin, Printer, RefreshCw, Users } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
 type PickListItem = {
@@ -431,7 +432,7 @@ export function PickListPage() {
                   <p className="font-medium">{group.label}</p>
                   {group.downloadedAt && (
                     <span className="text-xs text-muted-foreground">
-                      Downloaded {new Date(group.downloadedAt).toLocaleString("en-LK")}
+                      Downloaded {formatAppDateTime(group.downloadedAt)}
                     </span>
                   )}
                   <span className="ml-auto text-xs text-muted-foreground">

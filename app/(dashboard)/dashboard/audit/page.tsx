@@ -16,6 +16,7 @@ import {
   getAuditLogActionGroupActions,
 } from "@/lib/audit-log";
 import { requirePermission } from "@/lib/rbac";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -109,11 +110,7 @@ function parseActionFilter(value: string | undefined) {
 }
 
 function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("en-GB", { timeZone: "Asia/Colombo" });
+  return formatAppDateTime(value, value);
 }
 
 function parsePage(value: string | undefined) {

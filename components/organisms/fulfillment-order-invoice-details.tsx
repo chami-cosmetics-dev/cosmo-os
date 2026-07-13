@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LIMITS } from "@/lib/validation";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
 type OrderDetail = {
@@ -103,8 +104,7 @@ function formatAddress(addr: unknown): string {
 }
 
 function formatRemarkDate(val: string): string {
-  const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? "â€”" : d.toLocaleString("en-LK");
+  return formatAppDateTime(val, "—");
 }
 
 function remarkAddedBy(addedBy: { name: string | null; email: string | null } | null): string {

@@ -15,6 +15,7 @@ import {
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type WebhookStatusFilter = "unresolved" | "resolved";
 
@@ -221,8 +222,7 @@ export function FailedOrderWebhooksPanel() {
   }
 
   function formatDate(val: string): string {
-    const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return formatAppDateTime(val);
   }
 
   async function handleCopyJson() {

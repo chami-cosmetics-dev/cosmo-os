@@ -19,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppCalendarDate } from "@/lib/format-datetime";
 import type { ReturnsTrackingData, ReturnTrackingItem } from "@/lib/page-data/order-returns";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import {
@@ -77,15 +78,7 @@ type BulkRemarkDraft = {
 };
 
 function formatDateOnly(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return new Intl.DateTimeFormat("en-LK", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).format(date);
+  return formatAppCalendarDate(value, "N/A");
 }
 
 function actionTypeBadge(item: ReturnTrackingItem) {

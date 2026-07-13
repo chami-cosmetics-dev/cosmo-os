@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppDate } from "@/lib/format-datetime";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 
 type ContactItem = {
@@ -116,14 +117,7 @@ type DetailForm = {
 };
 
 function formatDateTime(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-LK", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  return formatAppDate(value, "N/A");
 }
 
 function formatAmount(value: string, currency?: string | null) {

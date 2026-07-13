@@ -26,6 +26,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type ContactItem = {
   id: string;
@@ -107,10 +108,7 @@ type CreateContactInput = {
 };
 
 function toDateTimeLabel(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-LK");
+  return formatAppDateTime(value, "N/A");
 }
 
 function statusLabel(status: ContactItem["status"]) {

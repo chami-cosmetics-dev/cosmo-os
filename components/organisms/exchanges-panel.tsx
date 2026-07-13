@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import type { ExchangeReason, ExchangesTrackingData, ExchangeStatus, ExchangeTrackingItem } from "@/lib/page-data/order-exchanges";
 
 type ExchangeRefStatus = {
@@ -42,10 +43,7 @@ type OrderOption = {
 };
 
 function formatDateTime(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-LK");
+  return formatAppDateTime(value, "N/A");
 }
 
 function reasonLabel(reason: ExchangeReason) {

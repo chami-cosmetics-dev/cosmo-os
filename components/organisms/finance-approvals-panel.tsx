@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FinanceApprovalItem = {
@@ -112,9 +113,7 @@ function paymentLabel(approval: Pick<FinanceApprovalItem, "type" | "paymentTypeL
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("en-LK");
+  return formatAppDateTime(value, "-");
 }
 
 function formatAmount(value: string | null) {

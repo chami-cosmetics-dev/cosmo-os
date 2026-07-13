@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { formatAppDate } from "@/lib/format-datetime";
 
 type NotificationItem = {
   id: string;
@@ -38,7 +39,7 @@ function formatRelative(value: string) {
   if (diffMinutes < 60) return `${diffMinutes}m ago`;
   const diffHours = Math.round(diffMinutes / 60);
   if (diffHours < 24) return `${diffHours}h ago`;
-  return date.toLocaleDateString();
+  return formatAppDate(date, "");
 }
 
 export function NotificationBell() {

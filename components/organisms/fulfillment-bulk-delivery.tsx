@@ -22,6 +22,7 @@ import {
   fulfillmentOrderSearchTokens,
 } from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
+import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 
 type DispatchedOrder = {
   id: string;
@@ -475,7 +476,7 @@ export function FulfillmentBulkDelivery({
           <div className="space-y-1">
             <p>
               <span className="font-medium">Order Date:</span>{" "}
-              {detail ? new Date(detail.createdAt).toLocaleDateString("en-LK") : "-"}
+              {detail ? formatAppDate(detail.createdAt, "-") : "-"}
             </p>
             <p>
               <span className="font-medium">Total:</span>{" "}
@@ -502,7 +503,7 @@ export function FulfillmentBulkDelivery({
             <p>
               <span className="font-medium">Dispatched at:</span>{" "}
               {detail?.dispatchedAt
-                ? new Date(detail.dispatchedAt).toLocaleString("en-LK")
+                ? formatAppDateTime(detail.dispatchedAt, "-")
                 : "-"}
             </p>
         </div>

@@ -9,6 +9,8 @@ const pdfMake = require("pdfmake") as {
 const vfsFonts = require("pdfmake/build/vfs_fonts") as Record<string, string>;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+import { formatAppIsoDate } from "@/lib/format-datetime";
+
 for (const [key, val] of Object.entries(vfsFonts)) {
   pdfMake.virtualfs.writeFileSync(key, Buffer.from(val, "base64"));
 }
@@ -45,8 +47,7 @@ export type DispatchGroupForPdf = {
 };
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "-" : d.toISOString().slice(0, 10);
+  return formatAppIsoDate(iso, "-");
 }
 
 function formatAmount(price: string) {
