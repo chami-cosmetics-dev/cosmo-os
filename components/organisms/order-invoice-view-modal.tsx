@@ -55,6 +55,7 @@ import {
   shouldBlockShopifyCancelInOs,
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
+import { formatAppCalendarDate } from "@/lib/format-datetime";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -302,15 +303,7 @@ function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
 }
 
 function formatDateOnly(value?: string | null): string {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("en-LK", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).format(date);
+  return formatAppCalendarDate(value, "-");
 }
 
 type TimelineItem = {

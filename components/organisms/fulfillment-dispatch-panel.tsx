@@ -8,6 +8,7 @@ import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-or
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import {
   DISPATCH_CUSTOMER_PICKUP,
   dispatchSelectionToApiBody,
@@ -361,7 +362,7 @@ export function FulfillmentDispatchPanel({
           />
         </div>
         <div className="space-y-1">
-          <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
+          <p><span className="font-medium">Order date:</span> {order ? formatAppDateTime(order.createdAt, "-") : "-"}</p>
           <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
           <p><span className="font-medium">Status:</span> {isOnHold ? `On hold: ${packageStatus?.packageHoldReason?.name ?? "-"}` : isPackageReady ? "Ready" : "-"}</p>
         </div>

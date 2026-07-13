@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type RiderRosterItem = {
   id: string;
@@ -439,7 +440,7 @@ export function RiderOperationsPanel({
             <div><strong>Rider:</strong> ${escapeHtml(riderName)}</div>
             <div><strong>Email:</strong> ${escapeHtml(ordersData.rider.email ?? "--")}</div>
             <div><strong>Mobile:</strong> ${escapeHtml(ordersData.rider.mobile ?? "--")}</div>
-            <div><strong>Printed on:</strong> ${escapeHtml(new Date().toLocaleString("en-LK"))}</div>
+            <div><strong>Printed on:</strong> ${escapeHtml(formatAppDateTime(new Date()))}</div>
           </div>
 
           <h2>Location Summary</h2>

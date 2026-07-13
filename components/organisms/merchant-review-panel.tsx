@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { APP_TIME_ZONE, formatAppDateTime } from "@/lib/format-datetime";
 
 type QueueItem = {
   orderId: string;
@@ -91,20 +92,15 @@ type ReviewForm = {
   reason: string;
 };
 
-const ORDER_DATE_TIME_ZONE = "Asia/Colombo";
-
 function formatDateTime(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return date.toLocaleString("en-LK");
+  return formatAppDateTime(value, "N/A");
 }
 
 function formatDateInputValue(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: ORDER_DATE_TIME_ZONE,
+    timeZone: APP_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

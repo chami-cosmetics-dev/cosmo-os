@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type PosOrder = {
   id: string;
@@ -88,8 +89,7 @@ function formatPrice(val: string, currency?: string | null): string {
 }
 
 function formatDate(val: string): string {
-  const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+  return formatAppDateTime(val);
 }
 
 export function PosOrdersPanel() {

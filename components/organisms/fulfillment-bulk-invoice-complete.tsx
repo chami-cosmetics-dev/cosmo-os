@@ -23,6 +23,7 @@ import {
   fulfillmentOrderSearchTokens,
 } from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type AwaitingInvoiceOrder = {
   id: string;
@@ -510,7 +511,7 @@ export function FulfillmentBulkInvoiceComplete({
             <p>
               <span className="font-medium">Delivered at:</span>{" "}
               {detail?.deliveryCompleteAt
-                ? new Date(detail.deliveryCompleteAt).toLocaleString("en-LK")
+                ? formatAppDateTime(detail.deliveryCompleteAt, "-")
                 : "-"}
             </p>
           </div>

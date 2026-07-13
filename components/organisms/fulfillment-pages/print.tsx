@@ -17,6 +17,7 @@ import { notify } from "@/lib/notify";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { mapApiOrderToFulfillmentOrder } from "@/lib/fulfillment-order-map";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
+import { formatAppDateShort, formatAppTime } from "@/lib/format-datetime";
 
 type PrintOrder = {
   id: string;
@@ -55,18 +56,11 @@ function printMerchantLabel(order: PrintOrder): string {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-LK", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return formatAppDateShort(iso);
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-LK", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatAppTime(iso);
 }
 
 const PRINT_QUEUE_PAGE_SIZE = 100;
