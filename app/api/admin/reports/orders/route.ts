@@ -107,6 +107,89 @@ function buildCouponToMerchantMap(
   return couponToMerchant;
 }
 
+function buildShopifyUserIdToEmailMap(
+  users: Array<{ email: string | null; shopifyUserIds: string[] }>
+) {
+  const shopifyUserIdToEmail = new Map<string, string>();
+  for (const user of users) {
+    const email = user.email?.trim();
+    if (!email) continue;
+    for (const shopifyUserId of user.shopifyUserIds) {
+      const normalized = shopifyUserId.trim();
+      if (normalized && !shopifyUserIdToEmail.has(normalized)) {
+        shopifyUserIdToEmail.set(normalized, email);
+      }
+    }
+  }
+  return shopifyUserIdToEmail;
+}
+
+function buildErpnextUsernameToEmailMap(
+  users: Array<{ email: string | null; erpnextUsername: string | null }>
+) {
+  const erpnextUsernameToEmail = new Map<string, string>();
+  for (const user of users) {
+    const email = user.email?.trim();
+    const username = user.erpnextUsername?.trim().toLowerCase();
+    if (email && username && !erpnextUsernameToEmail.has(username)) {
+      erpnextUsernameToEmail.set(username, email);
+    }
+  }
+  return erpnextUsernameToEmail;
+}
+
+function getRawPayloadString(rawPayload: Prisma.JsonValue | null | undefined, key: string) {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return null;
+  const top = rawPayload as Record<string, unknown>;
+  const data = top.data;
+  const value =
+    top[key] ??
+    (data && typeof data === "object" && !Array.isArray(data)
+      ? (data as Record<string, unknown>)[key]
+      : undefined);
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function looksLikeEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function resolveOrderCreatedByEmail(input: {
+  sourceName: string;
+  shopifyUserId: string | null;
+  customerEmail: string | null;
+  assignedMerchantEmail: string | null;
+  rawPayload: Prisma.JsonValue | null;
+  auditLogEmail: string | null;
+  shopifyUserIdToEmail: Map<string, string>;
+  erpnextUsernameToEmail: Map<string, string>;
+}) {
+  if (input.auditLogEmail?.trim()) return input.auditLogEmail.trim();
+
+  if (input.shopifyUserId) {
+    const email = input.shopifyUserIdToEmail.get(input.shopifyUserId.trim());
+    if (email) return email;
+  }
+
+  const sourceName = input.sourceName.toLowerCase();
+  if ((sourceName === "pos" || sourceName === "manual") && input.assignedMerchantEmail?.trim()) {
+    return input.assignedMerchantEmail.trim();
+  }
+
+  const owner = getRawPayloadString(input.rawPayload, "owner");
+  if (owner) {
+    if (looksLikeEmail(owner)) return owner;
+    const email = input.erpnextUsernameToEmail.get(owner.toLowerCase());
+    if (email) return email;
+  }
+
+  if ((sourceName === "web" || sourceName === "shopify") && input.customerEmail?.trim()) {
+    return input.customerEmail.trim();
+  }
+
+  return "";
+}
+
 function resolveMerchantName(input: {
   couponCode: string | null;
   couponToMerchant: Map<string, string>;
@@ -208,6 +291,42 @@ export async function GET(request: NextRequest) {
     },
   });
   const couponToMerchant = buildCouponToMerchantMap(merchantUsers);
+  const creatorUsers = await prisma.user.findMany({
+    where: {
+      companyId,
+      OR: [
+        { shopifyUserIds: { isEmpty: false } },
+        { erpnextUsername: { not: null } },
+      ],
+    },
+    select: {
+      email: true,
+      shopifyUserIds: true,
+      erpnextUsername: true,
+    },
+  });
+  const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
+  const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
+  const manualOrderCreatedLogs = await prisma.auditLog.findMany({
+    where: {
+      companyId,
+      action: "manual_order_created",
+      entityType: "Order",
+      entityId: { in: orders.map((order) => order.id) },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      entityId: true,
+      actorUser: { select: { email: true } },
+    },
+  });
+  const orderIdToManualCreatorEmail = new Map<string, string>();
+  for (const log of manualOrderCreatedLogs) {
+    const email = log.actorUser?.email?.trim();
+    if (log.entityId && email && !orderIdToManualCreatorEmail.has(log.entityId)) {
+      orderIdToManualCreatorEmail.set(log.entityId, email);
+    }
+  }
 
   const filterParts = [`report=${report}`, `range=${range}`];
   if (range === "historical-year") filterParts.push(`year=${label}`);
@@ -225,6 +344,16 @@ export async function GET(request: NextRequest) {
         "";
       const paymentGateway = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "";
       const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+      const createdBy = resolveOrderCreatedByEmail({
+        sourceName: order.sourceName,
+        shopifyUserId: order.shopifyUserId,
+        customerEmail: order.customerEmail,
+        assignedMerchantEmail: order.assignedMerchant?.email ?? null,
+        rawPayload: order.rawPayload,
+        auditLogEmail: orderIdToManualCreatorEmail.get(order.id) ?? null,
+        shopifyUserIdToEmail,
+        erpnextUsernameToEmail,
+      });
 
       const merchantCouponCode = getMerchantCouponCode({
         sourceName: order.sourceName,
@@ -263,6 +392,7 @@ export async function GET(request: NextRequest) {
           fulfillmentStatus: order.fulfillmentStatus,
           paymentGateway,
           merchantName,
+          createdBy,
         })
       );
     });
@@ -312,6 +442,16 @@ export async function GET(request: NextRequest) {
       assignedMerchant: order.assignedMerchant,
     });
     const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
+    const createdBy = resolveOrderCreatedByEmail({
+      sourceName: order.sourceName,
+      shopifyUserId: order.shopifyUserId,
+      customerEmail: order.customerEmail,
+      assignedMerchantEmail: order.assignedMerchant?.email ?? null,
+      rawPayload: order.rawPayload,
+      auditLogEmail: orderIdToManualCreatorEmail.get(order.id) ?? null,
+      shopifyUserIdToEmail,
+      erpnextUsernameToEmail,
+    });
     const shippingRule = resolveOrderShippingDisplay({
       totalShipping: decimalToString(order.totalShipping),
       shippingLines: order.shippingLines,
@@ -347,15 +487,19 @@ export async function GET(request: NextRequest) {
       shippingTotal: decimalToString(order.totalShipping),
       grandTotal: order.totalPrice.toString(),
       itemCount: order.lineItems.length,
+      printCount: order.printCount,
+      packageReadyAt: order.packageReadyAt,
       dispatchedAt: order.dispatchedAt,
       dispatchedBy: getUserDisplayName(order.dispatchedBy),
       lastPrintedAt: order.lastPrintedAt,
       lastPrintedBy: getUserDisplayName(order.lastPrintedBy),
+      revertedFromInvoiceCompleteAt: order.revertedFromInvoiceCompleteAt,
       deliveryCompleteAt: order.deliveryCompleteAt,
       deliveryCompleteBy: getUserDisplayName(order.deliveryCompleteBy),
       invoiceCompleteAt: order.invoiceCompleteAt,
       invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
       shippingRule,
+      createdBy,
     });
   });
 
