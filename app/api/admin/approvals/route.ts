@@ -88,6 +88,9 @@ export async function GET() {
     cancelRemark: string | null;
     returnDate: Date | null;
     cancelRequestedAt: Date | null;
+    riderId: string | null;
+    riderName: string | null;
+    riderMobile: string | null;
   }>>(
     Prisma.sql`
       SELECT
@@ -118,7 +121,10 @@ export async function GET() {
         ort."returnRemark",
         ort."cancelRemark",
         ort."returnDate",
-        ort."cancelRequestedAt"
+        ort."cancelRequestedAt",
+        rider."id" AS "riderId",
+        COALESCE(rider."knownName", rider."name") AS "riderName",
+        rider."mobile" AS "riderMobile"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
@@ -128,6 +134,7 @@ export async function GET() {
       LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
       LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
+      LEFT JOIN "User" rider ON rider."id" = o."dispatchedByRiderId"
       WHERE ar."companyId" = ${companyId}
         AND ar."type" IN (
           ${RETURN_REARRANGE_PAYMENT_APPROVAL},
@@ -176,6 +183,9 @@ export async function GET() {
         cancelRemark: isOrderCancel ? row.requestNote : (cancelNote?.cancelRemark ?? row.cancelRemark),
         returnDate: cancelNote?.returnDate ?? row.returnDate?.toISOString() ?? null,
         cancelRequestedAt: isOrderCancel ? row.createdAt.toISOString() : (cancelNote?.cancelRequestedAt ?? row.cancelRequestedAt?.toISOString() ?? null),
+        riderId: row.riderId,
+        riderName: row.riderName,
+        riderMobile: row.riderMobile,
       };
     }),
   });

@@ -40,6 +40,9 @@ export type FinanceApprovalItem = {
   cancelRemark?: string | null;
   returnDate?: string | null;
   cancelRequestedAt?: string | null;
+  riderId?: string | null;
+  riderName?: string | null;
+  riderMobile?: string | null;
 };
 
 /** Filter tabs: All + each finance approval type (more detailed than Payments/Returns groups). */
@@ -141,6 +144,29 @@ function isPendingApproval(approval: FinanceApprovalItem) {
   return approval.status === "pending";
 }
 
+function riderLabel(approval: Pick<FinanceApprovalItem, "riderName" | "riderMobile" | "riderId">) {
+  return approval.riderName?.trim() || approval.riderMobile?.trim() || (approval.riderId ? "Rider" : "No rider / non-rider");
+}
+
+function groupDeliveryApprovalsByRider(approvals: FinanceApprovalItem[]) {
+  const groups = new Map<string, { key: string; label: string; items: FinanceApprovalItem[] }>();
+  for (const approval of approvals) {
+    const key = approval.riderId ?? "__none__";
+    const label = riderLabel(approval);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.items.push(approval);
+    } else {
+      groups.set(key, { key, label, items: [approval] });
+    }
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === "__none__") return 1;
+    if (b.key === "__none__") return -1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
 function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
   const q = term.toLowerCase();
   const haystack = [
@@ -160,6 +186,8 @@ function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
     approval.cancelRequestedByEmail,
     approval.returnRemark,
     approval.cancelRemark,
+    approval.riderName,
+    approval.riderMobile,
   ];
   return haystack.some((value) => value?.toLowerCase().includes(q));
 }
@@ -231,6 +259,11 @@ export function FinanceApprovalsPanel({
     return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
   }, [visibleApprovals, effectiveSearch]);
   const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
+  const groupByRider = typeFilter === "delivery_payment_approval";
+  const deliveryRiderGroups = useMemo(
+    () => (groupByRider ? groupDeliveryApprovalsByRider(searchedApprovals) : []),
+    [groupByRider, searchedApprovals],
+  );
 
   const pendingCountByType = useMemo(() => {
     const counts: Record<TypeFilter, number> = {
@@ -448,7 +481,11 @@ export function FinanceApprovalsPanel({
               <div className="relative max-w-md">
                 <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
                 <Input
-                  placeholder="Search by invoice, customer, ERP SI, or payment type..."
+                  placeholder={
+                    groupByRider
+                      ? "Search by invoice, customer, rider, ERP SI..."
+                      : "Search by invoice, customer, ERP SI, or payment type..."
+                  }
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   className="border-border/70 bg-background/90 pl-9"
@@ -462,12 +499,51 @@ export function FinanceApprovalsPanel({
                     <th className="px-3 py-3 font-medium">Invoice</th>
                     <th className="px-3 py-3 font-medium">Purpose</th>
                     <th className="px-3 py-3 font-medium">Payment</th>
+                    {groupByRider && <th className="px-3 py-3 font-medium">Rider</th>}
                     <th className="px-3 py-3 font-medium">Amount</th>
                     <th className="px-3 py-3 font-medium">Requested</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {searchedApprovals.map((approval) => (
+                  {groupByRider
+                    ? deliveryRiderGroups.flatMap((group) => [
+                        <tr key={`rider-${group.key}`} className="bg-muted/50">
+                          <td
+                            colSpan={6}
+                            className="px-3 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
+                          >
+                            {group.label}
+                            <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary normal-case">
+                              {group.items.length}
+                            </span>
+                          </td>
+                        </tr>,
+                        ...group.items.map((approval) => (
+                          <tr
+                            key={approval.id}
+                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
+                            onClick={() => {
+                              setSelectedId(approval.id);
+                              setReviewNote("");
+                            }}
+                          >
+                            <td className="px-3 py-3 font-medium">
+                              {approval.invoiceNo ?? "-"}
+                              {approval.orderMissing && (
+                                <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                                  Order removed
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
+                            <td className="px-3 py-3 text-muted-foreground">{paymentLabel(approval)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{riderLabel(approval)}</td>
+                            <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
+                          </tr>
+                        )),
+                      ])
+                    : searchedApprovals.map((approval) => (
                     <tr
                       key={approval.id}
                       className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
@@ -492,7 +568,7 @@ export function FinanceApprovalsPanel({
                   ))}
                   {searchedApprovals.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-10 text-center text-muted-foreground">
+                      <td colSpan={groupByRider ? 6 : 5} className="px-3 py-10 text-center text-muted-foreground">
                         {effectiveSearch
                           ? "No approval requests match your search."
                           : view === "pending"
@@ -526,6 +602,9 @@ export function FinanceApprovalsPanel({
                     <p><span className="font-medium">Amount:</span> {formatAmount(selected.totalPrice)}</p>
                   )}
                   <p><span className="font-medium">Customer:</span> {selected.customerPhone ?? selected.customerEmail ?? "-"}</p>
+                  {selected.type === "delivery_payment_approval" && (
+                    <p><span className="font-medium">Rider:</span> {riderLabel(selected)}</p>
+                  )}
                   <p><span className="font-medium">Requested:</span> {formatDate(selected.createdAt)}</p>
                   {selected.type === "return_cancel" && (
                     <div className="space-y-3 border-t border-border/60 pt-3">
