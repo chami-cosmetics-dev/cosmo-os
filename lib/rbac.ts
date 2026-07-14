@@ -769,7 +769,7 @@ async function backfillReminderBubblePermissionsFromLegacyPagePerms() {
     const legacyKeys = REMINDER_LEGACY_PAGE_PERMISSION[def.category];
     const rolesWithLegacy = await prisma.role.findMany({
       where: {
-        permissions: {
+        rolePermissions: {
           some: { permission: { key: { in: legacyKeys } } },
         },
       },

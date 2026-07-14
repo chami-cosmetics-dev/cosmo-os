@@ -8,63 +8,76 @@ import {
 } from "@/lib/task-reminder-access";
 
 describe("task-reminder-access", () => {
-  it("gives admins all reminder bubbles via role bypass", () => {
-    const audiences = resolveTaskReminderAudiences({
-      roleNames: ["admin"],
-      permissionKeys: [],
-    });
-    expect(audiences).toEqual(new Set(["admin"]));
+  it("gives admins bubbles from page perms (legacy) and reminders.*", () => {
     expect(
       canSeeTaskReminderCategory(
-        { roleNames: ["admin"], permissionKeys: [] },
-        "finance_approval",
-      ),
-    ).toBe(true);
-    expect(
-      canSeeTaskReminderCategory(
-        { roleNames: ["admin"], permissionKeys: [] },
+        { roleNames: ["admin"], permissionKeys: ["fulfillment.ready_dispatch.read"] },
         "ready_dispatch",
       ),
     ).toBe(true);
+    expect(
+      canSeeTaskReminderCategory(
+        { roleNames: ["admin"], permissionKeys: ["reminders.finance_approval"] },
+        "finance_approval",
+      ),
+    ).toBe(true);
   });
 
-  it("shows finance bubble only when reminders.finance_approval is granted", () => {
-    const withReminder = {
-      roleNames: ["finance"],
-      permissionKeys: ["reminders.finance_approval", "finance.approvals.manage"],
-    };
-    expect(canSeeTaskReminderCategory(withReminder, "finance_approval")).toBe(true);
-    expect(canSeeTaskReminderCategory(withReminder, "ready_dispatch")).toBe(false);
-
-    const withoutReminder = {
+  it("keeps finance → finance bubble via page perm without reminders.*", () => {
+    const context = {
       roleNames: ["finance"],
       permissionKeys: [
         "finance.approvals.manage",
+        "orders.read",
+        "returns.read",
+        "fulfillment.delivery_invoice.read",
         "fulfillment.ready_dispatch.read",
+      ],
+    };
+    expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["finance"]));
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
+    // Audience still blocks store queues from page perms alone
+    expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "return_action")).toBe(false);
+  });
+
+  it("lets finance get extra bubbles via reminders.* even without store audience", () => {
+    const context = {
+      roleNames: ["finance"],
+      permissionKeys: [
+        "finance.approvals.manage",
+        "reminders.delivery_pending",
+        "reminders.print",
+      ],
+    };
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "print")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
+  });
+
+  it("limits store users to store pipeline via page perms", () => {
+    const context = {
+      roleNames: ["store"],
+      permissionKeys: [
+        "fulfillment.ready_dispatch.read",
+        "fulfillment.order_print.read",
         "returns.read",
       ],
     };
-    expect(canSeeTaskReminderCategory(withoutReminder, "finance_approval")).toBe(false);
-    expect(canSeeTaskReminderCategory(withoutReminder, "ready_dispatch")).toBe(false);
-  });
-
-  it("allows selecting individual store bubbles via reminders.*", () => {
-    const context = {
-      roleNames: ["store"],
-      permissionKeys: ["reminders.print", "reminders.ready_dispatch"],
-    };
-    expect(canSeeTaskReminderCategory(context, "print")).toBe(true);
+    expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["store"]));
     expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(true);
-    expect(canSeeTaskReminderCategory(context, "rearrange_dispatch")).toBe(false);
-    expect(canSeeTaskReminderCategory(context, "return_action")).toBe(false);
-    expect(listVisibleTaskReminderCategories(context)).toEqual(["print", "ready_dispatch"]);
+    expect(canSeeTaskReminderCategory(context, "print")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "return_action")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(false);
   });
 
-  it("limits merchants to samples when they have reminders.add_samples", () => {
+  it("limits merchants to sample reminders via page perm", () => {
     const context = {
       roleNames: ["merchant"],
       permissionKeys: [
-        "reminders.add_samples",
         "fulfillment.sample_free_issue.read",
         "fulfillment.sample_free_issue.manage",
       ],
@@ -79,7 +92,6 @@ describe("task-reminder-access", () => {
     const context = {
       roleNames: ["store"],
       permissionKeys: [
-        "reminders.add_samples",
         "fulfillment.sample_free_issue.read",
         "fulfillment.ready_dispatch.read",
       ],
@@ -87,23 +99,24 @@ describe("task-reminder-access", () => {
     expect(shouldScopeSampleRemindersToMerchant(context)).toBe(false);
   });
 
-  it("lists only categories granted by reminders.*", () => {
+  it("lists categories from page perms and extra reminders.*", () => {
     const financeContext = {
       roleNames: ["finance"],
-      permissionKeys: ["reminders.finance_approval", "fulfillment.order_print.read"],
+      permissionKeys: ["finance.approvals.manage", "fulfillment.order_print.read"],
     };
     expect(listVisibleTaskReminderCategories(financeContext)).toEqual(["finance_approval"]);
 
-    const mixedContext = {
-      roleNames: ["custom_ops"],
+    const storeContext = {
+      roleNames: ["store"],
       permissionKeys: [
-        "reminders.print",
-        "reminders.rearrange_dispatch",
-        "reminders.return_action",
+        "fulfillment.ready_dispatch.read",
+        "fulfillment.order_print.read",
+        "returns.read",
       ],
     };
-    expect(listVisibleTaskReminderCategories(mixedContext)).toEqual([
+    expect(listVisibleTaskReminderCategories(storeContext)).toEqual([
       "print",
+      "ready_dispatch",
       "rearrange_dispatch",
       "return_action",
     ]);
