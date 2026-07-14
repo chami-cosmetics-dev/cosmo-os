@@ -34,7 +34,8 @@ export type TaskReminderCategory =
   | "rearrange_dispatch"
   | "ready_dispatch"
   | "return_action"
-  | "delivery_pending";
+  | "delivery_pending"
+  | "invoice_complete";
 
 export type TaskReminder = {
   id: string;
@@ -484,6 +485,44 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
   });
 }
 
+async function fetchInvoiceCompleteReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
+  const orders = await prisma.order.findMany({
+    where: {
+      companyId,
+      ...deliveryPipelineWhere,
+      financialStatus: { not: "voided" },
+      fulfillmentStage: "delivery_complete",
+      invoiceCompleteAt: null,
+      deliveryCompleteAt: { not: null, lte: slaCutoff(now) },
+    },
+    orderBy: { deliveryCompleteAt: "asc" },
+    take: REMINDER_LIMIT_PER_CATEGORY,
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      shopifyOrderId: true,
+      deliveryCompleteAt: true,
+    },
+  });
+
+  return orders.map((order) => {
+    const since = order.deliveryCompleteAt!;
+    const invoiceLabel = orderInvoiceLabel(order);
+    const waitingHours = waitingHoursSince(since, now);
+    return {
+      id: `invoice_complete:${order.id}`,
+      category: "invoice_complete" as const,
+      title: "Invoice not completed",
+      body: `${invoiceLabel} was delivered ${waitingHours}h ago and invoice is not marked complete.`,
+      href: taskReminderHref("/dashboard/fulfillment/invoice-complete", { orderId: order.id }),
+      waitingHours,
+      orderId: order.id,
+      invoiceLabel,
+    };
+  });
+}
+
 export async function fetchTaskReminders(
   companyId: string,
   context: PermissionContext,
@@ -515,6 +554,9 @@ export async function fetchTaskReminders(
   }
   if (canSeeTaskReminderCategory(context, "delivery_pending")) {
     reminders.push(...(await fetchDeliveryPendingReminders(companyId, now)));
+  }
+  if (canSeeTaskReminderCategory(context, "invoice_complete")) {
+    reminders.push(...(await fetchInvoiceCompleteReminders(companyId, now)));
   }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);

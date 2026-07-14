@@ -50,6 +50,31 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
   });
 
+  it("grants invoice complete bubble to finance via invoice_complete.read", () => {
+    const context = {
+      roleNames: ["finance"],
+      permissionKeys: [
+        "finance.approvals.manage",
+        "fulfillment.invoice_complete.read",
+      ],
+    };
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "invoice_complete")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
+  });
+
+  it("grants invoice complete bubble from page perm for store/admin audience", () => {
+    expect(
+      canSeeTaskReminderCategory(
+        {
+          roleNames: ["store"],
+          permissionKeys: ["fulfillment.invoice_complete.read", "fulfillment.ready_dispatch.read"],
+        },
+        "invoice_complete",
+      ),
+    ).toBe(true);
+  });
+
   it("lets finance get extra bubbles via reminders.* even without store audience", () => {
     const context = {
       roleNames: ["finance"],
@@ -110,9 +135,16 @@ describe("task-reminder-access", () => {
   it("lists categories from page perms and extra reminders.*", () => {
     const financeContext = {
       roleNames: ["finance"],
-      permissionKeys: ["finance.approvals.manage", "fulfillment.order_print.read"],
+      permissionKeys: [
+        "finance.approvals.manage",
+        "fulfillment.invoice_complete.read",
+        "fulfillment.order_print.read",
+      ],
     };
-    expect(listVisibleTaskReminderCategories(financeContext)).toEqual(["finance_approval"]);
+    expect(listVisibleTaskReminderCategories(financeContext)).toEqual([
+      "finance_approval",
+      "invoice_complete",
+    ]);
 
     const storeContext = {
       roleNames: ["store"],
