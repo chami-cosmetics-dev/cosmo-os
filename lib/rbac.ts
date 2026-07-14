@@ -5,6 +5,11 @@ import { isDatabaseUnavailableError } from "@/lib/dbObservability";
 import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import {
+  ALL_REMINDER_BUBBLE_PERMISSION_KEYS,
+  REMINDER_BUBBLE_PERMISSIONS,
+  REMINDER_LEGACY_PAGE_PERMISSION,
+} from "@/lib/reminder-permissions";
 
 const DEFAULT_PERMISSIONS = [
   {
@@ -189,6 +194,11 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
+  // Reminder bubbles — assign per category so users only see selected overdue queues
+  ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
+    key: p.key,
+    description: p.description,
+  })),
   // Reports - Dump downloads
   {
     key: REPORT_DUMP_PERMISSIONS.contactListPart1,
@@ -464,6 +474,7 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.approvals.manage",
       "finance.hod.revert_paid_to_unpaid",
+      ...ALL_REMINDER_BUBBLE_PERMISSION_KEYS,
       "dashboard.view",
       "dashboard.edit",
       REPORT_DUMP_PERMISSIONS.contactListPart1,
@@ -521,6 +532,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.approvals.manage",
+      "reminders.finance_approval",
       "dashboard.view",
       "fulfillment.invoice_complete.read",
       "fulfillment.delivery_invoice.mark_complete",
@@ -535,6 +547,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",
+      "reminders.finance_approval",
       "dashboard.view",
       "orders.read",
     ],
@@ -721,6 +734,8 @@ export async function ensureDefaultRbacSetup() {
       });
     }
 
+    await backfillReminderBubblePermissionsFromLegacyPagePerms();
+
     // Remove stale permissions no longer in DEFAULT_PERMISSIONS (cascades to RolePermission)
     const validKeys = DEFAULT_PERMISSIONS.map((p) => p.key);
     await prisma.permission.deleteMany({
@@ -733,6 +748,43 @@ export async function ensureDefaultRbacSetup() {
       );
     }
     throw error;
+  }
+}
+
+/**
+ * Grant reminders.* to any existing role that already has the related page/system permission,
+ * so custom roles keep their bubbles until you fine-tune them in Roles UI.
+ */
+async function backfillReminderBubblePermissionsFromLegacyPagePerms() {
+  const reminderPerms = await prisma.permission.findMany({
+    where: { key: { in: [...ALL_REMINDER_BUBBLE_PERMISSION_KEYS] } },
+    select: { id: true, key: true },
+  });
+  const reminderIdByKey = new Map(reminderPerms.map((p) => [p.key, p.id]));
+
+  for (const def of REMINDER_BUBBLE_PERMISSIONS) {
+    const reminderPermissionId = reminderIdByKey.get(def.key);
+    if (!reminderPermissionId) continue;
+
+    const legacyKeys = REMINDER_LEGACY_PAGE_PERMISSION[def.category];
+    const rolesWithLegacy = await prisma.role.findMany({
+      where: {
+        permissions: {
+          some: { permission: { key: { in: legacyKeys } } },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (rolesWithLegacy.length === 0) continue;
+
+    await prisma.rolePermission.createMany({
+      data: rolesWithLegacy.map((role) => ({
+        roleId: role.id,
+        permissionId: reminderPermissionId,
+      })),
+      skipDuplicates: true,
+    });
   }
 }
 

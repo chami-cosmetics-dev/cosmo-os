@@ -1,5 +1,6 @@
 import type { TaskReminderCategory } from "@/lib/task-reminders";
 import { hasReminderPermission } from "@/lib/task-reminders";
+import { reminderPermissionForCategory } from "@/lib/reminder-permissions";
 
 export type TaskReminderAudience = "admin" | "finance" | "merchant" | "store";
 
@@ -56,6 +57,10 @@ function isStoreRoleName(roleNames: string[]) {
   );
 }
 
+/**
+ * Audience heuristics for data-scoping (e.g. merchant-only samples).
+ * Bubble visibility itself is controlled by `reminders.*` permissions.
+ */
 export function resolveTaskReminderAudiences(
   context: TaskReminderAccessContext,
 ): Set<TaskReminderAudience> {
@@ -65,7 +70,6 @@ export function resolveTaskReminderAudiences(
     return new Set(["admin"]);
   }
 
-  // Named roles are exclusive — finance must not inherit store reminders from extra perms.
   if (isFinanceRoleName(roleNames)) {
     return new Set(["finance"]);
   }
@@ -80,7 +84,8 @@ export function resolveTaskReminderAudiences(
 
   if (
     hasReminderPermission(context, "finance.approvals.manage") ||
-    hasReminderPermission(context, "finance.approvals.read")
+    hasReminderPermission(context, "finance.approvals.read") ||
+    hasReminderPermission(context, "reminders.finance_approval")
   ) {
     if (!hasStoreFulfillmentAccess(permissionKeys) && !hasSampleFulfillmentAccess(permissionKeys)) {
       return new Set(["finance"]);
@@ -98,84 +103,12 @@ export function resolveTaskReminderAudiences(
   return new Set();
 }
 
-function categoryPermission(category: TaskReminderCategory): string {
-  switch (category) {
-    case "erp_sync_warning":
-      return "system.erp_sync.read";
-    case "finance_approval":
-      return "finance.approvals.manage";
-    case "add_samples":
-      return "fulfillment.sample_free_issue.read";
-    case "print":
-      return "fulfillment.order_print.read";
-    case "ready_dispatch":
-    case "rearrange_dispatch":
-      return "fulfillment.ready_dispatch.read";
-    case "return_action":
-      return "returns.read";
-    case "delivery_pending":
-      return "fulfillment.delivery_invoice.read";
-  }
-}
-
-function hasFinanceReminderPermission(context: TaskReminderAccessContext) {
-  return (
-    hasReminderPermission(context, "finance.approvals.manage") ||
-    hasReminderPermission(context, "finance.approvals.read")
-  );
-}
-
-function categoryAudience(category: TaskReminderCategory): TaskReminderAudience {
-  switch (category) {
-    case "erp_sync_warning":
-      return "admin";
-    case "finance_approval":
-      return "finance";
-    case "add_samples":
-      return "merchant";
-    case "print":
-    case "ready_dispatch":
-    case "rearrange_dispatch":
-    case "delivery_pending":
-    case "return_action":
-      return "store";
-  }
-}
-
+/** True when the role may see this reminder bubble (assignable in Roles UI). */
 export function canSeeTaskReminderCategory(
   context: TaskReminderAccessContext,
   category: TaskReminderCategory,
 ): boolean {
-  const audiences = resolveTaskReminderAudiences(context);
-
-  if (audiences.has("admin")) {
-    return category === "finance_approval"
-      ? hasFinanceReminderPermission(context)
-      : hasReminderPermission(context, categoryPermission(category));
-  }
-
-  if (audiences.size === 1 && audiences.has("finance")) {
-    return category === "finance_approval" && hasFinanceReminderPermission(context);
-  }
-
-  if (audiences.size === 1 && audiences.has("merchant")) {
-    return (
-      category === "add_samples" &&
-      hasReminderPermission(context, "fulfillment.sample_free_issue.read")
-    );
-  }
-
-  if (audiences.size === 1 && audiences.has("store")) {
-    if (category === "finance_approval" || category === "add_samples") return false;
-    return hasReminderPermission(context, categoryPermission(category));
-  }
-
-  return (
-    audiences.has(categoryAudience(category)) &&
-    (category === "finance_approval"
-      ? hasFinanceReminderPermission(context)
-      : hasReminderPermission(context, categoryPermission(category)))
-  );
+  return hasReminderPermission(context, reminderPermissionForCategory(category));
 }
 
 const ALL_TASK_REMINDER_CATEGORIES = [
