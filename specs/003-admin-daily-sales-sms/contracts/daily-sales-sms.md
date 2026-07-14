@@ -9,6 +9,9 @@
 Day (YYYY-MM-DD)
 Value:  N,NNN,NNN
 Count:        N
+Day Sales (Location Wise):
+CODE->: N,NNN,NNN
+CODE->: N,NNN,NNN
 -----------------------
 MTD Sales: N,NNN,NNN
 MTD Sales (Location Wise):
@@ -16,8 +19,9 @@ CODE->: N,NNN,NNN
 CODE->: N,NNN,NNN
 ```
 
+- **MTD** = Month To Date (1st of the month through the report day, Asia/Colombo)
 - Amounts: integer LKR with thousand separators (en-LK style)
-- Location lines: non-zero MTD only; `shortName` then `->: `
+- Location lines: non-zero amounts only (day and MTD); `shortName` then `->: ` (trading company / site)
 - Optional leading greeting (e.g. `Hi All,`) is **out of scope** unless product asks later — sample in chat included greeting but core metrics block above is required
 
 ## Admin API

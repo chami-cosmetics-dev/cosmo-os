@@ -21,6 +21,9 @@ export type DailySalesReport = {
   dayValue: number;
   dayCount: number;
   mtdValue: number;
+  /** That day’s sales by location (company / site shortName). */
+  dayLocations: DailySalesLocationRow[];
+  /** Month-to-date sales by location. */
   locations: DailySalesLocationRow[];
   messageBody: string;
 };
@@ -96,14 +99,37 @@ export function formatDailySalesSmsBody(report: Omit<DailySalesReport, "messageB
     `Day (${report.reportDate})`,
     `Value:  ${formatSalesAmount(report.dayValue)}`,
     `Count:        ${report.dayCount}`,
+    "Day Sales (Location Wise):",
+  ];
+  for (const row of report.dayLocations) {
+    lines.push(`${row.code}->: ${formatSalesAmount(row.value)}`);
+  }
+  lines.push(
     "-----------------------",
     `MTD Sales: ${formatSalesAmount(report.mtdValue)}`,
     "MTD Sales (Location Wise):",
-  ];
+  );
   for (const row of report.locations) {
     lines.push(`${row.code}->: ${formatSalesAmount(row.value)}`);
   }
   return lines.join("\n");
+}
+
+function locationRowsFromAgg(
+  byLocation: Map<string, number>,
+  locationNameById: Map<string, { name: string; shortName: string | null }>,
+): DailySalesLocationRow[] {
+  const rows: DailySalesLocationRow[] = [];
+  for (const [locationId, value] of byLocation) {
+    if (value <= 0) continue;
+    const loc = locationNameById.get(locationId);
+    rows.push({
+      code: locationCode(loc?.shortName ?? null, loc?.name ?? locationId),
+      value,
+    });
+  }
+  rows.sort((a, b) => b.value - a.value);
+  return rows;
 }
 
 function locationCode(shortName: string | null, name: string): string {
@@ -192,22 +218,15 @@ export async function buildDailySalesReport(
   ]);
 
   const locationNameById = new Map(locations.map((l) => [l.id, l]));
-  const locationRows: DailySalesLocationRow[] = [];
-  for (const [locationId, value] of mtdAgg.byLocation) {
-    if (value <= 0) continue;
-    const loc = locationNameById.get(locationId);
-    locationRows.push({
-      code: locationCode(loc?.shortName ?? null, loc?.name ?? locationId),
-      value,
-    });
-  }
-  locationRows.sort((a, b) => b.value - a.value);
+  const dayLocations = locationRowsFromAgg(dayAgg.byLocation, locationNameById);
+  const locationRows = locationRowsFromAgg(mtdAgg.byLocation, locationNameById);
 
   const base = {
     reportDate,
     dayValue: dayAgg.total,
     dayCount: dayAgg.count,
     mtdValue: mtdAgg.total,
+    dayLocations,
     locations: locationRows,
   };
 
