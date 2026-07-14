@@ -29,6 +29,10 @@ export const REMINDER_BUBBLE_PERMISSIONS = [
     category: "delivery_pending" as const,
   },
   {
+    key: "reminders.invoice_complete",
+    category: "invoice_complete" as const,
+  },
+  {
     key: "reminders.return_action",
     category: "return_action" as const,
   },
@@ -51,6 +55,7 @@ const REMINDER_BUBBLE_LABELS: Record<ReminderBubbleCategory, string> = {
   ready_dispatch: "Ready to dispatch",
   rearrange_dispatch: "Rearrange dispatch",
   delivery_pending: "Delivery pending",
+  invoice_complete: "Invoice complete",
   return_action: "Returned orders",
 };
 
@@ -66,6 +71,7 @@ export const REMINDER_DEFAULT_PAGE_PERMISSION: Record<ReminderBubbleCategory, st
   ready_dispatch: ["fulfillment.ready_dispatch.read"],
   rearrange_dispatch: ["fulfillment.ready_dispatch.read"],
   delivery_pending: ["fulfillment.delivery_invoice.read"],
+  invoice_complete: ["fulfillment.invoice_complete.read"],
   return_action: ["returns.read"],
 };
 

@@ -152,7 +152,7 @@ export function canSeeTaskReminderCategory(
   }
 
   if (audiences.size === 1 && audiences.has("finance")) {
-    return category === "finance_approval";
+    return category === "finance_approval" || category === "invoice_complete";
   }
 
   if (audiences.size === 1 && audiences.has("merchant")) {
@@ -165,6 +165,7 @@ export function canSeeTaskReminderCategory(
       category === "ready_dispatch" ||
       category === "rearrange_dispatch" ||
       category === "delivery_pending" ||
+      category === "invoice_complete" ||
       category === "return_action" ||
       category === "erp_sync_warning"
     );
@@ -182,6 +183,7 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "ready_dispatch",
   "rearrange_dispatch",
   "delivery_pending",
+  "invoice_complete",
   "return_action",
 ] as const satisfies readonly TaskReminderCategory[];
 
