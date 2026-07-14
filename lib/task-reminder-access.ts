@@ -1,5 +1,10 @@
 import type { TaskReminderCategory } from "@/lib/task-reminders";
 import { hasReminderPermission } from "@/lib/task-reminders";
+import {
+  REMINDER_LEGACY_PAGE_PERMISSION,
+  reminderPermissionForCategory,
+  type ReminderBubbleCategory,
+} from "@/lib/reminder-permissions";
 
 export type TaskReminderAudience = "admin" | "finance" | "merchant" | "store";
 
@@ -56,6 +61,10 @@ function isStoreRoleName(roleNames: string[]) {
   );
 }
 
+/**
+ * Audience heuristics for data-scoping (e.g. merchant-only samples).
+ * Bubble visibility: page permission OR explicit reminders.* (see canSeeTaskReminderCategory).
+ */
 export function resolveTaskReminderAudiences(
   context: TaskReminderAccessContext,
 ): Set<TaskReminderAudience> {
@@ -80,7 +89,8 @@ export function resolveTaskReminderAudiences(
 
   if (
     hasReminderPermission(context, "finance.approvals.manage") ||
-    hasReminderPermission(context, "finance.approvals.read")
+    hasReminderPermission(context, "finance.approvals.read") ||
+    hasReminderPermission(context, "reminders.finance_approval")
   ) {
     if (!hasStoreFulfillmentAccess(permissionKeys) && !hasSampleFulfillmentAccess(permissionKeys)) {
       return new Set(["finance"]);
@@ -98,84 +108,70 @@ export function resolveTaskReminderAudiences(
   return new Set();
 }
 
-function categoryPermission(category: TaskReminderCategory): string {
-  switch (category) {
-    case "erp_sync_warning":
-      return "system.erp_sync.read";
-    case "finance_approval":
-      return "finance.approvals.manage";
-    case "add_samples":
-      return "fulfillment.sample_free_issue.read";
-    case "print":
-      return "fulfillment.order_print.read";
-    case "ready_dispatch":
-    case "rearrange_dispatch":
-      return "fulfillment.ready_dispatch.read";
-    case "return_action":
-      return "returns.read";
-    case "delivery_pending":
-      return "fulfillment.delivery_invoice.read";
-  }
+function hasLegacyPagePermissionForCategory(
+  context: TaskReminderAccessContext,
+  category: TaskReminderCategory,
+): boolean {
+  const legacyKeys =
+    REMINDER_LEGACY_PAGE_PERMISSION[category as ReminderBubbleCategory] ?? [];
+  return legacyKeys.some((key) => hasReminderPermission(context, key));
 }
 
-function hasFinanceReminderPermission(context: TaskReminderAccessContext) {
-  return (
-    hasReminderPermission(context, "finance.approvals.manage") ||
-    hasReminderPermission(context, "finance.approvals.read")
-  );
-}
-
-function categoryAudience(category: TaskReminderCategory): TaskReminderAudience {
-  switch (category) {
-    case "erp_sync_warning":
-      return "admin";
-    case "finance_approval":
-      return "finance";
-    case "add_samples":
-      return "merchant";
-    case "print":
-    case "ready_dispatch":
-    case "rearrange_dispatch":
-    case "delivery_pending":
-    case "return_action":
-      return "store";
-  }
-}
-
+/**
+ * Show a bubble if the user has the related page permission (existing flow)
+ * OR an explicit reminders.* grant (extra / standalone bubble access).
+ *
+ * Named-role audience rules still apply so finance doesn't see store queues
+ * just because they have returns.read from another duty — unless they also have
+ * the matching reminders.* key (intentional override).
+ */
 export function canSeeTaskReminderCategory(
   context: TaskReminderAccessContext,
   category: TaskReminderCategory,
 ): boolean {
+  const hasExplicitReminder = hasReminderPermission(
+    context,
+    reminderPermissionForCategory(category as ReminderBubbleCategory),
+  );
+  const hasLegacyPage = hasLegacyPagePermissionForCategory(context, category);
+
+  if (!hasExplicitReminder && !hasLegacyPage) {
+    return false;
+  }
+
   const audiences = resolveTaskReminderAudiences(context);
 
+  // Explicit reminders.* always wins — for giving extra bubbles beyond page access.
+  if (hasExplicitReminder) {
+    return true;
+  }
+
+  // Legacy page-perm path: keep audience gating so role types stay scoped.
   if (audiences.has("admin")) {
-    return category === "finance_approval"
-      ? hasFinanceReminderPermission(context)
-      : hasReminderPermission(context, categoryPermission(category));
+    return true;
   }
 
   if (audiences.size === 1 && audiences.has("finance")) {
-    return category === "finance_approval" && hasFinanceReminderPermission(context);
+    return category === "finance_approval";
   }
 
   if (audiences.size === 1 && audiences.has("merchant")) {
-    return (
-      category === "add_samples" &&
-      hasReminderPermission(context, "fulfillment.sample_free_issue.read")
-    );
+    return category === "add_samples";
   }
 
   if (audiences.size === 1 && audiences.has("store")) {
-    if (category === "finance_approval" || category === "add_samples") return false;
-    return hasReminderPermission(context, categoryPermission(category));
+    return (
+      category === "print" ||
+      category === "ready_dispatch" ||
+      category === "rearrange_dispatch" ||
+      category === "delivery_pending" ||
+      category === "return_action" ||
+      category === "erp_sync_warning"
+    );
   }
 
-  return (
-    audiences.has(categoryAudience(category)) &&
-    (category === "finance_approval"
-      ? hasFinanceReminderPermission(context)
-      : hasReminderPermission(context, categoryPermission(category)))
-  );
+  // Custom roles with no named audience: page perm alone is enough.
+  return hasLegacyPage;
 }
 
 const ALL_TASK_REMINDER_CATEGORIES = [
