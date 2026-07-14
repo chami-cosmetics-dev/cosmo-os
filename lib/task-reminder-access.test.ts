@@ -42,6 +42,14 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "return_action")).toBe(false);
   });
 
+  it("grants finance bubble from finance.approvals.read alone (e.g. HOD)", () => {
+    const context = {
+      roleNames: ["hod"],
+      permissionKeys: ["finance.approvals.read", "finance.hod.revert_paid_to_unpaid"],
+    };
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
+  });
+
   it("lets finance get extra bubbles via reminders.* even without store audience", () => {
     const context = {
       roleNames: ["finance"],

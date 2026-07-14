@@ -1,7 +1,7 @@
 import type { TaskReminderCategory } from "@/lib/task-reminders";
 import { hasReminderPermission } from "@/lib/task-reminders";
 import {
-  REMINDER_LEGACY_PAGE_PERMISSION,
+  REMINDER_DEFAULT_PAGE_PERMISSION,
   reminderPermissionForCategory,
   type ReminderBubbleCategory,
 } from "@/lib/reminder-permissions";
@@ -113,7 +113,7 @@ function hasLegacyPagePermissionForCategory(
   category: TaskReminderCategory,
 ): boolean {
   const legacyKeys =
-    REMINDER_LEGACY_PAGE_PERMISSION[category as ReminderBubbleCategory] ?? [];
+    REMINDER_DEFAULT_PAGE_PERMISSION[category as ReminderBubbleCategory] ?? [];
   return legacyKeys.some((key) => hasReminderPermission(context, key));
 }
 
