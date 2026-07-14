@@ -133,7 +133,6 @@ function resolveReviewMerchant(input: {
     sourceName: input.sourceName,
     discountCodes: input.discountCodes,
     rawPayload: input.rawPayload,
-    joinAllDiscountCodes: true,
   });
   const merchantCoupons = (merchantCouponCode ?? "")
     .split(",")
@@ -195,6 +194,16 @@ function matchesSearch(
     .some((value) => value!.toLowerCase().includes(query));
 }
 
+function buildExportOrderNumber(order: {
+  erpnextInvoiceId: string | null;
+  orderNumber: string | null;
+  name: string | null;
+  shopifyOrderId: string;
+}) {
+  const erpRef = order.erpnextInvoiceId?.trim();
+  if (erpRef && erpRef !== "pending" && erpRef !== "pending_approval") return erpRef;
+  return order.orderNumber ?? order.name ?? order.shopifyOrderId;
+}
 function toSheetName(name: string, usedNames: Set<string>) {
   const fallback = "Merchant";
   const base = (name || fallback)
@@ -252,7 +261,9 @@ export async function GET(request: NextRequest) {
     prisma.order.findMany({
       where: {
         companyId,
-        createdAt: {
+        sourceName: { notIn: ["pos", "erpnext-pos"] },
+        deliveryCompleteAt: {
+          not: null,
           gte: dateRange.start,
           lte: dateRange.end,
         },
@@ -263,11 +274,13 @@ export async function GET(request: NextRequest) {
         id: true,
         shopifyOrderId: true,
         orderNumber: true,
+        erpnextInvoiceId: true,
         name: true,
         sourceName: true,
         totalPrice: true,
         currency: true,
         createdAt: true,
+        deliveryCompleteAt: true,
         customerEmail: true,
         customerPhone: true,
         shippingAddress: true,
@@ -331,6 +344,7 @@ export async function GET(request: NextRequest) {
     "Order Source",
     "Order Value",
     "Ordered At",
+    "Delivery Completed At",
     "Shipping Address",
     "Items",
     "Review Status",
@@ -385,7 +399,7 @@ export async function GET(request: NextRequest) {
         .join(" | ");
 
       return [
-        order.orderNumber ?? order.name ?? order.shopifyOrderId,
+        buildExportOrderNumber(order),
         pickCustomerName(order),
         order.customerEmail ?? "",
         order.customerPhone ?? "",
@@ -394,6 +408,7 @@ export async function GET(request: NextRequest) {
         order.sourceName,
         `${Number(order.totalPrice).toFixed(2)}${order.currency ? ` ${order.currency}` : ""}`,
         formatOrderDateTime(order.createdAt),
+        formatOrderDateTime(order.deliveryCompleteAt),
         formatAddress(order.shippingAddress),
         itemText,
         review?.reviewStatus ?? "pending",
@@ -419,6 +434,7 @@ export async function GET(request: NextRequest) {
       { wch: 18 },
       { wch: 14 },
       { wch: 16 },
+      { wch: 20 },
       { wch: 20 },
       { wch: 42 },
       { wch: 48 },
