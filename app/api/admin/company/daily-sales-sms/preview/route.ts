@@ -69,6 +69,10 @@ export async function POST(request: NextRequest) {
     dayValue: Math.round(report.dayValue),
     dayCount: report.dayCount,
     mtdValue: Math.round(report.mtdValue),
+    dayLocations: report.dayLocations.map((l) => ({
+      code: l.code,
+      value: Math.round(l.value),
+    })),
     locations: report.locations.map((l) => ({
       code: l.code,
       value: Math.round(l.value),

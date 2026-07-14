@@ -22,6 +22,10 @@ describe("daily-sales-sms helpers", () => {
       dayValue: 1970256,
       dayCount: 198,
       mtdValue: 43287867,
+      dayLocations: [
+        { code: "WEB", value: 900000 },
+        { code: "OGF", value: 500000 },
+      ],
       locations: [
         { code: "WEB", value: 25877955 },
         { code: "OGF", value: 5629055 },
@@ -31,6 +35,9 @@ describe("daily-sales-sms helpers", () => {
     expect(body).toContain("Day (2026-06-30)");
     expect(body).toContain("Value:  1,970,256");
     expect(body).toContain("Count:        198");
+    expect(body).toContain("Day Sales (Location Wise):");
+    expect(body).toContain("WEB->: 900,000");
+    expect(body).toContain("OGF->: 500,000");
     expect(body).toContain("MTD Sales: 43,287,867");
     expect(body).toContain("MTD Sales (Location Wise):");
     expect(body).toContain("WEB->: 25,877,955");
@@ -43,10 +50,12 @@ describe("daily-sales-sms helpers", () => {
       dayValue: 0,
       dayCount: 0,
       mtdValue: 1000,
+      dayLocations: [],
       locations: [{ code: "HO", value: 1000 }],
     });
     expect(body).toContain("Value:  0");
     expect(body).toContain("Count:        0");
+    expect(body).toContain("Day Sales (Location Wise):");
     expect(body).toContain("HO->: 1,000");
   });
 

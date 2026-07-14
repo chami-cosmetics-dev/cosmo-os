@@ -147,7 +147,8 @@ export function DailySalesSmsSettingsForm({ canEdit }: DailySalesSmsSettingsForm
       <CardHeader>
         <CardTitle>Daily sales SMS</CardTitle>
         <CardDescription>
-          Nightly leadership SMS (day value/count + MTD by location). Add admin phones one per line
+          Nightly leadership SMS (day total + day by location, then MTD total + MTD by location).
+          Add admin phones one per line
           (e.g. <span className="font-mono">0766713205</span>). Empty list skips live sends; preview
           still works. Failures appear on OGF logs with Resend.
         </CardDescription>
