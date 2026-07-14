@@ -141,7 +141,7 @@ export function getOrderListFulfillmentStageBadges(input: {
   const packageReady = isExplicitlyPackageReady(input);
 
   if (
-    stage === "ready_to_dispatch" &&
+    (stage === "print" || stage === "ready_to_dispatch") &&
     printed &&
     !packageReady
   ) {

@@ -44,6 +44,17 @@ describe("getOrderListFulfillmentStageBadges", () => {
     expect(badges[0]?.label).toBe("Print");
   });
 
+  it("shows printed when a print-stage order has already been printed", () => {
+    const badges = getOrderListFulfillmentStageBadges({
+      fulfillmentStage: "print",
+      printCount: 1,
+      packageReadyAt: null,
+      lastPrintedAt: "2026-06-24T10:00:00.000Z",
+    });
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.label).toBe("Printed");
+  });
+
   it("shows printed after invoice print before package ready", () => {
     const badges = getOrderListFulfillmentStageBadges({
       fulfillmentStage: "ready_to_dispatch",
