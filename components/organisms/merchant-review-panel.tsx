@@ -20,6 +20,7 @@ type QueueItem = {
   totalPrice: string;
   currency: string | null;
   createdAt: string;
+  deliveryCompleteAt: string;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
   reviewMerchant: { id: string; name: string };
   reviewStatus: "pending" | "reviewed" | "follow_up" | "no_response";
@@ -193,7 +194,7 @@ export function MerchantReviewPanel({
   const [form, setForm] = useState<ReviewForm>(buildInitialForm(null));
 
   const dateScopedOrders = useMemo(
-    () => queueOrders.filter((order) => isInDateRange(order.createdAt, dateFrom, dateTo)),
+    () => queueOrders.filter((order) => isInDateRange(order.deliveryCompleteAt, dateFrom, dateTo)),
     [queueOrders, dateFrom, dateTo]
   );
 

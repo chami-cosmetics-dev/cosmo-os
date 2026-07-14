@@ -29,6 +29,8 @@ async function resolveOrderForViewer(orderId: string, companyId: string) {
     where: {
       id: orderId,
       companyId,
+      deliveryCompleteAt: { not: null },
+      sourceName: { notIn: ["pos", "erpnext-pos"] },
     },
     select: {
       id: true,
