@@ -42,13 +42,27 @@ export type FinanceApprovalItem = {
   cancelRequestedAt?: string | null;
 };
 
-type CategoryFilter = "all" | "payments" | "returns" | "cancellations";
+/** Filter tabs: All + each finance approval type (more detailed than Payments/Returns groups). */
+type TypeFilter =
+  | "all"
+  | "order_payment_approval"
+  | "delivery_payment_approval"
+  | "payment_method_change_approval"
+  | "return_rearrange_payment"
+  | "return_cancel"
+  | "invoice_revert_void_approval"
+  | "order_cancel_approval";
 
-const CATEGORY_TYPES: Record<Exclude<CategoryFilter, "all">, string[]> = {
-  payments: ["order_payment_approval", "delivery_payment_approval", "payment_method_change_approval"],
-  returns: ["return_rearrange_payment", "return_cancel", "invoice_revert_void_approval"],
-  cancellations: ["order_cancel_approval"],
-};
+const TYPE_FILTER_TABS: { key: TypeFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "order_payment_approval", label: "Order Payment" },
+  { key: "delivery_payment_approval", label: "Delivery Payment" },
+  { key: "payment_method_change_approval", label: "Method Change" },
+  { key: "return_rearrange_payment", label: "Return Rearrange" },
+  { key: "return_cancel", label: "Return Cancel" },
+  { key: "invoice_revert_void_approval", label: "Invoice Revert" },
+  { key: "order_cancel_approval", label: "Order Cancel" },
+];
 
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
@@ -150,20 +164,19 @@ function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
   return haystack.some((value) => value?.toLowerCase().includes(q));
 }
 
-function filterByCategory(approvals: FinanceApprovalItem[], category: CategoryFilter) {
-  if (category === "all") return approvals;
-  const types = CATEGORY_TYPES[category];
-  return approvals.filter((a) => types.includes(a.type));
+function filterByType(approvals: FinanceApprovalItem[], typeFilter: TypeFilter) {
+  if (typeFilter === "all") return approvals;
+  return approvals.filter((a) => a.type === typeFilter);
 }
 
 function selectFirstInView(
   approvals: FinanceApprovalItem[],
   view: "pending" | "history",
-  category: CategoryFilter,
+  typeFilter: TypeFilter,
   currentId: string
 ) {
   const byView = view === "pending" ? approvals.filter(isPendingApproval) : approvals.filter((item) => !isPendingApproval(item));
-  const visible = filterByCategory(byView, category);
+  const visible = filterByType(byView, typeFilter);
   if (visible.some((item) => item.id === currentId)) return currentId;
   return visible[0]?.id ?? "";
 }
@@ -179,7 +192,7 @@ export function FinanceApprovalsPanel({
   const appliedDeepLinkRef = useRef<string | null>(null);
   const [approvals, setApprovals] = useState(initialApprovals);
   const [view, setView] = useState<"pending" | "history">("pending");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [selectedId, setSelectedId] = useState(() =>
     selectFirstInView(initialApprovals, "pending", "all", "")
   );
@@ -212,19 +225,31 @@ export function FinanceApprovalsPanel({
   const pendingApprovals = approvals.filter(isPendingApproval);
   const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
   const byView = view === "pending" ? pendingApprovals : historyApprovals;
-  const visibleApprovals = filterByCategory(byView, categoryFilter);
+  const visibleApprovals = filterByType(byView, typeFilter);
   const searchedApprovals = useMemo(() => {
     if (!effectiveSearch) return visibleApprovals;
     return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
   }, [visibleApprovals, effectiveSearch]);
   const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
 
-  const pendingCountByCategory = useMemo<Record<CategoryFilter, number>>(() => ({
-    all: pendingApprovals.length,
-    payments: pendingApprovals.filter((a) => CATEGORY_TYPES.payments.includes(a.type)).length,
-    returns: pendingApprovals.filter((a) => CATEGORY_TYPES.returns.includes(a.type)).length,
-    cancellations: pendingApprovals.filter((a) => CATEGORY_TYPES.cancellations.includes(a.type)).length,
-  }), [pendingApprovals]);
+  const pendingCountByType = useMemo(() => {
+    const counts: Record<TypeFilter, number> = {
+      all: pendingApprovals.length,
+      order_payment_approval: 0,
+      delivery_payment_approval: 0,
+      payment_method_change_approval: 0,
+      return_rearrange_payment: 0,
+      return_cancel: 0,
+      invoice_revert_void_approval: 0,
+      order_cancel_approval: 0,
+    };
+    for (const a of pendingApprovals) {
+      if (a.type in counts) {
+        counts[a.type as Exclude<TypeFilter, "all">] += 1;
+      }
+    }
+    return counts;
+  }, [pendingApprovals]);
 
   useEffect(() => {
     if (searchedApprovals.length === 0) {
@@ -238,12 +263,12 @@ export function FinanceApprovalsPanel({
 
   function switchView(next: "pending" | "history") {
     setView(next);
-    setSelectedId(selectFirstInView(approvals, next, categoryFilter, selectedId));
+    setSelectedId(selectFirstInView(approvals, next, typeFilter, selectedId));
     setReviewNote("");
   }
 
-  function switchCategory(next: CategoryFilter) {
-    setCategoryFilter(next);
+  function switchTypeFilter(next: TypeFilter) {
+    setTypeFilter(next);
     setSelectedId(selectFirstInView(approvals, view, next, selectedId));
     setReviewNote("");
   }
@@ -258,7 +283,7 @@ export function FinanceApprovalsPanel({
         return;
       }
       setApprovals(data.approvals ?? []);
-      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, categoryFilter, currentId));
+      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, typeFilter, currentId));
     } catch {
       notify.error("Failed to load approvals");
     } finally {
@@ -374,7 +399,7 @@ export function FinanceApprovalsPanel({
             onClick={() => switchView("pending")}
             className={view === "pending" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
           >
-            Pending{pendingCountByCategory.all > 0 ? ` (${pendingCountByCategory.all})` : ""}
+            Pending{pendingCountByType.all > 0 ? ` (${pendingCountByType.all})` : ""}
           </Button>
           <Button
             type="button"
@@ -387,22 +412,21 @@ export function FinanceApprovalsPanel({
           </Button>
         </div>
 
-        <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
-          {(["all", "payments", "returns", "cancellations"] as CategoryFilter[]).map((cat) => {
-            const count = view === "pending" ? pendingCountByCategory[cat] : 0;
-            const label = cat === "all" ? "All" : cat.charAt(0).toUpperCase() + cat.slice(1);
+        <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
+          {TYPE_FILTER_TABS.map((tab) => {
+            const count = view === "pending" ? pendingCountByType[tab.key] : 0;
             return (
               <button
-                key={cat}
+                key={tab.key}
                 type="button"
-                onClick={() => switchCategory(cat)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  categoryFilter === cat
+                onClick={() => switchTypeFilter(tab.key)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  typeFilter === tab.key
                     ? "bg-background text-foreground shadow-xs"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {label}
+                {tab.label}
                 {view === "pending" && count > 0 && (
                   <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                     {count}
