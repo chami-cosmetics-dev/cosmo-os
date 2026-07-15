@@ -2,6 +2,10 @@ import type { Prisma } from "@prisma/client";
 
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 import { cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
+import {
+  mergeErpReturnSalesInvoiceIds,
+  normalizeErpReturnSalesInvoiceIds,
+} from "@/lib/erp-return-si";
 import { prisma } from "@/lib/prisma";
 
 export const ERP_CREDIT_NOTE_ISSUED_STATUS = "Credit Note Issued";
@@ -91,20 +95,24 @@ export async function findOrderForErpInvoiceReference(invoiceRef: string) {
   });
 }
 
-function mergeErpReturnInvoiceNames(
-  existing: unknown,
-  returnInvoiceName: string,
-): Prisma.InputJsonValue {
-  const base =
-    existing && typeof existing === "object" && !Array.isArray(existing)
-      ? { ...(existing as Record<string, unknown>) }
-      : {};
-  const prev = Array.isArray(base.erpReturnSalesInvoiceNames)
-    ? base.erpReturnSalesInvoiceNames.filter((value): value is string => typeof value === "string")
-    : [];
-  if (!prev.includes(returnInvoiceName)) prev.push(returnInvoiceName);
-  base.erpReturnSalesInvoiceNames = prev;
-  return base as Prisma.InputJsonValue;
+/** Persist Return SI ids on an order without touching original SI / void state. */
+export async function appendErpReturnSalesInvoiceIds(
+  orderId: string,
+  existingIds: string[] | null | undefined,
+  returnInvoiceName: string | null | undefined,
+): Promise<string[]> {
+  const merged = mergeErpReturnSalesInvoiceIds(existingIds, returnInvoiceName);
+  if (
+    merged.length === (existingIds?.length ?? 0) &&
+    merged.every((id, i) => id === existingIds?.[i])
+  ) {
+    return merged;
+  }
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { erpReturnSalesInvoiceIds: merged },
+  });
+  return merged;
 }
 
 /** Mark the original Vault OS order voided/returned after ERP issues a credit note. */
@@ -119,7 +127,7 @@ export async function applyErpCreditNoteToOriginalOrder(
       name: true,
       financialStatus: true,
       fulfillmentStage: true,
-      rawPayload: true,
+      erpReturnSalesInvoiceIds: true,
       revertedFromInvoiceCompleteAt: true,
       returns: {
         select: { actionType: true },
@@ -128,10 +136,20 @@ export async function applyErpCreditNoteToOriginalOrder(
   });
   if (!original) return null;
 
+  const returnInvoiceName = options?.returnInvoiceName?.trim() || null;
+
   // Credit note was triggered by OS itself at revert time — OS state is already correct ("refunded").
   // Skip auto-void to prevent the webhook from overwriting the partial-void state.
+  // Still record Return SI when known so search/detail stay accurate.
   if (original.revertedFromInvoiceCompleteAt) {
     console.log(`[ERP CN] Skipping auto-void for finance-reverted order ${original.id} (${original.name})`);
+    if (returnInvoiceName) {
+      await appendErpReturnSalesInvoiceIds(
+        original.id,
+        original.erpReturnSalesInvoiceIds,
+        returnInvoiceName,
+      );
+    }
     return original;
   }
 
@@ -144,20 +162,25 @@ export async function applyErpCreditNoteToOriginalOrder(
     REARRANGED_ACTIVE_STAGES.includes(original.fulfillmentStage as (typeof REARRANGED_ACTIVE_STAGES)[number])
   ) {
     console.log(`[ERP CN] Skipping auto-void for rearranged order ${original.id} (${original.name}) — currently at ${original.fulfillmentStage}`);
+    if (returnInvoiceName) {
+      await appendErpReturnSalesInvoiceIds(
+        original.id,
+        original.erpReturnSalesInvoiceIds,
+        returnInvoiceName,
+      );
+    }
     return original;
   }
 
-  const returnInvoiceName = options?.returnInvoiceName?.trim() || null;
+  const nextReturnIds = returnInvoiceName
+    ? mergeErpReturnSalesInvoiceIds(original.erpReturnSalesInvoiceIds, returnInvoiceName)
+    : original.erpReturnSalesInvoiceIds;
 
   await prisma.order.update({
     where: { id: original.id },
     data: {
       ...ERP_CREDIT_NOTE_ORDER_PATCH,
-      ...(returnInvoiceName
-        ? {
-            rawPayload: mergeErpReturnInvoiceNames(original.rawPayload, returnInvoiceName),
-          }
-        : {}),
+      ...(returnInvoiceName ? { erpReturnSalesInvoiceIds: nextReturnIds } : {}),
     },
   });
 
@@ -226,7 +249,7 @@ async function fetchErpSalesInvoice(
   return null;
 }
 
-async function fetchErpCreditNotesAgainst(
+export async function fetchErpCreditNotesAgainst(
   creds: ErpInstanceCreds,
   invoiceName: string,
 ): Promise<Array<{ name?: string; docstatus?: number | null }>> {
@@ -240,7 +263,7 @@ async function fetchErpCreditNotesAgainst(
       );
       const fields = encodeURIComponent(JSON.stringify(["name", "docstatus"]));
       const res = await fetch(
-        `${creds.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit_page_length=5`,
+        `${creds.baseUrl.replace(/\/$/, "")}/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit_page_length=20`,
         { headers: { Authorization: `token ${creds.apiKey}:${creds.apiSecret}` } },
       );
       if (!res.ok) continue;
@@ -261,6 +284,16 @@ async function fetchErpCreditNotesAgainst(
   return results;
 }
 
+function creditNoteReturnNames(
+  creditNotes: Array<{ name?: string; docstatus?: number | null }>,
+): string[] {
+  return normalizeErpReturnSalesInvoiceIds(
+    creditNotes
+      .filter((cn) => cn.docstatus === 1 || cn.docstatus === 2)
+      .map((cn) => cn.name),
+  );
+}
+
 /** Poll ERP when the webhook was missed; apply credit-note state if ERP shows one. */
 export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
   updated: boolean;
@@ -272,9 +305,9 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       id: true,
       name: true,
       erpnextInvoiceId: true,
+      erpReturnSalesInvoiceIds: true,
       financialStatus: true,
       fulfillmentStage: true,
-      rawPayload: true,
       revertedFromInvoiceCompleteAt: true,
       companyLocation: {
         select: {
@@ -292,20 +325,53 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     return { updated: false, reason: "order_or_erp_instance_not_found" };
   }
 
-  if (order.financialStatus === "voided" && order.fulfillmentStage === "returned") {
-    return { updated: false, reason: "already_credit_noted" };
-  }
-
-  // Credit note was issued by OS at revert time — don't overwrite the "refunded" partial-void state.
-  if (order.revertedFromInvoiceCompleteAt) {
-    return { updated: false, reason: "finance_reverted_order_skipped" };
-  }
-
   const creds: ErpInstanceCreds = {
     baseUrl: instance.baseUrl,
     apiKey: instance.apiKey,
     apiSecret: instance.apiSecret,
   };
+
+  // Already voided/returned — still backfill Return SI ids when ERP has them.
+  if (order.financialStatus === "voided" && order.fulfillmentStage === "returned") {
+    const creditNotes = await fetchErpCreditNotesAgainst(creds, invoiceName);
+    const names = creditNoteReturnNames(creditNotes);
+    if (names.length === 0) {
+      return { updated: false, reason: "already_credit_noted" };
+    }
+    const merged = mergeErpReturnSalesInvoiceIds(order.erpReturnSalesInvoiceIds, names);
+    if (
+      merged.length === order.erpReturnSalesInvoiceIds.length &&
+      merged.every((id, i) => id === order.erpReturnSalesInvoiceIds[i])
+    ) {
+      return { updated: false, reason: "already_credit_noted" };
+    }
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { erpReturnSalesInvoiceIds: merged },
+    });
+    return { updated: true, reason: "return_si_backfilled" };
+  }
+
+  // Credit note was issued by OS at revert time — don't overwrite the "refunded" partial-void state.
+  if (order.revertedFromInvoiceCompleteAt) {
+    const creditNotes = await fetchErpCreditNotesAgainst(creds, invoiceName);
+    const names = creditNoteReturnNames(creditNotes);
+    if (names.length === 0) {
+      return { updated: false, reason: "finance_reverted_order_skipped" };
+    }
+    const merged = mergeErpReturnSalesInvoiceIds(order.erpReturnSalesInvoiceIds, names);
+    if (
+      merged.length === order.erpReturnSalesInvoiceIds.length &&
+      merged.every((id, i) => id === order.erpReturnSalesInvoiceIds[i])
+    ) {
+      return { updated: false, reason: "finance_reverted_order_skipped" };
+    }
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { erpReturnSalesInvoiceIds: merged },
+    });
+    return { updated: true, reason: "return_si_recorded_finance_reverted" };
+  }
 
   const [invoice, creditNotes] = await Promise.all([
     fetchErpSalesInvoice(creds, invoiceName),
@@ -323,17 +389,16 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     return { updated: false, reason: "no_credit_note_in_erp" };
   }
 
-  const linkedReturnName =
-    creditNotes.find((cn) => cn.docstatus === 1 || cn.docstatus === 2)?.name?.trim() ||
-    null;
+  const names = creditNoteReturnNames(creditNotes);
+  const nextReturnIds = names.length
+    ? mergeErpReturnSalesInvoiceIds(order.erpReturnSalesInvoiceIds, names)
+    : order.erpReturnSalesInvoiceIds;
 
   await prisma.order.update({
     where: { id: order.id },
     data: {
       ...ERP_CREDIT_NOTE_ORDER_PATCH,
-      ...(linkedReturnName
-        ? { rawPayload: mergeErpReturnInvoiceNames(order.rawPayload, linkedReturnName) }
-        : {}),
+      ...(names.length ? { erpReturnSalesInvoiceIds: nextReturnIds } : {}),
     },
   });
 

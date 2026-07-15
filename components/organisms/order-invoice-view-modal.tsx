@@ -77,6 +77,7 @@ type OrderDetail = {
   orderNumber: string | null;
   name: string | null;
   erpnextInvoiceId?: string | null;
+  erpReturnSalesInvoiceIds?: string[];
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
@@ -742,7 +743,11 @@ export function OrderInvoiceViewModal({
             })()}
           </DialogTitle>
           <DialogDescription>
-            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
+            Invoice timeline - view only
+            {orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
+            {orderDetail?.erpReturnSalesInvoiceIds && orderDetail.erpReturnSalesInvoiceIds.length > 0
+              ? ` · Return SI: ${orderDetail.erpReturnSalesInvoiceIds.join(", ")}`
+              : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -1171,6 +1176,15 @@ export function OrderInvoiceViewModal({
                       <div>
                         <span className="text-muted-foreground text-xs">Coupon</span>
                         <p>{orderDetail.discountCouponCode}</p>
+                      </div>
+                    )}
+                    {orderDetail.erpReturnSalesInvoiceIds &&
+                      orderDetail.erpReturnSalesInvoiceIds.length > 0 && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Return SI</span>
+                        {orderDetail.erpReturnSalesInvoiceIds.map((si) => (
+                          <p key={si}>{si}</p>
+                        ))}
                       </div>
                     )}
                     {(() => {
