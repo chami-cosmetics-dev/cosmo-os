@@ -126,7 +126,7 @@ export async function POST(request: Request) {
     select: {
       id: true,
       companyId: true,
-      userRoles: { select: { id: true }, take: 1 },
+      userRoles: { select: { roleId: true }, take: 1 },
     },
   });
   if (existingUser) {
