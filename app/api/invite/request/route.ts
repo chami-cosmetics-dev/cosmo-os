@@ -123,13 +123,29 @@ export async function POST(request: Request) {
 
   const existingUser = await prisma.user.findUnique({
     where: { email },
-    select: { id: true },
+    select: {
+      id: true,
+      companyId: true,
+      userRoles: { select: { id: true }, take: 1 },
+    },
   });
   if (existingUser) {
-    return NextResponse.json(
-      { error: "User with this email already exists" },
-      { status: 400 }
-    );
+    // Orphan from a leftover login session (no company, no roles): remove so invite can proceed.
+    const isOrphan =
+      !existingUser.companyId && existingUser.userRoles.length === 0;
+    if (!isOrphan) {
+      return NextResponse.json(
+        { error: "User with this email already exists" },
+        { status: 400 }
+      );
+    }
+    await prisma.invite.updateMany({
+      where: { invitedById: existingUser.id },
+      data: { invitedById: null },
+    });
+    await prisma.invite.deleteMany({ where: { email } });
+    await prisma.userRole.deleteMany({ where: { userId: existingUser.id } });
+    await prisma.user.delete({ where: { id: existingUser.id } });
   }
 
   const inviter = await prisma.user.findUnique({

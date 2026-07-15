@@ -21,6 +21,8 @@ export type DailySalesReport = {
   dayValue: number;
   dayCount: number;
   mtdValue: number;
+  /** Month-to-date order count (same eligibility as day count). */
+  mtdCount: number;
   /** That day’s sales by location (company / site shortName). */
   dayLocations: DailySalesLocationRow[];
   /** Month-to-date sales by location. */
@@ -107,6 +109,7 @@ export function formatDailySalesSmsBody(report: Omit<DailySalesReport, "messageB
   lines.push(
     "-----------------------",
     `MTD Sales: ${formatSalesAmount(report.mtdValue)}`,
+    `Count:        ${report.mtdCount}`,
     "MTD Sales (Location Wise):",
   );
   for (const row of report.locations) {
@@ -226,6 +229,7 @@ export async function buildDailySalesReport(
     dayValue: dayAgg.total,
     dayCount: dayAgg.count,
     mtdValue: mtdAgg.total,
+    mtdCount: mtdAgg.count,
     dayLocations,
     locations: locationRows,
   };
