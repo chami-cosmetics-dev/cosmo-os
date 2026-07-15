@@ -44,11 +44,51 @@ export function isErpReturnSalesInvoice(
 
 export function isErpSalesInvoiceCreditNoted(
   status: string | null | undefined,
-  docstatus: number | null | undefined
+  _docstatus?: number | null
 ): boolean {
-  if (docstatus === 2) return true;
+  // Cancelled invoices (docstatus 2) are voids, not credit notes — do not use docstatus here.
   const normalized = status?.trim().toLowerCase() ?? "";
   return normalized === ERP_CREDIT_NOTE_ISSUED_STATUS.toLowerCase();
+}
+
+/** ERP Sales Invoice cancelled (docstatus 2) — OS should void financially, not mark Returned. */
+export function isErpSalesInvoiceCancelled(
+  docstatus: number | null | undefined
+): boolean {
+  return docstatus === 2;
+}
+
+/** Void original OS order for ERP cancel — do not move to Returned. */
+export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
+  const original = await prisma.order.findFirst({
+    where: orderMatchesErpInvoiceReference(invoiceRef),
+    select: {
+      id: true,
+      name: true,
+      financialStatus: true,
+      fulfillmentStage: true,
+    },
+  });
+  if (!original) return null;
+
+  await prisma.order.update({
+    where: { id: original.id },
+    data: {
+      financialStatus: "voided",
+      // Leave fulfillment stage alone unless it was wrongly set to ERP "returned"
+      ...(original.fulfillmentStage === "returned"
+        ? { fulfillmentStage: "order_received" }
+        : {}),
+      erpnextSyncError: null,
+      erpnextSyncFailedAt: null,
+      erpnextSyncAutoRetryCount: 0,
+      erpnextSyncLastAutoRetryAt: null,
+      erpnextSyncNextAutoRetryAt: null,
+      erpnextSyncRetryLeaseExpiresAt: null,
+    },
+  });
+  await cancelPendingApprovalsForOrder(original.id);
+  return original;
 }
 
 export function erpInvoiceIndicatesCreditNote(
@@ -205,6 +245,16 @@ export async function handleErpSalesInvoiceCreditNoteEvent(
     });
     if (!original) return { handled: false };
 
+    return { handled: true, orderId: original.id };
+  }
+
+  // Cancelled original SI → void only (not Returned / credit-note path)
+  if (
+    isErpSalesInvoiceCancelled(data.docstatus ?? null) &&
+    data.is_return !== 1
+  ) {
+    const original = await applyErpCancelToOriginalOrder(data.name);
+    if (!original) return { handled: false };
     return { handled: true, orderId: original.id };
   }
 
