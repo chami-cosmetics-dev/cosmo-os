@@ -18,6 +18,7 @@ import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
 import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
+import { normalizeOrderCustomerPhone } from "@/lib/phone-lookup";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -179,7 +180,7 @@ export async function processOrderWebhook(
     paymentGatewayPrimary: paymentGateways.primary,
     createdAt: orderCreatedAt,
     customerEmail: customerEmail?.slice(0, LIMITS.email.max) ?? null,
-    customerPhone: customerPhone?.slice(0, LIMITS.mobile.max) ?? null,
+    customerPhone: normalizeOrderCustomerPhone(customerPhone),
     shippingAddress: data.shipping_address
       ? (data.shipping_address as Prisma.InputJsonValue)
       : Prisma.JsonNull,
