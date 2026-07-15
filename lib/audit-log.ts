@@ -19,6 +19,7 @@ export const AUDIT_LOG_ACTIONS = [
   "role_deleted",
   "manual_order_created",
   "merchant_review_saved",
+  "merchant_review_bulk_follow_up",
   "returned_order_recorded",
   "returned_order_updated",
   "returned_order_solved",
@@ -81,6 +82,7 @@ export const AUDIT_LOG_ACTION_GROUPS = [
     actions: [
       "manual_order_created",
       "merchant_review_saved",
+      "merchant_review_bulk_follow_up",
       "returned_order_recorded",
       "returned_order_updated",
       "returned_order_solved",

@@ -1,13 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Download, Loader2, Mail, Phone, Search, ShoppingBag, UserRoundCheck } from "lucide-react";
+import {
+  CalendarDays,
+  Copy,
+  Download,
+  Loader2,
+  Mail,
+  Phone,
+  Search,
+  ShoppingBag,
+  UserRoundCheck,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  buildCopyContactBatch,
+  formatCopyContactToastSummary,
+} from "@/lib/merchant-review-copy-contacts";
 import { notify } from "@/lib/notify";
 import { APP_TIME_ZONE, formatAppDateTime } from "@/lib/format-datetime";
 
@@ -27,11 +41,14 @@ type QueueItem = {
   reviewMarkedAt: string | null;
 };
 
+/** Status dropdown: single statuses, all, or open calling queue (pending + follow_up) */
+type StatusFilter = "__all" | "__open" | QueueItem["reviewStatus"];
+
 type MerchantReviewPanelInitialData = {
   orders: QueueItem[];
   merchantOptions: Array<{ id: string; name: string }>;
   defaultMerchantFilter: string;
-  defaultStatusFilter: "__all" | QueueItem["reviewStatus"];
+  defaultStatusFilter: StatusFilter;
   defaultDateFrom: string;
   defaultDateTo: string;
   counts: {
@@ -176,17 +193,17 @@ export function MerchantReviewPanel({
 }) {
   const [queueOrders, setQueueOrders] = useState(initialData.orders);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"__all" | QueueItem["reviewStatus"]>(
-    initialData.defaultStatusFilter
-  );
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialData.defaultStatusFilter);
   const [merchantFilter, setMerchantFilter] = useState(initialData.defaultMerchantFilter);
   const [dateFrom, setDateFrom] = useState(initialData.defaultDateFrom);
   const [dateTo, setDateTo] = useState(initialData.defaultDateTo);
   const [selectedOrderId, setSelectedOrderId] = useState(initialData.orders[0]?.orderId ?? "");
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [copyingContacts, setCopyingContacts] = useState(false);
   const [detail, setDetail] = useState<DetailResponse | null>(null);
   const [form, setForm] = useState<ReviewForm>(buildInitialForm(null));
+  const isBusy = saving || copyingContacts;
 
   const dateScopedOrders = useMemo(
     () => queueOrders.filter((order) => isInDateRange(order.createdAt, dateFrom, dateTo)),
@@ -196,7 +213,11 @@ export function MerchantReviewPanel({
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
     return dateScopedOrders.filter((order) => {
-      if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) return false;
+      if (statusFilter === "__open") {
+        if (order.reviewStatus !== "pending" && order.reviewStatus !== "follow_up") return false;
+      } else if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) {
+        return false;
+      }
       if (merchantFilter !== "__all" && order.reviewMerchant.id !== merchantFilter) return false;
       if (!query) return true;
       return [
@@ -270,7 +291,7 @@ export function MerchantReviewPanel({
   }, [selectedOrderId]);
 
   async function saveReview() {
-    if (!detail || !canManage) return;
+    if (!detail || !canManage || isBusy) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/merchant-reviews/orders/${detail.order.id}`, {
@@ -306,6 +327,9 @@ export function MerchantReviewPanel({
         )
       );
       setDetail((current) => (current ? { ...current, review: data.review ?? null } : current));
+      if (data.review) {
+        setForm((current) => ({ ...current, reviewStatus: data.review!.reviewStatus }));
+      }
       notify.success("Merchant review saved");
     } catch {
       notify.error("Failed to save merchant review");
@@ -314,8 +338,149 @@ export function MerchantReviewPanel({
     }
   }
 
+  function applyFollowUpToQueue(updatedOrderIds: string[]) {
+    if (updatedOrderIds.length === 0) return;
+    const updated = new Set(updatedOrderIds);
+    setQueueOrders((current) =>
+      current.map((item) =>
+        updated.has(item.orderId) ? { ...item, reviewStatus: "follow_up" as const } : item
+      )
+    );
+    if (selectedOrderId && updated.has(selectedOrderId)) {
+      setForm((current) =>
+        current.reviewStatus === "pending" ? { ...current, reviewStatus: "follow_up" } : current
+      );
+      setDetail((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          review: current.review
+            ? { ...current.review, reviewStatus: "follow_up" }
+            : {
+                reviewStatus: "follow_up",
+                callMade: false,
+                callbackDate: null,
+                customerResponseStatus: null,
+                reviewerFirstName: null,
+                reviewerLastName: null,
+                reviewerEmail: null,
+                reason: null,
+                reviewMarkedAt: null,
+                updatedAt: new Date().toISOString(),
+              },
+        };
+      });
+    }
+  }
+
+  async function copyAllContactNumbers() {
+    if (!canManage || isBusy) return;
+
+    const batch = buildCopyContactBatch(filteredOrders);
+    if (batch.clipboardPhones.length === 0) {
+      if (filteredOrders.length === 0) {
+        notify.info("No contacts to copy — the assigned review queue is empty.");
+      } else {
+        notify.info(
+          `No usable contact numbers to copy${
+            batch.skips.missingPhone > 0 || batch.skips.terminalStatus > 0
+              ? ` (${[
+                  batch.skips.missingPhone > 0 ? `${batch.skips.missingPhone} missing phone` : null,
+                  batch.skips.terminalStatus > 0
+                    ? `${batch.skips.terminalStatus} reviewed/no response`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")})`
+              : ""
+          }.`
+        );
+      }
+      return;
+    }
+
+    setCopyingContacts(true);
+    try {
+      try {
+        await navigator.clipboard.writeText(batch.clipboardText);
+      } catch {
+        notify.error("Could not copy numbers to the clipboard. Statuses were not changed.");
+        return;
+      }
+
+      if (batch.markOrderIds.length === 0) {
+        notify.success(
+          formatCopyContactToastSummary({
+            copied: batch.clipboardPhones.length,
+            updated: 0,
+            alreadyFollowUp: batch.clipboardOrderIds.length,
+            skips: batch.skips,
+          })
+        );
+        return;
+      }
+
+      const res = await fetch("/api/admin/merchant-reviews/mark-follow-up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderIds: batch.markOrderIds }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        updatedOrderIds?: string[];
+        counts?: {
+          requested: number;
+          updated: number;
+          alreadyFollowUp: number;
+          terminalStatus: number;
+          notFound: number;
+        };
+      };
+
+      if (!res.ok) {
+        notify.error(
+          `Numbers were copied, but Follow up could not be saved: ${data.error ?? "Request failed"}. Retry or update statuses manually.`
+        );
+        return;
+      }
+
+      const updatedOrderIds = data.updatedOrderIds ?? [];
+      applyFollowUpToQueue(updatedOrderIds);
+
+      const counts = data.counts;
+      const notFound = counts?.notFound ?? 0;
+      const incomplete =
+        !!counts &&
+        counts.updated + counts.alreadyFollowUp + counts.terminalStatus + counts.notFound <
+          counts.requested;
+      const summary = formatCopyContactToastSummary({
+        copied: batch.clipboardPhones.length,
+        updated: counts?.updated ?? updatedOrderIds.length,
+        alreadyFollowUp: counts?.alreadyFollowUp,
+        skips: {
+          missingPhone: batch.skips.missingPhone,
+          terminalStatus: batch.skips.terminalStatus + (counts?.terminalStatus ?? 0),
+        },
+        notFound,
+      });
+
+      if (notFound > 0 || incomplete) {
+        notify.error(`Numbers were copied, but some statuses may be incomplete. ${summary}`);
+      } else {
+        notify.success(summary);
+      }
+    } catch {
+      notify.error(
+        "Numbers may have been copied, but Follow up updates failed. Retry or update statuses manually."
+      );
+    } finally {
+      setCopyingContacts(false);
+    }
+  }
+
   function exportReviews() {
-    const exportStatus = statusFilter === "__all" ? "all" : statusFilter;
+    const exportStatus =
+      statusFilter === "__all" || statusFilter === "__open" ? "all" : statusFilter;
     const params = new URLSearchParams({ status: exportStatus });
     if (merchantFilter !== "__all") {
       params.set("merchant", merchantFilter);
@@ -348,7 +513,7 @@ export function MerchantReviewPanel({
                   : "View assigned customer orders, call details, and review status."}
               </CardDescription>
             </div>
-            <Button type="button" variant="outline" onClick={exportReviews}>
+            <Button type="button" variant="outline" onClick={exportReviews} disabled={isBusy}>
               <Download className="size-4" />
               Export Reviews
             </Button>
@@ -368,19 +533,30 @@ export function MerchantReviewPanel({
               <div className="flex flex-col gap-3 sm:flex-row xl:flex-col">
                 <div className="relative flex-1">
                   <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                  <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order, customer, email, phone..." className="pl-9" />
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search order, customer, email, phone..."
+                    className="pl-9"
+                    disabled={isBusy}
+                  />
                 </div>
-                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}
+                  disabled={isBusy}
+                >
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all">All statuses</SelectItem>
+                    <SelectItem value="__open">Pending & Follow up</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="reviewed">Reviewed</SelectItem>
                     <SelectItem value="follow_up">Follow Up</SelectItem>
+                    <SelectItem value="reviewed">Reviewed</SelectItem>
                     <SelectItem value="no_response">No Response</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={merchantFilter} onValueChange={setMerchantFilter}>
+                <Select value={merchantFilter} onValueChange={setMerchantFilter} disabled={isBusy}>
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all">All merchants</SelectItem>
@@ -395,22 +571,58 @@ export function MerchantReviewPanel({
                       <CalendarDays className="size-4 text-primary" />
                       From
                     </label>
-                    <Input type="date" value={dateFrom} max={dateTo || undefined} onChange={(event) => setDateFrom(event.target.value)} />
+                    <Input
+                      type="date"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(event) => setDateFrom(event.target.value)}
+                      disabled={isBusy}
+                    />
                   </div>
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                       <CalendarDays className="size-4 text-primary" />
                       To
                     </label>
-                    <Input type="date" value={dateTo} min={dateFrom || undefined} onChange={(event) => setDateTo(event.target.value)} />
+                    <Input
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(event) => setDateTo(event.target.value)}
+                      disabled={isBusy}
+                    />
                   </div>
                 </div>
               </div>
 
               <div className="overflow-hidden rounded-xl border border-border/70">
-                <div className="border-b bg-muted/20 px-4 py-3">
-                  <p className="text-sm font-medium">Assigned Review Queue</p>
-                  <p className="text-muted-foreground text-sm">{filteredOrders.length} order(s)</p>
+                <div className="flex items-start justify-between gap-3 border-b bg-muted/20 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium">Assigned Review Queue</p>
+                    <p className="text-muted-foreground text-sm">{filteredOrders.length} order(s)</p>
+                  </div>
+                  {canManage ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={isBusy}
+                      onClick={() => void copyAllContactNumbers()}
+                    >
+                      {copyingContacts ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                          Copying...
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-4" aria-hidden />
+                          Copy all contact numbers
+                        </>
+                      )}
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="max-h-[70vh] overflow-y-auto">
                   {filteredOrders.length === 0 ? (
@@ -485,24 +697,33 @@ export function MerchantReviewPanel({
                     <CardHeader className="border-b border-border/50"><CardTitle>Review Capture Form</CardTitle><CardDescription>Fill the call details and save the order review status.</CardDescription></CardHeader>
                     <CardContent className="space-y-5 pt-6">
                       <div className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-2"><label className="text-sm font-medium">Review Status</label><Select value={form.reviewStatus} disabled={!canManage} onValueChange={(value) => setForm((current) => ({ ...current, reviewStatus: value as ReviewForm["reviewStatus"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="follow_up">Follow Up</SelectItem><SelectItem value="no_response">No Response</SelectItem></SelectContent></Select></div>
-                        <div className="space-y-2"><label className="text-sm font-medium">Call Made</label><Select value={form.callMade} disabled={!canManage} onValueChange={(value) => setForm((current) => ({ ...current, callMade: value as ReviewForm["callMade"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent></Select></div>
-                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><CalendarDays className="size-4 text-primary" />Callback Date</label><Input type="date" value={form.callbackDate} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, callbackDate: event.target.value }))} /></div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Review Status</label><Select value={form.reviewStatus} disabled={!canManage || isBusy} onValueChange={(value) => setForm((current) => ({ ...current, reviewStatus: value as ReviewForm["reviewStatus"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="reviewed">Reviewed</SelectItem><SelectItem value="follow_up">Follow Up</SelectItem><SelectItem value="no_response">No Response</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="text-sm font-medium">Call Made</label><Select value={form.callMade} disabled={!canManage || isBusy} onValueChange={(value) => setForm((current) => ({ ...current, callMade: value as ReviewForm["callMade"] }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent></Select></div>
+                        <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><CalendarDays className="size-4 text-primary" />Callback Date</label><Input type="date" value={form.callbackDate} disabled={!canManage || isBusy} onChange={(event) => setForm((current) => ({ ...current, callbackDate: event.target.value }))} /></div>
                       </div>
                       <div className="grid gap-5">
                         <div className="grid gap-4 md:grid-cols-3">
-                          <div className="space-y-2"><label className="text-sm font-medium">Customer Response Status</label><Select value={form.customerResponseStatus} disabled={!canManage} onValueChange={(value) => setForm((current) => ({ ...current, customerResponseStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none">Not selected</SelectItem><SelectItem value="answered">Answered</SelectItem><SelectItem value="no_answer">No Answer</SelectItem><SelectItem value="busy">Busy</SelectItem><SelectItem value="wrong_number">Wrong Number</SelectItem><SelectItem value="callback_requested">Callback Requested</SelectItem><SelectItem value="not_interested">Not Interested</SelectItem></SelectContent></Select></div>
-                          <div className="space-y-2"><label className="text-sm font-medium">Customer First Name</label><Input value={form.reviewerFirstName} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reviewerFirstName: event.target.value }))} /></div>
-                          <div className="space-y-2"><label className="text-sm font-medium">Customer Last Name</label><Input value={form.reviewerLastName} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reviewerLastName: event.target.value }))} /></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Customer Response Status</label><Select value={form.customerResponseStatus} disabled={!canManage || isBusy} onValueChange={(value) => setForm((current) => ({ ...current, customerResponseStatus: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="__none">Not selected</SelectItem><SelectItem value="answered">Answered</SelectItem><SelectItem value="no_answer">No Answer</SelectItem><SelectItem value="busy">Busy</SelectItem><SelectItem value="wrong_number">Wrong Number</SelectItem><SelectItem value="callback_requested">Callback Requested</SelectItem><SelectItem value="not_interested">Not Interested</SelectItem></SelectContent></Select></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Customer First Name</label><Input value={form.reviewerFirstName} disabled={!canManage || isBusy} onChange={(event) => setForm((current) => ({ ...current, reviewerFirstName: event.target.value }))} /></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Customer Last Name</label><Input value={form.reviewerLastName} disabled={!canManage || isBusy} onChange={(event) => setForm((current) => ({ ...current, reviewerLastName: event.target.value }))} /></div>
                         </div>
                         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                          <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><Mail className="size-4 text-primary" />Customer Email</label><Input type="email" value={form.reviewerEmail} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reviewerEmail: event.target.value }))} /></div>
-                          <div className="space-y-2"><label className="text-sm font-medium">Reason</label><Textarea value={form.reason} disabled={!canManage} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Type any reason or notes from the call." className="min-h-24" /></div>
+                          <div className="space-y-2"><label className="flex items-center gap-2 text-sm font-medium"><Mail className="size-4 text-primary" />Customer Email</label><Input type="email" value={form.reviewerEmail} disabled={!canManage || isBusy} onChange={(event) => setForm((current) => ({ ...current, reviewerEmail: event.target.value }))} /></div>
+                          <div className="space-y-2"><label className="text-sm font-medium">Reason</label><Textarea value={form.reason} disabled={!canManage || isBusy} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Type any reason or notes from the call." className="min-h-24" /></div>
                         </div>
                       </div>
                       <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-muted-foreground text-sm">{detail.review?.updatedAt ? `Last saved ${formatDateTime(detail.review.updatedAt)}` : "No review saved for this order yet."}</p>
-                        <Button onClick={() => void saveReview()} disabled={!canManage || saving}>{saving ? "Saving..." : "Save Review"}</Button>
+                        <Button onClick={() => void saveReview()} disabled={!canManage || isBusy}>
+                          {saving ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                              Saving...
+                            </>
+                          ) : (
+                            "Save Review"
+                          )}
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

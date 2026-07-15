@@ -73,6 +73,8 @@ export const LIMITS = {
   kokoCompanyName: { max: 200 },
   kokoCompanyPrefix: { max: 50 },
   contactAllocationOptionValue: { max: 100 },
+  /** Max order IDs accepted by merchant review bulk mark-follow-up */
+  merchantReviewBulkMark: { maxOrderIds: 500 },
 } as const;
 
 /** Parse and validate page number from query string */
