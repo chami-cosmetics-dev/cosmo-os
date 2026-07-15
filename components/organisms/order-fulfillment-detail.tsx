@@ -114,6 +114,7 @@ type OrderDetail = {
   discountCodes: unknown;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
+  erpSpecialRemarks?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -997,6 +998,12 @@ export function OrderFulfillmentDetail({
                     <div>
                       <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
                       <p>{orderDetail.merchantCouponCode}</p>
+                    </div>
+                  )}
+                  {orderDetail.erpSpecialRemarks && (
+                    <div className="sm:col-span-2">
+                      <h4 className="mb-1 text-muted-foreground">Special Remarks</h4>
+                      <p className="whitespace-pre-wrap">{orderDetail.erpSpecialRemarks}</p>
                     </div>
                   )}
                 </div>

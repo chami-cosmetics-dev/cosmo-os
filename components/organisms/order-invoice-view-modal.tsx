@@ -105,6 +105,8 @@ type OrderDetail = {
   discountCodes: unknown;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
+  /** ERP Sales Invoice Special Remarks (custom_special_remarks). */
+  erpSpecialRemarks?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -1176,6 +1178,12 @@ export function OrderInvoiceViewModal({
                       <div>
                         <span className="text-muted-foreground text-xs">Coupon</span>
                         <p>{orderDetail.discountCouponCode}</p>
+                      </div>
+                    )}
+                    {orderDetail.erpSpecialRemarks && (
+                      <div className="sm:col-span-2">
+                        <span className="text-muted-foreground text-xs">Special Remarks</span>
+                        <p className="whitespace-pre-wrap">{orderDetail.erpSpecialRemarks}</p>
                       </div>
                     )}
                     {orderDetail.erpReturnSalesInvoiceIds &&
