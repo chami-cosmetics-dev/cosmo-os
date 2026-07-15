@@ -42,14 +42,11 @@ type QueueItem = {
   reviewMarkedAt: string | null;
 };
 
-/** Status dropdown: single statuses, all, or open calling queue (pending + follow_up) */
-type StatusFilter = "__all" | "__open" | QueueItem["reviewStatus"];
-
 type MerchantReviewPanelInitialData = {
   orders: QueueItem[];
   merchantOptions: Array<{ id: string; name: string }>;
   defaultMerchantFilter: string;
-  defaultStatusFilter: StatusFilter;
+  defaultStatusFilter: "__all" | QueueItem["reviewStatus"];
   defaultDateFrom: string;
   defaultDateTo: string;
   counts: {
@@ -194,7 +191,9 @@ export function MerchantReviewPanel({
 }) {
   const [queueOrders, setQueueOrders] = useState(initialData.orders);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialData.defaultStatusFilter);
+  const [statusFilter, setStatusFilter] = useState<"__all" | QueueItem["reviewStatus"]>(
+    initialData.defaultStatusFilter
+  );
   const [merchantFilter, setMerchantFilter] = useState(initialData.defaultMerchantFilter);
   const [dateFrom, setDateFrom] = useState(initialData.defaultDateFrom);
   const [dateTo, setDateTo] = useState(initialData.defaultDateTo);
@@ -214,11 +213,7 @@ export function MerchantReviewPanel({
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
     return dateScopedOrders.filter((order) => {
-      if (statusFilter === "__open") {
-        if (order.reviewStatus !== "pending" && order.reviewStatus !== "follow_up") return false;
-      } else if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) {
-        return false;
-      }
+      if (statusFilter !== "__all" && order.reviewStatus !== statusFilter) return false;
       if (merchantFilter !== "__all" && order.reviewMerchant.id !== merchantFilter) return false;
       if (!query) return true;
       return [
@@ -480,8 +475,7 @@ export function MerchantReviewPanel({
   }
 
   function exportReviews() {
-    const exportStatus =
-      statusFilter === "__all" || statusFilter === "__open" ? "all" : statusFilter;
+    const exportStatus = statusFilter === "__all" ? "all" : statusFilter;
     const params = new URLSearchParams({ status: exportStatus });
     if (merchantFilter !== "__all") {
       params.set("merchant", merchantFilter);
@@ -550,10 +544,9 @@ export function MerchantReviewPanel({
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all">All statuses</SelectItem>
-                    <SelectItem value="__open">Pending & Follow up</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="follow_up">Follow Up</SelectItem>
                     <SelectItem value="reviewed">Reviewed</SelectItem>
+                    <SelectItem value="follow_up">Follow Up</SelectItem>
                     <SelectItem value="no_response">No Response</SelectItem>
                   </SelectContent>
                 </Select>
