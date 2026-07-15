@@ -627,6 +627,7 @@ model Order {
   pickListGroupOrders          PickListGroupOrder[]
 
   erpnextInvoiceId             String?
+  erpReturnSalesInvoiceIds     String[]               @default([])
   erpnextWarehouse             String?
   posProfile                   String?
   erpnextSyncError             String?

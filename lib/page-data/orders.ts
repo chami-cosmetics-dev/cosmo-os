@@ -222,6 +222,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
 
   if (params.search?.trim()) {
     const searchTerm = params.search.trim();
+    const returnSiPattern = `%${searchTerm}`;
+    const returnSiMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND cardinality("erpReturnSalesInvoiceIds") > 0
+        AND EXISTS (
+          SELECT 1
+          FROM unnest("erpReturnSalesInvoiceIds") AS si
+          WHERE si ILIKE ${returnSiPattern}
+        )
+    `);
+    const returnSiIds = returnSiMatches.map((r) => r.id);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       {
@@ -233,6 +245,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
           // substring match for contact fields
           { customerEmail: { contains: searchTerm, mode: "insensitive" } },
           { customerPhone: { contains: searchTerm, mode: "insensitive" } },
+          ...(returnSiIds.length > 0 ? [{ id: { in: returnSiIds } }] : []),
         ],
       },
     ];
@@ -440,6 +453,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     orderNumber: true,
     name: true,
     erpnextInvoiceId: true,
+    erpReturnSalesInvoiceIds: true,
     erpnextSyncError: true,
     sourceName: true,
     discountCodes: true,
@@ -516,6 +530,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     orderNumber: o.orderNumber,
     name: o.name,
     erpnextInvoiceId: o.erpnextInvoiceId,
+    erpReturnSalesInvoiceIds: o.erpReturnSalesInvoiceIds ?? [],
     sourceName: o.sourceName,
     totalPrice: o.totalPrice.toString(),
     currency: o.currency,

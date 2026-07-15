@@ -6,6 +6,7 @@ import {
   isErpSalesInvoiceCreditNoted,
   orderMatchesErpInvoiceReference,
 } from "@/lib/erp-credit-note-order-sync";
+import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
 
 describe("erp-credit-note-order-sync", () => {
@@ -56,5 +57,10 @@ describe("erp-credit-note-order-sync", () => {
       "SV100-0253",
       "SV1000253",
     ]);
+  });
+
+  it("appends and dedupes Return SI ids for writer path", () => {
+    expect(mergeErpReturnSalesInvoiceIds(["ACC-R1"], "ACC-R1")).toEqual(["ACC-R1"]);
+    expect(mergeErpReturnSalesInvoiceIds(["ACC-R1"], "ACC-R2")).toEqual(["ACC-R1", "ACC-R2"]);
   });
 });

@@ -34,6 +34,7 @@ type Order = {
   orderNumber: string | null;
   name: string | null;
   erpnextInvoiceId?: string | null;
+  erpReturnSalesInvoiceIds?: string[];
   sourceName: string;
   totalPrice: string;
   currency: string | null;
@@ -157,6 +158,7 @@ type OrderDetail = {
   orderNumber: string | null;
   name: string | null;
   erpnextInvoiceId?: string | null;
+  erpReturnSalesInvoiceIds?: string[];
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
