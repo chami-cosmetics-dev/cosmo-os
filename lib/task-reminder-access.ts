@@ -29,6 +29,24 @@ const SAMPLE_PERMISSION_KEYS = [
   "fulfillment.sample_free_issue.manage",
 ] as const;
 
+/** Hard caps for named audiences — page perms and reminders.* cannot exceed these. */
+const FINANCE_REMINDER_CATEGORIES = new Set<TaskReminderCategory>([
+  "finance_approval",
+  "invoice_complete",
+]);
+
+const MERCHANT_REMINDER_CATEGORIES = new Set<TaskReminderCategory>(["add_samples"]);
+
+const STORE_REMINDER_CATEGORIES = new Set<TaskReminderCategory>([
+  "print",
+  "ready_dispatch",
+  "rearrange_dispatch",
+  "delivery_pending",
+  "invoice_complete",
+  "return_action",
+  "erp_sync_warning",
+]);
+
 function hasStoreFulfillmentAccess(permissionKeys: string[]) {
   return permissionKeys.some((key) =>
     STORE_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix)),
@@ -62,8 +80,8 @@ function isStoreRoleName(roleNames: string[]) {
 }
 
 /**
- * Audience heuristics for data-scoping (e.g. merchant-only samples).
- * Bubble visibility: page permission OR explicit reminders.* (see canSeeTaskReminderCategory).
+ * Audience heuristics for role-type caps and merchant sample scoping.
+ * Bubble visibility is page permission OR reminders.*, then capped by audience.
  */
 export function resolveTaskReminderAudiences(
   context: TaskReminderAccessContext,
@@ -117,13 +135,20 @@ function hasLegacyPagePermissionForCategory(
   return legacyKeys.some((key) => hasReminderPermission(context, key));
 }
 
+function categoriesAllowedForAudience(
+  audiences: Set<TaskReminderAudience>,
+): Set<TaskReminderCategory> | null {
+  if (audiences.has("admin")) return null; // unrestricted
+  if (audiences.size === 1 && audiences.has("finance")) return FINANCE_REMINDER_CATEGORIES;
+  if (audiences.size === 1 && audiences.has("merchant")) return MERCHANT_REMINDER_CATEGORIES;
+  if (audiences.size === 1 && audiences.has("store")) return STORE_REMINDER_CATEGORIES;
+  return null;
+}
+
 /**
- * Show a bubble if the user has the related page permission (existing flow)
- * OR an explicit reminders.* grant (extra / standalone bubble access).
- *
- * Named-role audience rules still apply so finance doesn't see store queues
- * just because they have returns.read from another duty — unless they also have
- * the matching reminders.* key (intentional override).
+ * Show a bubble if the user has the related page permission OR an explicit
+ * reminders.* grant — then apply named-role caps so finance/store/merchant
+ * cannot see bubbles outside their role type (even with reminders.* ticked).
  */
 export function canSeeTaskReminderCategory(
   context: TaskReminderAccessContext,
@@ -140,39 +165,20 @@ export function canSeeTaskReminderCategory(
   }
 
   const audiences = resolveTaskReminderAudiences(context);
+  const allowed = categoriesAllowedForAudience(audiences);
 
-  // Explicit reminders.* always wins — for giving extra bubbles beyond page access.
-  if (hasExplicitReminder) {
+  // Admin (or uncapped): any granted page/reminder key
+  if (allowed === null && audiences.has("admin")) {
     return true;
   }
 
-  // Legacy page-perm path: keep audience gating so role types stay scoped.
-  if (audiences.has("admin")) {
-    return true;
+  // Named finance / store / merchant: hard cap to role categories
+  if (allowed) {
+    return allowed.has(category);
   }
 
-  if (audiences.size === 1 && audiences.has("finance")) {
-    return category === "finance_approval" || category === "invoice_complete";
-  }
-
-  if (audiences.size === 1 && audiences.has("merchant")) {
-    return category === "add_samples";
-  }
-
-  if (audiences.size === 1 && audiences.has("store")) {
-    return (
-      category === "print" ||
-      category === "ready_dispatch" ||
-      category === "rearrange_dispatch" ||
-      category === "delivery_pending" ||
-      category === "invoice_complete" ||
-      category === "return_action" ||
-      category === "erp_sync_warning"
-    );
-  }
-
-  // Custom roles with no named audience: page perm alone is enough.
-  return hasLegacyPage;
+  // Custom roles with no named audience: page perm or explicit reminders.*
+  return hasLegacyPage || hasExplicitReminder;
 }
 
 const ALL_TASK_REMINDER_CATEGORIES = [
