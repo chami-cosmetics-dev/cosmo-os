@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
@@ -556,6 +557,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       discountCodes: o.discountCodes,
       rawPayload: o.rawPayload,
       assignedMerchantCouponCodes: o.assignedMerchant?.couponCodes ?? null,
+    }),
+    discountCouponCode: getOrderDiscountCouponCode({
+      sourceName: o.sourceName,
+      discountCodes: o.discountCodes,
+      rawPayload: o.rawPayload,
     }),
   }));
 

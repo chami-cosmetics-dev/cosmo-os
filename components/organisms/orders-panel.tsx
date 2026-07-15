@@ -60,6 +60,7 @@ type Order = {
   erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
+  discountCouponCode?: string | null;
 };
 
 const ALL_FILTER_VALUE = "__all";
@@ -768,6 +769,21 @@ export function OrdersPanel({
                               if (!badge) return null;
                               return (
                                 <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                                  {badge}
+                                </span>
+                              );
+                            })()}
+                            {(() => {
+                              const badge = order.discountCouponCode?.trim() || null;
+                              if (!badge) return null;
+                              if (
+                                order.merchantCouponCode &&
+                                badge.toLowerCase() === order.merchantCouponCode.toLowerCase()
+                              ) {
+                                return null;
+                              }
+                              return (
+                                <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300">
                                   {badge}
                                 </span>
                               );

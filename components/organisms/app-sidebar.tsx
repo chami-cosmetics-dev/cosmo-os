@@ -389,6 +389,17 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   isActive={pathname === "/dashboard/ogf-logs"}
                 />
               )}
+              {canViewAudit && !hasOgf && (
+                <NavItem
+                  href="/dashboard/sales-sms-logs"
+                  icon={SendHorizonal}
+                  label="Sales SMS Logs"
+                  isActive={
+                    pathname === "/dashboard/sales-sms-logs" ||
+                    pathname.startsWith("/dashboard/sales-sms-logs/")
+                  }
+                />
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}

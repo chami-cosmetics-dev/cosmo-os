@@ -14,12 +14,14 @@ CODE->: N,NNN,NNN
 CODE->: N,NNN,NNN
 -----------------------
 MTD Sales: N,NNN,NNN
+Count:        N
 MTD Sales (Location Wise):
 CODE->: N,NNN,NNN
 CODE->: N,NNN,NNN
 ```
 
 - **MTD** = Month To Date (1st of the month through the report day, Asia/Colombo)
+- **MTD Count** = order count for the same MTD window (same eligibility as day Count)
 - Amounts: integer LKR with thousand separators (en-LK style)
 - Location lines: non-zero amounts only (day and MTD); `shortName` then `->: ` (trading company / site)
 - Optional leading greeting (e.g. `Hi All,`) is **out of scope** unless product asks later — sample in chat included greeting but core metrics block above is required
@@ -79,6 +81,7 @@ CODE->: N,NNN,NNN
   "dayValue": 1970256,
   "dayCount": 198,
   "mtdValue": 43287867,
+  "mtdCount": 4120,
   "locations": [{ "code": "WEB", "value": 25877955 }],
   "messageBody": "Day (2026-06-30)\n..."
 }
@@ -98,7 +101,7 @@ CODE->: N,NNN,NNN
    - Record send log
 3. Return summary JSON: `{ processed, sent, skipped, failed }`
 
-**Schedule** (`vercel.json`): e.g. `30 18 * * *` (UTC) aligned with existing midnight-Colombo jobs.
+**Schedule** (`vercel.json`): `30 3 * * *` (UTC) = **09:00 Asia/Colombo** for both Cosmo OS and Vault OS deployments.
 
 ## Admin API — manual resend (OGF logs)
 

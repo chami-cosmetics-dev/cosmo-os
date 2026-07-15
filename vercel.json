@@ -23,7 +23,7 @@
     },
     {
       "path": "/api/cron/daily-sales-sms",
-      "schedule": "45 18 * * *"
+      "schedule": "30 3 * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

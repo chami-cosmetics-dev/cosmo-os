@@ -23,6 +23,7 @@ type PreviewResponse = {
   dayValue: number;
   dayCount: number;
   mtdValue: number;
+  mtdCount?: number;
   messageBody: string;
   sendTest?: { ok: boolean; skipped?: boolean; errorSummary?: string };
   error?: string;
