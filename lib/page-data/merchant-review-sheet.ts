@@ -30,7 +30,7 @@ export type MerchantReviewSheetData = {
   orders: MerchantReviewQueueItem[];
   merchantOptions: Array<{ id: string; name: string }>;
   defaultMerchantFilter: string;
-  defaultStatusFilter: "__all" | MerchantReviewQueueItem["reviewStatus"];
+  defaultStatusFilter: "__all" | "__open" | MerchantReviewQueueItem["reviewStatus"];
   defaultDateFrom: string;
   defaultDateTo: string;
   counts: {
@@ -297,17 +297,18 @@ export async function fetchMerchantReviewSheetData(input: {
     return a.name.localeCompare(b.name);
   });
   const defaultDateRange = getDefaultOrderDateRange();
-  const hasViewerPendingOrders = items.some((item) => {
+  const hasViewerOpenOrders = items.some((item) => {
     const deliveryCompleteDate = formatDateInTimeZone(new Date(item.deliveryCompleteAt), ORDER_DATE_TIME_ZONE);
     return (
       item.reviewMerchant.id === input.viewerUserId &&
-      item.reviewStatus === "pending" &&
+      (item.reviewStatus === "pending" || item.reviewStatus === "follow_up") &&
       deliveryCompleteDate >= defaultDateRange.from &&
       deliveryCompleteDate <= defaultDateRange.to
     );
   });
-  const defaultMerchantFilter = hasViewerPendingOrders ? input.viewerUserId : "__all";
-  const defaultStatusFilter = hasViewerPendingOrders ? "pending" : "__all";
+  const defaultMerchantFilter = hasViewerOpenOrders ? input.viewerUserId : "__all";
+  /** Default to Pending & Follow up so copy-all includes new and in-progress calling work */
+  const defaultStatusFilter = hasViewerOpenOrders ? "__open" : "__all";
 
   const counts = items.reduce(
     (acc, item) => {

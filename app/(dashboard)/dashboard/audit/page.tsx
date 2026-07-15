@@ -49,6 +49,7 @@ const actionLabels: Record<string, string> = {
   role_deleted: "Role Deleted",
   manual_order_created: "Manual Order Created",
   merchant_review_saved: "Merchant Review Saved",
+  merchant_review_bulk_follow_up: "Merchant Review Bulk Follow Up",
   fulfillment_updated: "Fulfillment Updated",
   remark_created: "Remark Created",
   remark_updated: "Remark Updated",
