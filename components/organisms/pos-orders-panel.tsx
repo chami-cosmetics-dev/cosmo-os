@@ -15,6 +15,7 @@ type PosOrder = {
   company: string;
   companyLocationId: string | null;
   companyLocationName: string | null;
+  posProfile: string | null;
   warehouse: string;
   fulfillmentStage: string | null;
   financialStatus: string | null;
@@ -28,6 +29,7 @@ type PosOrder = {
 
 type Group = {
   company: string;
+  posProfile: string | null;
   warehouse: string;
   count: number;
 };
@@ -95,6 +97,7 @@ export function PosOrdersPanel() {
   const [loading, setLoading] = useState(true);
   const [companyFilter, setCompanyFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [posProfileFilter, setPosProfileFilter] = useState("");
   const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
@@ -123,59 +126,96 @@ export function PosOrdersPanel() {
     return [...new Set(data.orders.map((o) => o.company))].sort();
   }, [data]);
 
+  // Warehouses filtered by selected company
   const warehouses = useMemo(() => {
     if (!data) return [];
-    const filtered = companyFilter
-      ? data.orders.filter((o) => o.company === companyFilter)
-      : data.orders;
+    const filtered = companyFilter ? data.orders.filter((o) => o.company === companyFilter) : data.orders;
     return [...new Set(filtered.map((o) => o.warehouse))].sort();
   }, [data, companyFilter]);
+
+  // POS profiles filtered by selected company + warehouse
+  const posProfiles = useMemo(() => {
+    if (!data) return [];
+    let filtered = data.orders;
+    if (companyFilter) filtered = filtered.filter((o) => o.company === companyFilter);
+    if (warehouseFilter) filtered = filtered.filter((o) => o.warehouse === warehouseFilter);
+    return [...new Set(filtered.map((o) => o.posProfile ?? "—"))].sort();
+  }, [data, companyFilter, warehouseFilter]);
 
   const filteredOrders = useMemo(() => {
     if (!data) return [];
     return data.orders.filter((o) => {
       if (companyFilter && o.company !== companyFilter) return false;
       if (warehouseFilter && o.warehouse !== warehouseFilter) return false;
+      if (posProfileFilter) {
+        const profile = o.posProfile ?? "—";
+        if (profile !== posProfileFilter) return false;
+      }
       if (search.trim()) {
         const q = search.trim().toLowerCase();
         return (
           (o.invoiceNo?.toLowerCase().includes(q) ?? false) ||
           (o.customerName?.toLowerCase().includes(q) ?? false) ||
-          (o.customerPhone?.includes(q) ?? false)
+          (o.customerPhone?.includes(q) ?? false) ||
+          (o.posProfile?.toLowerCase().includes(q) ?? false)
         );
       }
       return true;
     });
-  }, [data, companyFilter, warehouseFilter, search]);
+  }, [data, companyFilter, warehouseFilter, posProfileFilter, search]);
 
   const summaryGroups = useMemo(() => {
     if (!data) return [];
-    if (!companyFilter && !warehouseFilter) return data.groups;
-    const groupMap = new Map<string, { company: string; warehouse: string; count: number }>();
+    if (!companyFilter && !warehouseFilter && !posProfileFilter) return data.groups;
+    const groupMap = new Map<string, Group>();
     for (const o of filteredOrders) {
-      const key = `${o.company}||${o.warehouse}`;
+      const key = `${o.company}||${o.posProfile ?? ""}`;
       const existing = groupMap.get(key);
       if (existing) existing.count++;
-      else groupMap.set(key, { company: o.company, warehouse: o.warehouse, count: 1 });
+      else groupMap.set(key, { company: o.company, posProfile: o.posProfile, warehouse: o.warehouse, count: 1 });
     }
     return Array.from(groupMap.values()).sort(
-      (a, b) => a.company.localeCompare(b.company) || a.warehouse.localeCompare(b.warehouse),
+      (a, b) => a.company.localeCompare(b.company) || (a.posProfile ?? "").localeCompare(b.posProfile ?? ""),
     );
-  }, [data, companyFilter, warehouseFilter, filteredOrders]);
+  }, [data, companyFilter, warehouseFilter, posProfileFilter, filteredOrders]);
 
-  // Group by company for summary cards
+  // Summary cards: company → warehouses → pos profiles
   const companySummary = useMemo(() => {
-    const map = new Map<string, { warehouses: { name: string; count: number }[]; total: number }>();
+    const companyMap = new Map<string, {
+      warehouses: Map<string, { posProfiles: { name: string | null; count: number }[]; count: number }>;
+      total: number;
+    }>();
+
     for (const g of summaryGroups) {
-      const existing = map.get(g.company);
-      if (existing) {
-        existing.warehouses.push({ name: g.warehouse, count: g.count });
-        existing.total += g.count;
-      } else {
-        map.set(g.company, { warehouses: [{ name: g.warehouse, count: g.count }], total: g.count });
+      let co = companyMap.get(g.company);
+      if (!co) {
+        co = { warehouses: new Map(), total: 0 };
+        companyMap.set(g.company, co);
       }
+      co.total += g.count;
+
+      let wh = co.warehouses.get(g.warehouse);
+      if (!wh) {
+        wh = { posProfiles: [], count: 0 };
+        co.warehouses.set(g.warehouse, wh);
+      }
+      wh.count += g.count;
+      wh.posProfiles.push({ name: g.posProfile, count: g.count });
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+    return Array.from(companyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([company, info]) => ({
+        company,
+        total: info.total,
+        warehouses: Array.from(info.warehouses.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([warehouse, wh]) => ({
+            warehouse,
+            count: wh.count,
+            posProfiles: wh.posProfiles.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "")),
+          })),
+      }));
   }, [summaryGroups]);
 
   return (
@@ -190,31 +230,44 @@ export function PosOrdersPanel() {
           POS Orders
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          ERPNext POS orders grouped by company and warehouse.
+          ERPNext POS orders grouped by company, warehouse, and POS profile.
         </p>
       </section>
 
       {/* Summary cards */}
       {!loading && data && companySummary.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {companySummary.map(([company, info]) => (
+          {companySummary.map((co) => (
             <div
-              key={company}
+              key={co.company}
               className="rounded-2xl border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--background)_95%,white),color-mix(in_srgb,var(--secondary)_8%,transparent))] p-4 shadow-xs"
             >
               <div className="flex items-center gap-2 mb-2">
                 <Store className="size-4 text-muted-foreground shrink-0" />
-                <p className="text-sm font-semibold truncate">{company}</p>
+                <p className="text-sm font-semibold truncate">{co.company}</p>
                 <span className="ml-auto shrink-0 text-xs font-medium bg-primary/10 text-primary rounded-full px-2 py-0.5">
-                  {info.total}
+                  {co.total}
                 </span>
               </div>
-              <div className="space-y-1">
-                {info.warehouses.map((wh) => (
-                  <div key={wh.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Package className="size-3 shrink-0" />
-                    <span className="truncate">{wh.name}</span>
-                    <span className="ml-auto shrink-0 font-medium text-foreground">{wh.count}</span>
+              <div className="space-y-2">
+                {co.warehouses.map((wh) => (
+                  <div key={wh.warehouse} className="rounded-lg bg-muted/40 px-2.5 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Package className="size-3 shrink-0 text-muted-foreground" />
+                      <span className="text-xs font-medium truncate">{wh.warehouse !== "—" ? wh.warehouse : "No warehouse"}</span>
+                      <span className="ml-auto shrink-0 text-xs font-medium text-foreground">{wh.count}</span>
+                    </div>
+                    {wh.posProfiles.length > 0 && (
+                      <div className="mt-1 space-y-0.5 pl-4">
+                        {wh.posProfiles.map((p) => (
+                          <div key={p.name ?? "unknown"} className="flex items-center gap-1.5">
+                            <ShoppingBag className="size-2.5 shrink-0 text-muted-foreground/60" />
+                            <span className="text-xs text-muted-foreground truncate">{p.name ?? "Unknown profile"}</span>
+                            <span className="ml-auto shrink-0 text-xs text-muted-foreground">{p.count}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -223,7 +276,7 @@ export function PosOrdersPanel() {
         </div>
       )}
 
-      {/* Filter + table */}
+      {/* Filters + table */}
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <CardTitle className="flex items-center gap-2 text-xl">
@@ -235,7 +288,7 @@ export function PosOrdersPanel() {
           </p>
         </CardHeader>
         <CardContent className="min-w-0 max-w-full overflow-x-hidden space-y-4 pt-4">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="relative">
               <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
               <Input
@@ -250,6 +303,7 @@ export function PosOrdersPanel() {
               onValueChange={(v) => {
                 setCompanyFilter(v === ALL_VALUE ? "" : v);
                 setWarehouseFilter("");
+                setPosProfileFilter("");
               }}
             >
               <SelectTrigger className="w-full border-border/70 bg-background/90">
@@ -264,7 +318,10 @@ export function PosOrdersPanel() {
             </Select>
             <Select
               value={warehouseFilter || ALL_VALUE}
-              onValueChange={(v) => setWarehouseFilter(v === ALL_VALUE ? "" : v)}
+              onValueChange={(v) => {
+                setWarehouseFilter(v === ALL_VALUE ? "" : v);
+                setPosProfileFilter("");
+              }}
             >
               <SelectTrigger className="w-full border-border/70 bg-background/90">
                 <SelectValue placeholder="All warehouses" />
@@ -273,6 +330,20 @@ export function PosOrdersPanel() {
                 <SelectItem value={ALL_VALUE}>All warehouses</SelectItem>
                 {warehouses.map((w) => (
                   <SelectItem key={w} value={w}>{w}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={posProfileFilter || ALL_VALUE}
+              onValueChange={(v) => setPosProfileFilter(v === ALL_VALUE ? "" : v)}
+            >
+              <SelectTrigger className="w-full border-border/70 bg-background/90">
+                <SelectValue placeholder="All POS profiles" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>All POS profiles</SelectItem>
+                {posProfiles.map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -290,6 +361,7 @@ export function PosOrdersPanel() {
                     <th className="pb-2 pr-3 font-medium">Invoice</th>
                     <th className="pb-2 pr-3 font-medium">Company</th>
                     <th className="pb-2 pr-3 font-medium">Warehouse</th>
+                    <th className="pb-2 pr-3 font-medium">POS Profile</th>
                     <th className="pb-2 pr-3 font-medium">Customer</th>
                     <th className="pb-2 pr-3 font-medium">Payment</th>
                     <th className="pb-2 pr-3 font-medium">Stage</th>
@@ -304,13 +376,16 @@ export function PosOrdersPanel() {
                       <td className="py-2 pr-3 font-mono text-xs font-medium whitespace-nowrap">
                         {o.invoiceNo ?? "—"}
                       </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-[140px] truncate">
+                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-30 truncate">
                         {o.companyLocationName ?? o.company}
                       </td>
                       <td className="py-2 pr-3 text-xs text-muted-foreground whitespace-nowrap">
                         {o.warehouse}
                       </td>
-                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-[120px] truncate">
+                      <td className="py-2 pr-3 text-xs font-medium max-w-35 truncate">
+                        {o.posProfile ?? "—"}
+                      </td>
+                      <td className="py-2 pr-3 text-xs text-muted-foreground max-w-30 truncate">
                         {o.customerName ?? o.customerPhone ?? "—"}
                       </td>
                       <td className="py-2 pr-3 text-xs whitespace-nowrap">

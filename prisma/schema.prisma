@@ -629,6 +629,7 @@ model Order {
   erpnextInvoiceId             String?
   erpReturnSalesInvoiceIds     String[]               @default([])
   erpnextWarehouse             String?
+  posProfile                   String?
   erpnextSyncError             String?
   erpnextSyncFailedAt          DateTime?
   erpnextSyncAutoRetryCount    Int                    @default(0)

@@ -50,6 +50,34 @@ async function findLinkedVaultOrderForErpInvoice(data: {
   });
 }
 
+// Fetches pos_profile and first-item warehouse from the Sales Invoice via ERPNext API.
+// Used as a fallback when the webhook payload doesn't include these fields (e.g. Cosmetics.lk
+// sends set_warehouse="None" and omits pos_profile from the webhook body).
+async function fetchPosDetailsFromSalesInvoice(
+  invoiceName: string,
+  baseUrl: string,
+  apiKey: string,
+  apiSecret: string,
+): Promise<{ posProfile: string | null; warehouse: string | null }> {
+  if (!baseUrl || !apiKey || !apiSecret) return { posProfile: null, warehouse: null };
+  try {
+    const fields = encodeURIComponent(JSON.stringify(["pos_profile", "items.warehouse"]));
+    const res = await fetch(
+      `${baseUrl}/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${fields}`,
+      { headers: { Authorization: `token ${apiKey}:${apiSecret}` } },
+    );
+    if (!res.ok) return { posProfile: null, warehouse: null };
+    const json = (await res.json()) as {
+      data: { pos_profile?: string; items?: { warehouse?: string }[] };
+    };
+    const posProfile = json.data?.pos_profile?.trim() || null;
+    const warehouse = json.data?.items?.[0]?.warehouse?.trim() || null;
+    return { posProfile, warehouse };
+  } catch {
+    return { posProfile: null, warehouse: null };
+  }
+}
+
 async function fetchOutstandingAmount(
   invoiceName: string,
   baseUrl: string,
@@ -418,6 +446,43 @@ export async function POST(request: NextRequest) {
         ? [cleanPaymentType]
         : [];
 
+  // For POS orders: resolve pos_profile and warehouse.
+  // 1. Use pos_profile from payload if present (once ERPNext webhook is updated to send it).
+  // 2. Use set_warehouse from payload if it's not "None".
+  // 3. Fall back to first item's warehouse (items.warehouse in the payload, if webhook sends it).
+  // 4. If still missing, fetch from ERPNext API (Cosmetics.lk sends set_warehouse="None" and
+  //    omits pos_profile from the webhook body, but the Sales Invoice API returns both).
+  let resolvedPosProfile: string | null = data.pos_profile ?? null;
+  let resolvedPosWarehouse: string | null =
+    data.set_warehouse && data.set_warehouse.toLowerCase() !== "none" && data.set_warehouse.trim()
+      ? data.set_warehouse.trim()
+      : null;
+
+  // Check item-level warehouse as first fallback (populated if webhook sends items.warehouse)
+  if (!resolvedPosWarehouse && data.items.length > 0) {
+    const firstItemWarehouse = data.items[0].warehouse?.trim();
+    if (firstItemWarehouse && firstItemWarehouse.toLowerCase() !== "none") {
+      resolvedPosWarehouse = firstItemWarehouse;
+    }
+  }
+
+  if (isPOS && (!resolvedPosProfile || !resolvedPosWarehouse)) {
+    const fromSI = await fetchPosDetailsFromSalesInvoice(
+      data.name,
+      instanceCreds.baseUrl,
+      instanceCreds.apiKey,
+      instanceCreds.apiSecret,
+    );
+    if (!resolvedPosProfile && fromSI.posProfile) {
+      resolvedPosProfile = fromSI.posProfile;
+      console.log(`[ERPNext webhook] Fetched pos_profile="${resolvedPosProfile}" from ERP API for ${data.name}`);
+    }
+    if (!resolvedPosWarehouse && fromSI.warehouse) {
+      resolvedPosWarehouse = fromSI.warehouse;
+      console.log(`[ERPNext webhook] Fetched warehouse="${resolvedPosWarehouse}" from ERP API for ${data.name}`);
+    }
+  }
+
   const isCreditNoted =
     isErpSalesInvoiceCreditNoted(data.status, data.docstatus) || isReturnCreditNote || grandTotal.lt(0);
 
@@ -461,7 +526,8 @@ export async function POST(request: NextRequest) {
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       name: data.name,
       erpnextInvoiceId: data.name,
-      erpnextWarehouse: data.set_warehouse ?? null,
+      erpnextWarehouse: resolvedPosWarehouse ?? data.set_warehouse ?? null,
+      posProfile: resolvedPosProfile,
       totalPrice: grandTotal,
       ...pricingFields,
       ...(erpShipping.totalShipping
@@ -498,7 +564,8 @@ export async function POST(request: NextRequest) {
       ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
-      erpnextWarehouse: data.set_warehouse ?? null,
+      erpnextWarehouse: resolvedPosWarehouse ?? data.set_warehouse ?? null,
+      posProfile: resolvedPosProfile,
       erpnextSyncError: null,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       ...(isPOS

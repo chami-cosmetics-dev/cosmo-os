@@ -1,3 +1,4 @@
+import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
@@ -44,6 +45,28 @@ function summarizePaymentGateway(value: string) {
   return trimmed;
 }
 
+function resolveInvoiceStatus(input: {
+  financialStatus: string | null;
+  fulfillmentStage: string | null;
+  grandTotal: string;
+  printCount: number;
+  packageReadyAt: Date | null;
+  lastPrintedAt: Date | null;
+  dispatchedAt: Date | null;
+  revertedFromInvoiceCompleteAt: Date | null;
+}) {
+  if (input.financialStatus?.toLowerCase() === "voided") return "voided";
+  return getOrderListFulfillmentStageBadges({
+    fulfillmentStage: input.fulfillmentStage,
+    totalPrice: input.grandTotal,
+    printCount: input.printCount,
+    packageReadyAt: input.packageReadyAt,
+    lastPrintedAt: input.lastPrintedAt,
+    dispatchedAt: input.dispatchedAt,
+    revertedFromInvoiceCompleteAt: input.revertedFromInvoiceCompleteAt,
+  })[0]?.label ?? "";
+}
+
 export type OrderInvoiceCsvRow = {
   invoice_no: string;
   erp_invoice_id: string;
@@ -66,7 +89,9 @@ export type OrderInvoiceCsvRow = {
   status: string;
   payment_gateway: string;
   payment_status: string;
-  location_name: string;
+  company_name: string;
+  pos_profile: string;
+  pos_warehouse: string;
   shipping_service: string;
   dispatched_date: string;
   dispatched_time: string;
@@ -81,6 +106,7 @@ export type OrderInvoiceCsvRow = {
   completed_by: string;
   pos_sale: string;
   shipping_rule: string;
+  created_by: string;
 };
 
 export type OrderInvoiceItemCsvRow = {
@@ -106,6 +132,7 @@ export type OrderInvoiceItemCsvRow = {
   fulfillment_status: string;
   payment_gateway: string;
   merchant_name: string;
+  created_by: string;
 };
 
 const ORDER_INVOICE_HEADERS = [
@@ -128,7 +155,9 @@ const ORDER_INVOICE_HEADERS = [
   "fulfillment_status",
   "payment_gateway",
   "payment_status",
-  "location_name",
+  "company_name",
+  "pos_profile",
+  "pos_warehouse",
   "printed_on",
   "printed_time",
   "printed_by",
@@ -145,6 +174,7 @@ const ORDER_INVOICE_HEADERS = [
   "shipping_rule",
   "billing_address",
   "shipping_address",
+  "created_by",
 ] as const;
 
 const ORDER_INVOICE_ITEM_HEADERS = [
@@ -170,6 +200,7 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "payment_status",
   "payment_gateway",
   "merchant_name",
+  "created_by",
 ] as const;
 
 export function buildOrderInvoiceCsv(rows: OrderInvoiceCsvRow[]) {
@@ -216,7 +247,9 @@ export function createOrderInvoiceRow(input: {
   financialStatus: string | null;
   shippingService: string;
   createdAt: Date;
-  locationName: string;
+  companyName: string;
+  posProfile: string | null;
+  posWarehouse: string | null;
   customerName: string;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -229,15 +262,19 @@ export function createOrderInvoiceRow(input: {
   shippingTotal: string | null;
   grandTotal: string;
   itemCount: number;
+  printCount: number;
+  packageReadyAt: Date | null;
   dispatchedAt: Date | null;
   dispatchedBy: string;
   lastPrintedAt: Date | null;
   lastPrintedBy: string;
+  revertedFromInvoiceCompleteAt: Date | null;
   deliveryCompleteAt: Date | null;
   deliveryCompleteBy: string;
   invoiceCompleteAt: Date | null;
   invoiceCompleteBy: string;
   shippingRule: string | null;
+  createdBy: string;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const month = input.createdAt.toLocaleString("en-US", {
@@ -263,10 +300,12 @@ export function createOrderInvoiceRow(input: {
     month: `${input.createdAt.getUTCFullYear()} : ${month}`,
     merchant: input.merchantName,
     coupon_code: input.merchantCouponCode ?? "",
-    status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
+    status: resolveInvoiceStatus(input),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     payment_status: input.financialStatus ?? "",
-    location_name: input.locationName,
+    company_name: input.companyName,
+    pos_profile: input.posProfile ?? "",
+    pos_warehouse: input.posWarehouse ?? "",
     shipping_service: input.shippingService,
     dispatched_date: formatIsoDate(input.dispatchedAt),
     dispatched_time: formatIsoTime(input.dispatchedAt),
@@ -281,6 +320,7 @@ export function createOrderInvoiceRow(input: {
     completed_by: input.invoiceCompleteBy,
     pos_sale: sourceName === "ERPNext POS" ? "1" : "0",
     shipping_rule: input.shippingRule ?? "",
+    created_by: input.createdBy,
   };
 }
 
@@ -307,6 +347,7 @@ export function createOrderInvoiceItemRow(input: {
   fulfillmentStatus: string | null;
   paymentGateway: string;
   merchantName: string;
+  createdBy: string;
 }): OrderInvoiceItemCsvRow {
   return {
     invoice_no: input.invoiceNo,
@@ -331,5 +372,6 @@ export function createOrderInvoiceItemRow(input: {
     fulfillment_status: input.fulfillmentStatus ?? "",
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     merchant_name: input.merchantName,
+    created_by: input.createdBy,
   };
 }

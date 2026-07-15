@@ -41,6 +41,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   custom_special_remarks: erpString,
   special_remarks: erpString,
   posa_pos_opening_shift: erpString,
+  pos_profile: erpString,
   owner: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   contact_mobile: z.string().optional().nullable(),
@@ -68,6 +69,7 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
         amount: z.number().optional().nullable(),
         price_list_rate: z.number().optional().nullable(),
         discount_amount: z.number().optional().nullable(),
+        warehouse: z.string().optional().nullable(),
       }),
     )
     .optional()
