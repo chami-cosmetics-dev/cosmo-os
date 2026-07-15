@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   erpInvoiceIndicatesCreditNote,
   isErpReturnSalesInvoice,
+  isErpSalesInvoiceCancelled,
   isErpSalesInvoiceCreditNoted,
   orderMatchesErpInvoiceReference,
 } from "@/lib/erp-credit-note-order-sync";
@@ -18,10 +19,13 @@ describe("erp-credit-note-order-sync", () => {
     expect(isErpReturnSalesInvoice(0, null, "SV100-0253")).toBe(true);
   });
 
-  it("detects credit-noted original invoices", () => {
+  it("detects credit notes without treating ERP cancel as credit note", () => {
     expect(isErpSalesInvoiceCreditNoted("Credit Note Issued", 1)).toBe(true);
-    expect(isErpSalesInvoiceCreditNoted("Paid", 2)).toBe(true);
+    expect(isErpSalesInvoiceCreditNoted("Paid", 2)).toBe(false);
+    expect(isErpSalesInvoiceCreditNoted("Cancelled", 2)).toBe(false);
     expect(isErpSalesInvoiceCreditNoted("Paid", 1)).toBe(false);
+    expect(isErpSalesInvoiceCancelled(2)).toBe(true);
+    expect(isErpSalesInvoiceCancelled(1)).toBe(false);
   });
 
   it("detects credit notes from ERP invoice + linked returns", () => {
@@ -39,6 +43,9 @@ describe("erp-credit-note-order-sync", () => {
     ).toBe(true);
     expect(
       erpInvoiceIndicatesCreditNote({ status: "Paid", docstatus: 1 }, [])
+    ).toBe(false);
+    expect(
+      erpInvoiceIndicatesCreditNote({ status: "Cancelled", docstatus: 2 }, [])
     ).toBe(false);
   });
 
