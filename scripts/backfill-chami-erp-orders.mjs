@@ -120,6 +120,7 @@ function mapSiToWebhookPayload(si) {
     merchant_coupon_code: si.merchant_coupon_code,
     coupon_code: si.coupon_code,
     custom_coupon_code: si.custom_coupon_code,
+    custom_special_remarks: si.custom_special_remarks,
     posa_pos_opening_shift: si.posa_pos_opening_shift,
     owner: si.owner,
     contact_email: si.contact_email,

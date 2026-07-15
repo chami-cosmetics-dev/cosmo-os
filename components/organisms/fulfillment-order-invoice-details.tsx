@@ -43,6 +43,7 @@ type OrderDetail = {
   totalDiscounts: string | null;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
+  erpSpecialRemarks?: string | null;
   totalTax: string | null;
   totalShipping: string | null;
   shippingRuleLabel?: string | null;
@@ -186,6 +187,12 @@ export function FulfillmentOrderInvoiceDetails({
             {detail.merchantCouponCode && (
               <p className="mt-1">
                 <span className="text-muted-foreground">Mer coupon:</span> {detail.merchantCouponCode}
+              </p>
+            )}
+            {detail.erpSpecialRemarks && (
+              <p className="mt-2 whitespace-pre-wrap">
+                <span className="text-muted-foreground">Special Remarks:</span>{" "}
+                {detail.erpSpecialRemarks}
               </p>
             )}
           </div>

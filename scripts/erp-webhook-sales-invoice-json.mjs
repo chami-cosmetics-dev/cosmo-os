@@ -29,6 +29,7 @@ export function buildSalesInvoiceWebhookJson({ vaultStyle = false } = {}) {
   "coupon_code": "{{ doc.coupon_code }}",
   "custom_coupon_code": "{{ doc.custom_coupon_code }}",
 ${merchantField}
+  "custom_special_remarks": "{{ doc.custom_special_remarks | replace('\\n', ' ') | replace('\\r', '') | replace('\\\"', '') }}",
   "posa_pos_opening_shift": "{{ doc.posa_pos_opening_shift }}",
   "owner": "{{ doc.owner }}",
   "contact_email": "{{ doc.contact_email }}",

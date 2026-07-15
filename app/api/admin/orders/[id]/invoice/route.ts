@@ -6,6 +6,7 @@ import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
+import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
@@ -326,6 +327,13 @@ export async function GET(
     erpnextInvoiceId: order.erpnextInvoiceId,
     erpnextInstance: order.companyLocation.erpnextInstance,
   });
+  const erpSpecialRemarks = await resolveOrderErpSpecialRemarksForOrder({
+    sourceName: order.sourceName,
+    rawPayload: order.rawPayload,
+    name: order.name,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    erpnextInstance: order.companyLocation.erpnextInstance,
+  });
 
   function escapeHtml(s: string): string {
     return s
@@ -478,6 +486,8 @@ export async function GET(
       internal: internalRemarks,
       externalText: externalRemarks.join("; "),
       internalText: internalRemarks.join("; "),
+      specialRemarks: erpSpecialRemarks ?? "",
+      specialText: erpSpecialRemarks ?? "",
     },
     print: {
       isCopy: showWatermark,

@@ -52,6 +52,8 @@ export type TaskReminder = {
 export type TaskRemindersResult = {
   reminders: TaskReminder[];
   totalCount: number;
+  /** Full match counts per category (list may be capped, e.g. delivery_pending shows 20). */
+  categoryCounts: Partial<Record<TaskReminderCategory, number>>;
   /** Categories this user may monitor (shown in HUD even when count is 0). */
   visibleCategories: TaskReminderCategory[];
 };
@@ -468,16 +470,23 @@ async function fetchErpSyncWarnings(companyId: string, userId: string, now: Date
   }));
 }
 
-async function fetchDeliveryPendingReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
+async function fetchDeliveryPendingReminders(
+  companyId: string,
+  now: Date,
+): Promise<{ reminders: TaskReminder[]; totalCount: number }> {
+  const where: Prisma.OrderWhereInput = {
+    companyId,
+    ...deliveryPipelineWhere,
+    financialStatus: { not: "voided" },
+    fulfillmentStage: "dispatched",
+    deliveryCompleteAt: null,
+    dispatchedAt: { not: null, lte: slaCutoff(now) },
+  };
+
+  const totalCount = await prisma.order.count({ where });
   const orders = await prisma.order.findMany({
-    where: {
-      companyId,
-      ...deliveryPipelineWhere,
-      financialStatus: { not: "voided" },
-      fulfillmentStage: "dispatched",
-      deliveryCompleteAt: null,
-      dispatchedAt: { not: null, lte: slaCutoff(now) },
-    },
+    where,
+    // Most overdue first (oldest dispatch); list capped — badge uses totalCount.
     orderBy: { dispatchedAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,
     select: {
@@ -489,7 +498,7 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
     },
   });
 
-  return orders.map((order) => {
+  const reminders = orders.map((order) => {
     const since = order.dispatchedAt!;
     const invoiceLabel = orderInvoiceLabel(order);
     const waitingHours = waitingHoursSince(since, now);
@@ -504,6 +513,8 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
       invoiceLabel,
     };
   });
+
+  return { reminders, totalCount };
 }
 
 async function fetchInvoiceCompleteReminders(
@@ -562,6 +573,7 @@ export async function fetchTaskReminders(
 ): Promise<TaskRemindersResult> {
   // Run sequentially — Neon pooler often has connection_limit=1; parallel queries exhaust the pool.
   const reminders: TaskReminder[] = [];
+  const categoryCounts: Partial<Record<TaskReminderCategory, number>> = {};
 
   if (canSeeTaskReminderCategory(context, "erp_sync_warning") && context.userId) {
     reminders.push(...(await fetchErpSyncWarnings(companyId, context.userId, now)));
@@ -596,7 +608,9 @@ export async function fetchTaskReminders(
     reminders.push(...(await fetchReturnActionReminders(companyId, now)));
   }
   if (canSeeTaskReminderCategory(context, "delivery_pending")) {
-    reminders.push(...(await fetchDeliveryPendingReminders(companyId, now)));
+    const deliveryPending = await fetchDeliveryPendingReminders(companyId, now);
+    reminders.push(...deliveryPending.reminders);
+    categoryCounts.delivery_pending = deliveryPending.totalCount;
   }
   if (canSeeTaskReminderCategory(context, "invoice_complete")) {
     reminders.push(
@@ -606,11 +620,23 @@ export async function fetchTaskReminders(
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
+  for (const reminder of reminders) {
+    if (categoryCounts[reminder.category] == null) {
+      categoryCounts[reminder.category] = 0;
+    }
+    if (reminder.category !== "delivery_pending") {
+      categoryCounts[reminder.category] =
+        (categoryCounts[reminder.category] ?? 0) + 1;
+    }
+  }
+
   const visibleCategories = listVisibleTaskReminderCategories(context);
+  const totalCount = Object.values(categoryCounts).reduce((sum, n) => sum + (n ?? 0), 0);
 
   return {
     reminders,
-    totalCount: reminders.length,
+    totalCount,
+    categoryCounts,
     visibleCategories,
   };
 }
