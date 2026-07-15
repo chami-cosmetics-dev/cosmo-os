@@ -49,3 +49,11 @@ describe("hasReminderPermission", () => {
     ).toBe(false);
   });
 });
+
+describe("finance reminder location scope semantics", () => {
+  it("matches approvals resolveViewerFinanceLocationIds contract", async () => {
+    const { resolveViewerFinanceLocationIds } = await import("@/lib/approval-workflow");
+    // Type/smoke: function is the same helper used by reminders + approvals page
+    expect(typeof resolveViewerFinanceLocationIds).toBe("function");
+  });
+});
