@@ -5,6 +5,7 @@ import {
   DELIVERY_PAYMENT_FINANCE_UI_ENABLED,
   FINANCE_APPROVAL_TYPES,
   ORDER_PAYMENT_APPROVAL,
+  resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import {
   deliveryPipelineWhere,
@@ -119,10 +120,29 @@ function sortAndCap(reminders: TaskReminder[]): TaskReminder[] {
 async function fetchFinanceApprovalReminders(
   companyId: string,
   now: Date,
+  financeLocationIds: string[] | null,
 ): Promise<TaskReminder[]> {
+  if (financeLocationIds !== null && financeLocationIds.length === 0) {
+    return [];
+  }
+
   const approvalTypes = DELIVERY_PAYMENT_FINANCE_UI_ENABLED
     ? [...FINANCE_APPROVAL_TYPES]
     : FINANCE_APPROVAL_TYPES.filter((type) => type !== DELIVERY_PAYMENT_APPROVAL);
+
+  const locationScope: Prisma.ApprovalRequestWhereInput | undefined =
+    financeLocationIds === null
+      ? undefined
+      : {
+          OR: [
+            { order: { companyLocationId: { in: financeLocationIds } } },
+            {
+              orderReturn: {
+                order: { companyLocationId: { in: financeLocationIds } },
+              },
+            },
+          ],
+        };
 
   const approvals = await prisma.approvalRequest.findMany({
     where: {
@@ -130,6 +150,7 @@ async function fetchFinanceApprovalReminders(
       status: "pending",
       type: { in: approvalTypes },
       createdAt: { lte: slaCutoff(now) },
+      ...(locationScope ?? {}),
       NOT: {
         OR: [
           { order: { financialStatus: { equals: "voided", mode: "insensitive" } } },
@@ -485,7 +506,15 @@ async function fetchDeliveryPendingReminders(companyId: string, now: Date): Prom
   });
 }
 
-async function fetchInvoiceCompleteReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
+async function fetchInvoiceCompleteReminders(
+  companyId: string,
+  now: Date,
+  financeLocationIds: string[] | null,
+): Promise<TaskReminder[]> {
+  if (financeLocationIds !== null && financeLocationIds.length === 0) {
+    return [];
+  }
+
   const orders = await prisma.order.findMany({
     where: {
       companyId,
@@ -494,6 +523,9 @@ async function fetchInvoiceCompleteReminders(companyId: string, now: Date): Prom
       fulfillmentStage: "delivery_complete",
       invoiceCompleteAt: null,
       deliveryCompleteAt: { not: null, lte: slaCutoff(now) },
+      ...(financeLocationIds !== null
+        ? { companyLocationId: { in: financeLocationIds } }
+        : {}),
     },
     orderBy: { deliveryCompleteAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,
@@ -534,8 +566,19 @@ export async function fetchTaskReminders(
   if (canSeeTaskReminderCategory(context, "erp_sync_warning") && context.userId) {
     reminders.push(...(await fetchErpSyncWarnings(companyId, context.userId, now)));
   }
+
+  const needsFinanceLocationScope =
+    canSeeTaskReminderCategory(context, "finance_approval") ||
+    canSeeTaskReminderCategory(context, "invoice_complete");
+  const financeLocationIds =
+    needsFinanceLocationScope && context.userId
+      ? await resolveViewerFinanceLocationIds(context.userId, companyId, context.roleNames)
+      : null;
+
   if (canSeeTaskReminderCategory(context, "finance_approval")) {
-    reminders.push(...(await fetchFinanceApprovalReminders(companyId, now)));
+    reminders.push(
+      ...(await fetchFinanceApprovalReminders(companyId, now, financeLocationIds)),
+    );
   }
   if (canSeeTaskReminderCategory(context, "add_samples")) {
     reminders.push(...(await fetchSampleReminders(companyId, now, context)));
@@ -556,7 +599,9 @@ export async function fetchTaskReminders(
     reminders.push(...(await fetchDeliveryPendingReminders(companyId, now)));
   }
   if (canSeeTaskReminderCategory(context, "invoice_complete")) {
-    reminders.push(...(await fetchInvoiceCompleteReminders(companyId, now)));
+    reminders.push(
+      ...(await fetchInvoiceCompleteReminders(companyId, now, financeLocationIds)),
+    );
   }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
