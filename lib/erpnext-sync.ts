@@ -602,6 +602,11 @@ async function ensureCustomer(
 ): Promise<string> {
   const displayName = customerName.trim() || "Guest";
   const canonicalMobile = phone ? canonicalPhoneForErpCustomerId(phone) : null;
+  if (phone?.trim() && !canonicalMobile) {
+    console.warn(
+      `[ERPNext] Could not normalize customer mobile "${phone.trim()}" to 10-digit 0… format; creating customer without mobile_no`,
+    );
+  }
 
   // 1. Phone is primary — same name can map to different customers per number
   if (phone?.trim()) {
@@ -1325,6 +1330,7 @@ export async function syncOrderToERPNext(
     shopifyData.shipping_address?.phone ??
     shopifyData.customer?.phone ??
     null;
+  const contactMobile = customerPhone ? canonicalPhoneForErpCustomerId(customerPhone) : null;
 
   const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, location.erpnextCompany);
 
@@ -1409,7 +1415,7 @@ export async function syncOrderToERPNext(
     items: siItems,
     ...erpCouponFields,
     ...(customerEmail ? { contact_email: customerEmail } : {}),
-    ...(customerPhone ? { contact_mobile: customerPhone.trim().slice(0, LIMITS.mobile.max) } : {}),
+    ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     // Payment type mapped from Shopify gateway names
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
     // Address: prefer linked Address documents (ERPNext-native); fall back to raw HTML text
@@ -1576,6 +1582,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const customerName = rawName || rawFullName || order.customerEmail || order.customerPhone || "Guest";
   const customerEmail = order.customerEmail ?? null;
   const customerPhone = order.customerPhone ?? (typeof addr?.phone === "string" ? addr.phone : null);
+  const contactMobile = customerPhone ? canonicalPhoneForErpCustomerId(customerPhone) : null;
 
   const erpCustomerName = await ensureCustomer(cfg, customerName, customerEmail, customerPhone, erpnextCompany);
 
@@ -1638,7 +1645,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     items: siItems,
     ...erpCouponFields,
     ...(customerEmail ? { contact_email: customerEmail } : {}),
-    ...(customerPhone ? { contact_mobile: customerPhone.trim().slice(0, LIMITS.mobile.max) } : {}),
+    ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
     ...(billingAddressName ? { customer_address: billingAddressName } : addrHtml ? { address_display: addrHtml } : {}),
     ...(shippingAddressName ? { shipping_address_name: shippingAddressName } : addrHtml ? { shipping_address: addrHtml } : {}),
