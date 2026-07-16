@@ -1,19 +1,42 @@
 import { prisma } from "@/lib/prisma";
-import { createOrGetDeliveryPaymentApproval, getApprovedOrderPaymentReviewerId } from "@/lib/approval-workflow";
+import {
+  createOrGetDeliveryPaymentApproval,
+  getApprovedOrderPaymentReviewerId,
+  isOrderPaymentRequiresApproval,
+  ORDER_PAYMENT_APPROVAL,
+} from "@/lib/approval-workflow";
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_manual_invoice_complete" }
   | { kind: "close_invoice_complete"; financeUserId: string };
 
-// Gateways where payment is collected before or at time of sale — never at the door.
-function isPrePaidGateway(gateway: string): boolean {
+/** Gateways where payment is collected before / at sale — never as door cash. */
+export function isPrePaidGateway(gateway: string): boolean {
+  const g = gateway.toLowerCase().trim();
   return (
-    gateway.includes("koko") ||
-    gateway.includes("bank") ||
-    gateway.includes("webxpay") ||
-    gateway === "cc" ||
-    gateway === "cc checkout"
+    g.includes("koko") ||
+    g.includes("bank") ||
+    g.includes("webxpay") ||
+    g === "cc" ||
+    g === "cc checkout"
   );
+}
+
+/**
+ * True when this order must not get a Delivery Collection approval.
+ * Prefer primary gateway (same rule as order-payment approval); fall back to names
+ * only when primary is empty so KOKO in names still skips the door-collection queue.
+ */
+export function shouldSkipDeliveryPaymentApproval(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[];
+}): boolean {
+  if (isOrderPaymentRequiresApproval(order)) return true;
+
+  if (order.paymentGatewayPrimary) {
+    return isPrePaidGateway(order.paymentGatewayPrimary);
+  }
+  return (order.paymentGatewayNames ?? []).some((g) => isPrePaidGateway(g));
 }
 
 /**
@@ -33,6 +56,7 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
       id: true,
       financialStatus: true,
       paymentGatewayPrimary: true,
+      paymentGatewayNames: true,
       invoiceCompleteAt: true,
     },
   });
@@ -53,8 +77,10 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   }
 
   // Prepaid already paid (e.g. approval path set paid + PE) but timestamp missing — still close.
-  const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
-  if (isPrePaidGateway(gateway) && order.financialStatus?.toLowerCase() === "paid") {
+  if (
+    shouldSkipDeliveryPaymentApproval(order) &&
+    order.financialStatus?.toLowerCase() === "paid"
+  ) {
     return { kind: "close_invoice_complete", financeUserId: input.requestedById ?? "" };
   }
 
@@ -81,6 +107,14 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
       dispatchedByCourierServiceId: true,
       dispatchedToCustomer: true,
       companyLocationId: true,
+      approvalRequests: {
+        where: {
+          type: ORDER_PAYMENT_APPROVAL,
+          status: { in: ["pending", "approved"] },
+        },
+        select: { id: true, status: true },
+        take: 1,
+      },
     },
   });
   if (!order) return null;
@@ -88,8 +122,11 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
   if (order.dispatchedByCourierServiceId) return null;
   if (order.dispatchedToCustomer) return null;
 
-  const gateway = order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
-  if (isPrePaidGateway(gateway)) return null;
+  // KOKO / bank / other prepaid: use Order Payment approval, never Delivery Collection.
+  if (shouldSkipDeliveryPaymentApproval(order)) return null;
+
+  // Already has (or waiting on) order-payment finance confirmation — do not double-queue.
+  if (order.approvalRequests.length > 0) return null;
 
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
   const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";

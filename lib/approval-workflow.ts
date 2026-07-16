@@ -228,6 +228,66 @@ export async function cancelPendingApprovalsForOrder(orderId: string) {
   return direct.count + viaReturn.count;
 }
 
+/** Cancel pending delivery payment approvals for prepaid (KOKO / bank / …) orders.
+ * Those must use Order Payment approval — Delivery Collection is door-cash only. */
+export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyId: string) {
+  const now = new Date();
+  const pending = await prisma.approvalRequest.findMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      orderId: { not: null },
+    },
+    select: {
+      id: true,
+      order: {
+        select: {
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
+          approvalRequests: {
+            where: { type: ORDER_PAYMENT_APPROVAL, status: { in: ["pending", "approved"] } },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+
+  const ids = pending
+    .filter((row) => {
+      if (!row.order) return false;
+      if (isOrderPaymentRequiresApproval(row.order)) return true;
+      const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
+      if (primary.includes("koko") || primary.includes("bank") || primary.includes("webxpay")) {
+        return true;
+      }
+      if (!primary) {
+        return row.order.paymentGatewayNames.some((g) => {
+          const n = g.toLowerCase().trim();
+          return n.includes("koko") || n.includes("bank") || n.includes("webxpay");
+        });
+      }
+      // Finance already confirmed / queued order payment — drop duplicate door collection.
+      return row.order.approvalRequests.length > 0;
+    })
+    .map((row) => row.id);
+
+  if (ids.length === 0) return 0;
+
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: "cancelled",
+      reviewNote:
+        "Prepaid / order-payment path — Delivery Collection not required (KOKO, bank transfer, or order payment already handled).",
+      updatedAt: now,
+    },
+  });
+  return result.count;
+}
+
 /** Cancel pending delivery payment approvals for orders already at invoice_complete.
  * Handles the case where an order was bulk-completed or manually advanced to invoice_complete
  * while a DELIVERY_PAYMENT_APPROVAL was still pending in the finance queue. */
