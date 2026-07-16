@@ -31,12 +31,16 @@ export function shouldSkipDeliveryPaymentApproval(order: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[];
 }): boolean {
-  if (isOrderPaymentRequiresApproval(order)) return true;
+  const normalized = {
+    paymentGatewayPrimary: order.paymentGatewayPrimary ?? null,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+  };
+  if (isOrderPaymentRequiresApproval(normalized)) return true;
 
-  if (order.paymentGatewayPrimary) {
-    return isPrePaidGateway(order.paymentGatewayPrimary);
+  if (normalized.paymentGatewayPrimary) {
+    return isPrePaidGateway(normalized.paymentGatewayPrimary);
   }
-  return (order.paymentGatewayNames ?? []).some((g) => isPrePaidGateway(g));
+  return normalized.paymentGatewayNames.some((g) => isPrePaidGateway(g));
 }
 
 /**
