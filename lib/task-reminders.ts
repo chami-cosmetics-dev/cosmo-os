@@ -358,17 +358,40 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<Capped
   return toCappedReminders(reminders);
 }
 
+/** Pre-dispatch stages where a printed order can still sit before shipping. */
+const DISPATCH_REMINDER_STAGES = [
+  "order_received",
+  "sample_free_issue",
+  "print",
+  "ready_to_dispatch",
+] as const;
+
+/**
+ * Clock for Dispatch / Rearrange bubbles: time since last print.
+ * Package ready is ignored — package ready and dispatch often happen together.
+ */
+export function resolveDispatchReminderSince(order: {
+  lastPrintedAt?: Date | null;
+}): Date | null {
+  return order.lastPrintedAt ?? null;
+}
+
 async function fetchDispatchReminders(
   companyId: string,
   now: Date,
   rearrange: boolean,
 ): Promise<CappedReminders> {
   const category: TaskReminderCategory = rearrange ? "rearrange_dispatch" : "ready_dispatch";
+  // Printed, not yet dispatched — SLA from lastPrintedAt (not packageReadyAt).
+  // POS / counter sales skip warehouse dispatch and are excluded.
   const where: Prisma.OrderWhereInput = {
     companyId,
     ...baseFulfillmentOrderWhere,
-    fulfillmentStage: "ready_to_dispatch",
-    packageReadyAt: { not: null, lte: slaCutoff(now) },
+    printCount: { gt: 0 },
+    lastPrintedAt: { not: null, lte: slaCutoff(now) },
+    dispatchedAt: null,
+    fulfillmentStage: { in: [...DISPATCH_REMINDER_STAGES] },
+    sourceName: { notIn: ["pos", "erpnext-pos"] },
     totalPrice: { gte: 0 },
     returns: rearrange ? { some: { actionType: "rearrange" } } : { none: {} },
   };
@@ -381,14 +404,14 @@ async function fetchDispatchReminders(
       name: true,
       orderNumber: true,
       shopifyOrderId: true,
-      packageReadyAt: true,
+      lastPrintedAt: true,
     },
-    orderBy: { packageReadyAt: "asc" },
+    orderBy: { lastPrintedAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,
   });
 
   const reminders = orders.map((order) => {
-    const since = order.packageReadyAt!;
+    const since = resolveDispatchReminderSince(order)!;
     const invoiceLabel = orderInvoiceLabel(order);
     const waitingHours = waitingHoursSince(since, now);
     return {
@@ -397,7 +420,7 @@ async function fetchDispatchReminders(
       title: rearrange ? "Rearrange dispatch overdue" : "Ready to dispatch overdue",
       body: rearrange
         ? `${invoiceLabel} rearrange has been waiting for dispatch (${waitingHours}h). Don't keep the customer waiting.`
-        : `${invoiceLabel} is ready to dispatch and has been waiting ${waitingHours}h.`,
+        : `${invoiceLabel} was printed ${waitingHours}h ago and is still waiting to dispatch.`,
       href: taskReminderHref("/dashboard/fulfillment/dispatch", {
         orderId: order.id,
         queue: rearrange ? "rearrange" : undefined,
