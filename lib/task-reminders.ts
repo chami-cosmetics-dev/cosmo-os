@@ -113,19 +113,23 @@ function compactReminders(items: Array<TaskReminder | null>): TaskReminder[] {
   return items.filter((item): item is TaskReminder => item !== null);
 }
 
-function sortAndCap(reminders: TaskReminder[]): TaskReminder[] {
-  return reminders
-    .sort((a, b) => b.waitingHours - a.waitingHours)
-    .slice(0, REMINDER_LIMIT_PER_CATEGORY);
+type CappedReminders = { reminders: TaskReminder[]; totalCount: number };
+
+function toCappedReminders(reminders: TaskReminder[]): CappedReminders {
+  const sorted = [...reminders].sort((a, b) => b.waitingHours - a.waitingHours);
+  return {
+    totalCount: sorted.length,
+    reminders: sorted.slice(0, REMINDER_LIMIT_PER_CATEGORY),
+  };
 }
 
 async function fetchFinanceApprovalReminders(
   companyId: string,
   now: Date,
   financeLocationIds: string[] | null,
-): Promise<TaskReminder[]> {
+): Promise<CappedReminders> {
   if (financeLocationIds !== null && financeLocationIds.length === 0) {
-    return [];
+    return { reminders: [], totalCount: 0 };
   }
 
   const approvalTypes = DELIVERY_PAYMENT_FINANCE_UI_ENABLED
@@ -146,24 +150,27 @@ async function fetchFinanceApprovalReminders(
           ],
         };
 
-  const approvals = await prisma.approvalRequest.findMany({
-    where: {
-      companyId,
-      status: "pending",
-      type: { in: approvalTypes },
-      createdAt: { lte: slaCutoff(now) },
-      ...(locationScope ?? {}),
-      NOT: {
-        OR: [
-          { order: { financialStatus: { equals: "voided", mode: "insensitive" } } },
-          {
-            orderReturn: {
-              order: { financialStatus: { equals: "voided", mode: "insensitive" } },
-            },
+  const where: Prisma.ApprovalRequestWhereInput = {
+    companyId,
+    status: "pending",
+    type: { in: approvalTypes },
+    createdAt: { lte: slaCutoff(now) },
+    ...(locationScope ?? {}),
+    NOT: {
+      OR: [
+        { order: { financialStatus: { equals: "voided", mode: "insensitive" } } },
+        {
+          orderReturn: {
+            order: { financialStatus: { equals: "voided", mode: "insensitive" } },
           },
-        ],
-      },
+        },
+      ],
     },
+  };
+
+  const totalCount = await prisma.approvalRequest.count({ where });
+  const approvals = await prisma.approvalRequest.findMany({
+    where,
     orderBy: { createdAt: "asc" },
     take: REMINDER_LIMIT_PER_CATEGORY,
     select: {
@@ -193,7 +200,7 @@ async function fetchFinanceApprovalReminders(
     },
   });
 
-  return approvals.map((approval) => {
+  const reminders = approvals.map((approval) => {
     const order = approval.order ?? approval.orderReturn?.order;
     const invoiceLabel = order ? orderInvoiceLabel(order) : approval.id;
     const waitingHours = waitingHoursSince(approval.createdAt, now);
@@ -208,13 +215,15 @@ async function fetchFinanceApprovalReminders(
       invoiceLabel,
     };
   });
+
+  return { reminders, totalCount };
 }
 
 async function fetchSampleReminders(
   companyId: string,
   now: Date,
   context: PermissionContext,
-): Promise<TaskReminder[]> {
+): Promise<CappedReminders> {
   const tomorrow = startOfTomorrowUtc();
   const orders = await prisma.order.findMany({
     where: {
@@ -257,7 +266,6 @@ async function fetchSampleReminders(
       deliveryCompleteAt: true,
       invoiceCompleteAt: true,
     },
-    take: 100,
     orderBy: { createdAt: "asc" },
   });
 
@@ -280,10 +288,10 @@ async function fetchSampleReminders(
     }),
   );
 
-  return sortAndCap(reminders);
+  return toCappedReminders(reminders);
 }
 
-async function fetchPrintReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
+async function fetchPrintReminders(companyId: string, now: Date): Promise<CappedReminders> {
   const orders = await prisma.order.findMany({
     where: {
       companyId,
@@ -325,7 +333,6 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<TaskRe
       deliveryCompleteAt: true,
       invoiceCompleteAt: true,
     },
-    take: 100,
     orderBy: { createdAt: "asc" },
   });
 
@@ -348,24 +355,27 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<TaskRe
     }),
   );
 
-  return sortAndCap(reminders);
+  return toCappedReminders(reminders);
 }
 
 async function fetchDispatchReminders(
   companyId: string,
   now: Date,
   rearrange: boolean,
-): Promise<TaskReminder[]> {
+): Promise<CappedReminders> {
   const category: TaskReminderCategory = rearrange ? "rearrange_dispatch" : "ready_dispatch";
+  const where: Prisma.OrderWhereInput = {
+    companyId,
+    ...baseFulfillmentOrderWhere,
+    fulfillmentStage: "ready_to_dispatch",
+    packageReadyAt: { not: null, lte: slaCutoff(now) },
+    totalPrice: { gte: 0 },
+    returns: rearrange ? { some: { actionType: "rearrange" } } : { none: {} },
+  };
+
+  const totalCount = await prisma.order.count({ where });
   const orders = await prisma.order.findMany({
-    where: {
-      companyId,
-      ...baseFulfillmentOrderWhere,
-      fulfillmentStage: "ready_to_dispatch",
-      packageReadyAt: { not: null },
-      totalPrice: { gte: 0 },
-      returns: rearrange ? { some: { actionType: "rearrange" } } : { none: {} },
-    },
+    where,
     select: {
       id: true,
       name: true,
@@ -373,35 +383,32 @@ async function fetchDispatchReminders(
       shopifyOrderId: true,
       packageReadyAt: true,
     },
-    take: 100,
     orderBy: { packageReadyAt: "asc" },
+    take: REMINDER_LIMIT_PER_CATEGORY,
   });
 
-  const reminders = compactReminders(
-    orders.map((order) => {
-      const since = order.packageReadyAt;
-      if (!isTaskReminderOverdue(since, now)) return null;
-      const invoiceLabel = orderInvoiceLabel(order);
-      const waitingHours = waitingHoursSince(since!, now);
-      return {
-        id: `${category}:${order.id}`,
-        category,
-        title: rearrange ? "Rearrange dispatch overdue" : "Ready to dispatch overdue",
-        body: rearrange
-          ? `${invoiceLabel} rearrange has been waiting for dispatch (${waitingHours}h). Don't keep the customer waiting.`
-          : `${invoiceLabel} is ready to dispatch and has been waiting ${waitingHours}h.`,
-        href: taskReminderHref("/dashboard/fulfillment/dispatch", {
-          orderId: order.id,
-          queue: rearrange ? "rearrange" : undefined,
-        }),
-        waitingHours,
+  const reminders = orders.map((order) => {
+    const since = order.packageReadyAt!;
+    const invoiceLabel = orderInvoiceLabel(order);
+    const waitingHours = waitingHoursSince(since, now);
+    return {
+      id: `${category}:${order.id}`,
+      category,
+      title: rearrange ? "Rearrange dispatch overdue" : "Ready to dispatch overdue",
+      body: rearrange
+        ? `${invoiceLabel} rearrange has been waiting for dispatch (${waitingHours}h). Don't keep the customer waiting.`
+        : `${invoiceLabel} is ready to dispatch and has been waiting ${waitingHours}h.`,
+      href: taskReminderHref("/dashboard/fulfillment/dispatch", {
         orderId: order.id,
-        invoiceLabel,
-      };
-    }),
-  );
+        queue: rearrange ? "rearrange" : undefined,
+      }),
+      waitingHours,
+      orderId: order.id,
+      invoiceLabel,
+    };
+  });
 
-  return sortAndCap(reminders);
+  return { reminders, totalCount };
 }
 
 async function fetchReturnActionReminders(companyId: string, now: Date): Promise<TaskReminder[]> {
@@ -594,21 +601,29 @@ export async function fetchTaskReminders(
       : null;
 
   if (canSeeTaskReminderCategory(context, "finance_approval")) {
-    reminders.push(
-      ...(await fetchFinanceApprovalReminders(companyId, now, financeLocationIds)),
-    );
+    const finance = await fetchFinanceApprovalReminders(companyId, now, financeLocationIds);
+    reminders.push(...finance.reminders);
+    categoryCounts.finance_approval = finance.totalCount;
   }
   if (canSeeTaskReminderCategory(context, "add_samples")) {
-    reminders.push(...(await fetchSampleReminders(companyId, now, context)));
+    const samples = await fetchSampleReminders(companyId, now, context);
+    reminders.push(...samples.reminders);
+    categoryCounts.add_samples = samples.totalCount;
   }
   if (canSeeTaskReminderCategory(context, "print")) {
-    reminders.push(...(await fetchPrintReminders(companyId, now)));
+    const print = await fetchPrintReminders(companyId, now);
+    reminders.push(...print.reminders);
+    categoryCounts.print = print.totalCount;
   }
   if (canSeeTaskReminderCategory(context, "ready_dispatch")) {
-    reminders.push(...(await fetchDispatchReminders(companyId, now, false)));
+    const dispatch = await fetchDispatchReminders(companyId, now, false);
+    reminders.push(...dispatch.reminders);
+    categoryCounts.ready_dispatch = dispatch.totalCount;
   }
   if (canSeeTaskReminderCategory(context, "rearrange_dispatch")) {
-    reminders.push(...(await fetchDispatchReminders(companyId, now, true)));
+    const rearrange = await fetchDispatchReminders(companyId, now, true);
+    reminders.push(...rearrange.reminders);
+    categoryCounts.rearrange_dispatch = rearrange.totalCount;
   }
   if (canSeeTaskReminderCategory(context, "return_action")) {
     reminders.push(...(await fetchReturnActionReminders(companyId, now)));
@@ -631,6 +646,11 @@ export async function fetchTaskReminders(
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);
 
   const cappedCountCategories = new Set<TaskReminderCategory>([
+    "finance_approval",
+    "add_samples",
+    "print",
+    "ready_dispatch",
+    "rearrange_dispatch",
     "delivery_pending",
     "invoice_complete",
   ]);
