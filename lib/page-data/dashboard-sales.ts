@@ -1,5 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
+import {
+  applyMerchantGroup,
+  buildCouponToMerchantMap,
+  getMerchantGroupUserMap,
+} from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { prisma } from "@/lib/prisma";
@@ -204,16 +209,8 @@ export async function fetchDashboardSalesByLocationMerchant(
     }),
   ]);
 
-  const couponToUser = new Map<string, { id: string; name: string }>();
-  for (const user of usersWithCoupons) {
-    const name = getUserDisplayName(user) ?? "Unknown";
-    for (const code of user.couponCodes) {
-      const normalized = code.trim().toLowerCase();
-      if (normalized && !couponToUser.has(normalized)) {
-        couponToUser.set(normalized, { id: user.id, name });
-      }
-    }
-  }
+  const userToGroup = await getMerchantGroupUserMap(companyId);
+  const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
 
   const byLocationMerchant = new Map<string, Map<string, DashboardLocationMerchantRow>>();
   const sourceByLocation = new Map<string, DashboardLocationSales["sources"]>();
@@ -253,8 +250,15 @@ export async function fetchDashboardSalesByLocationMerchant(
     }
 
     if (!merchantName) {
-      merchantId = order.assignedMerchantId;
-      merchantName = getUserDisplayName(order.assignedMerchant) ?? "DM-General";
+      const groupedMerchant = applyMerchantGroup(
+        {
+          id: order.assignedMerchantId,
+          name: getUserDisplayName(order.assignedMerchant) ?? "DM-General",
+        },
+        userToGroup,
+      );
+      merchantId = groupedMerchant.id;
+      merchantName = groupedMerchant.name;
     }
 
     const merchantKey = merchantId ?? `__${merchantName.toLowerCase()}`;
