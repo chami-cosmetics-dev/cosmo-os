@@ -71,6 +71,10 @@ model Company {
   financeScopes            UserFinanceScope[]
   dailySalesSmsConfig      DailySalesSmsConfig?
   dailySalesSmsSendLogs    DailySalesSmsSendLog[]
+  productOsfProfiles       ProductOsfProfile[]
+  productOsfRops           ProductOsfRop[]
+  osfColumnConfigs         OsfColumnConfig[]
+  osfBuyers                OsfBuyer[]
 }
 
 model PrintFormat {
@@ -493,6 +497,7 @@ model CompanyLocation {
   shippingChargeOptions     ShippingChargeOption[]
   erpWarehouses             CompanyLocationWarehouse[]
   financeScopes             UserFinanceScope[]
+  osfColumnConfigs          OsfColumnConfig[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
@@ -1646,4 +1651,77 @@ model OutletReview {
 
   @@index([outletId])
   @@index([orderId])
+}
+
+// ── Order Support File (OSF) ────────────────────────────────────────────────
+
+model ProductOsfProfile {
+  id               String   @id @default(cuid())
+  companyId        String
+  sku              String
+  shopAvailability String?
+  ogfPrice         Decimal? @db.Decimal(12, 2)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sku])
+  @@index([companyId])
+}
+
+model ProductOsfRop {
+  id         String   @id @default(cuid())
+  companyId  String
+  sku        String
+  columnKey  String
+  ropQty     Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sku, columnKey])
+  @@index([companyId, sku])
+  @@index([companyId, columnKey])
+}
+
+model OsfColumnConfig {
+  id                String           @id @default(cuid())
+  companyId         String
+  key               String
+  label             String
+  companyLocationId String?
+  // Optional direct ERP targeting: when set, stock is read from these warehouses
+  // in this ERP instance instead of (or in addition to) the mapped location.
+  // Used for warehouses that are not their own Cosmo location (e.g. Cosmo shops).
+  erpnextInstanceId String?
+  directWarehouses  String[]         @default([])
+  includeInStock    Boolean          @default(true)
+  includeInRop      Boolean          @default(true)
+  sortOrder         Int              @default(0)
+  active            Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation   CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, key])
+  @@index([companyId, sortOrder])
+}
+
+model OsfBuyer {
+  id        String   @id @default(cuid())
+  companyId String
+  // Buyer / purchasing person name — becomes a per-buyer sheet in the OSF workbook.
+  name      String
+  // Brand names owned by this buyer (matched against the item's vendor/brand).
+  // Empty array = the buyer sees the full catalog.
+  brands    String[] @default([])
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, sortOrder])
 }

@@ -1,0 +1,53 @@
+"use client";
+
+import { OsfBuyersSettings, type BuyerRow } from "@/components/organisms/osf-buyers-settings";
+import { OsfColumnsSettings } from "@/components/organisms/osf-columns-settings";
+import { OsfGeneratePanel } from "@/components/organisms/osf-generate-panel";
+import { OsfProductEditor } from "@/components/organisms/osf-product-editor";
+
+type LocationOption = { id: string; name: string; shortName: string | null };
+
+type Props = {
+  canManage: boolean;
+  initialLocations: LocationOption[];
+  initialBuyers?: BuyerRow[];
+  brandOptions?: string[];
+};
+
+export function OsfHubPanel({
+  canManage,
+  initialLocations,
+  initialBuyers,
+  brandOptions,
+}: Props) {
+  return (
+    <div className="space-y-8 p-4 md:p-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Order Support File</h1>
+        <p className="text-sm text-muted-foreground">
+          Maintain ROP / Shop Availability / OGF Price, then generate the Main OSF workbook.
+        </p>
+      </div>
+
+      <section className="rounded-lg border p-4">
+        <OsfGeneratePanel />
+      </section>
+
+      <section className="rounded-lg border p-4">
+        <OsfProductEditor canManage={canManage} />
+      </section>
+
+      <section className="rounded-lg border p-4">
+        <OsfColumnsSettings canManage={canManage} initialLocations={initialLocations} />
+      </section>
+
+      <section className="rounded-lg border p-4">
+        <OsfBuyersSettings
+          canManage={canManage}
+          initialBuyers={initialBuyers}
+          brandOptions={brandOptions ?? []}
+        />
+      </section>
+    </div>
+  );
+}

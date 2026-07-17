@@ -344,17 +344,19 @@ export function MerchantReviewPanel({
     );
     if (selectedOrderId && updated.has(selectedOrderId)) {
       setForm((current) =>
-        current.reviewStatus === "pending" ? { ...current, reviewStatus: "follow_up" } : current
+        current.reviewStatus === "pending"
+          ? { ...current, reviewStatus: "follow_up", callMade: "yes" }
+          : current
       );
       setDetail((current) => {
         if (!current) return current;
         return {
           ...current,
           review: current.review
-            ? { ...current.review, reviewStatus: "follow_up" }
+            ? { ...current.review, reviewStatus: "follow_up", callMade: true }
             : {
                 reviewStatus: "follow_up",
-                callMade: false,
+                callMade: true,
                 callbackDate: null,
                 customerResponseStatus: null,
                 reviewerFirstName: null,
