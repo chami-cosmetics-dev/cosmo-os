@@ -18,6 +18,11 @@ import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
 } from "@/lib/reports/order-dump";
+import {
+  applyMerchantGroup,
+  buildCouponToMerchantMap,
+  getMerchantGroupUserMap,
+} from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
@@ -88,23 +93,6 @@ function getShippingService(order: {
     return getUserDisplayName(order.dispatchedByRider) || order.dispatchedByRider.mobile || "Rider";
   }
   return order.dispatchedByCourierService?.name ?? "";
-}
-
-function buildCouponToMerchantMap(
-  users: Array<{ knownName: string | null; name: string | null; email: string | null; couponCodes: string[] }>
-) {
-  const couponToMerchant = new Map<string, string>();
-  for (const user of users) {
-    const merchantName = getUserDisplayName(user);
-    if (!merchantName) continue;
-    for (const coupon of user.couponCodes) {
-      const normalized = coupon.trim().toLowerCase();
-      if (normalized && !couponToMerchant.has(normalized)) {
-        couponToMerchant.set(normalized, merchantName);
-      }
-    }
-  }
-  return couponToMerchant;
 }
 
 function buildShopifyUserIdToEmailMap(
@@ -192,8 +180,9 @@ function resolveOrderCreatedByEmail(input: {
 
 function resolveMerchantName(input: {
   couponCode: string | null;
-  couponToMerchant: Map<string, string>;
-  assignedMerchant: { knownName: string | null; name: string | null; email: string | null } | null;
+  couponToMerchant: Map<string, { id: string | null; name: string }>;
+  assignedMerchant: { id: string; knownName: string | null; name: string | null; email: string | null } | null;
+  userToGroup: Map<string, { id: string; name: string }>;
 }) {
   const coupons = (input.couponCode ?? "")
     .split(",")
@@ -202,10 +191,15 @@ function resolveMerchantName(input: {
 
   for (const coupon of coupons) {
     const merchant = input.couponToMerchant.get(coupon);
-    if (merchant) return merchant;
+    if (merchant) return merchant.name;
   }
 
-  return getUserDisplayName(input.assignedMerchant);
+  const assignedName = getUserDisplayName(input.assignedMerchant);
+  if (!assignedName) return "";
+  return applyMerchantGroup(
+    { id: input.assignedMerchant?.id ?? null, name: assignedName },
+    input.userToGroup,
+  ).name;
 }
 
 function getReportLabel(report: ReportKind, range: RangeKind) {
@@ -257,7 +251,7 @@ export async function GET(request: NextRequest) {
     orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
     include: {
       companyLocation: { select: { name: true, erpnextCompany: true } },
-      assignedMerchant: { select: { knownName: true, name: true, email: true, couponCodes: true } },
+      assignedMerchant: { select: { id: true, knownName: true, name: true, email: true, couponCodes: true } },
       dispatchedBy: { select: { knownName: true, name: true, email: true } },
       dispatchedByRider: { select: { knownName: true, name: true, mobile: true } },
       dispatchedByCourierService: { select: { name: true } },
@@ -284,13 +278,15 @@ export async function GET(request: NextRequest) {
       couponCodes: { isEmpty: false },
     },
     select: {
+      id: true,
       knownName: true,
       name: true,
       email: true,
       couponCodes: true,
     },
   });
-  const couponToMerchant = buildCouponToMerchantMap(merchantUsers);
+  const userToGroup = await getMerchantGroupUserMap(companyId);
+  const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
   const creatorUsers = await prisma.user.findMany({
     where: {
       companyId,
@@ -366,6 +362,7 @@ export async function GET(request: NextRequest) {
         couponCode: merchantCouponCode,
         couponToMerchant,
         assignedMerchant: order.assignedMerchant,
+        userToGroup,
       });
 
       return order.lineItems.map((item) =>
@@ -440,6 +437,7 @@ export async function GET(request: NextRequest) {
       couponCode: merchantCouponCode,
       couponToMerchant,
       assignedMerchant: order.assignedMerchant,
+      userToGroup,
     });
     const invoiceNo = order.name ?? order.orderNumber ?? order.shopifyOrderId;
     const createdBy = resolveOrderCreatedByEmail({

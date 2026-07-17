@@ -5,6 +5,7 @@ import {
   getOutletReview,
   supportsOutlets,
 } from "@/lib/outlet-utils";
+import { applyMerchantGroup, getMerchantGroupUserMap } from "@/lib/merchant-groups";
 
 export type OutletReviewItem = {
   reviewId: string | null;
@@ -89,15 +90,20 @@ export async function fetchOutletReviewSheetData(input: {
   }
 
   // Build coupon code -> outlet map
+  const userToGroup = await getMerchantGroupUserMap(input.companyId);
   const couponToOutlet = new Map<string, { outletId: string; outletName: string; merchantName: string | null }>();
   for (const outlet of filteredOutlets) {
     for (const assignment of outlet.users) {
+      const userName = assignment.user.knownName ?? assignment.user.name ?? null;
+      const merchant = userName
+        ? applyMerchantGroup({ id: assignment.user.id, name: userName }, userToGroup)
+        : null;
       for (const code of assignment.couponCodes) {
         if (code) {
           couponToOutlet.set(code.toUpperCase(), {
             outletId: outlet.id,
             outletName: outlet.name,
-            merchantName: assignment.user.knownName ?? assignment.user.name ?? null,
+            merchantName: merchant?.name ?? null,
           });
         }
       }
