@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { getLocationsSettingsInitialData } from "@/lib/page-data/locations-settings";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
-import { BookUser, Building2, Calculator, ChevronRight, FileArchive, Mail, MessageSquare, Package, Plug, Printer, Store } from "lucide-react";
+import { BookUser, Building2, Calculator, ChevronRight, FileArchive, Mail, MessageSquare, Package, Plug, Printer, Store, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -183,6 +183,15 @@ export default async function SettingsPage() {
       : []),
     ...(canManageOutlets
       ? [
+          {
+            key: "merchants",
+            group: "Operations" as const,
+            title: "Merchants",
+            description:
+              "Manage coupon merchants and merge merchants into reporting groups.",
+            href: "/dashboard/settings/merchants",
+            icon: Users,
+          },
           {
             key: "outlets",
             group: "Operations" as const,

@@ -213,15 +213,27 @@ export async function PATCH(
           where: { id: approval.orderId! },
           select: { fulfillmentStage: true },
         });
+        const stage = orderForStage?.fulfillmentStage;
         // Already fully invoice-complete: keep stage (do not re-queue via print).
-        if (orderForStage?.fulfillmentStage === "invoice_complete") {
+        // At delivery_complete: close invoice complete (late finance approval after deliver).
+        // Earlier stages: mark invoice complete financially, go to print, continue fulfillment.
+        if (stage === "invoice_complete") {
           await tx.order.update({
             where: { id: approval.orderId! },
             data: { financialStatus: "paid" },
           });
+        } else if (stage === "delivery_complete") {
+          await tx.order.update({
+            where: { id: approval.orderId! },
+            data: {
+              financialStatus: "paid",
+              ...orderStageUpdate("invoice_complete", now),
+              fulfillmentStatus: "fulfilled",
+              invoiceCompleteAt: now,
+              invoiceCompleteById: reviewerId,
+            },
+          });
         } else {
-          // Finance-approval orders: mark invoice complete + paid, create PE (post-tx),
-          // then go to print and continue fulfillment (dispatch/deliver).
           await tx.order.update({
             where: { id: approval.orderId! },
             data: {
@@ -234,6 +246,18 @@ export async function PATCH(
             },
           });
         }
+        // Prepaid confirmation covers door collection — drop any stale Delivery Collection row.
+        await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ApprovalRequest"
+            SET "status" = 'cancelled', "updatedAt" = ${now},
+                "reviewNote" = ${"Order payment approved — Delivery Collection not required."}
+            WHERE "orderId" = ${approval.orderId}
+              AND "companyId" = ${companyId}
+              AND "type" = ${"delivery_payment_approval"}
+              AND "status" = 'pending'
+          `
+        );
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
         // Door-collection confirm: paid only — invoice complete stays manual on the queue.
         await tx.order.update({

@@ -1,5 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
+import {
+  applyMerchantGroup,
+  buildCouponToMerchantMap,
+  getMerchantGroupUserMap,
+} from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   buildDashboardSalesDateFilter,
@@ -135,16 +140,8 @@ export async function fetchDashboardBrandSales(
 
   // Build a coupon-code → user map (upper-cased for matching)
   // A single coupon code is unique to one staff member
-  const couponToUser = new Map<string, { id: string; name: string }>();
-  for (const user of usersWithCoupons) {
-    const name = getUserDisplayName(user) ?? "Unknown";
-    for (const code of user.couponCodes) {
-      const normalized = code.trim().toLowerCase();
-      if (normalized && !couponToUser.has(normalized)) {
-        couponToUser.set(normalized, { id: user.id, name });
-      }
-    }
-  }
+  const userToGroup = await getMerchantGroupUserMap(companyId);
+  const couponToUser = buildCouponToMerchantMap(usersWithCoupons, userToGroup);
 
   // brandName (lower) → merchantKey → total accumulator
   const brandMap = new Map<string, Map<string, { merchantId: string | null; merchantName: string; total: number }>>();
@@ -180,10 +177,13 @@ export async function fetchDashboardBrandSales(
     }
 
     if (!merchant) {
-      merchant = {
-        id: order.assignedMerchantId,
-        name: getUserDisplayName(order.assignedMerchant) ?? "DM-General",
-      };
+      merchant = applyMerchantGroup(
+        {
+          id: order.assignedMerchantId,
+          name: getUserDisplayName(order.assignedMerchant) ?? "DM-General",
+        },
+        userToGroup,
+      );
     }
 
     // Process each line item
