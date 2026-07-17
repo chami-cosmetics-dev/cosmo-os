@@ -29,6 +29,7 @@ import {
   BadgeCheck,
   GraduationCap,
   SendHorizonal,
+  ClipboardList,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -79,6 +80,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
+  const canViewOsf =
+    hasSidebarPermission("purchasing.osf.read") ||
+    hasSidebarPermission("purchasing.osf.manage");
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -160,7 +164,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewOrderManagement =
     canViewOrders || canCreateManualOrder || canViewReturns || canViewExchanges || Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts;
+  const canViewProductManagement = canViewProducts || canViewOsf;
   const pathname = usePathname();
 
   return (
@@ -452,6 +456,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               )}
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
+              )}
+              {canViewOsf && (
+                <NavItem href="/dashboard/purchasing/osf" icon={ClipboardList} label="Order Support File" isActive={pathname === "/dashboard/purchasing/osf"} />
               )}
             </SidebarGroupContent>
           </SidebarGroup>

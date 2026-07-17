@@ -60,6 +60,14 @@ const DEFAULT_PERMISSIONS = [
     description: "Manage vendors and categories",
   },
   {
+    key: "purchasing.osf.read",
+    description: "Generate Order Support File and view OSF profiles",
+  },
+  {
+    key: "purchasing.osf.manage",
+    description: "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
+  },
+  {
     key: "academy.learn",
     description: "View Cosmo Academy lessons and update own learning progress",
   },
@@ -447,6 +455,8 @@ const DEFAULT_ROLES = [
       "settings.fulfillment",
       "products.read",
       "products.manage",
+      "purchasing.osf.read",
+      "purchasing.osf.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",

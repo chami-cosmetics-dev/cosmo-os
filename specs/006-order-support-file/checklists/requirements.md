@@ -32,5 +32,5 @@
 ## Notes
 
 - Validation pass 1 (2026-07-15): Spec focuses on business outcomes and a Field Source Catalog (ERP vs Cosmo vs calculated). Technical retrieval paths belong in `/speckit-plan`.
-- Known planning inputs (not blockers): ROP storage choice, OGF price source, Common SKU rule, exact sales exclusion rules for voided/returned orders, Shop Availability field ownership.
-- Ready for `/speckit-clarify` (optional refinements) or `/speckit-plan`.
+- Clarification session 2026-07-16: Cosmo UI ROP & Shop Availability (no Excel import); **OGF kept as in Excel — not matched to LWK**; monthly sales rules; Common SKU by base SKU.
+- Ready for `/speckit-tasks` (or re-plan if needed).
