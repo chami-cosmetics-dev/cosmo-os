@@ -1,0 +1,69 @@
+/** Suggested order qty = max(0, ROP − stock). Blank when ROP is missing. */
+export function orderQty(rop: number | null | undefined, stock: number | null | undefined): number | null {
+  if (rop == null || !Number.isFinite(rop)) return null;
+  const s = stock == null || !Number.isFinite(stock) ? 0 : stock;
+  return Math.max(0, Math.floor(rop) - Math.floor(s));
+}
+
+/** Stock as % of ROP. Blank when ROP missing or zero. */
+export function percentOfRop(stock: number | null | undefined, rop: number | null | undefined): number | null {
+  if (rop == null || !Number.isFinite(rop) || rop <= 0) return null;
+  const s = stock == null || !Number.isFinite(stock) ? 0 : stock;
+  return s / rop;
+}
+
+export function seventyPercentOfRop(rop: number | null | undefined): number | null {
+  if (rop == null || !Number.isFinite(rop)) return null;
+  return rop * 0.7;
+}
+
+/**
+ * Label comparing stock to 70% of total ROP (Excel-style availability cue).
+ * Blank when ROP missing.
+ */
+export function seventyPercentAvailabilityLabel(
+  stock: number | null | undefined,
+  rop: number | null | undefined,
+): string | null {
+  const threshold = seventyPercentOfRop(rop);
+  if (threshold == null) return null;
+  const s = stock == null || !Number.isFinite(stock) ? 0 : stock;
+  if (s >= threshold) return "Above 70%";
+  return "Below 70%";
+}
+
+/** Cosmetics Margin = (MRP − cost) / MRP when both exist and MRP ≠ 0. */
+export function cosmeticsMargin(
+  mrp: number | null | undefined,
+  cost: number | null | undefined,
+): number | null {
+  if (mrp == null || cost == null || !Number.isFinite(mrp) || !Number.isFinite(cost) || mrp === 0) {
+    return null;
+  }
+  return (mrp - cost) / mrp;
+}
+
+/**
+ * OGF Margin = (OGF Price − cost) / OGF Price when both exist and OGF ≠ 0.
+ * Independent of LWK — blank when OGF Price missing.
+ */
+export function ogfMargin(
+  ogfPrice: number | null | undefined,
+  cost: number | null | undefined,
+): number | null {
+  if (
+    ogfPrice == null ||
+    cost == null ||
+    !Number.isFinite(ogfPrice) ||
+    !Number.isFinite(cost) ||
+    ogfPrice === 0
+  ) {
+    return null;
+  }
+  return (ogfPrice - cost) / ogfPrice;
+}
+
+export function formatMarginPercent(value: number | null): string | number | null {
+  if (value == null) return null;
+  return Math.round(value * 10000) / 100;
+}

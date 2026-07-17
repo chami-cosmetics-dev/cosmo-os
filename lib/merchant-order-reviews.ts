@@ -120,10 +120,10 @@ export type MarkFollowUpCounts = {
 const TERMINAL_REVIEW_STATUSES = new Set<MerchantReviewStatus>(["reviewed", "no_response"]);
 
 /**
- * Bulk-set reviewStatus to follow_up for company-scoped orders.
+ * Bulk-set reviewStatus to follow_up and callMade to true for company-scoped orders.
  * Skips reviewed/no_response; treats existing follow_up as idempotent.
  * Creates a review row when missing (implicit pending).
- * Does not clear call/reason fields on update — only sets reviewStatus (+ merchantUserId when creating).
+ * Does not clear reason/callback fields on update — only sets reviewStatus + callMade.
  */
 export async function markManyMerchantReviewsFollowUp(input: {
   companyId: string;
@@ -180,6 +180,37 @@ export async function markManyMerchantReviewsFollowUp(input: {
     }
 
     if (status === "follow_up") {
+      // Older bulk copies left callMade=false — repair on re-copy.
+      if (existing && !existing.callMade) {
+        await model.upsert({
+          where: { orderId },
+          create: {
+            companyId: order.companyId,
+            orderId,
+            merchantUserId: order.assignedMerchantId ?? input.actorUserId,
+            reviewStatus: "follow_up",
+            customerRating: null,
+            customerFeedback: null,
+            itemFeedback: null,
+            merchantNotes: null,
+            followUpNeeded: false,
+            callMade: true,
+            callbackDate: null,
+            customerResponseStatus: null,
+            reviewerFirstName: null,
+            reviewerLastName: null,
+            reviewerEmail: null,
+            reason: null,
+            reviewMarkedAt: null,
+          },
+          update: {
+            callMade: true,
+          },
+        });
+        updatedOrderIds.push(orderId);
+        counts.updated += 1;
+        continue;
+      }
       counts.alreadyFollowUp += 1;
       continue;
     }
@@ -196,7 +227,7 @@ export async function markManyMerchantReviewsFollowUp(input: {
         itemFeedback: null,
         merchantNotes: null,
         followUpNeeded: false,
-        callMade: false,
+        callMade: true,
         callbackDate: null,
         customerResponseStatus: null,
         reviewerFirstName: null,
@@ -207,6 +238,7 @@ export async function markManyMerchantReviewsFollowUp(input: {
       },
       update: {
         reviewStatus: "follow_up",
+        callMade: true,
       },
     });
 
