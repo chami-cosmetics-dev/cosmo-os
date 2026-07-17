@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Trash2, UserPlus, X } from "lucide-react";
+import { Loader2, Plus, UserPlus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +48,12 @@ type AvailableUser = {
   couponCodes: string[];
 };
 
+type MerchantGroup = {
+  id: string;
+  name: string;
+  members: Array<{ id: string }>;
+};
+
 function userDisplayName(u: { id?: string; name?: string | null; email?: string | null; knownName?: string | null }) {
   return u.knownName ?? u.name ?? u.email ?? u.id ?? "Unknown";
 }
@@ -55,6 +61,7 @@ function userDisplayName(u: { id?: string; name?: string | null; email?: string 
 export function OutletsSettingsClient() {
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [availableUsers, setAvailableUsers] = useState<AvailableUser[]>([]);
+  const [merchantGroupByUserId, setMerchantGroupByUserId] = useState<Map<string, string>>(new Map());
   const [selectedOutletId, setSelectedOutletId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,12 +89,14 @@ export function OutletsSettingsClient() {
   async function loadData() {
     setLoading(true);
     try {
-      const [outletRes, usersRes] = await Promise.all([
+      const [outletRes, usersRes, merchantGroupRes] = await Promise.all([
         fetch("/api/admin/outlets/list"),
         fetch("/api/admin/outlets/available-users"),
+        fetch("/api/admin/merchant-groups/list"),
       ]);
       const outletData = (await outletRes.json()) as { outlets?: Outlet[]; error?: string };
       const usersData = (await usersRes.json()) as { users?: AvailableUser[]; error?: string };
+      const merchantGroupData = (await merchantGroupRes.json()) as { groups?: MerchantGroup[]; error?: string };
       if (!outletRes.ok) {
         notify.error(outletData.error ?? "Failed to load outlets");
       } else {
@@ -97,6 +106,15 @@ export function OutletsSettingsClient() {
         notify.error(usersData.error ?? "Failed to load users");
       } else {
         setAvailableUsers(usersData.users ?? []);
+      }
+      if (merchantGroupRes.ok) {
+        const nextMap = new Map<string, string>();
+        for (const group of merchantGroupData.groups ?? []) {
+          for (const member of group.members) {
+            nextMap.set(member.id, group.name);
+          }
+        }
+        setMerchantGroupByUserId(nextMap);
       }
     } catch {
       notify.error("Failed to load data");
@@ -307,7 +325,9 @@ export function OutletsSettingsClient() {
                     className="flex items-start justify-between gap-2 rounded-lg border border-border/60 bg-secondary/5 px-3 py-2"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{userDisplayName(assignment.user)}</p>
+                      <p className="text-sm font-medium truncate">
+                        {merchantGroupByUserId.get(assignment.userId) ?? userDisplayName(assignment.user)}
+                      </p>
                       <p className="text-xs text-muted-foreground truncate">{assignment.user.email}</p>
                       {assignment.couponCodes.length > 0 && (
                         <p className="text-xs text-muted-foreground mt-1">
