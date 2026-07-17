@@ -51,6 +51,11 @@ import {
   isPackageReadyMilestoneComplete,
   resolvePackageReadyMilestoneDate,
 } from "@/lib/fulfillment-stage-display";
+import {
+  shouldBlockShopifyCancelInOs,
+  VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
+} from "@/lib/shopify-admin";
+import { formatAppCalendarDate } from "@/lib/format-datetime";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -72,6 +77,7 @@ type OrderDetail = {
   orderNumber: string | null;
   name: string | null;
   erpnextInvoiceId?: string | null;
+  erpReturnSalesInvoiceIds?: string[];
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
@@ -99,6 +105,8 @@ type OrderDetail = {
   discountCodes: unknown;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
+  /** ERP Sales Invoice Special Remarks (custom_special_remarks). */
+  erpSpecialRemarks?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -298,15 +306,7 @@ function formatAllDiscountCodeLabels(discountCodes: unknown): string | null {
 }
 
 function formatDateOnly(value?: string | null): string {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return new Intl.DateTimeFormat("en-LK", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).format(date);
+  return formatAppCalendarDate(value, "-");
 }
 
 type TimelineItem = {
@@ -648,6 +648,10 @@ export function OrderInvoiceViewModal({
 
   async function handleCancelOrder() {
     if (!orderId || cancelReason.trim().length < 5) return;
+    if (shouldBlockShopifyCancelInOs(orderDetail?.shopifyOrderId)) {
+      notify.error(VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE);
+      return;
+    }
     setCancelBusy(true);
     try {
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
@@ -741,7 +745,11 @@ export function OrderInvoiceViewModal({
             })()}
           </DialogTitle>
           <DialogDescription>
-            Invoice timeline - view only{orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
+            Invoice timeline - view only
+            {orderDetail?.erpnextInvoiceId ? ` · ERP: ${orderDetail.erpnextInvoiceId}` : ""}
+            {orderDetail?.erpReturnSalesInvoiceIds && orderDetail.erpReturnSalesInvoiceIds.length > 0
+              ? ` · Return SI: ${orderDetail.erpReturnSalesInvoiceIds.join(", ")}`
+              : ""}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -1058,7 +1066,7 @@ export function OrderInvoiceViewModal({
                       <span className="text-muted-foreground text-xs">Source</span>
                       <p>{orderDetail.sourceName}</p>
                     </div>
-                    {orderDetail.paymentApproval && (
+                    {orderDetail.paymentApproval && !(orderDetail.paymentApproval.status === "cancelled" && !!orderDetail.invoiceCompleteAt) && (
                       <div>
                         <span className="text-muted-foreground text-xs">Order Payment Approval</span>
                         {orderDetail.paymentApproval.status === "pending" ? (
@@ -1088,7 +1096,7 @@ export function OrderInvoiceViewModal({
                         )}
                       </div>
                     )}
-                    {orderDetail.deliveryPaymentApproval && (
+                    {orderDetail.deliveryPaymentApproval && !(orderDetail.deliveryPaymentApproval.status === "cancelled" && !!orderDetail.invoiceCompleteAt) && (
                       <div>
                         <span className="text-muted-foreground text-xs">Delivery Payment Approval</span>
                         {orderDetail.deliveryPaymentApproval.status === "pending" ? (
@@ -1170,6 +1178,21 @@ export function OrderInvoiceViewModal({
                       <div>
                         <span className="text-muted-foreground text-xs">Coupon</span>
                         <p>{orderDetail.discountCouponCode}</p>
+                      </div>
+                    )}
+                    {orderDetail.erpSpecialRemarks && (
+                      <div className="sm:col-span-2">
+                        <span className="text-muted-foreground text-xs">Special Remarks</span>
+                        <p className="whitespace-pre-wrap">{orderDetail.erpSpecialRemarks}</p>
+                      </div>
+                    )}
+                    {orderDetail.erpReturnSalesInvoiceIds &&
+                      orderDetail.erpReturnSalesInvoiceIds.length > 0 && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Return SI</span>
+                        {orderDetail.erpReturnSalesInvoiceIds.map((si) => (
+                          <p key={si}>{si}</p>
+                        ))}
                       </div>
                     )}
                     {(() => {
@@ -1324,6 +1347,18 @@ export function OrderInvoiceViewModal({
                 </div>
                 <p className="mt-1 text-amber-700 dark:text-amber-400">
                   A cancel request has been sent to finance. This order cannot be dispatched until finance approves or rejects the cancel.
+                </p>
+              </div>
+            ) : shouldBlockShopifyCancelInOs(orderDetail.shopifyOrderId) &&
+              canCancelOrder &&
+              ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-700/40 dark:bg-amber-900/20">
+                <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="size-4" />
+                  Cancel in Shopify
+                </div>
+                <p className="mt-1 text-amber-700 dark:text-amber-400">
+                  {VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE}
                 </p>
               </div>
             ) : canCancelOrder && ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (

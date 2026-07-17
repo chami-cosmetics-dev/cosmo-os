@@ -17,6 +17,7 @@ export type MarkOrderInvoiceCompleteResult =
       success: true;
       ref: string;
       erpPeError?: string;
+      peStatus?: "created" | "already_paid";
     }
   | { success: false; ref: string; error: string };
 
@@ -84,15 +85,22 @@ export async function markOrderInvoiceComplete(input: {
   });
 
   let erpPeError: string | undefined;
-  if (order.companyLocation) {
+  let peStatus: "created" | "already_paid" | undefined;
+  const mopForFailure = resolvedMop ?? mopOverride ?? ERP_PE_SYNC_MOP_ORDER_AUTO;
+
+  if (!order.companyLocation) {
+    erpPeError = "Order has no company location — cannot create ERP payment entry";
+    await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
+  } else {
     try {
-      await createDeliveryPaymentEntry(
+      const peResult = await createDeliveryPaymentEntry(
         {
           name: order.name,
           shopifyOrderId: order.shopifyOrderId,
           sourceName: order.sourceName,
           paymentGatewayPrimary: order.paymentGatewayPrimary,
           paymentGatewayNames: order.paymentGatewayNames,
+          erpnextInvoiceId: order.erpnextInvoiceId,
         },
         order.companyLocation,
         now,
@@ -101,16 +109,17 @@ export async function markOrderInvoiceComplete(input: {
           requireMop: true,
         },
       );
-      await clearOrderErpPeSyncFailure(order.id);
+      if (peResult.outcome === "skipped") {
+        erpPeError = "ERP payment entry was skipped unexpectedly";
+        await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
+      } else {
+        peStatus = peResult.outcome;
+        await clearOrderErpPeSyncFailure(order.id);
+      }
     } catch (err) {
       erpPeError = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] invoice-complete PE failed:", erpPeError);
-      await markOrderErpPeSyncFailed(
-        order.id,
-        erpPeError,
-        resolvedMop ?? mopOverride ?? ERP_PE_SYNC_MOP_ORDER_AUTO,
-        now,
-      );
+      await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
     }
   }
 
@@ -124,17 +133,25 @@ export async function markOrderInvoiceComplete(input: {
     entityId: order.id,
     summary: erpPeError
       ? `Marked invoice complete for ${orderNum} (ERP payment entry failed)`
-      : `Marked invoice complete for ${orderNum}`,
+      : peStatus === "already_paid"
+        ? `Marked invoice complete for ${orderNum} (ERP already paid)`
+        : `Marked invoice complete for ${orderNum}`,
     beforeData: { fulfillmentStage: order.fulfillmentStage },
     afterData: { fulfillmentStage: "invoice_complete" },
     metadata: {
       action: "mark_invoice_complete",
       bulk: input.bulk ?? false,
       erpPeError: erpPeError ?? null,
+      peStatus: peStatus ?? null,
       paymentMop: mopOverride ?? resolvedMop ?? null,
       paymentMopSource: mopOverride ? "override" : "order",
     },
   });
 
-  return { success: true, ref, ...(erpPeError ? { erpPeError } : {}) };
+  return {
+    success: true,
+    ref,
+    ...(erpPeError ? { erpPeError } : {}),
+    ...(peStatus ? { peStatus } : {}),
+  };
 }

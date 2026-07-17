@@ -38,6 +38,7 @@ type StaffMember = {
   knownName: string | null;
   shopifyUserIds?: string[];
   couponCodes?: string[];
+  financeLocationIds?: string[];
   employeeProfile: {
     employeeNumber: string | null;
     epfNumber: string | null;
@@ -106,6 +107,7 @@ export function StaffEditForm({
   const [shopifyUserIds, setShopifyUserIds] = useState("");
   const [couponCodes, setCouponCodes] = useState("");
   const [isRider, setIsRider] = useState(false);
+  const [financeLocationIds, setFinanceLocationIds] = useState<string[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
@@ -188,6 +190,7 @@ export function StaffEditForm({
         (initialData as StaffMember).couponCodes?.join(", ") ?? ""
       );
       setIsRider(initialData.employeeProfile?.isRider ?? false);
+      setFinanceLocationIds(initialData.financeLocationIds ?? []);
     }
   }, [initialData]);
 
@@ -222,6 +225,7 @@ export function StaffEditForm({
             .map((s) => s.trim())
             .filter(Boolean),
           isRider,
+          financeLocationIds,
         }),
       });
 
@@ -520,6 +524,39 @@ export function StaffEditForm({
       <p className="text-muted-foreground text-xs">
         Riders can be assigned to dispatch orders and receive delivery confirmation via SMS.
       </p>
+
+      {locations.length > 0 && (
+        <>
+          <div className="border-t pt-4">
+            <p className="text-muted-foreground mb-1 text-sm font-medium">
+              Finance location scope
+            </p>
+            <p className="text-muted-foreground mb-3 text-xs">
+              Which company locations this user can see on Finance Approvals, finance approval notifications, and finance reminder bubbles. Leave all unchecked for all locations.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {locations.map((loc) => (
+              <label key={loc.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={financeLocationIds.includes(loc.id)}
+                  onChange={(e) =>
+                    setFinanceLocationIds(
+                      e.target.checked
+                        ? [...financeLocationIds, loc.id]
+                        : financeLocationIds.filter((id) => id !== loc.id)
+                    )
+                  }
+                  disabled={!canEdit || isBusy}
+                  className="size-4 rounded border-input"
+                />
+                {loc.name}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
 
       {canEdit && (
         <div className="flex gap-2">

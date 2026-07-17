@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 const OrderInvoiceViewModal = dynamic(
   () =>
@@ -33,6 +34,7 @@ type Order = {
   orderNumber: string | null;
   name: string | null;
   erpnextInvoiceId?: string | null;
+  erpReturnSalesInvoiceIds?: string[];
   sourceName: string;
   totalPrice: string;
   currency: string | null;
@@ -59,6 +61,7 @@ type Order = {
   erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
+  discountCouponCode?: string | null;
 };
 
 const ALL_FILTER_VALUE = "__all";
@@ -155,6 +158,7 @@ type OrderDetail = {
   orderNumber: string | null;
   name: string | null;
   erpnextInvoiceId?: string | null;
+  erpReturnSalesInvoiceIds?: string[];
   sourceName: string;
   totalPrice: string;
   subtotalPrice: string | null;
@@ -392,8 +396,7 @@ export function OrdersPanel({
   }
 
   function formatDate(val: string): string {
-    const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return formatAppDateTime(val);
   }
 
   async function handleViewOrder(id: string) {
@@ -747,6 +750,7 @@ export function OrdersPanel({
                           <div className="flex flex-col gap-1">
                             {getOrderListFulfillmentStageBadges({
                               fulfillmentStage: order.fulfillmentStage,
+                              financialStatus: order.financialStatus,
                               pendingPaymentApproval: order.pendingPaymentApproval,
                               totalPrice: order.totalPrice,
                               printCount: order.printCount,
@@ -767,6 +771,21 @@ export function OrdersPanel({
                               if (!badge) return null;
                               return (
                                 <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                                  {badge}
+                                </span>
+                              );
+                            })()}
+                            {(() => {
+                              const badge = order.discountCouponCode?.trim() || null;
+                              if (!badge) return null;
+                              if (
+                                order.merchantCouponCode &&
+                                badge.toLowerCase() === order.merchantCouponCode.toLowerCase()
+                              ) {
+                                return null;
+                              }
+                              return (
+                                <span className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300">
                                   {badge}
                                 </span>
                               );

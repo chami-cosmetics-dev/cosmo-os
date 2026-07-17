@@ -1,10 +1,14 @@
 import { prisma } from "@/lib/prisma";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
 
 export type ReturnTrackingItem = {
   id: string;
   orderId: string;
   invoiceNo: string;
+  orderName: string | null;
+  orderNumber: string | null;
+  sourceName: string | null;
   merchant: string | null;
   customerName: string | null;
   customerEmail: string | null;
@@ -151,7 +155,16 @@ export async function fetchReturnsTrackingData(input: {
     const returns = currentRows.map((item) => ({
       id: item.id,
       orderId: item.orderId,
-      invoiceNo: item.order.name ?? item.order.orderNumber ?? item.order.shopifyOrderId,
+      orderName: item.order.name,
+      orderNumber: item.order.orderNumber,
+      sourceName: item.order.sourceName,
+      invoiceNo: formatInvoiceOrderReference({
+        name: item.order.name,
+        orderNumber: item.order.orderNumber,
+        shopifyOrderId: item.order.shopifyOrderId,
+        erpnextInvoiceId: item.order.erpnextInvoiceId,
+        sourceName: item.order.sourceName,
+      }).primary,
       merchant: resolveOrderMerchantLabel({
         assignedMerchant: item.merchantUser ?? item.order.assignedMerchant,
         sourceName: item.order.sourceName,

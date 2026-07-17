@@ -19,7 +19,12 @@ import {
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
 import { createErpnextCreditNote, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
-import { cancelShopifyOrder } from "@/lib/shopify-admin";
+import {
+  cancelShopifyOrder,
+  isRealShopifyOrderId,
+  shouldBlockShopifyCancelInOs,
+  VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
+} from "@/lib/shopify-admin";
 import { markOrderDelivered } from "@/lib/mark-order-delivered";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import {
@@ -314,7 +319,8 @@ export async function PATCH(
   }
 
   const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
-  if (erpOutOfStockBlock) {
+  // cancel_order is exempt — no ERP SI exists for out-of-stock orders, so it's OS→Shopify only
+  if (erpOutOfStockBlock && parsed.data.action !== "cancel_order") {
     return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
   }
 
@@ -982,6 +988,7 @@ export async function PATCH(
       return NextResponse.json({
         success: true,
         ...(outcome.erpPeError ? { erpPeError: outcome.erpPeError } : {}),
+        ...(outcome.peStatus ? { peStatus: outcome.peStatus } : {}),
       });
     }
 
@@ -1266,6 +1273,14 @@ export async function PATCH(
         return NextResponse.json({ error: "Order is already cancelled" }, { status: 400 });
       }
 
+      // Vault OS has no Shopify Admin API — real Shopify orders must be cancelled in Shopify.
+      if (shouldBlockShopifyCancelInOs(order.shopifyOrderId)) {
+        return NextResponse.json(
+          { error: VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE },
+          { status: 400 }
+        );
+      }
+
       const orderWithLocation = await prisma.order.findUnique({
         where: { id: order.id },
         include: { companyLocation: { include: { erpnextInstance: true } } },
@@ -1314,9 +1329,8 @@ export async function PATCH(
       // Unpaid orders — cancel directly without finance approval.
       // Cancel in Shopify first — fatal; if this fails we don't mark as voided.
       // ERP-native orders use an "erp-" prefixed shopifyOrderId and have no real Shopify order — skip.
-      const isRealShopifyOrder = order.shopifyOrderId && !order.shopifyOrderId.startsWith("erp-");
-      if (isRealShopifyOrder && location?.shopifyAdminStoreHandle) {
-        await cancelShopifyOrder(order.shopifyOrderId, location.shopifyAdminStoreHandle);
+      if (isRealShopifyOrderId(order.shopifyOrderId) && location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(order.shopifyOrderId!, location.shopifyAdminStoreHandle);
         console.log(`[Cancel] Shopify order ${order.shopifyOrderId} cancelled`);
       } else {
         console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);

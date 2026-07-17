@@ -19,7 +19,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppCalendarDate } from "@/lib/format-datetime";
 import type { ReturnsTrackingData, ReturnTrackingItem } from "@/lib/page-data/order-returns";
+import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import {
   RETURN_REMARK_TEMPLATES,
   type ReturnRemarkTemplateCode,
@@ -76,15 +78,7 @@ type BulkRemarkDraft = {
 };
 
 function formatDateOnly(value?: string | null) {
-  if (!value) return "N/A";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "N/A";
-  return new Intl.DateTimeFormat("en-LK", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).format(date);
+  return formatAppCalendarDate(value, "N/A");
 }
 
 function actionTypeBadge(item: ReturnTrackingItem) {
@@ -116,6 +110,27 @@ function financeRevertSubStatus(item: ReturnTrackingItem) {
     return "Refunded — item returned, awaiting void approval";
   }
   return "Refunded — item not yet returned to store";
+}
+
+function ReturnInvoiceRefs({ item }: { item: ReturnTrackingItem }) {
+  const refs = formatInvoiceOrderReference({
+    name: item.orderName,
+    orderNumber: item.orderNumber,
+    shopifyOrderId: item.shopifyOrderId,
+    erpnextInvoiceId: item.erpnextInvoiceId,
+    sourceName: item.sourceName,
+  });
+
+  if (!refs.showBoth) {
+    return <span>{refs.shopifyRef ?? refs.erpRef ?? item.invoiceNo}</span>;
+  }
+
+  return (
+    <div className="flex flex-col leading-tight">
+      <span>{refs.shopifyRef}</span>
+      <span className="text-xs font-normal text-muted-foreground">{refs.erpRef}</span>
+    </div>
+  );
 }
 
 export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrackingData }) {
@@ -187,6 +202,10 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
       if (!query) return true;
       return [
         item.invoiceNo,
+        item.orderName,
+        item.orderNumber,
+        item.shopifyOrderId,
+        item.erpnextInvoiceId,
         item.customerName,
         item.customerEmail,
         item.customerPhone,
@@ -785,7 +804,9 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                     const badge = actionTypeBadge(item);
                     return (
                       <tr key={item.id} onClick={() => selectItem(item)} className={`cursor-pointer border-b last:border-0 hover:bg-secondary/10 ${selectedId === item.id ? "bg-primary/8" : ""}`}>
-                        <td className="px-3 py-3 font-medium">{item.invoiceNo}</td>
+                        <td className="px-3 py-3 font-medium">
+                          <ReturnInvoiceRefs item={item} />
+                        </td>
                         <td className="px-3 py-3">{item.merchant ?? "-"}</td>
                         <td className="px-3 py-3">{item.riderName ?? item.shippingService}</td>
                         <td className="px-3 py-3">{formatDateOnly(item.returnDate)}</td>
@@ -813,7 +834,16 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
             <Card className="border-border/70">
               <CardHeader>
                 <CardTitle>Return Action</CardTitle>
-                <CardDescription>{selected ? `${selected.invoiceNo} | ${selected.customerPhone ?? "No phone"}` : "Select a returned order"}</CardDescription>
+                <CardDescription>
+                  {selected ? (
+                    <div className="flex flex-col gap-1">
+                      <ReturnInvoiceRefs item={selected} />
+                      <span className="text-muted-foreground">{selected.customerPhone ?? "No phone"}</span>
+                    </div>
+                  ) : (
+                    "Select a returned order"
+                  )}
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 {selected ? (
@@ -947,7 +977,7 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                           : selected.actionType === "cancel"
                             ? selected.actionStatus === "pending"
                               ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
-                              : "Cancel request processed. Order voids in Cosmo OS when ERPNext posts the credit note."
+                              : "Cancel request processed. Order voids automatically when ERPNext posts the credit note."
                             : selected.actionType === "rearrange"
                               ? selected.actionStatus === "pending"
                                 ? "Rearrange is awaiting finance approval."

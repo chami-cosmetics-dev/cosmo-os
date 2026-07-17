@@ -9,7 +9,7 @@ import {
   runDueFailedErpSyncRetries,
   scheduleUnscheduledFailedErpSyncs,
 } from "@/lib/failed-erp-sync-auto-retry";
-import { buildFailedErpPeSyncWhere } from "@/lib/failed-erp-pe-sync";
+import { buildFailedErpPeSyncWhere, seedSilentErpPeGaps } from "@/lib/failed-erp-pe-sync";
 
 const failedErpSyncSearchSchema = z.string().trim().max(100).optional();
 const failedErpSyncKindSchema = z.enum(["sales_invoice", "payment_entry"]).optional();
@@ -59,6 +59,15 @@ export async function GET(request: NextRequest) {
   const search = searchResult.success ? searchResult.data : undefined;
 
   if (kind === "payment_entry") {
+    try {
+      await seedSilentErpPeGaps(companyId, 15);
+    } catch (error) {
+      console.error("[Failed ERP PE gap scan] failed during list request", {
+        companyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     const where = buildFailedErpPeSyncWhere(companyId, search);
     const [total, orders] = await Promise.all([
       prisma.order.count({ where }),

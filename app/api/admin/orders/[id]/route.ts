@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { DELIVERY_PAYMENT_APPROVAL, ORDER_CANCEL_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
+import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
 import {
   resolveOrderDiscountTotal,
   resolveOrderLineItemsPricing,
@@ -28,6 +29,7 @@ const orderSelect = {
   orderNumber: true,
   name: true,
   erpnextInvoiceId: true,
+  erpReturnSalesInvoiceIds: true,
   sourceName: true,
   totalPrice: true,
   subtotalPrice: true,
@@ -280,6 +282,14 @@ export async function GET(
     erpnextInstance: details.companyLocation.erpnextInstance,
   });
 
+  const erpSpecialRemarks = await resolveOrderErpSpecialRemarksForOrder({
+    sourceName: details.sourceName,
+    rawPayload: details.rawPayload,
+    name: details.name,
+    erpnextInvoiceId: details.erpnextInvoiceId,
+    erpnextInstance: details.companyLocation.erpnextInstance,
+  });
+
   const lineItemsBase = details.lineItems.map((li) => ({
     sku: li.productItem.sku,
     quantity: li.quantity,
@@ -367,6 +377,8 @@ export async function GET(
     discountCodes: details.discountCodes,
     merchantCouponCode,
     discountCouponCode,
+    erpSpecialRemarks,
+    erpReturnSalesInvoiceIds: details.erpReturnSalesInvoiceIds ?? [],
     createdAt: details.createdAt.toISOString(),
     companyLocation: details.companyLocation,
     assignedMerchant: details.assignedMerchant,

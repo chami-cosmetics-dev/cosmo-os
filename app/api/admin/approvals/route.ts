@@ -15,6 +15,7 @@ import {
   reconcilePendingDeliveryApprovalsForCourierOrders,
   reconcilePendingDeliveryApprovalsForCustomerPickupOrders,
   reconcilePendingDeliveryApprovalsForInvoiceCompleteOrders,
+  resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
@@ -33,9 +34,16 @@ export async function GET() {
   }
 
   const companyId = auth.context?.user?.companyId;
-  if (!companyId) {
+  const userId = auth.context?.user?.id;
+  if (!companyId || !userId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
+
+  const financeLocationIds = await resolveViewerFinanceLocationIds(
+    userId,
+    companyId,
+    (auth.context?.roleNames as string[]) ?? []
+  );
 
   await Promise.all([
     reconcilePendingApprovalsForVoidedOrders(companyId),
@@ -43,6 +51,13 @@ export async function GET() {
     reconcilePendingDeliveryApprovalsForCourierOrders(companyId),
     reconcilePendingDeliveryApprovalsForCustomerPickupOrders(companyId),
   ]);
+
+  const locationFilter =
+    financeLocationIds === null
+      ? Prisma.empty
+      : financeLocationIds.length === 0
+        ? Prisma.sql`AND FALSE`
+        : Prisma.sql`AND COALESCE(o."companyLocationId", ort_order."companyLocationId") IN (${Prisma.join(financeLocationIds)})`;
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;
@@ -73,6 +88,9 @@ export async function GET() {
     cancelRemark: string | null;
     returnDate: Date | null;
     cancelRequestedAt: Date | null;
+    riderId: string | null;
+    riderName: string | null;
+    riderMobile: string | null;
   }>>(
     Prisma.sql`
       SELECT
@@ -103,15 +121,20 @@ export async function GET() {
         ort."returnRemark",
         ort."cancelRemark",
         ort."returnDate",
-        ort."cancelRequestedAt"
+        ort."cancelRequestedAt",
+        rider."id" AS "riderId",
+        COALESCE(rider."knownName", rider."name") AS "riderName",
+        rider."mobile" AS "riderMobile"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
       LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
       LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
+      LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
       LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
+      LEFT JOIN "User" rider ON rider."id" = o."dispatchedByRiderId"
       WHERE ar."companyId" = ${companyId}
         AND ar."type" IN (
           ${RETURN_REARRANGE_PAYMENT_APPROVAL},
@@ -123,6 +146,7 @@ export async function GET() {
           ${ORDER_CANCEL_APPROVAL}
         )
         AND (${DELIVERY_PAYMENT_FINANCE_UI_ENABLED} OR ar."type" <> ${DELIVERY_PAYMENT_APPROVAL})
+        ${locationFilter}
       ORDER BY
         CASE WHEN ar."status" = 'pending' THEN 0 ELSE 1 END,
         ar."createdAt" DESC
@@ -159,6 +183,9 @@ export async function GET() {
         cancelRemark: isOrderCancel ? row.requestNote : (cancelNote?.cancelRemark ?? row.cancelRemark),
         returnDate: cancelNote?.returnDate ?? row.returnDate?.toISOString() ?? null,
         cancelRequestedAt: isOrderCancel ? row.createdAt.toISOString() : (cancelNote?.cancelRequestedAt ?? row.cancelRequestedAt?.toISOString() ?? null),
+        riderId: row.riderId,
+        riderName: row.riderName,
+        riderMobile: row.riderMobile,
       };
     }),
   });

@@ -16,6 +16,7 @@ import {
   getAuditLogActionGroupActions,
 } from "@/lib/audit-log";
 import { requirePermission } from "@/lib/rbac";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,7 @@ const actionLabels: Record<string, string> = {
   role_deleted: "Role Deleted",
   manual_order_created: "Manual Order Created",
   merchant_review_saved: "Merchant Review Saved",
+  merchant_review_bulk_follow_up: "Merchant Review Bulk Follow Up",
   fulfillment_updated: "Fulfillment Updated",
   remark_created: "Remark Created",
   remark_updated: "Remark Updated",
@@ -109,11 +111,7 @@ function parseActionFilter(value: string | undefined) {
 }
 
 function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
+  return formatAppDateTime(value, value);
 }
 
 function parsePage(value: string | undefined) {

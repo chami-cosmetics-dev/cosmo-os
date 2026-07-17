@@ -36,6 +36,10 @@ export async function GET(request: NextRequest) {
     rows = rows.filter((item) =>
       [
         item.invoiceNo,
+        item.orderName,
+        item.orderNumber,
+        item.shopifyOrderId,
+        item.erpnextInvoiceId,
         item.customerName,
         item.customerEmail,
         item.customerPhone,

@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import {
   classifyFailedErpSyncError,
   formatFailedErpSyncErrorMessage,
@@ -195,9 +196,7 @@ export function FailedErpSyncsPanel() {
   }
 
   function formatDate(val: string | null): string {
-    if (!val) return "—";
-    const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return formatAppDateTime(val);
   }
 
   return (

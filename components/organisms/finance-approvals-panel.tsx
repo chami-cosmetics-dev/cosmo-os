@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FinanceApprovalItem = {
@@ -39,15 +40,32 @@ export type FinanceApprovalItem = {
   cancelRemark?: string | null;
   returnDate?: string | null;
   cancelRequestedAt?: string | null;
+  riderId?: string | null;
+  riderName?: string | null;
+  riderMobile?: string | null;
 };
 
-type CategoryFilter = "all" | "payments" | "returns" | "cancellations";
+/** Filter tabs: All + each finance approval type (more detailed than Payments/Returns groups). */
+type TypeFilter =
+  | "all"
+  | "order_payment_approval"
+  | "delivery_payment_approval"
+  | "payment_method_change_approval"
+  | "return_rearrange_payment"
+  | "return_cancel"
+  | "invoice_revert_void_approval"
+  | "order_cancel_approval";
 
-const CATEGORY_TYPES: Record<Exclude<CategoryFilter, "all">, string[]> = {
-  payments: ["order_payment_approval", "delivery_payment_approval", "payment_method_change_approval"],
-  returns: ["return_rearrange_payment", "return_cancel", "invoice_revert_void_approval"],
-  cancellations: ["order_cancel_approval"],
-};
+const TYPE_FILTER_TABS: { key: TypeFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "order_payment_approval", label: "Order Payment" },
+  { key: "delivery_payment_approval", label: "Delivery Payment" },
+  { key: "payment_method_change_approval", label: "Method Change" },
+  { key: "return_rearrange_payment", label: "Return Rearrange" },
+  { key: "return_cancel", label: "Return Cancel" },
+  { key: "invoice_revert_void_approval", label: "Invoice Revert" },
+  { key: "order_cancel_approval", label: "Order Cancel" },
+];
 
 function typeLabel(type: string) {
   if (type === "order_payment_approval") return "Order Payment";
@@ -112,9 +130,7 @@ function paymentLabel(approval: Pick<FinanceApprovalItem, "type" | "paymentTypeL
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("en-LK");
+  return formatAppDateTime(value, "-");
 }
 
 function formatAmount(value: string | null) {
@@ -126,6 +142,29 @@ function formatAmount(value: string | null) {
 
 function isPendingApproval(approval: FinanceApprovalItem) {
   return approval.status === "pending";
+}
+
+function riderLabel(approval: Pick<FinanceApprovalItem, "riderName" | "riderMobile" | "riderId">) {
+  return approval.riderName?.trim() || approval.riderMobile?.trim() || (approval.riderId ? "Rider" : "No rider / non-rider");
+}
+
+function groupDeliveryApprovalsByRider(approvals: FinanceApprovalItem[]) {
+  const groups = new Map<string, { key: string; label: string; items: FinanceApprovalItem[] }>();
+  for (const approval of approvals) {
+    const key = approval.riderId ?? "__none__";
+    const label = riderLabel(approval);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.items.push(approval);
+    } else {
+      groups.set(key, { key, label, items: [approval] });
+    }
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === "__none__") return 1;
+    if (b.key === "__none__") return -1;
+    return a.label.localeCompare(b.label);
+  });
 }
 
 function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
@@ -147,24 +186,25 @@ function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
     approval.cancelRequestedByEmail,
     approval.returnRemark,
     approval.cancelRemark,
+    approval.riderName,
+    approval.riderMobile,
   ];
   return haystack.some((value) => value?.toLowerCase().includes(q));
 }
 
-function filterByCategory(approvals: FinanceApprovalItem[], category: CategoryFilter) {
-  if (category === "all") return approvals;
-  const types = CATEGORY_TYPES[category];
-  return approvals.filter((a) => types.includes(a.type));
+function filterByType(approvals: FinanceApprovalItem[], typeFilter: TypeFilter) {
+  if (typeFilter === "all") return approvals;
+  return approvals.filter((a) => a.type === typeFilter);
 }
 
 function selectFirstInView(
   approvals: FinanceApprovalItem[],
   view: "pending" | "history",
-  category: CategoryFilter,
+  typeFilter: TypeFilter,
   currentId: string
 ) {
   const byView = view === "pending" ? approvals.filter(isPendingApproval) : approvals.filter((item) => !isPendingApproval(item));
-  const visible = filterByCategory(byView, category);
+  const visible = filterByType(byView, typeFilter);
   if (visible.some((item) => item.id === currentId)) return currentId;
   return visible[0]?.id ?? "";
 }
@@ -180,7 +220,7 @@ export function FinanceApprovalsPanel({
   const appliedDeepLinkRef = useRef<string | null>(null);
   const [approvals, setApprovals] = useState(initialApprovals);
   const [view, setView] = useState<"pending" | "history">("pending");
-  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [selectedId, setSelectedId] = useState(() =>
     selectFirstInView(initialApprovals, "pending", "all", "")
   );
@@ -213,19 +253,36 @@ export function FinanceApprovalsPanel({
   const pendingApprovals = approvals.filter(isPendingApproval);
   const historyApprovals = approvals.filter((item) => !isPendingApproval(item));
   const byView = view === "pending" ? pendingApprovals : historyApprovals;
-  const visibleApprovals = filterByCategory(byView, categoryFilter);
+  const visibleApprovals = filterByType(byView, typeFilter);
   const searchedApprovals = useMemo(() => {
     if (!effectiveSearch) return visibleApprovals;
     return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
   }, [visibleApprovals, effectiveSearch]);
   const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
+  const groupByRider = typeFilter === "delivery_payment_approval";
+  const deliveryRiderGroups = useMemo(
+    () => (groupByRider ? groupDeliveryApprovalsByRider(searchedApprovals) : []),
+    [groupByRider, searchedApprovals],
+  );
 
-  const pendingCountByCategory = useMemo<Record<CategoryFilter, number>>(() => ({
-    all: pendingApprovals.length,
-    payments: pendingApprovals.filter((a) => CATEGORY_TYPES.payments.includes(a.type)).length,
-    returns: pendingApprovals.filter((a) => CATEGORY_TYPES.returns.includes(a.type)).length,
-    cancellations: pendingApprovals.filter((a) => CATEGORY_TYPES.cancellations.includes(a.type)).length,
-  }), [pendingApprovals]);
+  const pendingCountByType = useMemo(() => {
+    const counts: Record<TypeFilter, number> = {
+      all: pendingApprovals.length,
+      order_payment_approval: 0,
+      delivery_payment_approval: 0,
+      payment_method_change_approval: 0,
+      return_rearrange_payment: 0,
+      return_cancel: 0,
+      invoice_revert_void_approval: 0,
+      order_cancel_approval: 0,
+    };
+    for (const a of pendingApprovals) {
+      if (a.type in counts) {
+        counts[a.type as Exclude<TypeFilter, "all">] += 1;
+      }
+    }
+    return counts;
+  }, [pendingApprovals]);
 
   useEffect(() => {
     if (searchedApprovals.length === 0) {
@@ -239,12 +296,12 @@ export function FinanceApprovalsPanel({
 
   function switchView(next: "pending" | "history") {
     setView(next);
-    setSelectedId(selectFirstInView(approvals, next, categoryFilter, selectedId));
+    setSelectedId(selectFirstInView(approvals, next, typeFilter, selectedId));
     setReviewNote("");
   }
 
-  function switchCategory(next: CategoryFilter) {
-    setCategoryFilter(next);
+  function switchTypeFilter(next: TypeFilter) {
+    setTypeFilter(next);
     setSelectedId(selectFirstInView(approvals, view, next, selectedId));
     setReviewNote("");
   }
@@ -259,7 +316,7 @@ export function FinanceApprovalsPanel({
         return;
       }
       setApprovals(data.approvals ?? []);
-      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, categoryFilter, currentId));
+      setSelectedId((currentId) => selectFirstInView(data.approvals ?? [], view, typeFilter, currentId));
     } catch {
       notify.error("Failed to load approvals");
     } finally {
@@ -375,7 +432,7 @@ export function FinanceApprovalsPanel({
             onClick={() => switchView("pending")}
             className={view === "pending" ? "shadow-[0_10px_24px_-18px_var(--primary)]" : "hover:bg-secondary/10"}
           >
-            Pending{pendingCountByCategory.all > 0 ? ` (${pendingCountByCategory.all})` : ""}
+            Pending{pendingCountByType.all > 0 ? ` (${pendingCountByType.all})` : ""}
           </Button>
           <Button
             type="button"
@@ -388,22 +445,21 @@ export function FinanceApprovalsPanel({
           </Button>
         </div>
 
-        <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
-          {(["all", "payments", "returns", "cancellations"] as CategoryFilter[]).map((cat) => {
-            const count = view === "pending" ? pendingCountByCategory[cat] : 0;
-            const label = cat === "all" ? "All" : cat.charAt(0).toUpperCase() + cat.slice(1);
+        <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-border/50 bg-muted/30 p-1">
+          {TYPE_FILTER_TABS.map((tab) => {
+            const count = view === "pending" ? pendingCountByType[tab.key] : 0;
             return (
               <button
-                key={cat}
+                key={tab.key}
                 type="button"
-                onClick={() => switchCategory(cat)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  categoryFilter === cat
+                onClick={() => switchTypeFilter(tab.key)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  typeFilter === tab.key
                     ? "bg-background text-foreground shadow-xs"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {label}
+                {tab.label}
                 {view === "pending" && count > 0 && (
                   <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                     {count}
@@ -425,7 +481,11 @@ export function FinanceApprovalsPanel({
               <div className="relative max-w-md">
                 <Search className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2" />
                 <Input
-                  placeholder="Search by invoice, customer, ERP SI, or payment type..."
+                  placeholder={
+                    groupByRider
+                      ? "Search by invoice, customer, rider, ERP SI..."
+                      : "Search by invoice, customer, ERP SI, or payment type..."
+                  }
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   className="border-border/70 bg-background/90 pl-9"
@@ -439,12 +499,51 @@ export function FinanceApprovalsPanel({
                     <th className="px-3 py-3 font-medium">Invoice</th>
                     <th className="px-3 py-3 font-medium">Purpose</th>
                     <th className="px-3 py-3 font-medium">Payment</th>
+                    {groupByRider && <th className="px-3 py-3 font-medium">Rider</th>}
                     <th className="px-3 py-3 font-medium">Amount</th>
                     <th className="px-3 py-3 font-medium">Requested</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {searchedApprovals.map((approval) => (
+                  {groupByRider
+                    ? deliveryRiderGroups.flatMap((group) => [
+                        <tr key={`rider-${group.key}`} className="bg-muted/50">
+                          <td
+                            colSpan={6}
+                            className="px-3 py-2 text-xs font-semibold tracking-wide text-foreground uppercase"
+                          >
+                            {group.label}
+                            <span className="ml-2 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary normal-case">
+                              {group.items.length}
+                            </span>
+                          </td>
+                        </tr>,
+                        ...group.items.map((approval) => (
+                          <tr
+                            key={approval.id}
+                            className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
+                            onClick={() => {
+                              setSelectedId(approval.id);
+                              setReviewNote("");
+                            }}
+                          >
+                            <td className="px-3 py-3 font-medium">
+                              {approval.invoiceNo ?? "-"}
+                              {approval.orderMissing && (
+                                <span className="ml-2 inline-flex rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                                  Order removed
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3"><TypeBadge type={approval.type} /></td>
+                            <td className="px-3 py-3 text-muted-foreground">{paymentLabel(approval)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{riderLabel(approval)}</td>
+                            <td className="px-3 py-3">{formatAmount(approval.totalPrice)}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{formatDate(approval.createdAt)}</td>
+                          </tr>
+                        )),
+                      ])
+                    : searchedApprovals.map((approval) => (
                     <tr
                       key={approval.id}
                       className={`cursor-pointer border-b last:border-0 hover:bg-muted/35 ${selectedId === approval.id ? "bg-primary/8" : ""}`}
@@ -469,7 +568,7 @@ export function FinanceApprovalsPanel({
                   ))}
                   {searchedApprovals.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-10 text-center text-muted-foreground">
+                      <td colSpan={groupByRider ? 6 : 5} className="px-3 py-10 text-center text-muted-foreground">
                         {effectiveSearch
                           ? "No approval requests match your search."
                           : view === "pending"
@@ -503,13 +602,12 @@ export function FinanceApprovalsPanel({
                     <p><span className="font-medium">Amount:</span> {formatAmount(selected.totalPrice)}</p>
                   )}
                   <p><span className="font-medium">Customer:</span> {selected.customerPhone ?? selected.customerEmail ?? "-"}</p>
+                  {selected.type === "delivery_payment_approval" && (
+                    <p><span className="font-medium">Rider:</span> {riderLabel(selected)}</p>
+                  )}
                   <p><span className="font-medium">Requested:</span> {formatDate(selected.createdAt)}</p>
                   {selected.type === "return_cancel" && (
                     <div className="space-y-3 border-t border-border/60 pt-3">
-                      <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-900 dark:text-sky-200">
-                        Cancellation and credit notes are created in ERPNext only. Cosmo OS does not create credit notes.
-                        Use the button below to open the Sales Invoice in ERPNext, cancel it there, and mark this request as processed.
-                      </div>
                       {!selected.erpAdminInvoiceUrl && (
                         <p className="text-amber-700 text-sm dark:text-amber-300">
                           ERP Sales Invoice link is unavailable. Open ERPNext manually using invoice{" "}

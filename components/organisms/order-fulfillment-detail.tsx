@@ -50,6 +50,10 @@ import {
   dispatchSelectionToApiBody,
   parseDispatchService,
 } from "@/lib/order-dispatch";
+import {
+  shouldBlockShopifyCancelInOs,
+  VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
+} from "@/lib/shopify-admin";
 
 const STAGES = [
   "order_received",
@@ -110,6 +114,7 @@ type OrderDetail = {
   discountCodes: unknown;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
+  erpSpecialRemarks?: string | null;
   createdAt: string;
   companyLocation: { id: string; name: string } | null;
   assignedMerchant: { id: string; name: string | null; email: string | null } | null;
@@ -328,6 +333,10 @@ export function OrderFulfillmentDetail({
 
   async function handleCancelOrder() {
     if (!orderId || cancelOrderReason.trim().length < 5) return;
+    if (shouldBlockShopifyCancelInOs(orderDetail?.shopifyOrderId)) {
+      notify.error(VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE);
+      return;
+    }
     setBusyKey("cancel_order");
     try {
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
@@ -851,6 +860,18 @@ export function OrderFulfillmentDetail({
                   A cancel request has been sent to finance. This order cannot be dispatched until finance approves or rejects the cancel.
                 </p>
               </div>
+            ) : shouldBlockShopifyCancelInOs(orderDetail.shopifyOrderId) &&
+              perms.canCancelOrder &&
+              ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-700/40 dark:bg-amber-900/20">
+                <div className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+                  <AlertTriangle className="size-4" />
+                  Cancel in Shopify
+                </div>
+                <p className="mt-1 text-amber-700 dark:text-amber-400">
+                  {VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE}
+                </p>
+              </div>
             ) : perms.canCancelOrder && ["order_received", "sample_free_issue", "print", "ready_to_dispatch"].includes(stage) ? (
               <div className="rounded-lg border border-dashed p-4">
                 <h4 className="mb-1 text-sm font-medium">Cancel Order</h4>
@@ -977,6 +998,12 @@ export function OrderFulfillmentDetail({
                     <div>
                       <h4 className="mb-1 text-muted-foreground">Mer Coupon</h4>
                       <p>{orderDetail.merchantCouponCode}</p>
+                    </div>
+                  )}
+                  {orderDetail.erpSpecialRemarks && (
+                    <div className="sm:col-span-2">
+                      <h4 className="mb-1 text-muted-foreground">Special Remarks</h4>
+                      <p className="whitespace-pre-wrap">{orderDetail.erpSpecialRemarks}</p>
                     </div>
                   )}
                 </div>

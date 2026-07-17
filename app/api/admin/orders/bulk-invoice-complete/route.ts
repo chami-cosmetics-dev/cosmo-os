@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
           ref: outcome.ref,
           success: true,
           ...(outcome.erpPeError ? { erpPeError: outcome.erpPeError } : {}),
+          ...(outcome.peStatus ? { peStatus: outcome.peStatus } : {}),
         });
       } else {
         results.push({

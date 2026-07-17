@@ -28,6 +28,7 @@ import {
   fulfillmentOrderSearchTokens,
 } from "@/lib/fulfillment-order-reference";
 import { notify } from "@/lib/notify";
+import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
 
 type Lookups = {
@@ -759,7 +760,7 @@ export function FulfillmentBulkDispatch({
                 <p><span className="font-medium">Name:</span> {addr?.name ?? "-"}</p>
               </div>
               <div className="space-y-1">
-                <p><span className="font-medium">Order Date:</span> {detail ? new Date(detail.createdAt).toLocaleDateString("en-LK") : "-"}</p>
+                <p><span className="font-medium">Order Date:</span> {detail ? formatAppDate(detail.createdAt, "-") : "-"}</p>
                 <p><span className="font-medium">Total:</span> {activeOrder ? Number(activeOrder.totalPrice).toLocaleString("en-LK", { minimumFractionDigits: 2 }) : "-"}</p>
                 <OrderShippingLine
                   prefix="Delivery:"

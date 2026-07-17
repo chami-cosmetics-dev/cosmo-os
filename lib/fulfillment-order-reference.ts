@@ -82,13 +82,37 @@ export function resolveErpOrderRef(order: FulfillmentOrderRefInput): string | nu
   return erpId;
 }
 
-export function formatFulfillmentOrderReferenceText(order: FulfillmentOrderRefInput): string {
-  const shopifyRef = resolveShopifyOrderRef(order);
-  const erpRef = resolveErpOrderRef(order);
-  if (shopifyRef && erpRef && erpRef !== shopifyRef) {
-    return `${shopifyRef} / ${erpRef}`;
+function isErpOrigin(sourceName?: string | null) {
+  const source = sourceName?.trim().toLowerCase() ?? "";
+  return source === "erpnext" || source === "erpnext-pos";
+}
+
+/** One primary ID for waybill/fulfillment display: Shopify-origin → Shopify number; ERP-origin → SI. */
+export function resolveSourcePrimaryOrderRef(order: FulfillmentOrderRefInput): string {
+  if (isErpOrigin(order.sourceName)) {
+    return (
+      resolveInvoiceErpRef(order) ??
+      order.name?.trim() ??
+      order.orderNumber?.trim() ??
+      order.id ??
+      "—"
+    );
   }
-  return shopifyRef ?? erpRef ?? order.id ?? "—";
+
+  return (
+    resolveInvoiceShopifyRef(order) ??
+    order.name?.trim() ??
+    order.orderNumber?.trim() ??
+    (order.shopifyOrderId?.trim() && !isSyntheticErpShopifyId(order.shopifyOrderId)
+      ? order.shopifyOrderId.trim()
+      : null) ??
+    order.id ??
+    "—"
+  );
+}
+
+export function formatFulfillmentOrderReferenceText(order: FulfillmentOrderRefInput): string {
+  return resolveSourcePrimaryOrderRef(order);
 }
 
 export function fulfillmentOrderSearchTokens(order: FulfillmentOrderRefInput): string {

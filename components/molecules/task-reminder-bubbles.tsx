@@ -26,6 +26,7 @@ type TaskReminder = {
 type TaskRemindersResponse = {
   reminders?: TaskReminder[];
   totalCount?: number;
+  categoryCounts?: Partial<Record<TaskReminderCategory, number>>;
   visibleCategories?: TaskReminderCategory[];
 };
 
@@ -37,6 +38,7 @@ const CATEGORY_ORDER = [
   "ready_dispatch",
   "rearrange_dispatch",
   "delivery_pending",
+  "invoice_complete",
   "return_action",
 ] as const;
 
@@ -49,6 +51,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ready_dispatch: "Ready to dispatch",
   return_action: "Returned orders",
   delivery_pending: "Delivery pending",
+  invoice_complete: "Invoice complete",
 };
 
 const CATEGORY_NODE_LABELS: Record<string, string> = {
@@ -60,6 +63,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   ready_dispatch: "Dispatch",
   return_action: "Returns",
   delivery_pending: "Delivery pending",
+  invoice_complete: "Invoice complete",
 };
 
 function groupReminders(reminders: TaskReminder[]) {
@@ -75,14 +79,20 @@ function groupReminders(reminders: TaskReminder[]) {
 function ReminderListPanel({
   title,
   items,
+  totalCount,
   onClose,
   onDismissAll,
 }: {
   title: string;
   items: TaskReminder[];
+  /** Full queue size when the list is capped (e.g. delivery pending). */
+  totalCount?: number;
   onClose: () => void;
   onDismissAll?: () => void;
 }) {
+  const overdueCount = totalCount ?? items.length;
+  const listCapped = totalCount != null && totalCount > items.length;
+
   return (
     <div
       className={cn(
@@ -98,7 +108,14 @@ function ReminderListPanel({
           <p className="font-mono text-[10px] tracking-[0.2em] text-cyan-400/80 uppercase">System alert</p>
           <p className="text-sm font-semibold text-cyan-50">{title}</p>
           <p className="text-xs text-cyan-200/60">
-            <span className="text-red-400">{items.length}</span> overdue · SLA {TASK_REMINDER_SLA_HOURS}h+
+            <span className="text-red-400">{overdueCount}</span> overdue
+            {listCapped ? (
+              <>
+                {" "}
+                · showing {items.length}
+              </>
+            ) : null}{" "}
+            · SLA {TASK_REMINDER_SLA_HOURS}h+
           </p>
         </div>
         <button
@@ -314,6 +331,10 @@ function useComposeRefs<T>(refA: React.Ref<T>, refB: React.Ref<T>) {
 
 export function TaskReminderBubbles() {
   const [reminders, setReminders] = useState<TaskReminder[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [categoryCounts, setCategoryCounts] = useState<
+    Partial<Record<TaskReminderCategory, number>>
+  >({});
   const [visibleCategories, setVisibleCategories] = useState<TaskReminderCategory[]>([]);
   const [nodesOpen, setNodesOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<TaskReminderCategory | null>(null);
@@ -321,7 +342,8 @@ export function TaskReminderBubbles() {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const hudVisible = !loading && authenticated;
-  const hasOverdue = reminders.length > 0;
+  const overdueTotal = totalCount > 0 ? totalCount : reminders.length;
+  const hasOverdue = overdueTotal > 0;
   const panelsOpen = nodesOpen || showAllPanel || activeCategory !== null;
   const {
     containerRef: dragContainerRef,
@@ -344,16 +366,22 @@ export function TaskReminderBubbles() {
       if (!response.ok) {
         setAuthenticated(false);
         setReminders([]);
+        setTotalCount(0);
+        setCategoryCounts({});
         setVisibleCategories([]);
         return;
       }
       setAuthenticated(true);
       const data = (await response.json()) as TaskRemindersResponse;
       setReminders(data.reminders ?? []);
+      setTotalCount(data.totalCount ?? data.reminders?.length ?? 0);
+      setCategoryCounts(data.categoryCounts ?? {});
       setVisibleCategories(data.visibleCategories ?? []);
     } catch {
       setAuthenticated(false);
       setReminders([]);
+      setTotalCount(0);
+      setCategoryCounts({});
       setVisibleCategories([]);
     }
   }, []);
@@ -400,6 +428,9 @@ export function TaskReminderBubbles() {
   }
 
   const activeItems = activeCategory ? (grouped.get(activeCategory) ?? []) : [];
+  const activeTotalCount = activeCategory
+    ? (categoryCounts[activeCategory] ?? activeItems.length)
+    : overdueTotal;
   const panelTitle = activeCategory
     ? (CATEGORY_LABELS[activeCategory] ?? activeCategory)
     : "All overdue tasks";
@@ -417,7 +448,12 @@ export function TaskReminderBubbles() {
       <div ref={hudRowRef} className="pointer-events-auto relative flex items-end">
         {showAllPanel && (
           <div className="mr-3">
-            <ReminderListPanel title="All overdue tasks" items={reminders} onClose={() => setShowAllPanel(false)} />
+            <ReminderListPanel
+              title="All overdue tasks"
+              items={reminders}
+              totalCount={overdueTotal}
+              onClose={() => setShowAllPanel(false)}
+            />
           </div>
         )}
 
@@ -426,6 +462,7 @@ export function TaskReminderBubbles() {
             <ReminderListPanel
               title={panelTitle}
               items={activeItems}
+              totalCount={activeTotalCount}
               onClose={() => setActiveCategory(null)}
               onDismissAll={
                 activeCategory === "erp_sync_warning"
@@ -456,7 +493,7 @@ export function TaskReminderBubbles() {
                 <CategoryNode
                   key={category}
                   label={CATEGORY_NODE_LABELS[category] ?? CATEGORY_LABELS[category] ?? category}
-                  count={grouped.get(category)?.length ?? 0}
+                  count={categoryCounts[category] ?? grouped.get(category)?.length ?? 0}
                   active={activeCategory === category}
                   onClick={() => toggleCategory(category)}
                   variant={category === "erp_sync_warning" ? "warning" : "default"}
@@ -522,7 +559,7 @@ export function TaskReminderBubbles() {
             }}
             onPointerCancel={onDragHandlePointerCancel}
             aria-expanded={nodesOpen}
-            aria-label={`${reminders.length} overdue tasks. Drag vertically to move. ${nodesOpen ? "Hide categories" : "Show categories"}`}
+            aria-label={`${overdueTotal} overdue tasks. Drag vertically to move. ${nodesOpen ? "Hide categories" : "Show categories"}`}
           >
             <span
               className={cn(
@@ -533,7 +570,7 @@ export function TaskReminderBubbles() {
               )}
             />
             <span ref={bubbleAnchorRef} className="inline-flex">
-              <TaskReminderBubbleIcon count={reminders.length} active={nodesOpen} />
+              <TaskReminderBubbleIcon count={overdueTotal} active={nodesOpen} />
             </span>
             {!nodesOpen && (
               <span
@@ -544,7 +581,7 @@ export function TaskReminderBubbles() {
                     : "border-cyan-500/40 bg-slate-950/95 text-cyan-300",
                 )}
               >
-                {hasOverdue ? `${reminders.length} OVERDUE` : "ALL CLEAR"}
+                {hasOverdue ? `${overdueTotal} OVERDUE` : "ALL CLEAR"}
               </span>
             )}
           </button>
@@ -560,7 +597,7 @@ export function TaskReminderBubbles() {
                   : "border-cyan-500/40 bg-slate-950/95 text-cyan-300",
               )}
             >
-              {hasOverdue ? `${reminders.length} OVERDUE` : "ALL CLEAR"}
+              {hasOverdue ? `${overdueTotal} OVERDUE` : "ALL CLEAR"}
             </button>
           )}
         </div>

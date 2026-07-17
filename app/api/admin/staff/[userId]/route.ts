@@ -51,6 +51,7 @@ const updateStaffSchema = z.object({
     .max(20)
     .optional()
     .transform((v) => v ?? []),
+  financeLocationIds: z.array(cuidSchema).max(50).optional(),
 });
 
 type StaffUserWithDetails = Prisma.UserGetPayload<{
@@ -142,30 +143,37 @@ export async function GET(
   }
 
   const companyId = user.companyId;
-  const lookups = companyId
-    ? await Promise.all([
-        prisma.companyLocation.findMany({
-          where: { companyId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, address: true },
-        }),
-        prisma.department.findMany({
-          where: { companyId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true },
-        }),
-        prisma.designation.findMany({
-          where: { companyId },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true },
-        }),
-      ])
-    : null;
+  const [lookups, financeScopes] = await Promise.all([
+    companyId
+      ? Promise.all([
+          prisma.companyLocation.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true, address: true },
+          }),
+          prisma.department.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          }),
+          prisma.designation.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          }),
+        ])
+      : Promise.resolve(null),
+    prisma.userFinanceScope.findMany({
+      where: { userId: idResult.data },
+      select: { locationId: true },
+    }),
+  ]);
 
   const [locations, departments, designations] = lookups ?? [[], [], []];
 
   return NextResponse.json({
     ...serializeStaffUser(user),
+    financeLocationIds: financeScopes.map((s) => s.locationId),
     ...(lookups && {
       locations,
       departments,
@@ -284,6 +292,19 @@ export async function PATCH(
           ...profileData,
         },
       });
+    }
+
+    if (data.financeLocationIds !== undefined) {
+      await tx.userFinanceScope.deleteMany({ where: { userId: idResult.data } });
+      if (data.financeLocationIds.length > 0) {
+        await tx.userFinanceScope.createMany({
+          data: data.financeLocationIds.map((locationId) => ({
+            userId: idResult.data,
+            locationId,
+            companyId,
+          })),
+        });
+      }
     }
   });
 

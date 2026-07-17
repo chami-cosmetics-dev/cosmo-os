@@ -77,13 +77,39 @@ export async function createNotification(input: NotificationInput) {
   );
 }
 
+/**
+ * Location IDs the viewer may see for finance approvals/notifications.
+ * `null` = unrestricted (admin/super_admin, or no UserFinanceScope rows = all locations).
+ */
+export async function resolveViewerFinanceLocationIds(
+  userId: string,
+  companyId: string,
+  roleNames: string[]
+): Promise<string[] | null> {
+  if (roleNames.includes("admin") || roleNames.includes("super_admin")) {
+    return null;
+  }
+  const scopes = await prisma.$queryRaw<Array<{ locationId: string }>>(
+    Prisma.sql`
+      SELECT "locationId"
+      FROM "UserFinanceScope"
+      WHERE "userId" = ${userId}
+        AND "companyId" = ${companyId}
+    `
+  );
+  if (scopes.length === 0) return null;
+  return scopes.map((s) => s.locationId);
+}
+
 export async function getFinanceApprovalUsers(companyId: string, locationId?: string | null) {
-  // When a locationId is supplied, prefer finance users assigned to that location.
-  // Included: users with ep.locationId = locationId, users with ep.locationId IS NULL
-  // (company-wide), and admins/super_admins regardless of their profile.
-  // Fallback: if no users match at all, retry without location filter.
+  // When locationId is provided, include users who:
+  //   a) have a UserFinanceScope row for this location, OR
+  //   b) have NO UserFinanceScope rows at all (company-wide fallback), OR
+  //   c) are admin/super_admin (always receive all).
+  // Do not fall through to company-wide when empty — that would re-include
+  // users scoped to other locations only.
   if (locationId) {
-    const scoped = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
+    return prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
       Prisma.sql`
         SELECT DISTINCT u."id", u."email"
         FROM "User" u
@@ -91,24 +117,21 @@ export async function getFinanceApprovalUsers(companyId: string, locationId?: st
         JOIN "Role" r ON r."id" = ur."roleId"
         LEFT JOIN "RolePermission" rp ON rp."roleId" = ur."roleId"
         LEFT JOIN "Permission" p ON p."id" = rp."permissionId"
-        LEFT JOIN "EmployeeProfile" ep ON ep."userId" = u."id"
         WHERE u."companyId" = ${companyId}
           AND (
             p."key" = ${FINANCE_APPROVAL_PERMISSION}
             OR r."name" IN ('admin', 'super_admin')
           )
           AND (
-            ep."locationId" = ${locationId}
-            OR ep."locationId" IS NULL
+            EXISTS (SELECT 1 FROM "UserFinanceScope" ufs WHERE ufs."userId" = u."id" AND ufs."locationId" = ${locationId})
+            OR NOT EXISTS (SELECT 1 FROM "UserFinanceScope" ufs2 WHERE ufs2."userId" = u."id" AND ufs2."companyId" = ${companyId})
             OR r."name" IN ('admin', 'super_admin')
           )
       `
     );
-    if (scoped.length > 0) return scoped;
-    // Nobody configured for this location — fall through to company-wide
   }
 
-  const rows = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
+  return prisma.$queryRaw<Array<{ id: string; email: string | null }>>(
     Prisma.sql`
       SELECT DISTINCT u."id", u."email"
       FROM "User" u
@@ -123,7 +146,6 @@ export async function getFinanceApprovalUsers(companyId: string, locationId?: st
         )
     `
   );
-  return rows;
 }
 
 export async function getFinanceApprovalUserIds(companyId: string, locationId?: string | null) {
@@ -204,6 +226,66 @@ export async function cancelPendingApprovalsForOrder(orderId: string) {
   });
 
   return direct.count + viaReturn.count;
+}
+
+/** Cancel pending delivery payment approvals for prepaid (KOKO / bank / …) orders.
+ * Those must use Order Payment approval — Delivery Collection is door-cash only. */
+export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyId: string) {
+  const now = new Date();
+  const pending = await prisma.approvalRequest.findMany({
+    where: {
+      companyId,
+      status: "pending",
+      type: DELIVERY_PAYMENT_APPROVAL,
+      orderId: { not: null },
+    },
+    select: {
+      id: true,
+      order: {
+        select: {
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
+          approvalRequests: {
+            where: { type: ORDER_PAYMENT_APPROVAL, status: { in: ["pending", "approved"] } },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+
+  const ids = pending
+    .filter((row) => {
+      if (!row.order) return false;
+      if (isOrderPaymentRequiresApproval(row.order)) return true;
+      const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
+      if (primary.includes("koko") || primary.includes("bank") || primary.includes("webxpay")) {
+        return true;
+      }
+      if (!primary) {
+        return row.order.paymentGatewayNames.some((g) => {
+          const n = g.toLowerCase().trim();
+          return n.includes("koko") || n.includes("bank") || n.includes("webxpay");
+        });
+      }
+      // Finance already confirmed / queued order payment — drop duplicate door collection.
+      return row.order.approvalRequests.length > 0;
+    })
+    .map((row) => row.id);
+
+  if (ids.length === 0) return 0;
+
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      status: "cancelled",
+      reviewNote:
+        "Prepaid / order-payment path — Delivery Collection not required (KOKO, bank transfer, or order payment already handled).",
+      updatedAt: now,
+    },
+  });
+  return result.count;
 }
 
 /** Cancel pending delivery payment approvals for orders already at invoice_complete.

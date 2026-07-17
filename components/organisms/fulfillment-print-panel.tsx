@@ -7,6 +7,7 @@ import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-per
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { Button } from "@/components/ui/button";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
 interface FulfillmentPrintPanelProps {
@@ -128,7 +129,7 @@ export function FulfillmentPrintPanel({ orderId, order }: FulfillmentPrintPanelP
               <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? "-"}</p>
             </div>
             <div className="space-y-1">
-              <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
+              <p><span className="font-medium">Order date:</span> {order ? formatAppDateTime(order.createdAt, "-") : "-"}</p>
               <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
               {detail?.discountCouponCode && (
                 <p><span className="font-medium">Coupon:</span> {detail.discountCouponCode}</p>
