@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LIMITS } from "@/lib/validation";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
 type OrderDetail = {
@@ -42,6 +43,7 @@ type OrderDetail = {
   totalDiscounts: string | null;
   merchantCouponCode: string | null;
   discountCouponCode?: string | null;
+  erpSpecialRemarks?: string | null;
   totalTax: string | null;
   totalShipping: string | null;
   shippingRuleLabel?: string | null;
@@ -103,8 +105,7 @@ function formatAddress(addr: unknown): string {
 }
 
 function formatRemarkDate(val: string): string {
-  const d = new Date(val);
-  return Number.isNaN(d.getTime()) ? "â€”" : d.toLocaleString("en-LK");
+  return formatAppDateTime(val, "—");
 }
 
 function remarkAddedBy(addedBy: { name: string | null; email: string | null } | null): string {
@@ -186,6 +187,12 @@ export function FulfillmentOrderInvoiceDetails({
             {detail.merchantCouponCode && (
               <p className="mt-1">
                 <span className="text-muted-foreground">Mer coupon:</span> {detail.merchantCouponCode}
+              </p>
+            )}
+            {detail.erpSpecialRemarks && (
+              <p className="mt-2 whitespace-pre-wrap">
+                <span className="text-muted-foreground">Special Remarks:</span>{" "}
+                {detail.erpSpecialRemarks}
               </p>
             )}
           </div>

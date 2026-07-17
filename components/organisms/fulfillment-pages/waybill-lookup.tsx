@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type LookupResult = {
   order: {
@@ -54,9 +55,7 @@ type ImportSummary = {
 };
 
 function formatDate(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
+  return formatAppDateTime(value, "-");
 }
 
 function stageLabel(value: string) {

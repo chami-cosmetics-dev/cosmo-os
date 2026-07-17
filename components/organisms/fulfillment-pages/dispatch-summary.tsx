@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { formatOrderShippingDetail } from "@/lib/order-shipping-display";
 import { notify } from "@/lib/notify";
+import { formatAppDateTimeShort } from "@/lib/format-datetime";
 
 function formatPaymentType(raw: string | null) {
   if (!raw) return "—";
@@ -42,11 +43,7 @@ function formatAddress(addr: unknown): string {
 }
 
 function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : d.toLocaleString("en-LK", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return formatAppDateTimeShort(iso);
 }
 
 function orderStatusLabel(

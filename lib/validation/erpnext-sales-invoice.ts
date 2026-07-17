@@ -37,6 +37,9 @@ export const erpnextSalesInvoiceWebhookSchema = z.object({
   merchant_coupon_code: z.string().optional().nullable().default(null),
   coupon_code: z.string().optional().nullable().default(null),
   custom_coupon_code: z.string().optional().nullable().default(null),
+  /** ERP Customize Form: Sales Invoice → Special Remarks (Long Text). */
+  custom_special_remarks: erpString,
+  special_remarks: erpString,
   posa_pos_opening_shift: erpString,
   pos_profile: erpString,
   owner: z.string().optional().nullable(),

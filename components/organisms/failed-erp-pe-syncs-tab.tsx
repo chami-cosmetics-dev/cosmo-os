@@ -12,6 +12,7 @@ import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 const ERP_PE_MOP_ORDER_AUTO = "order payment mode";
 
@@ -153,9 +154,7 @@ export function FailedErpPeSyncsTab() {
   }
 
   function formatDate(val: string | null) {
-    if (!val) return "—";
-    const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return formatAppDateTime(val);
   }
 
   return (

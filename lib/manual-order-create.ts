@@ -10,6 +10,7 @@ import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { LIMITS } from "@/lib/validation";
 import { sendOrderSms } from "@/lib/order-sms";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { normalizeOrderCustomerPhone } from "@/lib/phone-lookup";
 
 function padSeq(seq: number, padding: number): string {
   return String(seq).padStart(padding, "0");
@@ -109,7 +110,7 @@ export async function createManualOrder(
 
   const customerEmail =
     body.customerEmail?.slice(0, LIMITS.email.max) ?? null;
-  const customerPhone = body.customerPhone?.trim().slice(0, LIMITS.mobile.max) ?? null;
+  const customerPhone = normalizeOrderCustomerPhone(body.customerPhone);
 
   const shippingAddr = body.shippingAddress;
   const billingAddr = body.billingAddress;

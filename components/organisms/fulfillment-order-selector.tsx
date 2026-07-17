@@ -26,6 +26,7 @@ import {
 } from "@/lib/fulfillment-queue-filters";
 import { useFulfillmentOrderDeepLink } from "@/hooks/use-fulfillment-order-deep-link";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FulfillmentOrder = {
@@ -223,8 +224,7 @@ export function FulfillmentOrderSelector({
   }
 
   function formatDate(val: string): string {
-    const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-LK");
+    return formatAppDateTime(val);
   }
 
   function merchantLabel(order: FulfillmentOrder) {

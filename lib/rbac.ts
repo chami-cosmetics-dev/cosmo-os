@@ -5,6 +5,10 @@ import { isDatabaseUnavailableError } from "@/lib/dbObservability";
 import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import {
+  buildReminderBubblePermissionDescription,
+  REMINDER_BUBBLE_PERMISSIONS,
+} from "@/lib/reminder-permissions";
 
 const DEFAULT_PERMISSIONS = [
   {
@@ -189,6 +193,11 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
+  // Optional reminder overrides — bubbles still follow page perms by default (see reminder-permissions.ts)
+  ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
+    key: p.key,
+    description: buildReminderBubblePermissionDescription(p.category),
+  })),
   // Reports - Dump downloads
   {
     key: REPORT_DUMP_PERMISSIONS.contactListPart1,
@@ -407,16 +416,21 @@ const DEFAULT_PERMISSIONS = [
   },
 ] as const;
 
+const DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS = DEFAULT_PERMISSIONS.map(
+  (p) => p.key,
+).filter((key) => !key.startsWith("reminders."));
+
 const DEFAULT_ROLES = [
   {
     name: "super_admin",
     description: "Full system access including company setup",
-    permissionKeys: DEFAULT_PERMISSIONS.map((p) => p.key),
+    // Reminder bubbles are optional add-ons — not checked by default (page perms still gate bubbles).
+    permissionKeys: DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS,
   },
   {
     name: "admin",
     description: "Full access to user and role management",
-    permissionKeys: DEFAULT_PERMISSIONS.map((p) => p.key),
+    permissionKeys: DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS,
   },
   {
     name: "manager",

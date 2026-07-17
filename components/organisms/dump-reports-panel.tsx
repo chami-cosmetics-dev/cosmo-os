@@ -6,6 +6,7 @@ import type { ReportDownloadLogRecord } from "@/lib/report-download-log";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type DumpReportsPanelProps = {
   historicalYears: number[];
@@ -27,12 +28,7 @@ function toneClass(tone?: ReportAction["tone"]) {
 }
 
 function formatLogTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleString();
+  return formatAppDateTime(value, value);
 }
 
 function ReportRow({ title, subtitle, actions }: { title: string; subtitle: string; actions: ReportAction[] }) {

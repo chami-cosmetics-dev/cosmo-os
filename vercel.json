@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/ogf-sale",
       "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/cron/daily-sales-sms",
+      "schedule": "30 3 * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

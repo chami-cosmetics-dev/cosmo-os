@@ -16,6 +16,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { ComplaintItem, ComplaintStatus } from "@/lib/page-data/complaints";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 
 type ComplaintsPanelProps = {
   initialComplaints: ComplaintItem[];
@@ -31,9 +32,7 @@ const statusLabels: Record<ComplaintStatus, string> = {
 };
 
 function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return formatAppDateTime(value, value);
 }
 
 function statusClass(status: ComplaintStatus) {

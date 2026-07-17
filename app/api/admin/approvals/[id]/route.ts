@@ -12,6 +12,7 @@ import {
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
   notifyApprovalRequester,
+  resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
@@ -20,13 +21,21 @@ import {
   createErpnextCreditNote,
   syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
-import { cancelShopifyOrder } from "@/lib/shopify-admin";
+import {
+  cancelShopifyOrder,
+  isRealShopifyOrderId,
+  shouldBlockShopifyCancelInOs,
+} from "@/lib/shopify-admin";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
   markOrderErpSyncFailed,
   runPostApprovalErpSync,
 } from "@/lib/failed-erp-sync-auto-retry";
+import {
+  ERP_PE_SYNC_MOP_ORDER_AUTO,
+  markOrderErpPeSyncFailed,
+} from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 
 export const dynamic = "force-dynamic";
@@ -75,6 +84,7 @@ export async function PATCH(
     orderName: string | null;
     orderNumber: string | null;
     shopifyOrderId: string | null;
+    companyLocationId: string | null;
   }>>(
     Prisma.sql`
       SELECT
@@ -88,9 +98,12 @@ export async function PATCH(
         (o."id" IS NOT NULL) AS "orderLinked",
         o."name" AS "orderName",
         o."orderNumber",
-        o."shopifyOrderId"
+        o."shopifyOrderId",
+        COALESCE(o."companyLocationId", ort_order."companyLocationId") AS "companyLocationId"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
+      LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
+      LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
       WHERE ar."id" = ${id}
         AND ar."companyId" = ${companyId}
       LIMIT 1
@@ -100,6 +113,22 @@ export async function PATCH(
   if (!approval) {
     return NextResponse.json({ error: "Approval request not found" }, { status: 404 });
   }
+
+  const financeLocationIds = await resolveViewerFinanceLocationIds(
+    reviewerId,
+    companyId,
+    (auth.context?.roleNames as string[]) ?? []
+  );
+  if (
+    financeLocationIds !== null &&
+    (!approval.companyLocationId || !financeLocationIds.includes(approval.companyLocationId))
+  ) {
+    return NextResponse.json(
+      { error: "This approval is outside your finance notification scope" },
+      { status: 403 }
+    );
+  }
+
   if (approval.status !== "pending") {
     return NextResponse.json({ error: "Approval request is already reviewed" }, { status: 400 });
   }
@@ -180,30 +209,60 @@ export async function PATCH(
 
     if (nextStatus === "approved") {
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
-        // Bank / KOKO / WebXPay: invoice is financially complete at approval; advance to print queue for physical fulfillment.
-        await tx.order.update({
+        const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },
-          data: {
-            financialStatus: "paid",
-            ...orderStageUpdate("print", now),
-            sampleFreeIssueCompleteAt: now,
-            sampleFreeIssueCompleteById: reviewerId,
-            invoiceCompleteAt: now,
-            invoiceCompleteById: reviewerId,
-          },
+          select: { fulfillmentStage: true },
         });
+        const stage = orderForStage?.fulfillmentStage;
+        // Already fully invoice-complete: keep stage (do not re-queue via print).
+        // At delivery_complete: close invoice complete (late finance approval after deliver).
+        // Earlier stages: mark invoice complete financially, go to print, continue fulfillment.
+        if (stage === "invoice_complete") {
+          await tx.order.update({
+            where: { id: approval.orderId! },
+            data: { financialStatus: "paid" },
+          });
+        } else if (stage === "delivery_complete") {
+          await tx.order.update({
+            where: { id: approval.orderId! },
+            data: {
+              financialStatus: "paid",
+              ...orderStageUpdate("invoice_complete", now),
+              fulfillmentStatus: "fulfilled",
+              invoiceCompleteAt: now,
+              invoiceCompleteById: reviewerId,
+            },
+          });
+        } else {
+          await tx.order.update({
+            where: { id: approval.orderId! },
+            data: {
+              financialStatus: "paid",
+              ...orderStageUpdate("print", now),
+              sampleFreeIssueCompleteAt: now,
+              sampleFreeIssueCompleteById: reviewerId,
+              invoiceCompleteAt: now,
+              invoiceCompleteById: reviewerId,
+            },
+          });
+        }
+        // Prepaid confirmation covers door collection — drop any stale Delivery Collection row.
+        await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ApprovalRequest"
+            SET "status" = 'cancelled', "updatedAt" = ${now},
+                "reviewNote" = ${"Order payment approved — Delivery Collection not required."}
+            WHERE "orderId" = ${approval.orderId}
+              AND "companyId" = ${companyId}
+              AND "type" = ${"delivery_payment_approval"}
+              AND "status" = 'pending'
+          `
+        );
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
+        // Door-collection confirm: paid only — invoice complete stays manual on the queue.
         await tx.order.update({
           where: { id: approval.orderId! },
-          data: isPaymentReapproval
-            ? { financialStatus: "paid" }
-            : {
-                financialStatus: "paid",
-                ...orderStageUpdate("invoice_complete", now),
-                fulfillmentStatus: "fulfilled",
-                invoiceCompleteAt: now,
-                invoiceCompleteById: reviewerId,
-              },
+          data: { financialStatus: "paid" },
         });
       } else if (approval.type === INVOICE_REVERT_VOID_APPROVAL) {
         await tx.order.update({
@@ -239,22 +298,27 @@ export async function PATCH(
           where: { id: approval.orderId! },
           select: { fulfillmentStage: true },
         });
-        // Post-delivery orders (delivery_complete) go to invoice_complete, not back to print.
-        const isPostDelivery = orderForStage?.fulfillmentStage === "delivery_complete";
-        const stageData = isPostDelivery
-          ? {
-              ...orderStageUpdate("invoice_complete", now),
-              fulfillmentStatus: "fulfilled",
-              invoiceCompleteAt: now,
-              invoiceCompleteById: reviewerId,
-            }
-          : {
-              ...orderStageUpdate("print", now),
-              sampleFreeIssueCompleteAt: now,
-              sampleFreeIssueCompleteById: reviewerId,
-              invoiceCompleteAt: now,
-              invoiceCompleteById: reviewerId,
-            };
+        const stage = orderForStage?.fulfillmentStage;
+        // Already at fulfillment invoice_complete: keep stage.
+        // At delivery_complete: close invoice complete (prepaid change after deliver).
+        // Earlier: print + mark invoice complete financially, continue fulfillment (Flow 1).
+        const stageData =
+          stage === "invoice_complete"
+            ? {}
+            : stage === "delivery_complete"
+              ? {
+                  ...orderStageUpdate("invoice_complete", now),
+                  fulfillmentStatus: "fulfilled" as const,
+                  invoiceCompleteAt: now,
+                  invoiceCompleteById: reviewerId,
+                }
+              : {
+                  ...orderStageUpdate("print", now),
+                  sampleFreeIssueCompleteAt: now,
+                  sampleFreeIssueCompleteById: reviewerId,
+                  invoiceCompleteAt: now,
+                  invoiceCompleteById: reviewerId,
+                };
         await tx.order.update({
           where: { id: approval.orderId! },
           data: {
@@ -320,7 +384,7 @@ export async function PATCH(
           },
         });
       } else if (approval.type === ORDER_CANCEL_APPROVAL && approval.orderId) {
-        // Finance has confirmed Shopify cancel and ERP credit note are done — mark order voided in DB.
+        // Finance approved — mark order voided in DB. Shopify cancel fires automatically after the tx.
         await tx.order.update({
           where: { id: approval.orderId },
           data: {
@@ -396,6 +460,47 @@ export async function PATCH(
     });
   }
 
+  // Auto-cancel in Shopify when a paid order cancel is approved (Cosmo only).
+  // Vault has no Admin API — staff cancel in Shopify; webhook syncs OS/ERP.
+  // Non-fatal — ERP credit note and DB void are already committed at this point.
+  if (
+    nextStatus === "approved" &&
+    approval.type === ORDER_CANCEL_APPROVAL &&
+    approval.orderId &&
+    approval.shopifyOrderId &&
+    isRealShopifyOrderId(approval.shopifyOrderId) &&
+    !shouldBlockShopifyCancelInOs(approval.shopifyOrderId)
+  ) {
+    try {
+      const orderForCancel = await prisma.order.findUnique({
+        where: { id: approval.orderId },
+        select: { companyLocationId: true },
+      });
+      const location = orderForCancel?.companyLocationId
+        ? await prisma.companyLocation.findUnique({
+            where: { id: orderForCancel.companyLocationId },
+            select: { shopifyAdminStoreHandle: true },
+          })
+        : null;
+      if (location?.shopifyAdminStoreHandle) {
+        await cancelShopifyOrder(approval.shopifyOrderId, location.shopifyAdminStoreHandle);
+        console.log(`[Cancel] Shopify order ${approval.shopifyOrderId} cancelled via approval ${approval.id}`);
+      } else {
+        console.warn(`[Cancel] No shopifyAdminStoreHandle for order ${approval.orderId} — skipping Shopify cancel`);
+      }
+    } catch (err) {
+      console.error(`[Cancel] Shopify cancel failed (non-fatal) for order ${approval.orderId}:`, err);
+    }
+  } else if (
+    nextStatus === "approved" &&
+    approval.type === ORDER_CANCEL_APPROVAL &&
+    shouldBlockShopifyCancelInOs(approval.shopifyOrderId)
+  ) {
+    console.warn(
+      `[Cancel] Skipping Shopify Admin cancel on Vault for order ${approval.orderId} — cancel in Shopify instead`,
+    );
+  }
+
   let erpSyncFailed = false;
   let erpSyncError: string | undefined;
 
@@ -413,7 +518,13 @@ export async function PATCH(
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] post-approval sync failed:", errMsg);
-      await markOrderErpSyncFailed(approval.orderId, errMsg);
+      const isPeFailure =
+        /payment entry|payment mode|Sales Invoice|Mode of Payment|prepaid/i.test(errMsg);
+      if (isPeFailure) {
+        await markOrderErpPeSyncFailed(approval.orderId, errMsg, ERP_PE_SYNC_MOP_ORDER_AUTO);
+      } else {
+        await markOrderErpSyncFailed(approval.orderId, errMsg);
+      }
       erpSyncFailed = true;
       erpSyncError = errMsg;
     }
@@ -437,6 +548,7 @@ export async function PATCH(
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           console.error("[ERPNext] bank transfer PE failed:", errMsg);
+          await markOrderErpPeSyncFailed(approval.orderId, errMsg, "bank_transfer");
           erpSyncFailed = true;
           erpSyncError = errMsg;
         }
@@ -456,10 +568,15 @@ export async function PATCH(
     });
     if (order?.companyLocation) {
       try {
-        await createDeliveryPaymentEntry(order, order.companyLocation, now);
+        await createDeliveryPaymentEntry(order, order.companyLocation, now, { requireMop: true });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error("[ERPNext] delivery payment approval PE failed:", errMsg);
+        await markOrderErpPeSyncFailed(
+          order.id,
+          errMsg,
+          order.paymentGatewayPrimary ?? ERP_PE_SYNC_MOP_ORDER_AUTO,
+        );
         erpSyncFailed = true;
         erpSyncError = errMsg;
       }

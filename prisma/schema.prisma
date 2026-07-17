@@ -68,6 +68,9 @@ model Company {
   erpnextInstances         ErpnextInstance[]
   pickListGroups           PickListGroup[]
   ogfEmailLogs             OgfEmailLog[]
+  financeScopes            UserFinanceScope[]
+  dailySalesSmsConfig      DailySalesSmsConfig?
+  dailySalesSmsSendLogs    DailySalesSmsSendLog[]
 }
 
 model PrintFormat {
@@ -331,6 +334,7 @@ model User {
   // Call center performance tracking: records updates made by this merchant user
   contactAllocationUpdates            ContactAllocationUpdate[]
   pickListGroupsPrinted               PickListGroup[]           @relation("PickListGroupPrintedBy")
+  financeScopes                       UserFinanceScope[]
   merchantGroupMembership             MerchantGroupMember?
 }
 
@@ -488,9 +492,25 @@ model CompanyLocation {
   smsNotificationConfigs    SmsNotificationConfig[]
   shippingChargeOptions     ShippingChargeOption[]
   erpWarehouses             CompanyLocationWarehouse[]
+  financeScopes             UserFinanceScope[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
+}
+
+model UserFinanceScope {
+  id         String   @id @default(cuid())
+  userId     String
+  locationId String
+  companyId  String
+  createdAt  DateTime @default(now())
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  location CompanyLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, locationId])
+  @@index([companyId, locationId])
 }
 
 model ShippingChargeOption {
@@ -633,6 +653,7 @@ model Order {
   pickListGroupOrders             PickListGroupOrder[]
 
   erpnextInvoiceId               String?
+  erpReturnSalesInvoiceIds       String[]  @default([])
   erpnextWarehouse               String?
   posProfile                     String?
   erpnextSyncError               String?
@@ -1252,6 +1273,33 @@ model OgfEmailLog {
   company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, createdAt(sort: Desc)])
+}
+
+model DailySalesSmsConfig {
+  id         String   @id @default(cuid())
+  companyId  String   @unique
+  recipients Json     @default("[]")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model DailySalesSmsSendLog {
+  id             String   @id @default(cuid())
+  companyId      String
+  reportDate     String
+  status         String
+  messageBody    String?
+  recipientCount Int      @default(0)
+  recipients     Json     @default("[]")
+  errorSummary   String?
+  source         String   @default("cron")
+  createdAt      DateTime @default(now())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, reportDate, status])
 }
 
 model UserRole {

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import type { FulfillmentStage } from "@prisma/client";
 import { unstable_cache } from "next/cache";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
@@ -221,6 +222,18 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
 
   if (params.search?.trim()) {
     const searchTerm = params.search.trim();
+    const returnSiPattern = `%${searchTerm}`;
+    const returnSiMatches = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM "Order"
+      WHERE "companyId" = ${companyId}
+        AND cardinality("erpReturnSalesInvoiceIds") > 0
+        AND EXISTS (
+          SELECT 1
+          FROM unnest("erpReturnSalesInvoiceIds") AS si
+          WHERE si ILIKE ${returnSiPattern}
+        )
+    `);
+    const returnSiIds = returnSiMatches.map((r) => r.id);
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : []),
       {
@@ -232,6 +245,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
           // substring match for contact fields
           { customerEmail: { contains: searchTerm, mode: "insensitive" } },
           { customerPhone: { contains: searchTerm, mode: "insensitive" } },
+          ...(returnSiIds.length > 0 ? [{ id: { in: returnSiIds } }] : []),
         ],
       },
     ];
@@ -300,8 +314,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       deliveryPipelineWhere,
     ];
   } else if (params.invoiceCompleteMode) {
+    // Manual invoice-complete queue only (Flow 2). Finance-approved prepaid already set
+    // invoiceCompleteAt at approval and should not appear here.
     where.fulfillmentStage = "delivery_complete";
     where.financialStatus = { not: "voided" };
+    where.invoiceCompleteAt = null;
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
       deliveryPipelineWhere,
@@ -436,6 +453,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     orderNumber: true,
     name: true,
     erpnextInvoiceId: true,
+    erpReturnSalesInvoiceIds: true,
     erpnextSyncError: true,
     sourceName: true,
     discountCodes: true,
@@ -512,6 +530,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     orderNumber: o.orderNumber,
     name: o.name,
     erpnextInvoiceId: o.erpnextInvoiceId,
+    erpReturnSalesInvoiceIds: o.erpReturnSalesInvoiceIds ?? [],
     sourceName: o.sourceName,
     totalPrice: o.totalPrice.toString(),
     currency: o.currency,
@@ -553,6 +572,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       discountCodes: o.discountCodes,
       rawPayload: o.rawPayload,
       assignedMerchantCouponCodes: o.assignedMerchant?.couponCodes ?? null,
+    }),
+    discountCouponCode: getOrderDiscountCouponCode({
+      sourceName: o.sourceName,
+      discountCodes: o.discountCodes,
+      rawPayload: o.rawPayload,
     }),
   }));
 

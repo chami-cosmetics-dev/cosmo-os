@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -492,7 +493,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? (detail?.shippingAddress as Record<string, string> | null)?.phone ?? "-"}</p>
               </div>
               <div className="space-y-1">
-                <p><span className="font-medium">Order date:</span> {order ? new Date(order.createdAt).toLocaleString("en-LK") : "-"}</p>
+                <p><span className="font-medium">Order date:</span> {order ? formatAppDateTime(order.createdAt, "-") : "-"}</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">Payment:</span>
                   <span>{paymentMethod}</span>

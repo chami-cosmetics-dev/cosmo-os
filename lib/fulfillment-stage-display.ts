@@ -1,4 +1,5 @@
 export const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
+  cancelled: "Cancelled",
   order_received: "Order Received",
   sample_free_issue: "Sample/Free Issue",
   print: "Print",
@@ -14,6 +15,7 @@ export const FULFILLMENT_STAGE_LABELS: Record<string, string> = {
 };
 
 export const FULFILLMENT_STAGE_COLORS: Record<string, string> = {
+  cancelled: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   order_received: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   sample_free_issue: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
   print: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
@@ -95,6 +97,7 @@ function resolveListFulfillmentStage(input: {
 /** Orders list shows the current fulfillment stage only. Sample completion is tracked in order details timeline. */
 export function getOrderListFulfillmentStageBadges(input: {
   fulfillmentStage?: string | null;
+  financialStatus?: string | null;
   pendingPaymentApproval?: boolean;
   totalPrice?: string | number | null;
   printCount?: number | null;
@@ -103,6 +106,10 @@ export function getOrderListFulfillmentStageBadges(input: {
   dispatchedAt?: string | Date | null;
   revertedFromInvoiceCompleteAt?: string | Date | null;
 }): FulfillmentStageBadge[] {
+  if (input.financialStatus?.toLowerCase() === "voided") {
+    return [{ key: "cancelled", label: FULFILLMENT_STAGE_LABELS.cancelled, className: FULFILLMENT_STAGE_COLORS.cancelled }];
+  }
+
   const total = Number(input.totalPrice ?? 0);
   if (Number.isFinite(total) && total < 0) {
     return [

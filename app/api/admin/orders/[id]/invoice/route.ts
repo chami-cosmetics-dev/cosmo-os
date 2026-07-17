@@ -6,6 +6,7 @@ import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
+import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
@@ -15,6 +16,7 @@ import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
+import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 
 async function getCompanyId(userId: string): Promise<string | null> {
   const user = await prisma.user.findUnique({
@@ -325,6 +327,13 @@ export async function GET(
     erpnextInvoiceId: order.erpnextInvoiceId,
     erpnextInstance: order.companyLocation.erpnextInstance,
   });
+  const erpSpecialRemarks = await resolveOrderErpSpecialRemarksForOrder({
+    sourceName: order.sourceName,
+    rawPayload: order.rawPayload,
+    name: order.name,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+    erpnextInstance: order.companyLocation.erpnextInstance,
+  });
 
   function escapeHtml(s: string): string {
     return s
@@ -344,20 +353,12 @@ export async function GET(
     sourceName: order.sourceName,
   });
   const invoiceNumber = invoiceRefs.primary;
-  const invoiceDate = new Date(order.createdAt).toISOString().slice(0, 10);
-  const printedOn = printedAt.toLocaleString("en-LK", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-
+  const invoiceDate = formatAppIsoDate(order.createdAt);
+  const printedOn = formatAppDateTime(printedAt, "");
   const companyName = company?.name ?? loc.name ?? "";
   const companyAddress = loc.address ?? company?.address ?? "";
   const currency = order.currency ?? "LKR";
-  const printedDate = printedAt.toISOString().slice(0, 10);
+  const printedDate = formatAppIsoDate(printedAt);
   const totalQuantity =
     order.lineItems.reduce((sum, item) => sum + item.quantity, 0) +
     order.sampleFreeIssues.reduce((sum, item) => sum + item.quantity, 0);
@@ -485,6 +486,8 @@ export async function GET(
       internal: internalRemarks,
       externalText: externalRemarks.join("; "),
       internalText: internalRemarks.join("; "),
+      specialRemarks: erpSpecialRemarks ?? "",
+      specialText: erpSpecialRemarks ?? "",
     },
     print: {
       isCopy: showWatermark,

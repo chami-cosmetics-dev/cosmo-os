@@ -22,6 +22,10 @@ import {
 } from "@/components/ui/sheet";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
+import {
+  isReminderImpliedByPagePermissions,
+  stripImpliedReminderPermissions,
+} from "@/lib/reminder-permissions";
 
 const SEO_WELCOME_PERMISSION = "seo.welcome";
 
@@ -256,19 +260,21 @@ export function UserManagementPanel({
   }, [roleSearch]);
 
   function togglePermission(key: string) {
-    setSelectedPermissionKeys((current) =>
-      current.includes(key)
+    setSelectedPermissionKeys((current) => {
+      if (isReminderImpliedByPagePermissions(key, current)) return current;
+      return current.includes(key)
         ? current.filter((item) => item !== key)
-        : [...current, key]
-    );
+        : [...current, key];
+    });
   }
 
   function toggleEditRolePermission(key: string) {
-    setEditRolePermissionKeys((current) =>
-      current.includes(key)
+    setEditRolePermissionKeys((current) => {
+      if (isReminderImpliedByPagePermissions(key, current)) return current;
+      return current.includes(key)
         ? current.filter((item) => item !== key)
-        : [...current, key]
-    );
+        : [...current, key];
+    });
   }
 
   function startEditingRole(role: Role) {
@@ -403,7 +409,7 @@ export function UserManagementPanel({
         body: JSON.stringify({
           name: draftRoleName,
           description: draftRoleDescription || undefined,
-          permissionKeys: selectedPermissionKeys,
+          permissionKeys: stripImpliedReminderPermissions(selectedPermissionKeys),
         }),
       });
 
@@ -595,7 +601,7 @@ export function UserManagementPanel({
         body: JSON.stringify({
           name: editRoleName.trim(),
           description: editRoleDescription.trim() || undefined,
-          permissionKeys: editRolePermissionKeys,
+          permissionKeys: stripImpliedReminderPermissions(editRolePermissionKeys),
         }),
       });
 
@@ -1308,56 +1314,30 @@ export function UserManagementPanel({
                               {subGroup}
                             </p>
                             <div className="flex flex-wrap gap-1.5">
-                              {perms.map((p) => {
-                                const checked = selectedPermissionKeys.includes(p.key);
-                                return (
-                                  <label
-                                    key={p.id}
-                                    className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
-                                      checked
-                                        ? "border-primary/50 bg-primary/12 text-foreground"
-                                        : "hover:bg-secondary/10"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => togglePermission(p.key)}
-                                      disabled={isBusy}
-                                      className="rounded"
-                                    />
-                                    {p.key}
-                                  </label>
-                                );
-                              })}
+                              {perms.map((p) => (
+                                <RolePermissionCheckbox
+                                  key={p.id}
+                                  permissionKey={p.key}
+                                  selectedKeys={selectedPermissionKeys}
+                                  onToggle={togglePermission}
+                                  disabled={isBusy}
+                                />
+                              ))}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
-                        {item.permissions.map((p) => {
-                          const checked = selectedPermissionKeys.includes(p.key);
-                          return (
-                            <label
-                              key={p.id}
-                              className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
-                                checked
-                                  ? "border-primary/50 bg-primary/12 text-foreground"
-                                  : "hover:bg-secondary/10"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => togglePermission(p.key)}
-                                disabled={isBusy}
-                                className="rounded"
-                              />
-                              {p.key}
-                            </label>
-                          );
-                        })}
+                        {item.permissions.map((p) => (
+                          <RolePermissionCheckbox
+                            key={p.id}
+                            permissionKey={p.key}
+                            selectedKeys={selectedPermissionKeys}
+                            onToggle={togglePermission}
+                            disabled={isBusy}
+                          />
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1545,19 +1525,13 @@ export function UserManagementPanel({
                               </p>
                               <div className="flex flex-wrap gap-1.5">
                                 {perms.map((p) => (
-                                  <label
+                                  <RolePermissionCheckbox
                                     key={p.id}
-                                    className="flex cursor-pointer items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-xs transition-colors hover:bg-secondary/10"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={editRolePermissionKeys.includes(p.key)}
-                                      onChange={() => toggleEditRolePermission(p.key)}
-                                      disabled={isBusy}
-                                      className="rounded"
-                                    />
-                                    {p.key}
-                                  </label>
+                                    permissionKey={p.key}
+                                    selectedKeys={editRolePermissionKeys}
+                                    onToggle={toggleEditRolePermission}
+                                    disabled={isBusy}
+                                  />
                                 ))}
                               </div>
                             </div>
@@ -1566,19 +1540,13 @@ export function UserManagementPanel({
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
                           {item.permissions.map((p) => (
-                            <label
+                            <RolePermissionCheckbox
                               key={p.id}
-                              className="flex cursor-pointer items-center gap-1.5 rounded-md border border-border/70 px-2 py-1 text-xs transition-colors hover:bg-secondary/10"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={editRolePermissionKeys.includes(p.key)}
-                                onChange={() => toggleEditRolePermission(p.key)}
-                                disabled={isBusy}
-                                className="rounded"
-                              />
-                              {p.key}
-                            </label>
+                              permissionKey={p.key}
+                              selectedKeys={editRolePermissionKeys}
+                              onToggle={toggleEditRolePermission}
+                              disabled={isBusy}
+                            />
                           ))}
                         </div>
                       )}
@@ -1623,6 +1591,48 @@ function mapAssignments(users: User[]) {
   }, {});
 }
 
+function RolePermissionCheckbox({
+  permissionKey,
+  selectedKeys,
+  onToggle,
+  disabled,
+}: {
+  permissionKey: string;
+  selectedKeys: string[];
+  onToggle: (key: string) => void;
+  disabled?: boolean;
+}) {
+  const implied = isReminderImpliedByPagePermissions(permissionKey, selectedKeys);
+  const checked = implied || selectedKeys.includes(permissionKey);
+  const isDisabled = Boolean(disabled || implied);
+
+  return (
+    <label
+      title={
+        implied
+          ? "Granted by related page permission — bubble shows automatically"
+          : undefined
+      }
+      className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
+        isDisabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+      } ${
+        checked
+          ? "border-primary/50 bg-primary/12 text-foreground"
+          : "border-border/70 hover:bg-secondary/10"
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => onToggle(permissionKey)}
+        disabled={isDisabled}
+        className="rounded"
+      />
+      {permissionKey}
+    </label>
+  );
+}
+
 const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
   sample_free_issue: "Sample / Free Issue",
   order_print: "Order Print",
@@ -1636,6 +1646,7 @@ const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
 
 const PERMISSION_GROUP_LABELS: Record<string, string> = {
   failed_webhooks: "Failed Webhooks",
+  reminders: "Reminder bubbles (optional)",
 };
 
 type PermissionGroupItem =
