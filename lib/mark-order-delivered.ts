@@ -7,6 +7,7 @@ import {
 } from "@/lib/delivery-payment-approval";
 import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import {
   resolveCustomerPhone,
   resolveOrderInvoiceNumber,
@@ -46,12 +47,24 @@ export async function markOrderDelivered(input: {
       name: true,
       orderNumber: true,
       fulfillmentStage: true,
+      paymentGatewayPrimary: true,
+      paymentGatewayNames: true,
+      erpnextInvoiceId: true,
     },
   });
 
   const ref = order?.name ?? order?.orderNumber ?? input.orderId;
   if (!order) {
     return { success: false, ref, error: "Order not found" };
+  }
+  const financeBlock = await getFinancePaymentApprovalBlockReason({
+    id: order.id,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+    erpnextInvoiceId: order.erpnextInvoiceId,
+  });
+  if (financeBlock) {
+    return { success: false, ref, error: financeBlock };
   }
   if (order.fulfillmentStage !== "dispatched") {
     return {

@@ -1009,20 +1009,57 @@ export async function createErpnextCreditNote(
   return { creditNoteName: creditNote.name };
 }
 
+export type SalesInvoiceCancellationResult = {
+  outcome: "cancelled" | "already_cancelled" | "not_found";
+  invoiceName?: string;
+};
+
 export async function cancelErpnextSalesInvoice(
   orderName: string,
   location: LocationWithErpInstance,
-  options?: { directInvoiceName?: string },
-): Promise<void> {
+  options?: { directInvoiceName?: string; strict?: boolean },
+): Promise<SalesInvoiceCancellationResult> {
+  const strict = Boolean(options?.strict);
   const cfg = getErpConfig(location.erpnextInstance);
-  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
-  if (!location.erpnextCompany) return;
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
+    if (strict) {
+      throw new Error("ERPNext credentials are not configured for this location");
+    }
+    return { outcome: "not_found" };
+  }
+  if (!location.erpnextCompany) {
+    if (strict) {
+      throw new Error("ERPNext company is not configured for this location");
+    }
+    return { outcome: "not_found" };
+  }
 
-  let invoiceName: string;
+  let invoiceName: string | undefined = options?.directInvoiceName?.trim() || undefined;
 
-  if (options?.directInvoiceName) {
-    // ERP-native orders: we already know the invoice name — cancel directly without a po_no lookup.
-    invoiceName = options.directInvoiceName;
+  if (invoiceName && isUsableErpInvoiceId(invoiceName)) {
+    const encoded = encodeURIComponent(invoiceName);
+    const doc = await erpnextGet<{ name: string; docstatus: number }>(
+      cfg,
+      `/api/resource/Sales Invoice/${encoded}`,
+    );
+    if (!doc) {
+      if (strict) {
+        throw new Error(`ERP Sales Invoice ${invoiceName} was not found`);
+      }
+      return { outcome: "not_found", invoiceName };
+    }
+    if (Number(doc.docstatus) === 2) {
+      return { outcome: "already_cancelled", invoiceName: doc.name };
+    }
+    if (Number(doc.docstatus) !== 1) {
+      if (strict) {
+        throw new Error(
+          `ERP Sales Invoice ${invoiceName} has unexpected docstatus ${String(doc.docstatus)}`,
+        );
+      }
+      return { outcome: "not_found", invoiceName: doc.name };
+    }
+    invoiceName = doc.name;
   } else {
     // Shopify-synced orders: find the submitted SI by po_no (set when OS created the SI).
     const filters = encodeURIComponent(
@@ -1039,8 +1076,25 @@ export async function cancelErpnextSalesInvoice(
     );
 
     if (!list || list.length === 0) {
+      if (strict) {
+        // Also check for already-cancelled SI by po_no for idempotent retries.
+        const cancelledFilters = encodeURIComponent(
+          JSON.stringify([
+            ["po_no", "=", orderName],
+            ["company", "=", location.erpnextCompany],
+            ["docstatus", "=", "2"],
+          ]),
+        );
+        const cancelledList = await erpnextGet<Array<{ name: string }>>(
+          cfg,
+          `/api/resource/Sales Invoice?filters=${cancelledFilters}&fields=${fields}&limit=1`,
+        );
+        if (cancelledList?.[0]?.name) {
+          return { outcome: "already_cancelled", invoiceName: cancelledList[0].name };
+        }
+      }
       console.warn(`[ERPNext] No submitted Sales Invoice found for po_no="${orderName}" — skipping cancel`);
-      return;
+      return { outcome: "not_found" };
     }
 
     invoiceName = list[0].name;
@@ -1054,10 +1108,22 @@ export async function cancelErpnextSalesInvoice(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // Idempotent: already cancelled race
+    if (/already cancelled|Cannot cancel/i.test(text)) {
+      const encoded = encodeURIComponent(invoiceName);
+      const doc = await erpnextGet<{ name: string; docstatus: number }>(
+        cfg,
+        `/api/resource/Sales Invoice/${encoded}`,
+      );
+      if (doc && Number(doc.docstatus) === 2) {
+        return { outcome: "already_cancelled", invoiceName: doc.name };
+      }
+    }
     throw new Error(`ERPNext cancel Sales Invoice ${invoiceName} [${res.status}]: ${text.slice(0, 500)}`);
   }
 
   console.log(`[ERPNext] Cancelled Sales Invoice ${invoiceName} for order ${orderName}`);
+  return { outcome: "cancelled", invoiceName };
 }
 
 export async function syncBankTransferPaymentToERPNext(

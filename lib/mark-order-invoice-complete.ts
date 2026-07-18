@@ -1,5 +1,6 @@
 import {
   DELIVERY_PAYMENT_APPROVAL,
+  getFinancePaymentApprovalBlockReason,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
 import { writeAuditLog } from "@/lib/audit-log";
@@ -40,6 +41,15 @@ export async function markOrderInvoiceComplete(input: {
   const ref = order?.name ?? order?.orderNumber ?? input.orderId;
   if (!order) {
     return { success: false, ref, error: "Order not found" };
+  }
+  const financeBlock = await getFinancePaymentApprovalBlockReason({
+    id: order.id,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+    erpnextInvoiceId: order.erpnextInvoiceId,
+  });
+  if (financeBlock) {
+    return { success: false, ref, error: financeBlock };
   }
   if (order.fulfillmentStage !== "delivery_complete") {
     return {

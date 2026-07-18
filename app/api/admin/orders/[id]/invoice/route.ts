@@ -231,6 +231,16 @@ export async function GET(
     ? (((order as unknown as Record<string, unknown>)?.paymentGatewayNames as string[] | null) ?? [])
     : [];
 
+  const financeBlock = await getFinancePaymentApprovalBlockReason({
+    id: order.id,
+    paymentGatewayPrimary,
+    paymentGatewayNames,
+    erpnextInvoiceId: order.erpnextInvoiceId,
+  });
+  if (financeBlock) {
+    return new NextResponse(financeBlock, { status: 409 });
+  }
+
   const erpConfig = resolveErpApiCreds(order.companyLocation.erpnextInstance);
   const lineItemSkus = order.lineItems
     .map((li) => li.productItem.sku)
@@ -240,16 +250,6 @@ export async function GET(
   const showWatermark = order.printCount > 0;
   const printedAt = new Date();
   if (shouldIncrementPrint) {
-    const financeBlock = await getFinancePaymentApprovalBlockReason({
-      id: order.id,
-      paymentGatewayPrimary,
-      paymentGatewayNames,
-      erpnextInvoiceId: order.erpnextInvoiceId,
-    });
-    if (financeBlock) {
-      return new NextResponse(financeBlock, { status: 409 });
-    }
-
     const userId = auth.context!.user!.id;
     const stage = order.fulfillmentStage;
     const printStageUpdate =

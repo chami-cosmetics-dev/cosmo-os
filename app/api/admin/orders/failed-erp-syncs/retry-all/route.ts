@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
   buildFailedErpSyncWhere,
-  isAwaitingFinancePaymentApprovalError,
   markOrderErpSyncFailed,
   retryOrderErpSync,
 } from "@/lib/failed-erp-sync-auto-retry";
@@ -42,7 +41,6 @@ export async function POST() {
 
   let succeeded = 0;
   let failed = 0;
-  let skippedApproval = 0;
   const sampleFailures: Array<{ id: string; shopifyOrderId: string; error: string }> = [];
 
   for (const order of failedOrders) {
@@ -51,11 +49,6 @@ export async function POST() {
       succeeded += 1;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (isAwaitingFinancePaymentApprovalError(errorMessage)) {
-        skippedApproval += 1;
-        continue;
-      }
-
       failed += 1;
       await markOrderErpSyncFailed(order.id, errorMessage, {
         incrementAutoRetryCount: true,
@@ -77,8 +70,8 @@ export async function POST() {
     total: failedOrders.length,
     succeeded,
     failed,
-    skippedApproval,
+    skippedApproval: 0,
     sampleFailures,
-    message: `Retried ${failedOrders.length} orders: ${succeeded} succeeded, ${failed} still failing${skippedApproval > 0 ? `, ${skippedApproval} skipped (awaiting approval)` : ""}.`,
+    message: `Retried ${failedOrders.length} orders: ${succeeded} succeeded, ${failed} still failing.`,
   });
 }

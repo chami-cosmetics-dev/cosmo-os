@@ -75,6 +75,8 @@ export const LIMITS = {
   contactAllocationOptionValue: { max: 100 },
   /** Max order IDs accepted by merchant review bulk mark-follow-up */
   merchantReviewBulkMark: { maxOrderIds: 500 },
+  /** Order-payment finance rejection reason (server-enforced) */
+  orderPaymentRejectionReason: { min: 5, max: 500 },
 } as const;
 
 /** Parse and validate page number from query string */
@@ -199,6 +201,12 @@ export const trimmedString = (min: number, max: number) =>
     .transform((s) => s.trim())
     .refine((s) => s.length >= min, `Minimum ${min} character(s)`)
     .refine((s) => s.length <= max, `Maximum ${max} character(s)`);
+
+/** Required rejection reason for ORDER_PAYMENT_APPROVAL reject. */
+export const orderPaymentRejectionReasonSchema = trimmedString(
+  LIMITS.orderPaymentRejectionReason.min,
+  LIMITS.orderPaymentRejectionReason.max,
+);
 
 export const RESERVED_ROLE_NAMES = ["super_admin", "admin"] as const;
 
