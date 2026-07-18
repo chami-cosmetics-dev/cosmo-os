@@ -85,6 +85,13 @@ export const dispatchPipelineWhere = {} satisfies Prisma.OrderWhereInput;
  */
 export const deliveryPipelineWhere = {} satisfies Prisma.OrderWhereInput;
 
+/** Counter / POS sales — skip warehouse fulfillment queues (dispatch, invoice-complete, etc.). */
+export const POS_ORDER_SOURCE_NAMES = ["pos", "erpnext-pos"] as const;
+
+export const excludePosOrdersWhere = {
+  sourceName: { notIn: [...POS_ORDER_SOURCE_NAMES] },
+} satisfies Prisma.OrderWhereInput;
+
 export function isDispatchFulfillmentStages(stages: string[]): boolean {
   return (
     stages.includes("ready_to_dispatch") &&

@@ -9,6 +9,7 @@ import {
 } from "@/lib/approval-workflow";
 import {
   deliveryPipelineWhere,
+  excludePosOrdersWhere,
   fulfillableOrderPipelineWhere,
   printFulfillmentPipelineWhere,
   sampleQueueWhere,
@@ -391,7 +392,7 @@ async function fetchDispatchReminders(
     lastPrintedAt: { not: null, lte: slaCutoff(now) },
     dispatchedAt: null,
     fulfillmentStage: { in: [...DISPATCH_REMINDER_STAGES] },
-    sourceName: { notIn: ["pos", "erpnext-pos"] },
+    ...excludePosOrdersWhere,
     totalPrice: { gte: 0 },
     returns: rearrange ? { some: { actionType: "rearrange" } } : { none: {} },
   };
@@ -562,6 +563,8 @@ async function fetchInvoiceCompleteReminders(
     financialStatus: { not: "voided" },
     fulfillmentStage: "delivery_complete",
     invoiceCompleteAt: null,
+    // POS / ERP POS are completed at the counter — no invoice-complete reminder.
+    ...excludePosOrdersWhere,
     deliveryCompleteAt: { not: null, lte: slaCutoff(now) },
     ...(financeLocationIds !== null
       ? { companyLocationId: { in: financeLocationIds } }

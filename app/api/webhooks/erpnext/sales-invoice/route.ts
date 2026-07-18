@@ -513,9 +513,21 @@ export async function POST(request: NextRequest) {
       : {}),
   };
 
-  // POS orders skip the sample/free-issue stage (delivered immediately at counter).
-  // Regular ERP orders start at order_received so staff can add samples before advancing to print.
-  const sampleStageCompletedAt = isPOS ? new Date() : undefined;
+  // POS orders are completed at the counter (paid + delivered) — close fulfillment so they
+  // never appear on the manual invoice-complete queue. Regular ERP orders start at
+  // order_received so staff can add samples before advancing to print.
+  const posCompletedAt = isPOS ? new Date() : undefined;
+  const posCounterSaleCompletion =
+    isPOS && !isCreditNoted && posCompletedAt
+      ? {
+          ...orderStageUpdate("invoice_complete", posCompletedAt),
+          fulfillmentStatus: "fulfilled" as const,
+          deliveryOutcome: "delivered" as const,
+          deliveryCompleteAt: posCompletedAt,
+          invoiceCompleteAt: posCompletedAt,
+          sampleFreeIssueCompleteAt: posCompletedAt,
+        }
+      : null;
 
   const order = await prisma.order.upsert({
     where: { shopifyOrderId: erpInvoiceId },
@@ -536,12 +548,11 @@ export async function POST(request: NextRequest) {
       ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       currency: data.currency ?? "LKR",
       financialStatus: isCreditNoted ? "voided" : financialStatus,
-      ...(isPOS
-        ? orderStageUpdate("delivery_complete", sampleStageCompletedAt ?? new Date())
-        : isCreditNoted
-          ? orderStageUpdate("returned", sampleStageCompletedAt ?? new Date())
+      ...(isCreditNoted
+        ? orderStageUpdate("returned", posCompletedAt ?? new Date())
+        : posCounterSaleCompletion
+          ? posCounterSaleCompletion
           : orderStageUpdate("order_received", new Date())),
-      ...(sampleStageCompletedAt ? { sampleFreeIssueCompleteAt: sampleStageCompletedAt } : {}),
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
@@ -568,11 +579,7 @@ export async function POST(request: NextRequest) {
       posProfile: resolvedPosProfile,
       erpnextSyncError: null,
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
-      ...(isPOS
-        ? orderStageUpdate("delivery_complete", new Date())
-        : isCreditNoted
-          ? orderStageUpdate("returned", new Date())
-          : {}),
+      ...(isCreditNoted ? orderStageUpdate("returned", new Date()) : {}),
       customerEmail,
       customerPhone,
       shippingAddress: shippingAddressObj,
@@ -588,6 +595,15 @@ export async function POST(request: NextRequest) {
     },
     select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true, financialStatus: true },
   });
+
+  // Backfill counter-sale completion for existing ERP POS rows that landed at
+  // delivery_complete without invoiceCompleteAt (they used to clog invoice-complete).
+  if (posCounterSaleCompletion) {
+    await prisma.order.updateMany({
+      where: { id: order.id, invoiceCompleteAt: null },
+      data: posCounterSaleCompletion,
+    });
+  }
 
   if (financialStatus === "voided" || isCreditNoted) {
     await cancelPendingApprovalsForOrder(order.id);
