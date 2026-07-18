@@ -17,6 +17,7 @@ import {
   deliveryStageOrWhere,
   dispatchPipelineWhere,
   dispatchStageOrWhere,
+  excludePosOrdersWhere,
   fulfillableOrderPipelineWhere,
   isDeliveryFulfillmentStages,
   isDispatchFulfillmentStages,
@@ -316,9 +317,11 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   } else if (params.invoiceCompleteMode) {
     // Manual invoice-complete queue only (Flow 2). Finance-approved prepaid already set
     // invoiceCompleteAt at approval and should not appear here.
+    // POS / ERP POS are completed at the counter — never queue them for invoice complete.
     where.fulfillmentStage = "delivery_complete";
     where.financialStatus = { not: "voided" };
     where.invoiceCompleteAt = null;
+    where.sourceName = excludePosOrdersWhere.sourceName;
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
       deliveryPipelineWhere,

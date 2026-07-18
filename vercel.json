@@ -24,6 +24,10 @@
     {
       "path": "/api/cron/daily-sales-sms",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/erp-sync-failure-email",
+      "schedule": "35 18 * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",

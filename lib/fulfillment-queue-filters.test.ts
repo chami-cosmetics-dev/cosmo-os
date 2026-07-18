@@ -4,6 +4,7 @@ import {
   deliveryStageOrWhere,
   dispatchStageOrWhere,
   excludeErpOutOfStockBlockedOrdersWhere,
+  excludePosOrdersWhere,
   fulfillableOrderPipelineWhere,
   isDeliveryFulfillmentStages,
   isDispatchFulfillmentStages,
@@ -84,6 +85,14 @@ describe("sampleQueueWhere", () => {
       invoiceCompleteAt: null,
     });
     expect(sampleQueueWhere).not.toHaveProperty("fulfillmentStatus");
+  });
+});
+
+describe("excludePosOrdersWhere", () => {
+  it("excludes Vault POS and ERP POS source names", () => {
+    expect(excludePosOrdersWhere).toEqual({
+      sourceName: { notIn: ["pos", "erpnext-pos"] },
+    });
   });
 });
 

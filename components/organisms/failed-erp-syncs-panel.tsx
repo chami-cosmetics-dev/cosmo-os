@@ -24,6 +24,7 @@ import {
   resolveOutOfStockItemFromError,
   type OutOfStockLineItemHint,
 } from "@/lib/failed-erp-sync-classification";
+import { ERP_SYNC_STUCK_PENDING_UI_LABEL } from "@/lib/erp-sync-failure-copy";
 
 type FailedErpSync = {
   id: string;
@@ -34,6 +35,7 @@ type FailedErpSync = {
   customerPhone: string | null;
   erpnextSyncError: string | null;
   erpnextSyncFailedAt: string | null;
+  erpnextSyncStartedAt: string | null;
   erpnextSyncAutoRetryCount: number;
   erpnextSyncNextAutoRetryAt: string | null;
   erpnextSyncLastAutoRetryAt: string | null;
@@ -323,9 +325,13 @@ export function FailedErpSyncsPanel() {
                             renderSyncError(item.erpnextSyncError, item.lineItems)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
                             <span className="text-amber-500">Awaiting ERP sync — payment was approved</span>
+                          ) : item.erpnextInvoiceId === "pending" ? (
+                            <span className="text-amber-500">{ERP_SYNC_STUCK_PENDING_UI_LABEL}</span>
                           ) : "—"}
                         </td>
-                        <td className="px-4 py-2 text-muted-foreground text-xs">{formatDate(item.erpnextSyncFailedAt)}</td>
+                        <td className="px-4 py-2 text-muted-foreground text-xs">
+                          {formatDate(item.erpnextSyncFailedAt ?? (item.erpnextInvoiceId === "pending" ? item.erpnextSyncStartedAt : null))}
+                        </td>
                         <td className="px-4 py-2 text-xs text-muted-foreground">{formatAutoRetryStatus(item)}</td>
                         <td className="px-4 py-2">
                           <div className="flex gap-2">
@@ -451,7 +457,9 @@ export function FailedErpSyncsPanel() {
                   <pre className="max-h-48 overflow-auto rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs whitespace-pre-wrap text-amber-700 dark:text-amber-400">
                     {selectedItem.erpnextInvoiceId === "pending_approval"
                       ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now."
-                      : "—"}
+                      : selectedItem.erpnextInvoiceId === "pending"
+                        ? ERP_SYNC_STUCK_PENDING_UI_LABEL
+                        : "—"}
                   </pre>
                 )}
               </div>

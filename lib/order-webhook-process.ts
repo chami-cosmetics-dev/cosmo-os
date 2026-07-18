@@ -310,7 +310,7 @@ export async function processOrderWebhook(
       // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks
       const claimed = await prisma.order.updateMany({
         where: { id: order.id, erpnextInvoiceId: null },
-        data: { erpnextInvoiceId: "pending" },
+        data: { erpnextInvoiceId: "pending", erpnextSyncStartedAt: new Date() },
       });
       if (claimed.count > 0) {
         try {
