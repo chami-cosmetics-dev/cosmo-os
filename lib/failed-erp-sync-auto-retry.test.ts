@@ -2,25 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   ERP_SYNC_INTERRUPTED_MESSAGE,
-  isAwaitingFinancePaymentApprovalError,
   isStalePendingErpSync,
 } from "@/lib/failed-erp-sync-auto-retry";
-
-describe("isAwaitingFinancePaymentApprovalError", () => {
-  it("detects finance approval wait messages", () => {
-    expect(
-      isAwaitingFinancePaymentApprovalError(
-        "This order is awaiting finance approval. The ERP invoice will be created automatically once approved."
-      )
-    ).toBe(true);
-    expect(isAwaitingFinancePaymentApprovalError("Pending approval from finance")).toBe(true);
-  });
-
-  it("rejects unrelated ERP errors", () => {
-    expect(isAwaitingFinancePaymentApprovalError("Item code ABC not found")).toBe(false);
-    expect(isAwaitingFinancePaymentApprovalError("Network timeout")).toBe(false);
-  });
-});
 
 describe("isStalePendingErpSync", () => {
   const now = new Date("2026-07-18T12:00:00.000Z");

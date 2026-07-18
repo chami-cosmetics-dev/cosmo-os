@@ -1,22 +1,12 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
-import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { syncOrderToERPNext, syncOrderToERPNextFromOrder, syncFinanceApprovedPrepaidPaymentToERPNext } from "@/lib/erpnext-sync";
 import { shopifyOrderWebhookSchema } from "@/lib/validation/shopify-order";
 import { classifyFailedErpSyncError, formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
-import {
-  getOrderImportCutoff,
-  isOrderBeforeImportCutoff,
-} from "@/lib/order-import-cutoff";
-import {
-  getErpShopifySyncSkipReason,
-  shouldSkipShopifyOrderErpSync,
-} from "@/lib/erp-shopify-sync-eligibility";
-import {
-  ERP_SYNC_INTERRUPTED_MESSAGE,
-  ERP_SYNC_STUCK_PENDING_UI_LABEL,
-} from "@/lib/erp-sync-failure-copy";
+import { getOrderImportCutoff } from "@/lib/order-import-cutoff";
+import { getErpShopifySyncSkipReason } from "@/lib/erp-shopify-sync-eligibility";
+import { ERP_SYNC_INTERRUPTED_MESSAGE } from "@/lib/erp-sync-failure-copy";
 
 export {
   ERP_SYNC_INTERRUPTED_MESSAGE,
@@ -128,32 +118,16 @@ export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
   return !id || id === "pending" || id === "pending_approval";
 }
 
-/** Orders waiting on finance payment approval must not appear as failed ERP syncs. */
-export const FAILED_ERP_SYNC_PENDING_PAYMENT_APPROVAL_EXCLUSION: Prisma.OrderWhereInput = {
-  NOT: {
-    approvalRequests: {
-      some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-    },
-  },
-};
-
-export function isAwaitingFinancePaymentApprovalError(message: string) {
-  const normalized = message.replace(/\s+/g, " ").trim().toLowerCase();
-  return (
-    normalized.includes("awaiting finance approval") ||
-    normalized.includes("pending approval")
-  );
-}
-
 export function buildFailedErpSyncWhere(companyId?: string, search?: string): Prisma.OrderWhereInput {
   const cutoff = getOrderImportCutoff();
   const base: Prisma.OrderWhereInput = {
     ...(companyId ? { companyId } : {}),
     ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
     financialStatus: { not: "voided" },
-    ...FAILED_ERP_SYNC_PENDING_PAYMENT_APPROVAL_EXCLUSION,
+    // Finance-pending orders may still need SI creation at arrival; do not exclude them.
     // Include orders with a recorded error OR orders stuck at "pending" with no error
     // (zombie state: sync was claimed but Vercel timed out before error could be written).
+    // Legacy "pending_approval" rows are also recoverable via SI retry.
     OR: [
       {
         erpnextSyncError: { not: null },
@@ -164,6 +138,7 @@ export function buildFailedErpSyncWhere(companyId?: string, search?: string): Pr
         ],
       },
       { erpnextInvoiceId: "pending", erpnextSyncError: null },
+      { erpnextInvoiceId: "pending_approval", erpnextSyncError: null },
     ],
   };
 
@@ -263,15 +238,19 @@ export async function retryOrderErpSync(order: OrderForErpRetry): Promise<void> 
   }
 
   if (order.erpnextInvoiceId === "pending_approval") {
-    const pendingApproval = await prisma.approvalRequest.findFirst({
-      where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-      select: { id: true },
+    // Legacy placeholder: clear it so syncOrderToERPNext can claim null → pending and create the SI
+    // while finance approval remains pending. Do not wait for approval before SI creation.
+    await prisma.order.update({
+      where: { id: order.id },
+      data: orderUpdate({
+        erpnextInvoiceId: null,
+        erpnextSyncError: null,
+        erpnextSyncFailedAt: null,
+        erpnextSyncNextAutoRetryAt: null,
+        erpnextSyncRetryLeaseExpiresAt: null,
+      }),
     });
-    if (pendingApproval) {
-      throw new Error(
-        "This order is awaiting finance approval. The ERP invoice will be created automatically once approved."
-      );
-    }
+    order = { ...order, erpnextInvoiceId: null };
   }
 
   if (order.rawPayload) {
@@ -301,61 +280,16 @@ async function assertOrderHasErpSalesInvoice(orderId: string) {
   }
 }
 
-/** Run ERP sync after finance approves a Koko/bank-transfer order. */
+/** Run ERP PE sync after finance approves a Koko/bank-transfer order that already has an SI. */
 export async function runPostApprovalErpSync(orderId: string, paidAt: Date = new Date()): Promise<void> {
   const orderBefore = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { erpnextInvoiceId: true, createdAt: true, companyLocationId: true },
+    select: { erpnextInvoiceId: true },
   });
-  const hadExistingSi = orderBefore && !isPlaceholderErpInvoiceId(orderBefore.erpnextInvoiceId);
-
-  if (!hadExistingSi) {
-    const orderForSkipCheck = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { companyLocation: { include: { erpnextInstance: true } } },
-    });
-    if (!orderForSkipCheck?.companyLocation) {
-      throw new Error("Order or company location not found");
-    }
-
-    if (shouldSkipShopifyOrderErpSync(orderForSkipCheck.createdAt, orderForSkipCheck.companyLocation)) {
-      await prisma.order.updateMany({
-        where: {
-          id: orderId,
-          erpnextInvoiceId: "pending_approval",
-        },
-        data: orderUpdateMany({ erpnextInvoiceId: null }),
-      });
-      return;
-    }
-
-    await prisma.order.updateMany({
-      where: {
-        id: orderId,
-        OR: [{ erpnextInvoiceId: null }, { erpnextInvoiceId: "pending_approval" }],
-      },
-      data: orderUpdateMany({
-        erpnextInvoiceId: "pending",
-        erpnextSyncStartedAt: new Date(),
-        erpnextSyncError: null,
-        erpnextSyncFailedAt: null,
-        erpnextSyncNextAutoRetryAt: null,
-        erpnextSyncRetryLeaseExpiresAt: null,
-      }),
-    });
-
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        companyLocation: { include: { erpnextInstance: true } },
-        lineItems: { include: { productItem: true } },
-      },
-    });
-    if (!order?.companyLocation) {
-      throw new Error("Order or company location not found");
-    }
-
-    await retryOrderErpSync(order);
+  if (!orderBefore || isPlaceholderErpInvoiceId(orderBefore.erpnextInvoiceId)) {
+    throw new Error(
+      "ERP Sales Invoice is not ready. Retry ERP sync before approving this order.",
+    );
   }
 
   const orderAfter = await prisma.order.findUnique({
@@ -455,7 +389,6 @@ export async function classifyAndMarkStalePendingErpSyncs(
       financialStatus: { not: "voided" },
       erpnextInvoiceId: "pending",
       erpnextSyncError: null,
-      ...FAILED_ERP_SYNC_PENDING_PAYMENT_APPROVAL_EXCLUSION,
       OR: [
         { erpnextSyncStartedAt: { lte: cutoff } },
         { erpnextSyncStartedAt: null, updatedAt: { lte: cutoff } },
@@ -541,19 +474,6 @@ export async function runDueFailedErpSyncRetries(options?: {
       resolved += 1;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (isAwaitingFinancePaymentApprovalError(errorMessage)) {
-        await prisma.order.update({
-          where: { id: order.id },
-          data: orderUpdate({
-            erpnextSyncError: null,
-            erpnextSyncFailedAt: null,
-            erpnextSyncNextAutoRetryAt: null,
-            erpnextSyncRetryLeaseExpiresAt: null,
-          }),
-        });
-        continue;
-      }
-
       failed += 1;
       const classification = classifyFailedErpSyncError(errorMessage);
       const nextCount = (await getOrderErpSyncAutoRetryCount(order.id)) + 1;

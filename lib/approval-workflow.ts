@@ -175,19 +175,27 @@ export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
   return !trimmed || trimmed === "pending" || trimmed === "pending_approval";
 }
 
-/** Keep finance-pending KOKO/bank orders out of fulfillment queues. */
-// NOT { OR [A, B] } has a SQL NULL trap: when erpnextInvoiceId IS NULL,
-// `NULL = 'pending_approval'` → NULL, so NOT(... OR NULL) = NULL = false,
-// silently dropping orders whose ERP sync failed (erpnextInvoiceId never set).
-// Fix: use `none` for the relation (NOT EXISTS) and explicit OR-null for the string field.
+/** True when a real ERP SI name is stored (not null/pending/pending_approval). */
+export function isRealErpSalesInvoiceId(id: string | null | undefined): boolean {
+  return !isPlaceholderErpInvoiceId(id);
+}
+
+/** True when an SI sync claim/retry lease is still active. */
+export function isActiveErpSiRetryLease(
+  leaseExpiresAt: Date | string | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!leaseExpiresAt) return false;
+  const expires = leaseExpiresAt instanceof Date ? leaseExpiresAt : new Date(leaseExpiresAt);
+  if (Number.isNaN(expires.getTime())) return false;
+  return expires.getTime() > now.getTime();
+}
+
+/** Keep finance-pending KOKO/bank orders out of fulfillment queues (approval state only). */
 export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
   approvalRequests: {
     none: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
   },
-  OR: [
-    { erpnextInvoiceId: null },
-    { erpnextInvoiceId: { not: "pending_approval" } },
-  ],
 } satisfies Prisma.OrderWhereInput;
 
 const voidedOrderFinancialStatusFilter = {
@@ -389,9 +397,11 @@ export async function reconcilePendingApprovalsForVoidedOrders(companyId: string
 export async function getOrderPaymentApproval(orderId: string) {
   // PAYMENT_METHOD_CHANGE_APPROVAL (e.g. COD → KOKO) also confirms payment for the order,
   // so treat it the same as ORDER_PAYMENT_APPROVAL when checking the print block.
-  const rows = await prisma.$queryRaw<Array<{ id: string; status: ApprovalStatus }>>(
+  const rows = await prisma.$queryRaw<
+    Array<{ id: string; status: ApprovalStatus; reviewNote: string | null }>
+  >(
     Prisma.sql`
-      SELECT "id", "status"
+      SELECT "id", "status", "reviewNote"
       FROM "ApprovalRequest"
       WHERE "type" IN (${ORDER_PAYMENT_APPROVAL}, ${PAYMENT_METHOD_CHANGE_APPROVAL})
         AND "orderId" = ${orderId}
@@ -409,17 +419,17 @@ export async function getFinancePaymentApprovalBlockReason(order: {
   paymentGatewayNames: string[];
   erpnextInvoiceId?: string | null;
 }): Promise<string | null> {
-  if (order.erpnextInvoiceId === "pending_approval") {
-    return "Finance approval is pending for this order. Please wait for the finance team to approve.";
-  }
   if (!isOrderPaymentRequiresApproval(order)) return null;
 
   const approval = await getOrderPaymentApproval(order.id);
-  if (!approval || approval.status === "pending") {
+  if (!approval || approval.status === "pending" || approval.status === "cancelled") {
     return "Finance approval is pending for this order. Please wait for the finance team to approve.";
   }
   if (approval.status === "rejected") {
-    return "Finance approval was rejected. Please contact the finance team.";
+    const reason = approval.reviewNote?.trim();
+    return reason
+      ? `Finance approval was rejected: ${reason}`
+      : "Finance approval was rejected. Please contact the finance team.";
   }
   return null;
 }

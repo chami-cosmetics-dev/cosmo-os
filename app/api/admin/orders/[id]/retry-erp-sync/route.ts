@@ -8,7 +8,6 @@ import {
   retryOrderErpSync,
   type OrderForErpRetry,
 } from "@/lib/failed-erp-sync-auto-retry";
-import { ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
 import { isOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
 import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 
@@ -58,23 +57,11 @@ export async function POST(
     );
   }
 
-  const isPendingApproval = order.erpnextInvoiceId === "pending_approval";
   const isZombiePending = order.erpnextInvoiceId === "pending" && !order.erpnextSyncError;
-  if (!order.erpnextSyncError && !isPendingApproval && !isZombiePending) {
+  const isLegacyPendingApprovalPlaceholder =
+    order.erpnextInvoiceId === "pending_approval";
+  if (!order.erpnextSyncError && !isZombiePending && !isLegacyPendingApprovalPlaceholder) {
     return NextResponse.json({ error: "No failed ERP sync on this order" }, { status: 400 });
-  }
-
-  if (isPendingApproval) {
-    const pendingApproval = await prisma.approvalRequest.findFirst({
-      where: { orderId: order.id, type: ORDER_PAYMENT_APPROVAL, status: "pending" },
-      select: { id: true },
-    });
-    if (pendingApproval) {
-      return NextResponse.json(
-        { error: "This order is awaiting finance approval. The ERP invoice will be created automatically once approved.", code: "PENDING_APPROVAL" },
-        { status: 400 },
-      );
-    }
   }
 
   try {

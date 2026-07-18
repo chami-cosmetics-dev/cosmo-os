@@ -10,7 +10,7 @@ import { resolveAssignedMerchant } from "@/lib/order-assignment";
 import { ensureProductItemAndCreateLineItem } from "@/lib/order-line-items";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
-import { syncOrderToERPNext, cancelErpnextSalesInvoice, type LocationWithErpInstance } from "@/lib/erpnext-sync";
+import { syncOrderToERPNext, cancelErpnextSalesInvoice, isUsableErpSalesInvoiceId, type LocationWithErpInstance } from "@/lib/erpnext-sync";
 import { markOrderErpSyncFailed } from "@/lib/failed-erp-sync-auto-retry";
 import { isOrderPaymentRequiresApproval, createOrGetOrderPaymentApproval, cancelPendingApprovalsForOrder } from "@/lib/approval-workflow";
 import { isShopifyOrderBeforeImportCutoff } from "@/lib/order-import-cutoff";
@@ -232,26 +232,21 @@ export async function processOrderWebhook(
         }
       : orderData,
   });
-  if (isNewOrder && requiresApproval) {
-    // Mark as pending_approval so ERP sync is skipped until finance approves
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        erpnextInvoiceId: "pending_approval",
-        erpnextSyncError: null,
-        erpnextSyncFailedAt: null,
-        erpnextSyncNextAutoRetryAt: null,
-        erpnextSyncRetryLeaseExpiresAt: null,
-      },
-    });
-    void createOrGetOrderPaymentApproval({
-      companyId,
-      orderId: order.id,
-      requestedById: null,
-      invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
-      paymentType: paymentGateways.primary ?? paymentGateways.names[0] ?? "bank/koko",
-      amount: totalPrice.toString(),
-    }).catch((err) => console.error("[Finance approval] webhook trigger failed:", err));
+  if (isNewOrder && requiresApproval && !isAlreadyVoided) {
+    // Create the pending approval first so fulfillment stays gated while the unpaid SI is created.
+    try {
+      await createOrGetOrderPaymentApproval({
+        companyId,
+        orderId: order.id,
+        requestedById: null,
+        invoiceLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+        paymentType: paymentGateways.primary ?? paymentGateways.names[0] ?? "bank/koko",
+        amount: totalPrice.toString(),
+        companyLocationId: effectiveLocation.id,
+      });
+    } catch (err) {
+      console.error("[Finance approval] webhook trigger failed:", err);
+    }
   }
 
   const assignedMerchant = assignedMerchantId
@@ -304,13 +299,20 @@ export async function processOrderWebhook(
     await cancelPendingApprovalsForOrder(order.id);
   }
 
-  if (!isVoided && !requiresApproval && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
+  // Finance-approval (KOKO/bank) orders now create an unpaid SI at arrival (same path as COD).
+  // Fulfillment remains gated by the pending ORDER_PAYMENT_APPROVAL, not by SI absence.
+  if (!isVoided && (isNewOrder || !existingOrder?.erpnextInvoiceId)) {
     const skipErpSync = shouldSkipShopifyOrderErpSync(order.createdAt, effectiveLocation);
     if (!skipErpSync) {
       // Atomically claim the sync slot to prevent duplicate SI on concurrent webhooks
+      const leaseUntil = new Date(Date.now() + 2 * 60_000);
       const claimed = await prisma.order.updateMany({
         where: { id: order.id, erpnextInvoiceId: null },
-        data: { erpnextInvoiceId: "pending", erpnextSyncStartedAt: new Date() },
+        data: {
+          erpnextInvoiceId: "pending",
+          erpnextSyncStartedAt: new Date(),
+          erpnextSyncRetryLeaseExpiresAt: leaseUntil,
+        },
       });
       if (claimed.count > 0) {
         try {
@@ -320,7 +322,7 @@ export async function processOrderWebhook(
           const errMsg = err instanceof Error ? err.message : String(err);
           await prisma.order.update({
             where: { id: order.id },
-            data: { erpnextInvoiceId: null },
+            data: { erpnextInvoiceId: null, erpnextSyncRetryLeaseExpiresAt: null },
           });
           await markOrderErpSyncFailed(order.id, errMsg);
         }
@@ -333,6 +335,11 @@ export async function processOrderWebhook(
       await cancelErpnextSalesInvoice(
         order.name ?? order.shopifyOrderId,
         effectiveLocation,
+        {
+          directInvoiceName: isUsableErpSalesInvoiceId(order.erpnextInvoiceId)
+            ? order.erpnextInvoiceId ?? undefined
+            : undefined,
+        },
       );
     } catch (err) {
       console.error("[ERPNext] cancel sales invoice failed:", err);

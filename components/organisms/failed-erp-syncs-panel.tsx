@@ -324,7 +324,7 @@ export function FailedErpSyncsPanel() {
                           {item.erpnextSyncError ? (
                             renderSyncError(item.erpnextSyncError, item.lineItems)
                           ) : item.erpnextInvoiceId === "pending_approval" ? (
-                            <span className="text-amber-500">Awaiting ERP sync — payment was approved</span>
+                            <span className="text-amber-500">Legacy placeholder — retry to create unpaid ERP SI</span>
                           ) : item.erpnextInvoiceId === "pending" ? (
                             <span className="text-amber-500">{ERP_SYNC_STUCK_PENDING_UI_LABEL}</span>
                           ) : "—"}
@@ -456,7 +456,7 @@ export function FailedErpSyncsPanel() {
                 ) : (
                   <pre className="max-h-48 overflow-auto rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs whitespace-pre-wrap text-amber-700 dark:text-amber-400">
                     {selectedItem.erpnextInvoiceId === "pending_approval"
-                      ? "Payment was approved but ERP sync was not triggered. Click Retry to sync now."
+                      ? "Legacy workflow placeholder — click Retry to create the unpaid ERP Sales Invoice while finance approval remains pending."
                       : selectedItem.erpnextInvoiceId === "pending"
                         ? ERP_SYNC_STUCK_PENDING_UI_LABEL
                         : "—"}
@@ -495,8 +495,8 @@ export function FailedErpSyncsPanel() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm">
-            <p>This order is still <span className="font-semibold text-amber-500">awaiting finance approval</span>. The ERP invoice cannot be created until the payment is approved.</p>
-            <p className="text-muted-foreground">Once the finance manager approves this order, the ERP invoice will be created automatically.</p>
+            <p>This order still needs its unpaid ERP Sales Invoice. Use Retry to create the SI; finance approval remains separate and continues to block fulfillment until approved.</p>
+            <p className="text-muted-foreground">Legacy placeholder rows (pending_approval) can also be retried into a real SI without waiting for approval.</p>
           </div>
           <div className="flex justify-end">
             <Button variant="outline" className="border-border/70 bg-background/85 hover:bg-secondary/10" onClick={() => setApprovalBlockedOrder(null)}>

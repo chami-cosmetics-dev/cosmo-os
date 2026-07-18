@@ -34,3 +34,4 @@
 - Approach changed from the original spec 008 (which delayed OS recognition to match ERP's later SI date). The rewritten spec takes the opposite, lower-risk direction: ERP creates an unpaid SI at order arrival so both reports reconcile on the arrival day, leaving OS reporting/SMS/dump logic untouched.
 - Three decisions were resolved in the 2026-07-17 clarification session and recorded in the spec's Clarifications section: rejection requires a reason then cancels the SI; stock is reduced at arrival; spec 008 is rewritten (not forked).
 - Uses domain terms (ERP Sales Invoice, Payment Entry, finance approval) that are business concepts in this product, not implementation prescriptions; the HOW (which functions/endpoints change) is deferred to `/speckit-plan`.
+- **Implementation (2026-07-18)**: Code complete for arrival SI, fulfillment gates, PE-only approval, and cancel-before-reject. Manual Cosmo/Vault ERP UAT in `quickstart.md` remains outstanding (T049).
