@@ -40,7 +40,7 @@ import {
 } from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import {
-  cuidSchema,
+  cuidOrUuidSchema,
   orderPaymentRejectionReasonSchema,
 } from "@/lib/validation";
 
@@ -85,7 +85,7 @@ export async function PATCH(
   }
 
   const { id: rawId } = await params;
-  const idParsed = cuidSchema.safeParse(rawId);
+  const idParsed = cuidOrUuidSchema.safeParse(rawId);
   if (!idParsed.success) {
     return NextResponse.json({ error: "Invalid approval ID" }, { status: 400 });
   }
