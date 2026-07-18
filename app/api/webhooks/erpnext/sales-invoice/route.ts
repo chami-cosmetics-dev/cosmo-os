@@ -22,6 +22,8 @@ import {
 import { buildErpOrderShippingFields } from "@/lib/order-shipping-display";
 import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { isLegacyAccSinvRef } from "@/lib/legacy-acc-sinv";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -289,6 +291,17 @@ export async function POST(request: NextRequest) {
       `[ERPNext webhook] Invoice ${data.name} matches Vault order (po_no=${data.po_no ?? "—"}) — skipping ERP upsert`,
     );
     return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  if (isVaultOsDeployment() && isLegacyAccSinvRef(data.name)) {
+    console.log(
+      `[ERPNext webhook] Skipping legacy ACC-SINV invoice ${data.name}`,
+    );
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "legacy_acc_sinv",
+    });
   }
 
   // Find location — match by warehouse field, then warehouse list, then company fallback

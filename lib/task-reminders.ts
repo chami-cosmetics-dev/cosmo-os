@@ -14,6 +14,7 @@ import {
   printFulfillmentPipelineWhere,
   sampleQueueWhere,
 } from "@/lib/fulfillment-queue-filters";
+import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 import { resolveOrderStageEnteredAt, waitingHoursSince } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 import {
@@ -103,6 +104,7 @@ const baseFulfillmentOrderWhere = {
   financialStatus: { not: "voided" },
   packageOnHoldAt: null,
   companyLocation: { fulfillmentBlocked: false },
+  AND: [getLegacyAccSinvFulfillmentWhere()],
   NOT: {
     approvalRequests: {
       some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
@@ -238,6 +240,7 @@ async function fetchSampleReminders(
         ? { assignedMerchantId: context.userId }
         : {}),
       AND: [
+        getLegacyAccSinvFulfillmentWhere(),
         sampleQueueWhere,
         {
           NOT: {
@@ -302,6 +305,7 @@ async function fetchPrintReminders(companyId: string, now: Date): Promise<Capped
       printCount: 0,
       totalPrice: { gte: 0 },
       AND: [
+        getLegacyAccSinvFulfillmentWhere(),
         printFulfillmentPipelineWhere,
         {
           NOT: {
@@ -512,6 +516,7 @@ async function fetchDeliveryPendingReminders(
     fulfillmentStage: "dispatched",
     deliveryCompleteAt: null,
     dispatchedAt: { not: null, lte: slaCutoff(now) },
+    AND: [getLegacyAccSinvFulfillmentWhere()],
   };
 
   const totalCount = await prisma.order.count({ where });
@@ -566,6 +571,7 @@ async function fetchInvoiceCompleteReminders(
     // POS / ERP POS are completed at the counter — no invoice-complete reminder.
     ...excludePosOrdersWhere,
     deliveryCompleteAt: { not: null, lte: slaCutoff(now) },
+    AND: [getLegacyAccSinvFulfillmentWhere()],
     ...(financeLocationIds !== null
       ? { companyLocationId: { in: financeLocationIds } }
       : {}),
