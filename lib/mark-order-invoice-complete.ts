@@ -13,6 +13,8 @@ import { createDeliveryPaymentEntry, getErpConfig, resolveOrderPaymentMop } from
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 
+export { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
+
 export type MarkOrderInvoiceCompleteResult =
   | {
       success: true;

@@ -152,11 +152,13 @@ export const dispatchQueueWhere = {
   ...dispatchStageOrWhere,
 } satisfies Prisma.OrderWhereInput;
 
-/** Sample / free-issue queue — still waiting for merchant samples. */
+/** Sample / free-issue queue — still waiting for merchant samples.
+ * Early financial invoice completion (e.g. CC Checkout) must not hide orders here;
+ * terminal stage exclusion is handled by sampleFulfillmentPipelineWhere.
+ */
 export const sampleQueueWhere = {
   ...sampleFulfillmentPipelineWhere,
   sampleFreeIssueCompleteAt: null,
   dispatchedAt: null,
   deliveryCompleteAt: null,
-  invoiceCompleteAt: null,
 } satisfies Prisma.OrderWhereInput;

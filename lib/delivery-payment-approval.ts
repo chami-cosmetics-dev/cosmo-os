@@ -10,15 +10,39 @@ export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_manual_invoice_complete" }
   | { kind: "close_invoice_complete"; financeUserId: string };
 
+/** Normalize gateway strings for matching (case, underscores, hyphens). */
+export function normalizePaymentGatewayKey(gateway: string): string {
+  return gateway
+    .toLowerCase()
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+/** CC Checkout / card gateway class — maps to WebXPay ERP MOP. */
+export function isCcCheckoutGateway(gateway: string): boolean {
+  const g = normalizePaymentGatewayKey(gateway);
+  return g === "cc" || g === "cc checkout";
+}
+
+export function orderHasCcCheckoutGateway(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[];
+}): boolean {
+  if (order.paymentGatewayPrimary && isCcCheckoutGateway(order.paymentGatewayPrimary)) {
+    return true;
+  }
+  return (order.paymentGatewayNames ?? []).some((g) => isCcCheckoutGateway(g));
+}
+
 /** Gateways where payment is collected before / at sale — never as door cash. */
 export function isPrePaidGateway(gateway: string): boolean {
-  const g = gateway.toLowerCase().trim();
+  const g = normalizePaymentGatewayKey(gateway);
   return (
     g.includes("koko") ||
     g.includes("bank") ||
     g.includes("webxpay") ||
-    g === "cc" ||
-    g === "cc checkout"
+    isCcCheckoutGateway(gateway)
   );
 }
 
