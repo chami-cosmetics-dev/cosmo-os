@@ -178,6 +178,16 @@ export const orderStatusFilterSchema = z.enum(ORDER_STATUS_FILTER_VALUES).option
 const cuidRegex = /^c[a-z0-9]{24,30}$/;
 export const cuidSchema = z.string().regex(cuidRegex, "Invalid ID format");
 
+/**
+ * Prisma `@default(cuid())` IDs, or UUIDs from raw SQL inserts that use `randomUUID()`
+ * (e.g. ApprovalRequest rows in approval-workflow).
+ */
+export const cuidOrUuidSchema = z
+  .string()
+  .refine((id) => cuidRegex.test(id) || z.string().uuid().safeParse(id).success, {
+    message: "Invalid ID format",
+  });
+
 /** Invite token - 64 char hex */
 export const inviteTokenSchema = z
   .string()
