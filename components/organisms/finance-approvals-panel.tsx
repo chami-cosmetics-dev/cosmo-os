@@ -363,10 +363,16 @@ export function FinanceApprovalsPanel({
         return;
       }
       if (action === "approve" && data.erpSyncFailed) {
+        const isDelivery =
+          selected.type === "delivery_payment_approval";
         notify.error(
           data.erpSyncError ??
-            "Approval saved but ERP Sales Invoice could not be created. Check Failed ERP syncs."
+            (isDelivery
+              ? "ERP payment entry failed — approval was not completed. Fix the issue and retry."
+              : "Approval saved but ERP Sales Invoice could not be created. Check Failed ERP syncs."),
         );
+      } else if (action === "approve" && selected.type === "delivery_payment_approval") {
+        notify.success("Delivery payment approved — invoice complete and ERP payment recorded.");
       } else if (action === "approve" && selected.type === "return_cancel") {
         notify.success(
           selected.erpAdminInvoiceUrl

@@ -16,6 +16,11 @@ import {
 } from "@/lib/erp-shopify-invoice-items";
 import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
+import {
+  isCcCheckoutGateway,
+  orderHasCcCheckoutGateway,
+} from "@/lib/delivery-payment-approval";
+import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 
 function resolveOrderShippingAmountForErp(input: {
   discountCodes?: unknown;
@@ -131,7 +136,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   for (const g of gateways) {
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
-    if (lower.includes("webxpay") || lower === "cc" || lower === "cc checkout") return cfg.webxpayMop || null;
+    if (lower.includes("webxpay") || isCcCheckoutGateway(g)) return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
     if (lower.includes("cash on delivery") || lower === "cod") return cfg.codMop;
@@ -149,9 +154,109 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
 function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
-  if (lower.some((g) => g.includes("webxpay") || g === "cc" || g === "cc checkout")) return cfg.webxpayMop || null;
+  if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) return cfg.webxpayMop || null;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
+}
+
+/** After SI exists: create prepaid PE for paid gateways; for CC Checkout also set early invoiceCompleteAt. */
+async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
+  order: {
+    id: string;
+    name: string | null;
+    shopifyOrderId: string;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+    financialStatus: string | null;
+    erpnextInvoiceId?: string | null;
+  };
+  location: LocationWithErpInstance;
+  paidAt: Date;
+  /** When SI just created — optional direct PE fields to avoid re-fetch. */
+  directPe?: {
+    invoiceName: string;
+    customerName: string;
+    debitTo: string;
+    amount: number;
+    dateStr: string;
+  };
+}): Promise<void> {
+  if (input.order.financialStatus !== "paid") return;
+
+  const gateways = (
+    [input.order.paymentGatewayPrimary, ...input.order.paymentGatewayNames] as (string | null)[]
+  ).filter((g): g is string => typeof g === "string" && g.length > 0);
+  const isCc = orderHasCcCheckoutGateway(input.order) || gateways.some(isCcCheckoutGateway);
+  const cfg = getErpConfig(input.location.erpnextInstance);
+  const mopName = resolvePrepaidMop(cfg, gateways);
+
+  if (!mopName) {
+    if (isCc) {
+      const errMsg = "No WebXPay ERP payment mode configured for CC Checkout";
+      await prisma.order.update({
+        where: { id: input.order.id },
+        data: {
+          erpPeSyncError: errMsg.slice(0, 10_000),
+          erpPeSyncFailedAt: new Date(),
+          erpPeSyncMop: null,
+        },
+      });
+    }
+    return;
+  }
+
+  try {
+    if (input.directPe) {
+      // Check outstanding when possible via finance sync path for idempotency on retries
+      await createPrepaidPaymentEntry(
+        cfg,
+        input.directPe.invoiceName,
+        input.location.erpnextCompany!,
+        input.directPe.customerName,
+        input.directPe.debitTo,
+        input.directPe.amount,
+        input.directPe.dateStr,
+        mopName,
+      );
+    } else {
+      await syncFinanceApprovedPrepaidPaymentToERPNext(
+        {
+          name: input.order.name,
+          shopifyOrderId: input.order.shopifyOrderId,
+          erpnextInvoiceId: input.order.erpnextInvoiceId,
+          paymentGatewayPrimary: input.order.paymentGatewayPrimary,
+          paymentGatewayNames: input.order.paymentGatewayNames,
+          financialStatus: input.order.financialStatus,
+        },
+        input.location,
+        input.paidAt,
+        { requirePe: isCc },
+      );
+    }
+
+    if (isCc) {
+      await markOrderFinanciallyInvoiceComplete({ orderId: input.order.id, at: input.paidAt });
+      await prisma.order.update({
+        where: { id: input.order.id },
+        data: {
+          erpPeSyncError: null,
+          erpPeSyncFailedAt: null,
+          erpPeSyncMop: null,
+        },
+      });
+    }
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
+    await prisma.order.update({
+      where: { id: input.order.id },
+      data: {
+        erpPeSyncError: errMsg.slice(0, 10_000),
+        erpPeSyncFailedAt: new Date(),
+        erpPeSyncMop: mopName.slice(0, 200),
+      },
+    }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
+  }
 }
 
 async function ensureErpAddress(
@@ -1355,17 +1460,19 @@ export async function syncOrderToERPNext(
       console.log(`[ERPNext] Sales Invoice already exists for po_no="${orderPoNo}" — skipping creation`);
       await prisma.order.update({ where: { id: order.id }, data: { erpnextInvoiceId: existingSI[0].name, ...ERP_SYNC_SUCCESS_CLEAR } });
       if (order.financialStatus === "paid") {
-        await syncFinanceApprovedPrepaidPaymentToERPNext(
-          {
+        await syncPaidGatewayPeAndMaybeCcInvoiceComplete({
+          order: {
+            id: order.id,
             name: order.name,
             shopifyOrderId: order.shopifyOrderId,
             paymentGatewayPrimary: order.paymentGatewayPrimary,
             paymentGatewayNames: order.paymentGatewayNames,
             financialStatus: order.financialStatus,
+            erpnextInvoiceId: existingSI[0].name,
           },
           location,
-          order.createdAt,
-        );
+          paidAt: order.createdAt,
+        });
       }
       return;
     }
@@ -1540,33 +1647,26 @@ export async function syncOrderToERPNext(
   console.log(`[ERPNext] Synced Shopify order ${order.shopifyOrderId} → Sales Invoice ${si.name}`);
 
   if (order.financialStatus === "paid") {
-    let peAttemptedMop: string | null = null;
-    try {
-      peAttemptedMop = resolvePrepaidMop(cfg, shopifyData.payment_gateway_names ?? []);
-      if (peAttemptedMop) {
-        await createPrepaidPaymentEntry(
-          cfg,
-          si.name,
-          location.erpnextCompany,
-          customerName,
-          si.debit_to,
-          si.grand_total,
-          dateStr,
-          peAttemptedMop,
-        );
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          erpPeSyncError: errMsg.slice(0, 10_000),
-          erpPeSyncFailedAt: new Date(),
-          erpPeSyncMop: peAttemptedMop?.slice(0, 200) ?? null,
-        },
-      }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
-    }
+    await syncPaidGatewayPeAndMaybeCcInvoiceComplete({
+      order: {
+        id: order.id,
+        name: order.name,
+        shopifyOrderId: order.shopifyOrderId,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames,
+        financialStatus: order.financialStatus,
+        erpnextInvoiceId: si.name,
+      },
+      location,
+      paidAt: order.createdAt,
+      directPe: {
+        invoiceName: si.name,
+        customerName,
+        debitTo: si.debit_to,
+        amount: si.grand_total,
+        dateStr,
+      },
+    });
   }
 }
 
@@ -1746,32 +1846,25 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   console.log(`[ERPNext] Synced order ${order.id} (Vault OS data) → Sales Invoice ${si.name}`);
 
   if (order.financialStatus === "paid") {
-    let peAttemptedMop: string | null = null;
-    try {
-      peAttemptedMop = resolvePrepaidMop(cfg, allGateways);
-      if (peAttemptedMop) {
-        await createPrepaidPaymentEntry(
-          cfg,
-          si.name,
-          erpnextCompany,
-          erpCustomerName,
-          si.debit_to,
-          si.grand_total,
-          dateStr,
-          peAttemptedMop,
-        );
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[ERPNext] Payment Entry creation failed after SI sync (SI was created):", err);
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          erpPeSyncError: errMsg.slice(0, 10_000),
-          erpPeSyncFailedAt: new Date(),
-          erpPeSyncMop: peAttemptedMop?.slice(0, 200) ?? null,
-        },
-      }).catch((e) => console.error("[ERPNext] Failed to record PE sync error on order:", e));
-    }
+    await syncPaidGatewayPeAndMaybeCcInvoiceComplete({
+      order: {
+        id: order.id,
+        name: order.name,
+        shopifyOrderId: order.shopifyOrderId,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames,
+        financialStatus: order.financialStatus,
+        erpnextInvoiceId: si.name,
+      },
+      location,
+      paidAt: order.createdAt,
+      directPe: {
+        invoiceName: si.name,
+        customerName: erpCustomerName,
+        debitTo: si.debit_to,
+        amount: si.grand_total,
+        dateStr,
+      },
+    });
   }
 }

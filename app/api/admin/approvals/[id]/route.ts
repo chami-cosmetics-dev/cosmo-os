@@ -36,6 +36,7 @@ import {
 } from "@/lib/failed-erp-sync-auto-retry";
 import {
   ERP_PE_SYNC_MOP_ORDER_AUTO,
+  clearOrderErpPeSyncFailure,
   markOrderErpPeSyncFailed,
 } from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
@@ -503,11 +504,7 @@ export async function PATCH(
           `
         );
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
-        // Door-collection confirm: paid only — invoice complete stays manual on the queue.
-        await tx.order.update({
-          where: { id: approval.orderId! },
-          data: { financialStatus: "paid" },
-        });
+        // Claim approval only — OS paid / invoice complete after ERP PE succeeds (see post-tx block).
       } else if (approval.type === INVOICE_REVERT_VOID_APPROVAL) {
         await tx.order.update({
           where: { id: approval.orderId! },
@@ -808,7 +805,6 @@ export async function PATCH(
 
   if (
     nextStatus === "approved" &&
-    !isPaymentReapproval &&
     approval.type === DELIVERY_PAYMENT_APPROVAL &&
     approval.orderId
   ) {
@@ -816,20 +812,89 @@ export async function PATCH(
       where: { id: approval.orderId },
       include: { companyLocation: { include: { erpnextInstance: true } } },
     });
-    if (order?.companyLocation) {
-      try {
-        await createDeliveryPaymentEntry(order, order.companyLocation, now, { requireMop: true });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.error("[ERPNext] delivery payment approval PE failed:", errMsg);
+
+    const revertDeliveryApprovalToPending = async () => {
+      await prisma.approvalRequest.update({
+        where: { id: approval.id },
+        data: {
+          status: "pending",
+          reviewedById: null,
+          reviewNote: null,
+          reviewedAt: null,
+          updatedAt: new Date(),
+        },
+      });
+    };
+
+    if (!order?.companyLocation) {
+      const errMsg = "Order has no company location — cannot create ERP payment entry";
+      console.error("[ERPNext] delivery payment approval PE failed:", errMsg);
+      if (order) {
         await markOrderErpPeSyncFailed(
           order.id,
           errMsg,
           order.paymentGatewayPrimary ?? ERP_PE_SYNC_MOP_ORDER_AUTO,
         );
-        erpSyncFailed = true;
-        erpSyncError = errMsg;
       }
+      await revertDeliveryApprovalToPending();
+      return NextResponse.json(
+        {
+          ok: false,
+          error: errMsg,
+          erpSyncFailed: true,
+          erpSyncError: errMsg,
+          approvalStatus: "pending",
+        },
+        { status: 502 },
+      );
+    }
+
+    try {
+      // Always attempt PE (even if a prior approval exists) — already_paid is idempotent.
+      const peResult = await createDeliveryPaymentEntry(order, order.companyLocation, now, {
+        requireMop: true,
+      });
+      if (peResult.outcome === "skipped") {
+        throw new Error("ERP payment entry was skipped unexpectedly");
+      }
+
+      const stage = order.fulfillmentStage;
+      const closeTerminal =
+        stage === "delivery_complete" || stage === "invoice_complete";
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          financialStatus: "paid",
+          invoiceCompleteAt: order.invoiceCompleteAt ?? now,
+          invoiceCompleteById: reviewerId,
+          ...(closeTerminal
+            ? {
+                ...orderStageUpdate("invoice_complete", now),
+                fulfillmentStatus: "fulfilled" as const,
+              }
+            : {}),
+        },
+      });
+      await clearOrderErpPeSyncFailure(order.id);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ERPNext] delivery payment approval PE failed:", errMsg);
+      await markOrderErpPeSyncFailed(
+        order.id,
+        errMsg,
+        order.paymentGatewayPrimary ?? ERP_PE_SYNC_MOP_ORDER_AUTO,
+      );
+      await revertDeliveryApprovalToPending();
+      return NextResponse.json(
+        {
+          ok: false,
+          error: errMsg,
+          erpSyncFailed: true,
+          erpSyncError: errMsg,
+          approvalStatus: "pending",
+        },
+        { status: 502 },
+      );
     }
   }
 
