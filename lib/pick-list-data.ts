@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getPickListTodayBounds } from "@/lib/pick-list-date";
 import { resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
+import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 
 export type PickListItem = {
   productTitle: string;
@@ -115,6 +116,7 @@ export async function buildPickListAggregationForOrders(
       companyId,
       id: { in: orderIds },
       financialStatus: { not: "voided" },
+      AND: [getLegacyAccSinvFulfillmentWhere()],
     },
     select: orderPickListSelect,
     orderBy: [{ companyLocation: { name: "asc" } }, { lastPrintedAt: "asc" }],
@@ -147,6 +149,7 @@ export async function fetchSinglePrintPickList(companyId: string, date?: string)
       lastPrintedAt: { gte: from, lte: to },
       financialStatus: { not: "voided" },
       pickListGroupOrders: { none: {} },
+      AND: [getLegacyAccSinvFulfillmentWhere()],
     },
     select: orderPickListSelect,
     orderBy: [{ companyLocation: { name: "asc" } }, { lastPrintedAt: "asc" }],
@@ -178,6 +181,7 @@ export async function fetchTodayUngroupedPrintOrderIds(companyId: string, date?:
       lastPrintedAt: { gte: from, lte: to },
       financialStatus: { not: "voided" },
       pickListGroupOrders: { none: {} },
+      AND: [getLegacyAccSinvFulfillmentWhere()],
     },
     select: { id: true },
     orderBy: { lastPrintedAt: "asc" },
