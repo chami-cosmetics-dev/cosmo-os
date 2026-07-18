@@ -13,6 +13,15 @@ import {
   getErpShopifySyncSkipReason,
   shouldSkipShopifyOrderErpSync,
 } from "@/lib/erp-shopify-sync-eligibility";
+import {
+  ERP_SYNC_INTERRUPTED_MESSAGE,
+  ERP_SYNC_STUCK_PENDING_UI_LABEL,
+} from "@/lib/erp-sync-failure-copy";
+
+export {
+  ERP_SYNC_INTERRUPTED_MESSAGE,
+  ERP_SYNC_STUCK_PENDING_UI_LABEL,
+} from "@/lib/erp-sync-failure-copy";
 
 const AUTO_RETRY_DELAYS_MS = [
   60_000,
@@ -27,6 +36,7 @@ const AUTO_RETRY_LEASE_MS = 2 * 60_000;
 type OrderErpSyncRetryPatch = {
   erpnextSyncError?: string | null;
   erpnextSyncFailedAt?: Date | null;
+  erpnextSyncStartedAt?: Date | null;
   erpnextSyncAutoRetryCount?: number;
   erpnextSyncLastAutoRetryAt?: Date | null | undefined;
   erpnextSyncNextAutoRetryAt?: Date | null;
@@ -53,11 +63,31 @@ function orderOrderBy(patch: Record<string, unknown>): Prisma.OrderOrderByWithRe
 export const ERP_SYNC_SUCCESS_CLEAR = {
   erpnextSyncError: null,
   erpnextSyncFailedAt: null,
+  erpnextSyncStartedAt: null,
   erpnextSyncAutoRetryCount: 0,
   erpnextSyncLastAutoRetryAt: null,
   erpnextSyncNextAutoRetryAt: null,
   erpnextSyncRetryLeaseExpiresAt: null,
 } as const;
+
+const STALE_PENDING_MS = 5 * 60_000;
+
+export function isStalePendingErpSync(input: {
+  erpnextInvoiceId: string | null | undefined;
+  erpnextSyncError: string | null | undefined;
+  erpnextSyncStartedAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  now?: Date;
+}): boolean {
+  if (input.erpnextInvoiceId !== "pending") return false;
+  if (input.erpnextSyncError) return false;
+  const now = input.now ?? new Date();
+  const startedRaw = input.erpnextSyncStartedAt ?? input.updatedAt;
+  if (!startedRaw) return true;
+  const startedAt = startedRaw instanceof Date ? startedRaw : new Date(startedRaw);
+  if (Number.isNaN(startedAt.getTime())) return true;
+  return now.getTime() - startedAt.getTime() >= STALE_PENDING_MS;
+}
 
 export type OrderForErpRetry = Prisma.OrderGetPayload<{
   include: {
@@ -306,6 +336,7 @@ export async function runPostApprovalErpSync(orderId: string, paidAt: Date = new
       },
       data: orderUpdateMany({
         erpnextInvoiceId: "pending",
+        erpnextSyncStartedAt: new Date(),
         erpnextSyncError: null,
         erpnextSyncFailedAt: null,
         erpnextSyncNextAutoRetryAt: null,
@@ -411,10 +442,46 @@ async function clearOrderErpSyncRetryLease(orderId: string) {
   });
 }
 
+export async function classifyAndMarkStalePendingErpSyncs(
+  companyId?: string | null,
+  limit = 50
+): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_PENDING_MS);
+  const importCutoff = getOrderImportCutoff();
+  const candidates = await prisma.order.findMany({
+    where: orderWhere({
+      ...(companyId ? { companyId } : {}),
+      ...(importCutoff ? { createdAt: { gte: importCutoff } } : {}),
+      financialStatus: { not: "voided" },
+      erpnextInvoiceId: "pending",
+      erpnextSyncError: null,
+      ...FAILED_ERP_SYNC_PENDING_PAYMENT_APPROVAL_EXCLUSION,
+      OR: [
+        { erpnextSyncStartedAt: { lte: cutoff } },
+        { erpnextSyncStartedAt: null, updatedAt: { lte: cutoff } },
+      ],
+    }),
+    take: Math.max(1, Math.min(limit, 100)),
+    select: { id: true },
+    orderBy: { updatedAt: "asc" },
+  });
+
+  let marked = 0;
+  for (const order of candidates) {
+    await markOrderErpSyncFailed(order.id, ERP_SYNC_INTERRUPTED_MESSAGE, {
+      scheduleAutoRetry: true,
+    });
+    marked += 1;
+  }
+  return marked;
+}
+
 export async function scheduleUnscheduledFailedErpSyncs(
   companyId: string,
   limit = 50
 ) {
+  await classifyAndMarkStalePendingErpSyncs(companyId, limit);
+
   const orders = await prisma.order.findMany({
     where: orderWhere({
       AND: [
@@ -450,6 +517,11 @@ export async function runDueFailedErpSyncRetries(options?: {
   companyId?: string | null;
   limit?: number;
 }) {
+  await classifyAndMarkStalePendingErpSyncs(
+    options?.companyId ?? null,
+    Math.max(1, Math.min(options?.limit ?? AUTO_RETRY_BATCH_LIMIT, 50))
+  );
+
   const claimed = await claimDueFailedErpSyncs(
     options?.companyId ?? null,
     Math.max(1, Math.min(options?.limit ?? AUTO_RETRY_BATCH_LIMIT, 50))

@@ -1264,12 +1264,10 @@ export async function syncOrderToERPNext(
   const cfg = getErpConfig(location.erpnextInstance);
   console.log(`[ERPNext] syncOrderToERPNext called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
-    console.warn("[ERPNext] Skipping sync — ERP credentials not configured");
-    return;
+    throw new Error("ERP credentials not configured for this location");
   }
   if (!location.erpnextCompany || !location.erpnextWarehouse) {
-    console.warn("[ERPNext] Skipping sync — erpnextCompany or erpnextWarehouse not set on location", location.id);
-    return;
+    throw new Error("erpnextCompany or erpnextWarehouse not set on location");
   }
 
   const orderPoNo = (order.name ?? order.shopifyOrderId).slice(0, 140);
@@ -1310,7 +1308,9 @@ export async function syncOrderToERPNext(
   }
 
   const lineItems = shopifyData.line_items.filter((li) => li.quantity > 0);
-  if (lineItems.length === 0) return;
+  if (lineItems.length === 0) {
+    throw new Error("Order has no positive-quantity line items to sync to ERP");
+  }
 
   const customerName =
     shopifyData.billing_address?.name?.trim() ||
@@ -1540,12 +1540,10 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const cfg = getErpConfig(location.erpnextInstance);
   console.log(`[ERPNext] syncOrderToERPNextFromOrder called — company=${location.erpnextCompany ?? "null"}, warehouse=${location.erpnextWarehouse ?? "null"}, baseUrl=${cfg.baseUrl ? "set" : "missing"}`);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
-    console.warn("[ERPNext] Skipping sync — ERP credentials not configured");
-    return;
+    throw new Error("ERP credentials not configured for this location");
   }
   if (!location.erpnextCompany || !location.erpnextWarehouse) {
-    console.warn("[ERPNext] Skipping sync — erpnextCompany or erpnextWarehouse not set on location", location.id);
-    return;
+    throw new Error("erpnextCompany or erpnextWarehouse not set on location");
   }
   const erpnextCompany = location.erpnextCompany;
   const erpnextWarehouse = location.erpnextWarehouse;
@@ -1574,7 +1572,9 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   }
 
   const lineItems = order.lineItems.filter((li) => li.quantity > 0);
-  if (lineItems.length === 0) return;
+  if (lineItems.length === 0) {
+    throw new Error("Order has no positive-quantity line items to sync to ERP");
+  }
 
   const addr = order.shippingAddress as ShopifyAddress;
   const rawName = typeof addr?.name === "string" ? addr.name.trim() : "";

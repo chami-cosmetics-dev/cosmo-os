@@ -397,3 +397,69 @@ export async function sendResignationNotice(
     };
   }
 }
+
+export async function sendErpSyncFailureAlertEmail(input: {
+  toEmails: string[];
+  subject: string;
+  html: string;
+  plain: string;
+}): Promise<{ success: boolean; message?: string }> {
+  const apiKey = process.env.MAILEROO_API_KEY;
+  const fromEmail = process.env.MAILEROO_FROM_EMAIL;
+
+  if (!apiKey || !fromEmail) {
+    console.error("MAILEROO_API_KEY or MAILEROO_FROM_EMAIL is not configured");
+    return { success: false, message: "Email service not configured" };
+  }
+
+  const validEmails = input.toEmails
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e && e.includes("@"));
+  if (validEmails.length === 0) {
+    return { success: false, message: "No valid recipients" };
+  }
+
+  try {
+    const response = await fetch(`${MAILEROO_BASE_URL}/emails`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": apiKey,
+      },
+      body: JSON.stringify({
+        from: {
+          address: fromEmail,
+          display_name: APP_NAME,
+        },
+        to: validEmails.map((address) => ({ address })),
+        subject: input.subject,
+        html: input.html,
+        plain: input.plain,
+      }),
+    });
+
+    const { raw, data } = await readMailerooResponse(response);
+
+    if (!response.ok) {
+      console.error("Maileroo ERP sync failure alert error:", {
+        status: response.status,
+        statusText: response.statusText,
+        body: data ?? raw,
+      });
+      return {
+        success: false,
+        message:
+          data?.message ??
+          `Maileroo request failed (${response.status} ${response.statusText})`,
+      };
+    }
+
+    return { success: data?.success ?? true };
+  } catch (error) {
+    console.error("Failed to send ERP sync failure alert:", error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to send email",
+    };
+  }
+}

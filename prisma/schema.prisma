@@ -69,12 +69,14 @@ model Company {
   pickListGroups           PickListGroup[]
   ogfEmailLogs             OgfEmailLog[]
   financeScopes            UserFinanceScope[]
-  dailySalesSmsConfig      DailySalesSmsConfig?
-  dailySalesSmsSendLogs    DailySalesSmsSendLog[]
-  productOsfProfiles       ProductOsfProfile[]
-  productOsfRops           ProductOsfRop[]
-  osfColumnConfigs         OsfColumnConfig[]
-  osfBuyers                OsfBuyer[]
+  dailySalesSmsConfig           DailySalesSmsConfig?
+  dailySalesSmsSendLogs         DailySalesSmsSendLog[]
+  erpSyncFailureEmailConfig     ErpSyncFailureEmailConfig?
+  erpSyncFailureEmailSendLogs   ErpSyncFailureEmailSendLog[]
+  productOsfProfiles            ProductOsfProfile[]
+  productOsfRops                ProductOsfRop[]
+  osfColumnConfigs              OsfColumnConfig[]
+  osfBuyers                     OsfBuyer[]
 }
 
 model PrintFormat {
@@ -663,6 +665,7 @@ model Order {
   posProfile                     String?
   erpnextSyncError               String?
   erpnextSyncFailedAt            DateTime?
+  erpnextSyncStartedAt           DateTime?
   erpnextSyncAutoRetryCount      Int       @default(0)
   erpnextSyncLastAutoRetryAt     DateTime?
   erpnextSyncNextAutoRetryAt     DateTime?
@@ -1296,6 +1299,35 @@ model DailySalesSmsSendLog {
   reportDate     String
   status         String
   messageBody    String?
+  recipientCount Int      @default(0)
+  recipients     Json     @default("[]")
+  errorSummary   String?
+  source         String   @default("cron")
+  createdAt      DateTime @default(now())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt(sort: Desc)])
+  @@index([companyId, reportDate, status])
+}
+
+model ErpSyncFailureEmailConfig {
+  id         String   @id @default(cuid())
+  companyId  String   @unique
+  recipients Json     @default("[]")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model ErpSyncFailureEmailSendLog {
+  id             String   @id @default(cuid())
+  companyId      String
+  reportDate     String
+  status         String
+  subject        String?
+  htmlBody       String?
+  summaryJson    Json?
   recipientCount Int      @default(0)
   recipients     Json     @default("[]")
   errorSummary   String?
