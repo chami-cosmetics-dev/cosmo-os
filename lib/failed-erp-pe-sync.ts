@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
+import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import {
   createDeliveryPaymentEntry,
   getErpConfig,
@@ -17,12 +18,18 @@ function clampErrorMessage(message: string) {
   return formatFailedErpSyncErrorMessage(message).slice(0, 10_000);
 }
 
+/** PE failures on terminal invoice-complete or early financial completion / settlement attempts. */
 export function buildFailedErpPeSyncWhere(companyId?: string, search?: string): Prisma.OrderWhereInput {
   const base: Prisma.OrderWhereInput = {
     ...(companyId ? { companyId } : {}),
     financialStatus: { not: "voided" },
     erpPeSyncError: { not: null },
-    fulfillmentStage: "invoice_complete",
+    OR: [
+      { fulfillmentStage: "invoice_complete" },
+      { invoiceCompleteAt: { not: null } },
+      // Delivery-approval / CC Checkout PE failures before OS completion marker
+      { fulfillmentStage: { in: ["order_received", "sample_free_issue", "print", "ready_to_dispatch", "dispatched", "delivery_complete"] } },
+    ],
   };
 
   const term = search?.trim();
@@ -57,12 +64,15 @@ export function buildSilentErpPeGapCandidateWhere(
   const base: Prisma.OrderWhereInput = {
     companyId,
     financialStatus: { not: "voided" },
-    fulfillmentStage: "invoice_complete",
     erpPeSyncError: null,
     erpnextInvoiceId: { not: null },
     NOT: {
       erpnextInvoiceId: { in: ["pending", "pending_approval"] },
     },
+    OR: [
+      { fulfillmentStage: "invoice_complete" },
+      { invoiceCompleteAt: { not: null } },
+    ],
   };
 
   const term = search?.trim();
@@ -199,8 +209,14 @@ export async function retryOrderErpPeSync(input: {
   if (!order?.companyLocation) {
     throw new Error("Order or company location not found");
   }
-  if (order.fulfillmentStage !== "invoice_complete") {
-    throw new Error("Order must be invoice complete to retry ERP payment entry");
+  const canRetry =
+    order.fulfillmentStage === "invoice_complete" ||
+    order.invoiceCompleteAt != null ||
+    order.erpPeSyncError != null;
+  if (!canRetry) {
+    throw new Error(
+      "Order must be invoice complete (or have a PE failure) to retry ERP payment entry",
+    );
   }
   if (!order.erpPeSyncError && !input.allowWithoutPriorError) {
     throw new Error("No failed ERP payment entry on this order");
@@ -211,7 +227,7 @@ export async function retryOrderErpPeSync(input: {
     throw new Error("ERP payment mode is required to retry");
   }
 
-  await createDeliveryPaymentEntry(
+  const peResult = await createDeliveryPaymentEntry(
     {
       name: order.name,
       shopifyOrderId: order.shopifyOrderId,
@@ -227,6 +243,15 @@ export async function retryOrderErpPeSync(input: {
       requireMop: true,
     },
   );
+  if (peResult.outcome === "skipped") {
+    throw new Error("ERP payment entry was skipped unexpectedly");
+  }
+
+  // Early-complete paths (e.g. CC Checkout): establish financial completion without
+  // forcing terminal fulfillmentStage when physical work is still open.
+  if (order.fulfillmentStage !== "invoice_complete") {
+    await markOrderFinanciallyInvoiceComplete({ orderId: order.id });
+  }
 
   await clearOrderErpPeSyncFailure(order.id);
 }

@@ -22,25 +22,35 @@ describe("isUsableErpSalesInvoiceId", () => {
 });
 
 describe("buildFailedErpPeSyncWhere", () => {
-  it("requires invoice_complete and erpPeSyncError", () => {
+  it("includes PE failures for terminal and early/nonterminal stages", () => {
     const where = buildFailedErpPeSyncWhere("co1");
     expect(where).toMatchObject({
       companyId: "co1",
-      fulfillmentStage: "invoice_complete",
       erpPeSyncError: { not: null },
     });
+    expect(where.OR).toEqual(
+      expect.arrayContaining([
+        { fulfillmentStage: "invoice_complete" },
+        { invoiceCompleteAt: { not: null } },
+      ]),
+    );
   });
 });
 
 describe("buildSilentErpPeGapCandidateWhere", () => {
-  it("targets invoice_complete without PE error and with SI id", () => {
+  it("targets invoice-complete marker or terminal stage without PE error", () => {
     const where = buildSilentErpPeGapCandidateWhere("co1");
     expect(where).toMatchObject({
       companyId: "co1",
-      fulfillmentStage: "invoice_complete",
       erpPeSyncError: null,
       erpnextInvoiceId: { not: null },
     });
+    expect(where.OR).toEqual(
+      expect.arrayContaining([
+        { fulfillmentStage: "invoice_complete" },
+        { invoiceCompleteAt: { not: null } },
+      ]),
+    );
   });
 });
 

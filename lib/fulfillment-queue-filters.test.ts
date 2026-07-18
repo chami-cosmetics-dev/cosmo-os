@@ -82,8 +82,9 @@ describe("sampleQueueWhere", () => {
       sampleFreeIssueCompleteAt: null,
       dispatchedAt: null,
       deliveryCompleteAt: null,
-      invoiceCompleteAt: null,
     });
+    // Early financial invoiceCompleteAt (CC Checkout) must remain eligible
+    expect(sampleQueueWhere).not.toHaveProperty("invoiceCompleteAt");
     expect(sampleQueueWhere).not.toHaveProperty("fulfillmentStatus");
   });
 });

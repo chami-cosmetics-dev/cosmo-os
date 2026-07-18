@@ -35,7 +35,7 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "cash") {
     return { label: "Cash", variant: "cash" };
   }
-  if (normalized === "cc" || normalized === "cc checkout") {
+  if (normalized === "cc" || normalized === "cc checkout" || normalized === "cc_checkout" || normalized === "cc-checkout") {
     return { label: "CC Checkout", variant: "card" };
   }
   if (

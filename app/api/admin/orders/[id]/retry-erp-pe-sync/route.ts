@@ -52,10 +52,12 @@ export async function POST(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
   if (!order.erpPeSyncError) {
-    if (order.fulfillmentStage !== "invoice_complete") {
+    const canSilentRepair =
+      order.fulfillmentStage === "invoice_complete" || order.invoiceCompleteAt != null;
+    if (!canSilentRepair) {
       return NextResponse.json({ error: "No failed ERP payment entry on this order" }, { status: 400 });
     }
-    // Allow repair of silent gaps (invoice complete, no error row yet).
+    // Allow repair of silent gaps (invoice complete / early financial complete, no error row yet).
   }
 
   const mopOverride = parsed.data.modeOfPayment?.trim();
