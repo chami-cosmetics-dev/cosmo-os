@@ -11,6 +11,9 @@ import {
   RETURN_CANCEL_APPROVAL,
   RETURN_REARRANGE_PAYMENT_APPROVAL,
   hasPriorApprovedPaymentApproval,
+  isActiveErpSiRetryLease,
+  isPlaceholderErpInvoiceId,
+  isRealErpSalesInvoiceId,
   notifyApprovalRequester,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
@@ -18,7 +21,6 @@ import { writeAuditLog } from "@/lib/audit-log";
 import {
   cancelErpnextSalesInvoice,
   createDeliveryPaymentEntry,
-  createErpnextCreditNote,
   syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
 import {
@@ -37,6 +39,10 @@ import {
   markOrderErpPeSyncFailed,
 } from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import {
+  cuidSchema,
+  orderPaymentRejectionReasonSchema,
+} from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -45,6 +51,13 @@ const reviewSchema = z.object({
   action: z.enum(["approve", "reject"]),
   reviewNote: z.string().trim().max(2000).optional().nullable(),
 });
+
+class ConcurrentApprovalDecisionError extends Error {
+  constructor() {
+    super("Approval request was already reviewed");
+    this.name = "ConcurrentApprovalDecisionError";
+  }
+}
 
 function invoiceLabel(order: { name: string | null; orderNumber: string | null; shopifyOrderId: string | null }) {
   return order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
@@ -71,7 +84,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const idParsed = cuidSchema.safeParse(rawId);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid approval ID" }, { status: 400 });
+  }
+  const id = idParsed.data;
+
   const rows = await prisma.$queryRaw<Array<{
     id: string;
     type: string;
@@ -139,9 +158,20 @@ export async function PATCH(
       { status: 400 }
     );
   }
-  if (orderMissing && (approval.type === ORDER_PAYMENT_APPROVAL || approval.type === DELIVERY_PAYMENT_APPROVAL)) {
+  if (orderMissing && approval.type === ORDER_PAYMENT_APPROVAL) {
+    return NextResponse.json(
+      {
+        error: "This approval has no linked order. Operator recovery is required before it can be rejected.",
+        code: "ORDER_MISSING",
+        retryable: false,
+        approvalStatus: "pending",
+      },
+      { status: 409 }
+    );
+  }
+  if (orderMissing && approval.type === DELIVERY_PAYMENT_APPROVAL) {
     const now = new Date();
-    await prisma.$executeRaw(
+    const updated = await prisma.$executeRaw(
       Prisma.sql`
         UPDATE "ApprovalRequest"
         SET
@@ -152,8 +182,12 @@ export async function PATCH(
           "updatedAt" = ${now}
         WHERE "id" = ${id}
           AND "companyId" = ${companyId}
+          AND "status" = 'pending'
       `
     );
+    if (Number(updated) === 0) {
+      return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+    }
     return NextResponse.json({ ok: true, status: "rejected" });
   }
   // Return rearrange/cancel approvals require an orderReturn link
@@ -166,6 +200,211 @@ export async function PATCH(
 
   const now = new Date();
   const nextStatus = parsed.data.action === "approve" ? "approved" : "rejected";
+
+  let reviewNote: string | null = parsed.data.reviewNote ?? null;
+  if (parsed.data.action === "reject" && approval.type === ORDER_PAYMENT_APPROVAL) {
+    const reasonParsed = orderPaymentRejectionReasonSchema.safeParse(parsed.data.reviewNote ?? "");
+    if (!reasonParsed.success) {
+      return NextResponse.json(
+        {
+          error: "A rejection reason between 5 and 500 characters is required.",
+          code: "REJECTION_REASON_REQUIRED",
+        },
+        { status: 400 }
+      );
+    }
+    reviewNote = reasonParsed.data;
+  }
+
+  // ORDER_PAYMENT_APPROVAL reject: cancel ERP SI first, then void + reject under pending guard.
+  if (parsed.data.action === "reject" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
+    const orderForReject = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: {
+        id: true,
+        name: true,
+        shopifyOrderId: true,
+        erpnextInvoiceId: true,
+        companyLocationId: true,
+        companyLocation: { include: { erpnextInstance: true } },
+      },
+    });
+    if (!orderForReject?.companyLocation) {
+      return NextResponse.json(
+        {
+          error: "Order or company location not found for ERP cancellation.",
+          code: "ERP_SI_CANCEL_FAILED",
+          retryable: true,
+          approvalStatus: "pending",
+        },
+        { status: 502 }
+      );
+    }
+
+    const poNo = (orderForReject.name ?? orderForReject.shopifyOrderId ?? orderForReject.id).slice(0, 140);
+    const realSiId = isRealErpSalesInvoiceId(orderForReject.erpnextInvoiceId)
+      ? orderForReject.erpnextInvoiceId!.trim()
+      : undefined;
+
+    let cancelOutcome: "cancelled" | "already_cancelled" | "not_found";
+    try {
+      const cancelResult = await cancelErpnextSalesInvoice(poNo, orderForReject.companyLocation, {
+        directInvoiceName: realSiId,
+        strict: true,
+      });
+      cancelOutcome = cancelResult.outcome;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ERPNext] order payment rejection SI cancel failed:", errMsg);
+      await writeAuditLog({
+        companyId,
+        actorUserId: reviewerId,
+        module: "orders",
+        action: "order_payment_rejection_erp_cancel_failed",
+        entityType: "Order",
+        entityId: approval.orderId,
+        summary: `ERP Sales Invoice cancel failed during order payment rejection for ${invoiceLabel({
+          name: approval.orderName,
+          orderNumber: approval.orderNumber,
+          shopifyOrderId: approval.shopifyOrderId,
+        })}`,
+        metadata: {
+          approvalId: approval.id,
+          orderId: approval.orderId,
+          companyLocationId: orderForReject.companyLocationId,
+          erpInvoiceId: realSiId ?? null,
+          error: errMsg.slice(0, 500),
+        },
+      });
+      return NextResponse.json(
+        {
+          error: "ERP Sales Invoice could not be cancelled. The approval remains pending; retry rejection.",
+          code: "ERP_SI_CANCEL_FAILED",
+          retryable: true,
+          approvalStatus: "pending",
+        },
+        { status: 502 }
+      );
+    }
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ApprovalRequest"
+            SET
+              "status" = 'rejected',
+              "reviewedById" = ${reviewerId},
+              "reviewNote" = ${reviewNote},
+              "reviewedAt" = ${now},
+              "updatedAt" = ${now}
+            WHERE "id" = ${approval.id}
+              AND "companyId" = ${companyId}
+              AND "status" = 'pending'
+          `
+        );
+        if (Number(updated) === 0) {
+          throw new ConcurrentApprovalDecisionError();
+        }
+
+        await tx.order.update({
+          where: { id: approval.orderId! },
+          data: {
+            financialStatus: "voided",
+            cancelReason: reviewNote,
+            cancelledAt: now,
+            cancelledById: reviewerId,
+          },
+        });
+
+        await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "Notification"
+            SET "readAt" = COALESCE("readAt", ${now})
+            WHERE "companyId" = ${companyId}
+              AND "entityType" = 'ApprovalRequest'
+              AND "type" = 'approval_requested'
+              AND "readAt" IS NULL
+              AND "entityId" IN (
+                SELECT "id" FROM "ApprovalRequest"
+                WHERE "orderId" = ${approval.orderId}
+                  AND "companyId" = ${companyId}
+              )
+          `
+        );
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentApprovalDecisionError) {
+        return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+      }
+      throw err;
+    }
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: reviewerId,
+      module: "orders",
+      action: "order_payment_rejected",
+      entityType: "Order",
+      entityId: approval.orderId,
+      summary: `Finance rejected order payment for ${invoiceLabel({
+        name: approval.orderName,
+        orderNumber: approval.orderNumber,
+        shopifyOrderId: approval.shopifyOrderId,
+      })}`,
+      metadata: {
+        approvalId: approval.id,
+        orderId: approval.orderId,
+        companyLocationId: orderForReject.companyLocationId,
+        erpInvoiceId: realSiId ?? null,
+        erpInvoiceCancellation: cancelOutcome,
+        reviewNote,
+      },
+    });
+
+    await notifyApprovalRequester({
+      companyId,
+      approvalId: approval.id,
+      status: "rejected",
+      requestedById: approval.requestedById,
+      approvalType: approval.type,
+      invoiceLabel: invoiceLabel({
+        name: approval.orderName,
+        orderNumber: approval.orderNumber,
+        shopifyOrderId: approval.shopifyOrderId,
+      }),
+    });
+
+    return NextResponse.json({
+      ok: true,
+      status: "rejected",
+      erpInvoiceCancellation: cancelOutcome,
+    });
+  }
+
+  // BEFORE approving ORDER_PAYMENT: require a real SI and no active retry lease.
+  if (parsed.data.action === "approve" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
+    const orderErp = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: { erpnextInvoiceId: true, erpnextSyncRetryLeaseExpiresAt: true },
+    });
+    if (
+      !orderErp ||
+      isPlaceholderErpInvoiceId(orderErp.erpnextInvoiceId) ||
+      isActiveErpSiRetryLease(orderErp.erpnextSyncRetryLeaseExpiresAt, now)
+    ) {
+      return NextResponse.json(
+        {
+          error: "ERP Sales Invoice is not ready. Retry ERP sync before approving this order.",
+          code: "ERP_SI_NOT_READY",
+          retryable: true,
+          approvalStatus: "pending",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   const isBankTransferApproval =
     approval.type === PAYMENT_METHOD_CHANGE_APPROVAL &&
     (approval.requestNote?.toLowerCase().startsWith("bank transfer") ?? false);
@@ -179,20 +418,25 @@ export async function PATCH(
       approval.id,
     ));
 
+  try {
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw(
+    const updated = await tx.$executeRaw(
       Prisma.sql`
         UPDATE "ApprovalRequest"
         SET
           "status" = ${nextStatus},
           "reviewedById" = ${reviewerId},
-          "reviewNote" = ${parsed.data.reviewNote ?? null},
+          "reviewNote" = ${reviewNote},
           "reviewedAt" = ${now},
           "updatedAt" = ${now}
         WHERE "id" = ${approval.id}
           AND "companyId" = ${companyId}
+          AND "status" = 'pending'
       `
     );
+    if (Number(updated) === 0) {
+      throw new ConcurrentApprovalDecisionError();
+    }
 
     if (nextStatus === "rejected" && approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
       // Cancel was rejected — reset the return to pending so staff can continue processing it normally.
@@ -415,6 +659,12 @@ export async function PATCH(
       `
     );
   });
+  } catch (err) {
+    if (err instanceof ConcurrentApprovalDecisionError) {
+      return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+    }
+    throw err;
+  }
 
   await notifyApprovalRequester({
     companyId,

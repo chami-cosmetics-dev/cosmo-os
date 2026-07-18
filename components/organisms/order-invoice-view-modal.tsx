@@ -247,6 +247,13 @@ function userName(u: UserRef): string {
   return u ? (u.name ?? u.email ?? "-") : "-";
 }
 
+function approvalErrorMessage(data: { error?: string; code?: string }) {
+  if (data.code === "ERP_SI_CANCEL_FAILED" || data.code === "ERP_SI_NOT_READY") {
+    return `${data.code}: ${data.error ?? "ERP Sales Invoice operation failed."}`;
+  }
+  return data.error ?? "Failed to review approval";
+}
+
 function isFulfillmentAtOrPastPrint(fulfillmentStage?: string): boolean {
   if (!fulfillmentStage) return false;
   const printIdx = FULFILLMENT_STAGE_ORDER.indexOf("print");
@@ -555,8 +562,16 @@ export function OrderInvoiceViewModal({
   const canHodRevertPaid =
     canRevertPaid &&
     orderDetail?.financialStatus?.toLowerCase() === "paid";
+  const financeRejectionReasonLength = financeReviewNote.trim().length;
+  const orderPaymentRejectionReasonValid =
+    financeRejectionReasonLength >= 5 && financeRejectionReasonLength <= 500;
 
-  async function reviewFinanceApproval(action: "approve" | "reject", approvalId: string) {
+  async function reviewFinanceApproval(
+    action: "approve" | "reject",
+    approvalId: string,
+    requiresRejectionReason = false,
+  ) {
+    if (action === "reject" && requiresRejectionReason && !orderPaymentRejectionReasonValid) return;
     setFinanceBusy(action);
     try {
       const res = await fetch(`/api/admin/approvals/${approvalId}`, {
@@ -564,9 +579,14 @@ export function OrderInvoiceViewModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, reviewNote: financeReviewNote.trim() || null }),
       });
-      const data = (await res.json()) as { error?: string; erpSyncFailed?: boolean; erpSyncError?: string };
+      const data = (await res.json()) as {
+        error?: string;
+        code?: string;
+        erpSyncFailed?: boolean;
+        erpSyncError?: string;
+      };
       if (!res.ok) {
-        notify.error(data.error ?? "Failed to review approval");
+        notify.error(approvalErrorMessage(data));
         return;
       }
       if (action === "approve" && data.erpSyncFailed) {
@@ -766,13 +786,21 @@ export function OrderInvoiceViewModal({
                 </p>
                 {canMarkOrderPaid && (
                   <div className="mt-3 space-y-2">
+                    <label className="block text-sm font-medium" htmlFor="order-payment-review-note">
+                      Rejection reason <span className="text-destructive">*</span>
+                    </label>
                     <Textarea
+                      id="order-payment-review-note"
                       value={financeReviewNote}
                       onChange={(event) => setFinanceReviewNote(event.target.value)}
-                      placeholder="Finance note (optional)"
+                      placeholder="Explain why this payment is being rejected..."
                       className="min-h-16 bg-background/80"
                       disabled={financeBusy !== null}
+                      maxLength={500}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {financeRejectionReasonLength}/500 — minimum 5 characters
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         size="sm"
@@ -790,8 +818,8 @@ export function OrderInvoiceViewModal({
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => void reviewFinanceApproval("reject", pendingOrderPaymentApproval.id)}
-                        disabled={financeBusy !== null}
+                        onClick={() => void reviewFinanceApproval("reject", pendingOrderPaymentApproval.id, true)}
+                        disabled={financeBusy !== null || !orderPaymentRejectionReasonValid}
                         className="gap-2"
                       >
                         {financeBusy === "reject" ? (
@@ -799,7 +827,7 @@ export function OrderInvoiceViewModal({
                         ) : (
                           <AlertTriangle className="size-4" aria-hidden />
                         )}
-                        Reject
+                        {financeBusy === "reject" ? "Cancelling ERP invoice..." : "Reject"}
                       </Button>
                     </div>
                   </div>
@@ -1088,11 +1116,18 @@ export function OrderInvoiceViewModal({
                             )}
                           </p>
                         ) : (
-                          <p>
+                          <div>
+                            <p>
                             <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
                               Rejected
                             </span>
-                          </p>
+                            </p>
+                            {orderDetail.paymentApproval.reviewNote && (
+                              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                                Rejection reason: {orderDetail.paymentApproval.reviewNote}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

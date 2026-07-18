@@ -144,6 +144,13 @@ function isPendingApproval(approval: FinanceApprovalItem) {
   return approval.status === "pending";
 }
 
+function approvalErrorMessage(data: { error?: string; code?: string }) {
+  if (data.code === "ERP_SI_CANCEL_FAILED" || data.code === "ERP_SI_NOT_READY") {
+    return `${data.code}: ${data.error ?? "ERP Sales Invoice operation failed."}`;
+  }
+  return data.error ?? "Failed to review approval";
+}
+
 function riderLabel(approval: Pick<FinanceApprovalItem, "riderName" | "riderMobile" | "riderId">) {
   return approval.riderName?.trim() || approval.riderMobile?.trim() || (approval.riderId ? "Rider" : "No rider / non-rider");
 }
@@ -259,6 +266,10 @@ export function FinanceApprovalsPanel({
     return visibleApprovals.filter((approval) => matchesApprovalSearch(approval, effectiveSearch));
   }, [visibleApprovals, effectiveSearch]);
   const selected = searchedApprovals.find((item) => item.id === selectedId) ?? null;
+  const requiresRejectionReason = selected?.type === "order_payment_approval";
+  const rejectionReasonLength = reviewNote.trim().length;
+  const rejectionReasonValid =
+    !requiresRejectionReason || (rejectionReasonLength >= 5 && rejectionReasonLength <= 500);
   const groupByRider = typeFilter === "delivery_payment_approval";
   const deliveryRiderGroups = useMemo(
     () => (groupByRider ? groupDeliveryApprovalsByRider(searchedApprovals) : []),
@@ -326,6 +337,7 @@ export function FinanceApprovalsPanel({
 
   async function review(action: "approve" | "reject") {
     if (!selected) return;
+    if (action === "reject" && !rejectionReasonValid) return;
     if (
       action === "approve" &&
       selected.type === "return_cancel" &&
@@ -342,11 +354,12 @@ export function FinanceApprovalsPanel({
       });
       const data = (await response.json()) as {
         error?: string;
+        code?: string;
         erpSyncFailed?: boolean;
         erpSyncError?: string;
       };
       if (!response.ok) {
-        notify.error(data.error ?? "Failed to review approval");
+        notify.error(approvalErrorMessage(data));
         return;
       }
       if (action === "approve" && data.erpSyncFailed) {
@@ -649,12 +662,29 @@ export function FinanceApprovalsPanel({
                 </div>
                 {selected.status === "pending" ? (
                   <>
-                    <Textarea
-                      value={reviewNote}
-                      onChange={(event) => setReviewNote(event.target.value)}
-                      placeholder="Finance note..."
-                      className="min-h-28"
-                    />
+                    <div>
+                      <label className="mb-1.5 block text-sm font-medium" htmlFor="finance-review-note">
+                        {requiresRejectionReason ? (
+                          <>Rejection reason <span className="text-destructive">*</span></>
+                        ) : (
+                          "Finance note"
+                        )}
+                      </label>
+                      <Textarea
+                        id="finance-review-note"
+                        value={reviewNote}
+                        onChange={(event) => setReviewNote(event.target.value)}
+                        placeholder={requiresRejectionReason ? "Explain why this payment is being rejected..." : "Finance note..."}
+                        className="min-h-28"
+                        maxLength={requiresRejectionReason ? 500 : undefined}
+                        disabled={busy !== null}
+                      />
+                      {requiresRejectionReason && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {rejectionReasonLength}/500 — minimum 5 characters
+                        </p>
+                      )}
+                    </div>
                     <div className="grid gap-2">
                       {!selected.orderMissing && (
                         <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
@@ -672,9 +702,14 @@ export function FinanceApprovalsPanel({
                               : `Approve — ${typeLabel(selected.type)}`}
                         </Button>
                       )}
-                      <Button variant="outline" onClick={() => void review("reject")} disabled={busy !== null} className="gap-2">
-                        {busy === "reject" ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
-                        Reject
+                      <Button
+                        variant="outline"
+                        onClick={() => void review("reject")}
+                        disabled={busy !== null || !rejectionReasonValid}
+                        className="gap-2"
+                      >
+                        {busy === "reject" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <XCircle className="size-4" />}
+                        {busy === "reject" && requiresRejectionReason ? "Cancelling ERP invoice..." : "Reject"}
                       </Button>
                     </div>
                   </>

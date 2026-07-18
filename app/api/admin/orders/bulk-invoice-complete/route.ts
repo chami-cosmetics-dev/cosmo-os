@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import {
   isAllowedCompanyErpPaymentMode,
   listCompanyErpPaymentModes,
@@ -66,6 +67,33 @@ export async function POST(request: NextRequest) {
 
   for (const orderId of parsed.data.orderIds) {
     try {
+      const order = await prisma.order.findFirst({
+        where: { id: orderId, companyId },
+        select: {
+          id: true,
+          name: true,
+          orderNumber: true,
+          paymentGatewayPrimary: true,
+          paymentGatewayNames: true,
+          erpnextInvoiceId: true,
+        },
+      });
+      const ref = order?.name ?? order?.orderNumber ?? orderId;
+      if (!order) {
+        results.push({ orderId, ref, success: false, error: "Order not found" });
+        continue;
+      }
+      const financeBlock = await getFinancePaymentApprovalBlockReason({
+        id: order.id,
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        paymentGatewayNames: order.paymentGatewayNames ?? [],
+        erpnextInvoiceId: order.erpnextInvoiceId,
+      });
+      if (financeBlock) {
+        results.push({ orderId, ref, success: false, error: financeBlock });
+        continue;
+      }
+
       const outcome = await markOrderInvoiceComplete({
         companyId,
         orderId,
