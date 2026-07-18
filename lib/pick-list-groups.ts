@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { buildPickListAggregationForOrders } from "@/lib/pick-list-data";
 import { getPickListTodayBounds } from "@/lib/pick-list-date";
+import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 
 export const PICK_LIST_GROUP_MAX_ORDERS = 100;
 
@@ -34,6 +35,7 @@ export async function createPickListGroup(
       companyId,
       id: { in: uniqueOrderIds },
       financialStatus: { not: "voided" },
+      AND: [getLegacyAccSinvFulfillmentWhere()],
     },
     select: { id: true },
   });

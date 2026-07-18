@@ -24,6 +24,7 @@ import {
   sampleQueueWhere,
   printFulfillmentPipelineWhere,
 } from "@/lib/fulfillment-queue-filters";
+import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -209,7 +210,9 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     where.paymentGatewayNames = { has: gatewayParsed.data };
   }
 
-  if (params.orderStatusFilter === "pending") {
+  if (params.orderStatusFilter === "order_received") {
+    where.fulfillmentStage = "order_received";
+  } else if (params.orderStatusFilter === "pending") {
     where.financialStatus = "pending";
   } else if (params.orderStatusFilter === "paid") {
     where.financialStatus = "paid";
@@ -394,6 +397,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
   // Exclude orders from locations that have been temporarily blocked from fulfillment
   if (params.printMode || params.dispatchMode || params.deliveryMode || params.invoiceCompleteMode || params.fulfillmentStages?.trim()) {
     where.companyLocation = { fulfillmentBlocked: false };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      getLegacyAccSinvFulfillmentWhere(),
+    ];
     const stages = params.fulfillmentStages
       ?.trim()
       .split(",")

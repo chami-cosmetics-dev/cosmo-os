@@ -163,6 +163,7 @@ export const orderPaymentGatewayFilterSchema = z
 
 /** Orders list: financial / return status filter. */
 export const ORDER_STATUS_FILTER_VALUES = [
+  "order_received",
   "pending",
   "paid",
   "voided",

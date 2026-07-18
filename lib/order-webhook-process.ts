@@ -19,6 +19,10 @@ import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
 import { shouldSkipShopifyOrderErpSync } from "@/lib/erp-shopify-sync-eligibility";
 import { shouldSkipShopifyOrderWebhookForMissingOrder } from "@/lib/shopify-order-webhook-topic";
 import { normalizeOrderCustomerPhone } from "@/lib/phone-lookup";
+import {
+  isShopifyOrderFullyRefunded,
+  shouldVoidShopifyOrder,
+} from "@/lib/shopify-order-financial-status";
 
 function parseDecimal(value: string | null | undefined): Decimal | null {
   if (value == null || value === "") return null;
@@ -54,13 +58,6 @@ function parseShopifyCancelledAt(value: string | null | undefined): Date | null 
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function isShopifyOrderCancelled(data: ShopifyOrderWebhookPayload): boolean {
-  return (
-    parseShopifyCancelledAt(data.cancelled_at) != null ||
-    data.financial_status?.toLowerCase() === "voided"
-  );
 }
 
 export async function processOrderWebhook(
@@ -149,11 +146,18 @@ export async function processOrderWebhook(
     null;
   const paymentGateways = normalizePaymentGateways(data.payment_gateway_names);
   const cancelledAtFromShopify = parseShopifyCancelledAt(data.cancelled_at);
-  const isCancelledFromShopify = isShopifyOrderCancelled(data);
+  const shouldVoidFromShopify = shouldVoidShopifyOrder({
+    financialStatus: data.financial_status,
+    cancelledAt: data.cancelled_at,
+    totalPriceIsNegative: totalPrice.lessThan(0),
+  });
+  const isFullyRefundedFromShopify = isShopifyOrderFullyRefunded(data.financial_status);
   const shopifyCancelReason =
     typeof data.cancel_reason === "string" && data.cancel_reason.trim()
       ? data.cancel_reason.trim().slice(0, 500)
-      : null;
+      : isFullyRefundedFromShopify
+        ? "Refunded in Shopify"
+        : null;
 
   const orderData = {
     companyId,
@@ -171,10 +175,9 @@ export async function processOrderWebhook(
     totalTax,
     totalShipping,
     currency: data.currency?.slice(0, 10) ?? null,
-    financialStatus:
-      totalPrice.lessThan(0) || isCancelledFromShopify
-        ? "voided"
-        : data.financial_status?.slice(0, 50) ?? null,
+    financialStatus: shouldVoidFromShopify
+      ? "voided"
+      : data.financial_status?.slice(0, 50) ?? null,
     fulfillmentStatus: data.fulfillment_status?.slice(0, 50) ?? null,
     paymentGatewayNames: paymentGateways.names,
     paymentGatewayPrimary: paymentGateways.primary,
@@ -200,7 +203,7 @@ export async function processOrderWebhook(
         ? (data.shipping_lines as Prisma.InputJsonValue)
         : Prisma.JsonNull,
     rawPayload: rawPayload as Prisma.InputJsonValue,
-    ...(isCancelledFromShopify
+    ...(shouldVoidFromShopify
       ? {
           cancelledAt:
             existingOrder?.cancelledAt ?? cancelledAtFromShopify ?? new Date(),
@@ -330,7 +333,7 @@ export async function processOrderWebhook(
     }
   }
 
-  if (isCancelledFromShopify) {
+  if (shouldVoidFromShopify) {
     try {
       await cancelErpnextSalesInvoice(
         order.name ?? order.shopifyOrderId,

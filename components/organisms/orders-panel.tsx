@@ -602,6 +602,7 @@ export function OrdersPanel({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL_FILTER_VALUE}>All statuses</SelectItem>
+                <SelectItem value="order_received">Order Received</SelectItem>
                 <SelectItem value="pending">Pending payment</SelectItem>
                 <SelectItem value="paid">Paid</SelectItem>
                 <SelectItem value="voided">Voided</SelectItem>
