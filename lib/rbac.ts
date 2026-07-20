@@ -201,7 +201,7 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
-  // Optional reminder overrides — bubbles still follow page perms by default (see reminder-permissions.ts)
+  // Reminder bubbles — explicit reminders.* only (no page-perm default)
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
     description: buildReminderBubblePermissionDescription(p.category),
@@ -432,7 +432,7 @@ const DEFAULT_ROLES = [
   {
     name: "super_admin",
     description: "Full system access including company setup",
-    // Reminder bubbles are optional add-ons — not checked by default (page perms still gate bubbles).
+    // Reminder bubbles must be granted explicitly via reminders.* in Roles UI.
     permissionKeys: DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS,
   },
   {

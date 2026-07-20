@@ -67,19 +67,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [catalog, columns, profiles, ropRows, monthlySales, buyers] = await Promise.all([
-      buildCatalogRows(companyId, {
-        includeInactive,
-        vendorIds,
-        itemStatusCategories,
-        skuPrefix,
-      }),
-      resolveOsfColumns(companyId),
-      prisma.productOsfProfile.findMany({ where: { companyId } }),
-      prisma.productOsfRop.findMany({ where: { companyId } }),
-      aggregateMonthlySalesBySku(companyId, salesMonth),
-      listOsfBuyers(companyId),
-    ]);
+    const [catalog, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =
+      await Promise.all([
+        buildCatalogRows(companyId, {
+          includeInactive,
+          vendorIds,
+          itemStatusCategories,
+          skuPrefix,
+        }),
+        resolveOsfColumns(companyId),
+        prisma.productOsfProfile.findMany({ where: { companyId } }),
+        prisma.productOsfRop.findMany({ where: { companyId } }),
+        aggregateMonthlySalesBySku(companyId, salesMonth),
+        listOsfBuyers(companyId),
+        prisma.supplier.findMany({
+          where: { companyId },
+          select: { name: true, code: true },
+        }),
+      ]);
 
     const profileMap = new Map<string, OsfProfileData>();
     for (const p of profiles) {
@@ -121,7 +126,12 @@ export async function POST(request: NextRequest) {
             ? fetchBinActualQty({ cfg: inst.cfg, warehouses: whs, itemCodes: skus })
             : Promise.resolve(new Map<string, number>()),
           fetchLatestCostAndSupplier({ cfg: inst.cfg, itemCodes: skus }),
-          fetchLastPurchaseByItem({ cfg: inst.cfg, itemCodes: skus, recentSinceDate }),
+          fetchLastPurchaseByItem({
+            cfg: inst.cfg,
+            itemCodes: skus,
+            recentSinceDate,
+            allowedSuppliers,
+          }),
         ]);
         return { bins, costs, purchases };
       }),

@@ -8,13 +8,13 @@ import {
 } from "@/lib/task-reminder-access";
 
 describe("task-reminder-access", () => {
-  it("gives admins bubbles from page perms (legacy) and reminders.*", () => {
+  it("requires explicit reminders.* even for admins (no page-perm default)", () => {
     expect(
       canSeeTaskReminderCategory(
         { roleNames: ["admin"], permissionKeys: ["fulfillment.ready_dispatch.read"] },
         "ready_dispatch",
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canSeeTaskReminderCategory(
         { roleNames: ["admin"], permissionKeys: ["reminders.finance_approval"] },
@@ -23,7 +23,7 @@ describe("task-reminder-access", () => {
     ).toBe(true);
   });
 
-  it("keeps finance → finance bubble via page perm without reminders.*", () => {
+  it("keeps finance → finance bubble only with reminders.* (page perm alone is not enough)", () => {
     const context = {
       roleNames: ["finance"],
       permissionKeys: [
@@ -35,26 +35,30 @@ describe("task-reminder-access", () => {
       ],
     };
     expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["finance"]));
-    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(false);
     expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
-    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
-    expect(canSeeTaskReminderCategory(context, "return_action")).toBe(false);
   });
 
-  it("grants finance bubble from finance.approvals.read alone (e.g. HOD)", () => {
+  it("grants finance bubble from reminders.finance_approval", () => {
     const context = {
       roleNames: ["hod"],
-      permissionKeys: ["finance.approvals.read", "finance.hod.revert_paid_to_unpaid"],
+      permissionKeys: [
+        "finance.approvals.read",
+        "finance.hod.revert_paid_to_unpaid",
+        "reminders.finance_approval",
+      ],
     };
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
   });
 
-  it("grants invoice complete bubble to finance via invoice_complete.read", () => {
+  it("grants invoice complete bubble to finance via reminders.invoice_complete", () => {
     const context = {
       roleNames: ["finance"],
       permissionKeys: [
         "finance.approvals.manage",
         "fulfillment.invoice_complete.read",
+        "reminders.finance_approval",
+        "reminders.invoice_complete",
       ],
     };
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
@@ -62,12 +66,16 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
   });
 
-  it("grants invoice complete bubble from page perm for store/admin audience", () => {
+  it("grants invoice complete bubble from reminders.* for store/admin audience", () => {
     expect(
       canSeeTaskReminderCategory(
         {
           roleNames: ["store"],
-          permissionKeys: ["fulfillment.invoice_complete.read", "fulfillment.ready_dispatch.read"],
+          permissionKeys: [
+            "fulfillment.invoice_complete.read",
+            "fulfillment.ready_dispatch.read",
+            "reminders.invoice_complete",
+          ],
         },
         "invoice_complete",
       ),
@@ -79,6 +87,7 @@ describe("task-reminder-access", () => {
       roleNames: ["finance"],
       permissionKeys: [
         "finance.approvals.manage",
+        "reminders.finance_approval",
         "reminders.delivery_pending",
         "reminders.print",
         "reminders.ready_dispatch",
@@ -105,13 +114,16 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(false);
   });
 
-  it("limits store users to store pipeline via page perms", () => {
+  it("limits store users to store pipeline via explicit reminders.*", () => {
     const context = {
       roleNames: ["store"],
       permissionKeys: [
         "fulfillment.ready_dispatch.read",
         "fulfillment.order_print.read",
         "returns.read",
+        "reminders.ready_dispatch",
+        "reminders.print",
+        "reminders.return_action",
       ],
     };
     expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["store"]));
@@ -122,12 +134,13 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(false);
   });
 
-  it("limits merchants to sample reminders via page perm", () => {
+  it("limits merchants to sample reminders via reminders.add_samples", () => {
     const context = {
       roleNames: ["merchant"],
       permissionKeys: [
         "fulfillment.sample_free_issue.read",
         "fulfillment.sample_free_issue.manage",
+        "reminders.add_samples",
       ],
     };
     expect(resolveTaskReminderAudiences(context)).toEqual(new Set(["merchant"]));
@@ -147,13 +160,15 @@ describe("task-reminder-access", () => {
     expect(shouldScopeSampleRemindersToMerchant(context)).toBe(false);
   });
 
-  it("lists categories from page perms within audience caps", () => {
+  it("lists categories from reminders.* within audience caps", () => {
     const financeContext = {
       roleNames: ["finance"],
       permissionKeys: [
         "finance.approvals.manage",
         "fulfillment.invoice_complete.read",
         "fulfillment.order_print.read",
+        "reminders.finance_approval",
+        "reminders.invoice_complete",
         "reminders.print",
       ],
     };
@@ -168,13 +183,15 @@ describe("task-reminder-access", () => {
         "fulfillment.ready_dispatch.read",
         "fulfillment.order_print.read",
         "returns.read",
+        "reminders.print",
+        "reminders.ready_dispatch",
+        "reminders.return_action",
         "reminders.finance_approval",
       ],
     };
     expect(listVisibleTaskReminderCategories(storeContext)).toEqual([
       "print",
       "ready_dispatch",
-      "rearrange_dispatch",
       "return_action",
     ]);
   });
