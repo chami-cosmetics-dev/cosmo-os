@@ -219,6 +219,10 @@ export async function fetchMerchantReviewSheetData(input: {
     companyId: input.companyId,
     deliveryCompleteAt: { not: null },
     sourceName: { notIn: ["pos", "erpnext-pos"] },
+    AND: [
+      { financialStatus: { not: "voided" } },
+      { financialStatus: { not: "refunded" } },
+    ],
   };
 
   const [usersWithCoupons, orders] = await Promise.all([

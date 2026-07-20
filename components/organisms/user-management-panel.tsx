@@ -461,6 +461,11 @@ export function UserManagementPanel({
         throw new Error(error.error ?? "Failed to send invite");
       }
 
+      const result = (await response.json().catch(() => ({}))) as {
+        repaired?: boolean;
+        message?: string;
+      };
+
       setInviteEmail("");
       setInviteRoleId("");
       setInviteEmployeeNumber("");
@@ -470,7 +475,15 @@ export function UserManagementPanel({
       setInviteDesignationId("");
       setInviteAppointmentDate("");
       await fetchInvites();
-      notify.success("Invitation sent. Check your email for the activation link.");
+      if (result.repaired) {
+        notify.success(
+          result.message ??
+            "User already existed without a company. Linked to your company."
+        );
+        await refreshData();
+      } else {
+        notify.success("Invitation sent. Check your email for the activation link.");
+      }
       return true;
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Unable to send invite.");

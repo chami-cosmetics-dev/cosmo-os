@@ -58,6 +58,7 @@ type Order = {
   paymentGatewayPrimary: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
+  pendingMethodChangeApproval?: boolean;
   erpOutOfStockBlocked?: boolean;
   discountCodes?: unknown;
   merchantCouponCode?: string | null;
@@ -173,6 +174,7 @@ type OrderDetail = {
   paymentGatewayPrimary?: string | null;
   pendingPaymentApproval?: boolean;
   pendingDeliveryPaymentApproval?: boolean;
+  pendingMethodChangeApproval?: boolean;
   erpOutOfStockBlocked?: boolean;
   customerEmail: string | null;
   customerPhone: string | null;
@@ -733,6 +735,14 @@ export function OrdersPanel({
                                 className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300"
                               >
                                 DP
+                              </span>
+                            )}
+                            {order.pendingMethodChangeApproval && (
+                              <span
+                                title="Awaiting payment method change approval (COD → KOKO / bank transfer)"
+                                className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+                              >
+                                MC
                               </span>
                             )}
                             {order.erpOutOfStockBlocked && (
