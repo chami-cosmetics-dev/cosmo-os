@@ -121,6 +121,17 @@ export async function POST(request: Request) {
     );
   }
 
+  const inviter = await prisma.user.findUnique({
+    where: { id: auth.context!.user!.id },
+    select: { companyId: true },
+  });
+  if (!inviter?.companyId) {
+    return NextResponse.json(
+      { error: "No company associated with your account. Staff invites require a company." },
+      { status: 400 }
+    );
+  }
+
   const existingUser = await prisma.user.findUnique({
     where: { email },
     select: {
@@ -130,6 +141,20 @@ export async function POST(request: Request) {
     },
   });
   if (existingUser) {
+    // Activated with role but company never attached (activate reuse bug). Link to inviter company.
+    if (!existingUser.companyId && existingUser.userRoles.length > 0) {
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: { companyId: inviter.companyId },
+      });
+      return NextResponse.json({
+        success: true,
+        repaired: true,
+        message:
+          "User already existed without a company. Linked to your company — they should now appear in Users.",
+      });
+    }
+
     // Orphan from a leftover login session (no company, no roles): remove so invite can proceed.
     const isOrphan =
       !existingUser.companyId && existingUser.userRoles.length === 0;
@@ -146,17 +171,6 @@ export async function POST(request: Request) {
     await prisma.invite.deleteMany({ where: { email } });
     await prisma.userRole.deleteMany({ where: { userId: existingUser.id } });
     await prisma.user.delete({ where: { id: existingUser.id } });
-  }
-
-  const inviter = await prisma.user.findUnique({
-    where: { id: auth.context!.user!.id },
-    select: { companyId: true },
-  });
-  if (!inviter?.companyId) {
-    return NextResponse.json(
-      { error: "No company associated with your account. Staff invites require a company." },
-      { status: 400 }
-    );
   }
 
   if (locationId || departmentId || designationId) {

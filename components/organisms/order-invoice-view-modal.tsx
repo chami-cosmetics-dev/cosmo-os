@@ -196,6 +196,15 @@ type OrderDetail = {
     reviewNote: string | null;
     reviewedBy: UserRef | null;
   } | null;
+  methodChangeApproval?: {
+    id: string;
+    status: string;
+    requestNote: string | null;
+    createdAt: string;
+    reviewedAt: string | null;
+    reviewNote: string | null;
+    reviewedBy: UserRef | null;
+  } | null;
 };
 
 interface OrderInvoiceViewModalProps {
@@ -555,10 +564,14 @@ export function OrderInvoiceViewModal({
     orderDetail?.deliveryPaymentApproval?.status === "pending" ? orderDetail.deliveryPaymentApproval : null;
   const pendingOrderPaymentApproval =
     orderDetail?.paymentApproval?.status === "pending" ? orderDetail.paymentApproval : null;
+  const pendingMethodChangeApproval =
+    orderDetail?.methodChangeApproval?.status === "pending" ? orderDetail.methodChangeApproval : null;
   const canMarkDeliveryPaid =
     canManageFinanceApprovals && pendingDeliveryApproval != null;
   const canMarkOrderPaid =
     canManageFinanceApprovals && pendingOrderPaymentApproval != null;
+  const canReviewMethodChange =
+    canManageFinanceApprovals && pendingMethodChangeApproval != null;
   const canHodRevertPaid =
     canRevertPaid &&
     orderDetail?.financialStatus?.toLowerCase() === "paid";
@@ -889,6 +902,60 @@ export function OrderInvoiceViewModal({
               </div>
             )}
 
+            {pendingMethodChangeApproval && (
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-900 dark:text-blue-200">
+                <p className="font-medium">Payment method change awaiting finance approval</p>
+                <p className="mt-1 text-blue-800/90 dark:text-blue-300/90">
+                  A request to switch this order from COD to KOKO or bank transfer is pending finance approval.
+                </p>
+                {pendingMethodChangeApproval.requestNote && (
+                  <p className="mt-2 whitespace-pre-wrap text-xs text-blue-800/80 dark:text-blue-300/80">
+                    {pendingMethodChangeApproval.requestNote}
+                  </p>
+                )}
+                {canReviewMethodChange && (
+                  <div className="mt-3 space-y-2">
+                    <Textarea
+                      value={financeReviewNote}
+                      onChange={(event) => setFinanceReviewNote(event.target.value)}
+                      placeholder="Finance note (optional)"
+                      className="min-h-16 bg-background/80"
+                      disabled={financeBusy !== null}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => void reviewFinanceApproval("approve", pendingMethodChangeApproval.id)}
+                        disabled={financeBusy !== null}
+                        className="gap-2"
+                      >
+                        {financeBusy === "approve" ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Check className="size-4" aria-hidden />
+                        )}
+                        Approve method change
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void reviewFinanceApproval("reject", pendingMethodChangeApproval.id)}
+                        disabled={financeBusy !== null}
+                        className="gap-2"
+                      >
+                        {financeBusy === "reject" ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden />
+                        ) : (
+                          <AlertTriangle className="size-4" aria-hidden />
+                        )}
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {canHodRevertPaid && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-2">
                 <p className="text-sm font-medium">Revert paid → unpaid (HOD only)</p>
@@ -1162,6 +1229,48 @@ export function OrderInvoiceViewModal({
                         {orderDetail.deliveryPaymentApproval.requestNote && (
                           <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                             {orderDetail.deliveryPaymentApproval.requestNote}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {orderDetail.methodChangeApproval && !(orderDetail.methodChangeApproval.status === "cancelled" && !!orderDetail.invoiceCompleteAt) && (
+                      <div>
+                        <span className="text-muted-foreground text-xs">Payment Method Change</span>
+                        {orderDetail.methodChangeApproval.status === "pending" ? (
+                          <p className="flex items-center gap-1.5">
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                              Pending
+                            </span>
+                            <span className="text-xs text-muted-foreground">Awaiting finance (COD → KOKO / bank)</span>
+                          </p>
+                        ) : orderDetail.methodChangeApproval.status === "approved" ? (
+                          <p className="flex items-center gap-1.5">
+                            <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                              Approved
+                            </span>
+                            {orderDetail.methodChangeApproval.reviewedBy && (
+                              <span className="text-xs text-muted-foreground">
+                                by {orderDetail.methodChangeApproval.reviewedBy.name ?? orderDetail.methodChangeApproval.reviewedBy.email}
+                              </span>
+                            )}
+                          </p>
+                        ) : (
+                          <div>
+                            <p>
+                              <span className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-300">
+                                Rejected
+                              </span>
+                            </p>
+                            {orderDetail.methodChangeApproval.reviewNote && (
+                              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                                Rejection reason: {orderDetail.methodChangeApproval.reviewNote}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {orderDetail.methodChangeApproval.requestNote && (
+                          <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                            {orderDetail.methodChangeApproval.requestNote}
                           </p>
                         )}
                       </div>

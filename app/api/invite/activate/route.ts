@@ -112,24 +112,43 @@ export async function POST(request: Request) {
     await ensureDefaultRbacSetup();
 
     // If a previous activation partially completed, the DB user may already exist
+    // (e.g. Auth0 user created then syncSessionUser ran before activate finished).
     const existingDbUser = await prisma.user.findFirst({
       where: { OR: [{ auth0Id }, { email: invite.email }] },
-      select: { id: true },
+      select: { id: true, companyId: true },
     });
 
-    const user = existingDbUser ?? await prisma.user.create({
-      data: {
-        auth0Id,
-        email: invite.email,
-        name: `${firstName} ${lastName}`.trim(),
-        nicNo: nicNo?.trim() || null,
-        gender: gender?.trim() || null,
-        dateOfBirth: validDob,
-        mobile: mobile?.trim() || null,
-        knownName: knownName?.trim() || null,
-        companyId: !invite.isSuperAdmin && invite.companyId ? invite.companyId : undefined,
-      },
-    });
+    const inviteCompanyId =
+      !invite.isSuperAdmin && invite.companyId ? invite.companyId : undefined;
+
+    const profileFields = {
+      auth0Id,
+      email: invite.email,
+      name: `${firstName} ${lastName}`.trim(),
+      nicNo: nicNo?.trim() || null,
+      gender: gender?.trim() || null,
+      dateOfBirth: validDob,
+      mobile: mobile?.trim() || null,
+      knownName: knownName?.trim() || null,
+    };
+
+    const user = existingDbUser
+      ? await prisma.user.update({
+          where: { id: existingDbUser.id },
+          data: {
+            ...profileFields,
+            // Attach company when missing so user appears in company-scoped Users UI.
+            ...(inviteCompanyId && !existingDbUser.companyId
+              ? { companyId: inviteCompanyId }
+              : {}),
+          },
+        })
+      : await prisma.user.create({
+          data: {
+            ...profileFields,
+            companyId: inviteCompanyId,
+          },
+        });
 
     if (invite.isSuperAdmin && companyName && address) {
       const company = await prisma.company.create({
@@ -147,12 +166,20 @@ export async function POST(request: Request) {
       });
     }
 
-    await prisma.userRole.create({
-      data: {
-        userId: user.id,
-        roleId: invite.roleId,
+    const existingRole = await prisma.userRole.findUnique({
+      where: {
+        userId_roleId: { userId: user.id, roleId: invite.roleId },
       },
+      select: { userId: true },
     });
+    if (!existingRole) {
+      await prisma.userRole.create({
+        data: {
+          userId: user.id,
+          roleId: invite.roleId,
+        },
+      });
+    }
 
     const companyIdForProfile =
       invite.isSuperAdmin && companyName && address

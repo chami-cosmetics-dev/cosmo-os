@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { Prisma } from "@prisma/client";
 
-import { DELIVERY_PAYMENT_APPROVAL, ORDER_CANCEL_APPROVAL, ORDER_PAYMENT_APPROVAL } from "@/lib/approval-workflow";
+import {
+  DELIVERY_PAYMENT_APPROVAL,
+  ORDER_CANCEL_APPROVAL,
+  ORDER_PAYMENT_APPROVAL,
+  PAYMENT_METHOD_CHANGE_APPROVAL,
+} from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
@@ -142,7 +147,16 @@ const orderSelect = {
   cancelReason: true,
   cancelledBy: { select: { id: true, name: true, email: true } },
   approvalRequests: {
-    where: { type: { in: [ORDER_PAYMENT_APPROVAL, DELIVERY_PAYMENT_APPROVAL, ORDER_CANCEL_APPROVAL] } },
+    where: {
+      type: {
+        in: [
+          ORDER_PAYMENT_APPROVAL,
+          DELIVERY_PAYMENT_APPROVAL,
+          ORDER_CANCEL_APPROVAL,
+          PAYMENT_METHOD_CHANGE_APPROVAL,
+        ],
+      },
+    },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
@@ -550,6 +564,19 @@ export async function GET(
     })(),
     deliveryPaymentApproval: (() => {
       const ap = details.approvalRequests.find((row) => row.type === DELIVERY_PAYMENT_APPROVAL);
+      if (!ap) return null;
+      return {
+        id: ap.id,
+        status: ap.status,
+        requestNote: ap.requestNote ?? null,
+        createdAt: ap.createdAt.toISOString(),
+        reviewedAt: ap.reviewedAt?.toISOString() ?? null,
+        reviewNote: ap.reviewNote ?? null,
+        reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
+      };
+    })(),
+    methodChangeApproval: (() => {
+      const ap = details.approvalRequests.find((row) => row.type === PAYMENT_METHOD_CHANGE_APPROVAL);
       if (!ap) return null;
       return {
         id: ap.id,
