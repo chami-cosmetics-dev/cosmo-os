@@ -267,6 +267,10 @@ export async function GET(request: NextRequest) {
           gte: dateRange.start,
           lte: dateRange.end,
         },
+        AND: [
+          { financialStatus: { not: "voided" } },
+          { financialStatus: { not: "refunded" } },
+        ],
         ...merchantReviewWhere,
       },
       orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
