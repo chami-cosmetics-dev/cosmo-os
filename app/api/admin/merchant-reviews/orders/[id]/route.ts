@@ -31,6 +31,10 @@ async function resolveOrderForViewer(orderId: string, companyId: string) {
       companyId,
       deliveryCompleteAt: { not: null },
       sourceName: { notIn: ["pos", "erpnext-pos"] },
+      AND: [
+        { financialStatus: { not: "voided" } },
+        { financialStatus: { not: "refunded" } },
+      ],
     },
     select: {
       id: true,
