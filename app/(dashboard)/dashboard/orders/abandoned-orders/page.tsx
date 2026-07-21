@@ -4,7 +4,7 @@ import { AbandonedOrdersPanel } from "@/components/organisms/abandoned-orders-pa
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requirePermission } from "@/lib/rbac";
-import { syncAbandonedCheckoutsForCompany } from "@/lib/shopify-abandoned-checkouts";
+import { syncAbandonedCheckoutsForCompany } from "@/lib/abandoned-checkouts-sync";
 import { fetchAbandonedOrdersPageData } from "@/lib/page-data/abandoned-orders";
 
 export const dynamic = "force-dynamic";

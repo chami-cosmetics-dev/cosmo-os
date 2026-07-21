@@ -7,7 +7,7 @@ import { hasPermission, requirePermission } from "@/lib/rbac";
 import {
   abandonedOrdersListQuerySchema,
 } from "@/lib/validation";
-import { syncAbandonedCheckoutsForCompany } from "@/lib/shopify-abandoned-checkouts";
+import { syncAbandonedCheckoutsForCompany } from "@/lib/abandoned-checkouts-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
