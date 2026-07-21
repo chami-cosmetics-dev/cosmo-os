@@ -1,7 +1,6 @@
 import type { TaskReminderCategory } from "@/lib/task-reminders";
 import { hasReminderPermission } from "@/lib/task-reminders";
 import {
-  REMINDER_DEFAULT_PAGE_PERMISSION,
   reminderPermissionForCategory,
   type ReminderBubbleCategory,
 } from "@/lib/reminder-permissions";
@@ -29,7 +28,7 @@ const SAMPLE_PERMISSION_KEYS = [
   "fulfillment.sample_free_issue.manage",
 ] as const;
 
-/** Hard caps for named audiences — page perms and reminders.* cannot exceed these. */
+/** Hard caps for named audiences — reminders.* cannot exceed these. */
 const FINANCE_REMINDER_CATEGORIES = new Set<TaskReminderCategory>([
   "finance_approval",
   "invoice_complete",
@@ -81,7 +80,7 @@ function isStoreRoleName(roleNames: string[]) {
 
 /**
  * Audience heuristics for role-type caps and merchant sample scoping.
- * Bubble visibility is page permission OR reminders.*, then capped by audience.
+ * Bubble visibility requires explicit reminders.*; then capped by audience.
  */
 export function resolveTaskReminderAudiences(
   context: TaskReminderAccessContext,
@@ -126,15 +125,6 @@ export function resolveTaskReminderAudiences(
   return new Set();
 }
 
-function hasLegacyPagePermissionForCategory(
-  context: TaskReminderAccessContext,
-  category: TaskReminderCategory,
-): boolean {
-  const legacyKeys =
-    REMINDER_DEFAULT_PAGE_PERMISSION[category as ReminderBubbleCategory] ?? [];
-  return legacyKeys.some((key) => hasReminderPermission(context, key));
-}
-
 function categoriesAllowedForAudience(
   audiences: Set<TaskReminderAudience>,
 ): Set<TaskReminderCategory> | null {
@@ -146,28 +136,28 @@ function categoriesAllowedForAudience(
 }
 
 /**
- * Show a bubble if the user has the related page permission OR an explicit
- * reminders.* grant — then apply named-role caps so finance/store/merchant
- * cannot see bubbles outside their role type (even with reminders.* ticked).
+ * Show a bubble only when the user has an explicit reminders.* grant —
+ * then apply named-role caps so finance/store/merchant cannot see bubbles
+ * outside their role type (even with reminders.* ticked).
+ *
+ * Uses permissionKeys directly (not hasReminderPermission) so admin/super_admin
+ * also require a manual reminders.* tick.
  */
 export function canSeeTaskReminderCategory(
   context: TaskReminderAccessContext,
   category: TaskReminderCategory,
 ): boolean {
-  const hasExplicitReminder = hasReminderPermission(
-    context,
-    reminderPermissionForCategory(category as ReminderBubbleCategory),
+  const reminderKey = reminderPermissionForCategory(
+    category as ReminderBubbleCategory,
   );
-  const hasLegacyPage = hasLegacyPagePermissionForCategory(context, category);
-
-  if (!hasExplicitReminder && !hasLegacyPage) {
+  if (!context.permissionKeys.includes(reminderKey)) {
     return false;
   }
 
   const audiences = resolveTaskReminderAudiences(context);
   const allowed = categoriesAllowedForAudience(audiences);
 
-  // Admin (or uncapped): any granted page/reminder key
+  // Admin (or uncapped): any granted reminder key
   if (allowed === null && audiences.has("admin")) {
     return true;
   }
@@ -177,8 +167,8 @@ export function canSeeTaskReminderCategory(
     return allowed.has(category);
   }
 
-  // Custom roles with no named audience: page perm or explicit reminders.*
-  return hasLegacyPage || hasExplicitReminder;
+  // Custom roles with no named audience: explicit reminders.* only
+  return true;
 }
 
 const ALL_TASK_REMINDER_CATEGORIES = [
@@ -191,6 +181,7 @@ const ALL_TASK_REMINDER_CATEGORIES = [
   "delivery_pending",
   "invoice_complete",
   "return_action",
+  "purchasing_rop_threshold",
 ] as const satisfies readonly TaskReminderCategory[];
 
 export function listVisibleTaskReminderCategories(

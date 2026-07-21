@@ -117,6 +117,82 @@ describe("buildMainSheetRows", () => {
     expect(second["Purchased (last 30d)"]).toBeNull();
   });
 
+  it("uses signed warehouse order qty and positive-only TOTAL", () => {
+    const multiCols: OsfResolvedColumn[] = [
+      {
+        id: "a",
+        key: "wh_a",
+        label: "WHA",
+        companyLocationId: null,
+        companyLocationName: null,
+        erpnextInstanceId: null,
+        directWarehouses: [],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 1,
+        active: true,
+        warehouses: ["WH-A"],
+      },
+      {
+        id: "b",
+        key: "wh_b",
+        label: "WHB",
+        companyLocationId: null,
+        companyLocationName: null,
+        erpnextInstanceId: null,
+        directWarehouses: [],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 2,
+        active: true,
+        warehouses: ["WH-B"],
+      },
+      {
+        id: "c",
+        key: "wh_c",
+        label: "WHC",
+        companyLocationId: null,
+        companyLocationName: null,
+        erpnextInstanceId: null,
+        directWarehouses: [],
+        includeInStock: true,
+        includeInRop: true,
+        sortOrder: 3,
+        active: true,
+        warehouses: ["WH-C"],
+      },
+    ];
+    const rows = buildMainSheetRows({
+      catalog: [catalog[0]!],
+      columns: multiCols,
+      profiles: new Map([
+        [
+          "CAN07_1",
+          {
+            shopAvailability: null,
+            ogfPrice: null,
+            rops: { wh_a: 10, wh_b: 8, wh_c: 15 },
+          },
+        ],
+      ]),
+      binMap: new Map([
+        ["WH-A::CAN07_1", 0],
+        ["WH-B::CAN07_1", 5],
+        ["WH-C::CAN07_1", 30],
+      ]),
+      costMap: new Map(),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+    });
+    const row = rows[0]!;
+    expect(row["WHA ORDER QTY"]).toBe(10);
+    expect(row["WHB ORDER QTY"]).toBe(3);
+    expect(row["WHC ORDER QTY"]).toBe(-15);
+    expect(row["TOTAL ORDER QTY"]).toBe(13);
+  });
+
   it("uses the purchase-receipt rate as Latest Cost when Item cost is missing", () => {
     const rows = buildMainSheetRows({
       catalog,

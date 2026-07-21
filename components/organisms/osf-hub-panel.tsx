@@ -9,6 +9,8 @@ type LocationOption = { id: string; name: string; shortName: string | null };
 
 type Props = {
   canManage: boolean;
+  canManageThreshold?: boolean;
+  canReorderOnly?: boolean;
   initialLocations: LocationOption[];
   initialBuyers?: BuyerRow[];
   brandOptions?: string[];
@@ -16,6 +18,8 @@ type Props = {
 
 export function OsfHubPanel({
   canManage,
+  canManageThreshold = false,
+  canReorderOnly = false,
   initialLocations,
   initialBuyers,
   brandOptions,
@@ -25,16 +29,17 @@ export function OsfHubPanel({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Order Support File</h1>
         <p className="text-sm text-muted-foreground">
-          Maintain ROP / Shop Availability / OGF Price, then generate the Main OSF workbook.
+          Maintain ROP / Shop Availability / OGF Price / reorder threshold %, then generate
+          the Main OSF workbook (or reorder-only when permitted).
         </p>
       </div>
 
       <section className="rounded-lg border p-4">
-        <OsfGeneratePanel />
+        <OsfGeneratePanel canReorderOnly={canReorderOnly} />
       </section>
 
       <section className="rounded-lg border p-4">
-        <OsfProductEditor canManage={canManage} />
+        <OsfProductEditor canManage={canManage} canManageThreshold={canManageThreshold} />
       </section>
 
       <section className="rounded-lg border p-4">

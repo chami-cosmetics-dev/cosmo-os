@@ -68,6 +68,14 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
   },
   {
+    key: "purchasing.tools.read",
+    description: "Use purchasing calculator, price compare, and filtered reorder OSF",
+  },
+  {
+    key: "purchasing.tools.manage",
+    description: "Edit SKU reorder threshold % and purchasing tool settings",
+  },
+  {
     key: "academy.learn",
     description: "View Cosmo Academy lessons and update own learning progress",
   },
@@ -201,7 +209,7 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
-  // Optional reminder overrides — bubbles still follow page perms by default (see reminder-permissions.ts)
+  // Reminder bubbles — explicit reminders.* only (no page-perm default)
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
     description: buildReminderBubblePermissionDescription(p.category),
@@ -432,7 +440,7 @@ const DEFAULT_ROLES = [
   {
     name: "super_admin",
     description: "Full system access including company setup",
-    // Reminder bubbles are optional add-ons — not checked by default (page perms still gate bubbles).
+    // Reminder bubbles must be granted explicitly via reminders.* in Roles UI.
     permissionKeys: DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS,
   },
   {
@@ -457,6 +465,8 @@ const DEFAULT_ROLES = [
       "products.manage",
       "purchasing.osf.read",
       "purchasing.osf.manage",
+      "purchasing.tools.read",
+      "purchasing.tools.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",

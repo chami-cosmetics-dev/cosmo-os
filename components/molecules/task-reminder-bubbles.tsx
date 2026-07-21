@@ -40,6 +40,7 @@ const CATEGORY_ORDER = [
   "delivery_pending",
   "invoice_complete",
   "return_action",
+  "purchasing_rop_threshold",
 ] as const;
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -52,6 +53,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   return_action: "Returned orders",
   delivery_pending: "Delivery pending",
   invoice_complete: "Invoice complete",
+  purchasing_rop_threshold: "Purchasing ROP threshold",
 };
 
 const CATEGORY_NODE_LABELS: Record<string, string> = {
@@ -64,6 +66,7 @@ const CATEGORY_NODE_LABELS: Record<string, string> = {
   return_action: "Returns",
   delivery_pending: "Delivery pending",
   invoice_complete: "Invoice complete",
+  purchasing_rop_threshold: "Purchasing ROP",
 };
 
 function groupReminders(reminders: TaskReminder[]) {

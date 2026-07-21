@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,22 +15,29 @@ type ProfileItem = {
   brand: string | null;
   shopAvailability: string | null;
   ogfPrice: number | null;
+  reorderThresholdPercent: number | null;
   rops: Record<string, number>;
 };
 
-type Props = { canManage: boolean };
+type Props = { canManage: boolean; canManageThreshold?: boolean };
 
-export function OsfProductEditor({ canManage }: Props) {
+const SEARCH_DEBOUNCE_MS = 400;
+const SEARCH_MIN_CHARS = 3;
+
+export function OsfProductEditor({ canManage, canManageThreshold = false }: Props) {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ProfileItem[]>([]);
   const [columns, setColumns] = useState<ColumnMeta[]>([]);
   const [selected, setSelected] = useState<ProfileItem | null>(null);
   const [shopAvailability, setShopAvailability] = useState<string>("");
   const [ogfPrice, setOgfPrice] = useState<string>("");
+  const [thresholdPercent, setThresholdPercent] = useState<string>("");
   const [rops, setRops] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const searchSeq = useRef(0);
 
+  const canEditAnything = canManage || canManageThreshold;
   const ropColumns = columns.filter((c) => c.active && c.includeInRop);
 
   useEffect(() => {
@@ -40,24 +47,46 @@ export function OsfProductEditor({ canManage }: Props) {
       .catch(() => undefined);
   }, []);
 
-  async function search() {
+  async function runSearch(query: string) {
+    const trimmed = query.trim();
+    const seq = ++searchSeq.current;
+    if (trimmed.length < SEARCH_MIN_CHARS) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/osf/profiles?q=${encodeURIComponent(q)}&limit=30`);
+      const res = await fetch(
+        `/api/admin/osf/profiles?q=${encodeURIComponent(trimmed)}&limit=30`,
+      );
       const json = await res.json();
+      if (seq !== searchSeq.current) return;
       if (!res.ok) throw new Error(json.error ?? "Search failed");
       setItems(json.items ?? []);
     } catch (err) {
+      if (seq !== searchSeq.current) return;
       notify.error(err instanceof Error ? err.message : "Search failed");
     } finally {
-      setLoading(false);
+      if (seq === searchSeq.current) setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void runSearch(q);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on q only
+  }, [q]);
 
   function selectItem(item: ProfileItem) {
     setSelected(item);
     setShopAvailability(item.shopAvailability ?? "");
     setOgfPrice(item.ogfPrice != null ? String(item.ogfPrice) : "");
+    setThresholdPercent(
+      item.reorderThresholdPercent != null ? String(item.reorderThresholdPercent) : "",
+    );
     const next: Record<string, string> = {};
     for (const col of ropColumns) {
       next[col.key] = item.rops[col.key] != null ? String(item.rops[col.key]) : "";
@@ -66,24 +95,43 @@ export function OsfProductEditor({ canManage }: Props) {
   }
 
   async function save() {
-    if (!canManage || !selected) return;
+    if (!canEditAnything || !selected) return;
     setSaving(true);
     try {
-      const ropsPayload: Record<string, number | null> = {};
-      for (const [key, val] of Object.entries(rops)) {
-        const trimmed = val.trim();
-        if (trimmed === "") ropsPayload[key] = null;
-        else ropsPayload[key] = Math.max(0, Math.floor(Number(trimmed)) || 0);
+      const thresholdTrimmed = thresholdPercent.trim();
+      let reorderThresholdPercent: number | null | undefined = undefined;
+      if (canManageThreshold || canManage) {
+        if (thresholdTrimmed === "") reorderThresholdPercent = null;
+        else {
+          const n = Math.floor(Number(thresholdTrimmed));
+          if (!Number.isFinite(n) || n < 1 || n > 100) {
+            throw new Error("Reorder threshold must be 1–100 or blank (default 70)");
+          }
+          reorderThresholdPercent = n;
+        }
       }
-      const ogfTrimmed = ogfPrice.trim();
+
+      const payload: Record<string, unknown> = {};
+      if (canManage) {
+        const ropsPayload: Record<string, number | null> = {};
+        for (const [key, val] of Object.entries(rops)) {
+          const trimmed = val.trim();
+          if (trimmed === "") ropsPayload[key] = null;
+          else ropsPayload[key] = Math.max(0, Math.floor(Number(trimmed)) || 0);
+        }
+        const ogfTrimmed = ogfPrice.trim();
+        payload.shopAvailability = shopAvailability === "" ? null : shopAvailability;
+        payload.ogfPrice = ogfTrimmed === "" ? null : Number(ogfTrimmed);
+        payload.rops = ropsPayload;
+      }
+      if (reorderThresholdPercent !== undefined) {
+        payload.reorderThresholdPercent = reorderThresholdPercent;
+      }
+
       const res = await fetch(`/api/admin/osf/profiles/${encodeURIComponent(selected.sku)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          shopAvailability: shopAvailability === "" ? null : shopAvailability,
-          ogfPrice: ogfTrimmed === "" ? null : Number(ogfTrimmed),
-          rops: ropsPayload,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
@@ -92,6 +140,7 @@ export function OsfProductEditor({ canManage }: Props) {
         ...selected,
         shopAvailability: json.shopAvailability,
         ogfPrice: json.ogfPrice,
+        reorderThresholdPercent: json.reorderThresholdPercent ?? null,
         rops: json.rops ?? {},
       });
     } catch (err) {
@@ -106,20 +155,20 @@ export function OsfProductEditor({ canManage }: Props) {
       <div>
         <h3 className="font-medium">Product OSF editor</h3>
         <p className="text-sm text-muted-foreground">
-          Shop Availability, per-column ROP, and independent OGF Price (not LWK).
+          Shop Availability, per-column ROP, OGF Price, and reorder threshold %.
         </p>
       </div>
 
       <div className="flex gap-2">
         <Input
-          placeholder="Search SKU or title…"
+          placeholder="Type at least 3 characters (SKU or title)…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void search();
+            if (e.key === "Enter") void runSearch(q);
           }}
         />
-        <Button type="button" variant="outline" onClick={() => void search()} disabled={loading}>
+        <Button type="button" variant="outline" onClick={() => void runSearch(q)} disabled={loading}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
           Search
         </Button>
@@ -183,11 +232,24 @@ export function OsfProductEditor({ canManage }: Props) {
                   onChange={(e) => setOgfPrice(e.target.value)}
                 />
               </label>
+              <label className="block text-xs font-medium">
+                Reorder threshold % (blank = 70)
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="mt-1"
+                  disabled={!canManage && !canManageThreshold}
+                  value={thresholdPercent}
+                  placeholder="70"
+                  onChange={(e) => setThresholdPercent(e.target.value)}
+                />
+              </label>
               <div className="space-y-2">
                 <div className="text-xs font-medium">ROP by column</div>
                 {ropColumns.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    No ROP columns configured. Add them under Column mapping.
+                    No ROP columns configured. Enable “Set ROP” under OSF location columns.
                   </p>
                 ) : (
                   ropColumns.map((col) => (
@@ -204,7 +266,7 @@ export function OsfProductEditor({ canManage }: Props) {
                   ))
                 )}
               </div>
-              {canManage && (
+              {canEditAnything && (
                 <Button type="button" onClick={() => void save()} disabled={saving}>
                   {saving ? <Loader2 className="size-4 animate-spin" /> : null}
                   Save profile

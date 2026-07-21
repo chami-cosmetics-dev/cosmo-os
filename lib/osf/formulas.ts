@@ -1,8 +1,20 @@
-/** Suggested order qty = max(0, ROP − stock). Blank when ROP is missing. */
+/**
+ * Suggested order qty = ROP − stock (may be negative when stock exceeds ROP).
+ * Blank when ROP is missing.
+ */
 export function orderQty(rop: number | null | undefined, stock: number | null | undefined): number | null {
   if (rop == null || !Number.isFinite(rop)) return null;
   const s = stock == null || !Number.isFinite(stock) ? 0 : stock;
-  return Math.max(0, Math.floor(rop) - Math.floor(s));
+  return Math.floor(rop) - Math.floor(s);
+}
+
+/** Sum only positive order qtys for TOTAL / Common buy aggregates. */
+export function sumPositiveOrderQtys(values: Array<number | null | undefined>): number {
+  let sum = 0;
+  for (const v of values) {
+    if (v != null && Number.isFinite(v) && v > 0) sum += v;
+  }
+  return sum;
 }
 
 /** Stock as % of ROP. Blank when ROP missing or zero. */

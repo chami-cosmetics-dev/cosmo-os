@@ -32,7 +32,7 @@ function todayColombo(): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-export function OsfGeneratePanel() {
+export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: boolean }) {
   const [salesMonth, setSalesMonth] = useState(currentMonthColombo);
   const [asOfDate, setAsOfDate] = useState(todayColombo);
   const [skuPrefix, setSkuPrefix] = useState("");
@@ -40,6 +40,7 @@ export function OsfGeneratePanel() {
   const [itemStatus, setItemStatus] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [busy, setBusy] = useState(false);
+  const [busyMode, setBusyMode] = useState<"full" | "reorder" | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,8 +50,9 @@ export function OsfGeneratePanel() {
       .catch(() => undefined);
   }, []);
 
-  async function generate() {
+  async function generate(belowThresholdOnly: boolean) {
     setBusy(true);
+    setBusyMode(belowThresholdOnly ? "reorder" : "full");
     setErrorDetail(null);
     try {
       const res = await fetch("/api/admin/osf/generate", {
@@ -60,6 +62,7 @@ export function OsfGeneratePanel() {
           salesMonth,
           asOfDate,
           includeInactive: false,
+          belowThresholdOnly,
           ...(skuPrefix.trim() ? { skuPrefix: skuPrefix.trim() } : {}),
           ...(vendorId ? { vendorIds: [vendorId] } : {}),
           ...(itemStatus ? { itemStatusCategories: [itemStatus] } : {}),
@@ -78,18 +81,28 @@ export function OsfGeneratePanel() {
         throw new Error(message);
       }
 
+      const rowCount = Number(res.headers.get("X-OSF-Row-Count") ?? "0");
+      if (belowThresholdOnly && rowCount === 0) {
+        notify.error(
+          "No SKUs below reorder threshold — set warehouse ROPs first; only SKUs with stock/ROP under the threshold % are included.",
+        );
+      }
+
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `OSF-${asOfDate}.xlsx`;
+      a.download = belowThresholdOnly ? `OSF-reorder-${asOfDate}.xlsx` : `OSF-${asOfDate}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
-      notify.success("OSF downloaded");
+      if (!(belowThresholdOnly && rowCount === 0)) {
+        notify.success(belowThresholdOnly ? "Reorder-only OSF downloaded" : "OSF downloaded");
+      }
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Generate failed");
     } finally {
       setBusy(false);
+      setBusyMode(null);
     }
   }
 
@@ -162,11 +175,42 @@ export function OsfGeneratePanel() {
         </label>
       </div>
 
-      <Button type="button" onClick={() => void generate()} disabled={busy || !salesMonth}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-        {busy ? "Generating…" : "Generate OSF"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          onClick={() => void generate(false)}
+          disabled={busy || !salesMonth}
+        >
+          {busyMode === "full" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Download className="size-4" />
+          )}
+          {busyMode === "full" ? "Generating…" : "Generate OSF"}
+        </Button>
+        {canReorderOnly && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void generate(true)}
+            disabled={busy || !salesMonth}
+          >
+            {busyMode === "reorder" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
+            {busyMode === "reorder" ? "Generating…" : "Download reorder-only OSF"}
+          </Button>
+        )}
+      </div>
 
+      {canReorderOnly && (
+        <p className="text-xs text-muted-foreground">
+          Reorder-only includes SKUs with warehouse ROP set and total stock ÷ total ROP below
+          that SKU’s threshold (default 70%). SKUs without ROP are skipped.
+        </p>
+      )}
       {errorDetail && (
         <p className="text-xs text-destructive/90 whitespace-pre-wrap">{errorDetail}</p>
       )}
