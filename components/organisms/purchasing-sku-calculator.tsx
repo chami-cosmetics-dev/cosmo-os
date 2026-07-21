@@ -6,6 +6,7 @@ import { Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { originalSellingPrice } from "@/lib/osf/formulas";
 import {
   formatPercentPoints,
   sellingFromMargin,
@@ -33,8 +34,27 @@ type PricingItem = {
   costSource: string | null;
 };
 
+type SupplierOption = {
+  supplierKey: string;
+  displayName: string;
+  bestEverRate: number | null;
+  bestEverDate: string | null;
+  lastRate: number | null;
+  lastDate: string | null;
+  lastQty: number | null;
+  optionRank: number;
+  optionLabel: string;
+  recently: boolean;
+  lastPurchasedFrom: boolean;
+};
+
 const SEARCH_DEBOUNCE_MS = 400;
 const SEARCH_MIN_CHARS = 3;
+
+function formatMoney(n: number | null): string {
+  if (n == null) return "—";
+  return String(Math.round(n * 100) / 100);
+}
 
 export function PurchasingSkuCalculator() {
   const [q, setQ] = useState("");
@@ -44,7 +64,11 @@ export function PurchasingSkuCalculator() {
   const [marginPercent, setMarginPercent] = useState("");
   const [newSupplierPrice, setNewSupplierPrice] = useState("");
   const [loading, setLoading] = useState(false);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [suppliersLoading, setSuppliersLoading] = useState(false);
+  const [suppliersError, setSuppliersError] = useState<string | null>(null);
   const searchSeq = useRef(0);
+  const supplierSeq = useRef(0);
 
   async function runSearch(query: string, opts?: { notifyEmpty?: boolean }) {
     const trimmed = query.trim();
@@ -83,11 +107,39 @@ export function PurchasingSkuCalculator() {
 
   function selectItem(item: PricingItem) {
     setSelected(item);
-    const sell = item.discountedPrice;
+    const sell = originalSellingPrice(item.mrp, item.discountedPrice);
     setSellingPrice(sell != null ? String(sell) : "");
     const m = sellingMargin(sell, item.latestCost);
     setMarginPercent(m != null ? formatMarginInput(m) : "");
     setNewSupplierPrice("");
+    void loadSuppliers(item.sku);
+  }
+
+  async function loadSuppliers(sku: string) {
+    const seq = ++supplierSeq.current;
+    setSuppliersLoading(true);
+    setSuppliersError(null);
+    setSuppliers([]);
+    try {
+      const res = await fetch(
+        `/api/admin/purchasing/sku-pricing/suppliers?sku=${encodeURIComponent(sku)}`,
+      );
+      const json = await res.json();
+      if (seq !== supplierSeq.current) return;
+      if (!res.ok) throw new Error(json.error ?? "Failed to load suppliers");
+      if (json.erpAvailable === false) {
+        setSuppliers([]);
+        setSuppliersError(json.error ?? "Supplier history unavailable");
+        return;
+      }
+      setSuppliers(json.suppliers ?? []);
+    } catch (err) {
+      if (seq !== supplierSeq.current) return;
+      setSuppliers([]);
+      setSuppliersError(err instanceof Error ? err.message : "Supplier history unavailable");
+    } finally {
+      if (seq === supplierSeq.current) setSuppliersLoading(false);
+    }
   }
 
   function onSellingPriceChange(raw: string) {
@@ -116,6 +168,8 @@ export function PurchasingSkuCalculator() {
     selected?.latestCost ?? null,
   );
   const marginPct = formatPercentPoints(margin);
+  const catalogOriginalPrice =
+    selected != null ? originalSellingPrice(selected.mrp, selected.discountedPrice) : null;
 
   const newNum = newSupplierPrice.trim() === "" ? null : Number(newSupplierPrice);
   const change = supplierPriceChangePercent(
@@ -211,16 +265,92 @@ export function PurchasingSkuCalculator() {
                 )}
               </div>
 
+              {(selected.mrp != null || selected.discountedPrice != null) && (
+                <div className="space-y-1 text-xs text-muted-foreground">
+                  {selected.mrp != null && (
+                    <p>
+                      Original / MRP: <span className="text-foreground">{selected.mrp}</span>
+                    </p>
+                  )}
+                  {selected.discountedPrice != null && (
+                    <p>
+                      Discounted / sell:{" "}
+                      <span className="text-foreground">{selected.discountedPrice}</span>
+                    </p>
+                  )}
+                  <p>Margin uses original price, not discounted.</p>
+                </div>
+              )}
+
+              <div className="space-y-2 border-t pt-3">
+                <p className="text-xs font-medium uppercase text-muted-foreground">
+                  Supplier compare
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Informational only — does not change margin cost (uses latest purchase
+                  cost above). Ranked by best-ever purchase price.
+                </p>
+                {suppliersLoading ? (
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="size-3.5 animate-spin" /> Loading suppliers…
+                  </p>
+                ) : suppliersError ? (
+                  <p className="text-muted-foreground">{suppliersError}</p>
+                ) : suppliers.length === 0 ? (
+                  <p className="text-muted-foreground">No purchase history for this SKU.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {suppliers.map((s) => (
+                      <li
+                        key={s.supplierKey}
+                        className={`rounded-md border px-2.5 py-2 ${
+                          s.lastPurchasedFrom ? "border-foreground/40 bg-muted/40" : ""
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-medium">{s.displayName}</span>
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
+                            {s.optionLabel}
+                          </span>
+                          {s.recently && (
+                            <span className="rounded bg-emerald-600/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                              Recently
+                            </span>
+                          )}
+                          {s.lastPurchasedFrom && (
+                            <span className="rounded bg-sky-600/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-300">
+                              Last purchased from
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 grid gap-0.5 text-xs text-muted-foreground sm:grid-cols-2">
+                          <p>
+                            Best-ever:{" "}
+                            <span className="text-foreground">{formatMoney(s.bestEverRate)}</span>
+                            {s.bestEverDate ? ` · ${s.bestEverDate}` : ""}
+                          </p>
+                          <p>
+                            Last:{" "}
+                            <span className="text-foreground">{formatMoney(s.lastRate)}</span>
+                            {s.lastDate ? ` · ${s.lastDate}` : ""}
+                          </p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
               <div className="space-y-2 border-t pt-3">
                 <p className="text-xs font-medium uppercase text-muted-foreground">
                   Selling / margin
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Enter either sell price or margin % — the other updates from cost.
+                  Enter either original sell price or margin % — the other updates from cost.
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-xs font-medium">
-                    Selling price
+                    Original selling price
                     <Input
                       className="mt-1"
                       type="number"
@@ -229,8 +359,8 @@ export function PurchasingSkuCalculator() {
                       value={sellingPrice}
                       onChange={(e) => onSellingPriceChange(e.target.value)}
                       placeholder={
-                        selected.discountedPrice != null
-                          ? String(selected.discountedPrice)
+                        catalogOriginalPrice != null
+                          ? String(catalogOriginalPrice)
                           : "Enter sell price"
                       }
                     />

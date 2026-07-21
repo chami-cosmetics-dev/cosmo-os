@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { buildOsfWorkbookBuffer, type OsfProfileData } from "@/lib/osf/build-workbook";
 import { listOsfBuyers } from "@/lib/osf/buyer-config";
 import { buildCatalogRows } from "@/lib/osf/catalog-rows";
+import { resolveEffectiveOsfColumnGroups } from "@/lib/osf/column-visibility";
 import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
@@ -188,6 +189,10 @@ export async function POST(request: NextRequest) {
     }));
     const { costMap, purchaseMap } = mergeInstanceErpData(skus, perInstanceErp);
 
+    const effectiveColumnGroups = context?.user
+      ? [...(await resolveEffectiveOsfColumnGroups(context, companyId))]
+      : undefined;
+
     const buffer = buildOsfWorkbookBuffer({
       catalog,
       columns,
@@ -199,6 +204,7 @@ export async function POST(request: NextRequest) {
       salesMonth,
       asOfDate,
       belowThresholdOnly,
+      effectiveColumnGroups,
       buyers: buyers
         .filter((b) => b.active)
         .map((b) => ({ name: b.name, brands: b.brands })),

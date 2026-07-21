@@ -348,4 +348,18 @@ export async function processOrderWebhook(
       console.error("[ERPNext] cancel sales invoice failed:", err);
     }
   }
+
+  // Vault abandoned-checkout recovery: close matching checkout when order is created/updated.
+  try {
+    const { markAbandonedCheckoutRecoveredFromOrder } = await import(
+      "@/lib/shopify-abandoned-checkout-webhook"
+    );
+    await markAbandonedCheckoutRecoveredFromOrder({
+      companyId,
+      checkoutId: data.checkout_id,
+      customerEmail: data.email ?? data.contact_email ?? data.customer?.email ?? null,
+    });
+  } catch (err) {
+    console.error("[Abandoned checkout] recovery from order webhook failed:", err);
+  }
 }

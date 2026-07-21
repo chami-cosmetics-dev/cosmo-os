@@ -75,3 +75,24 @@ export type OsfColumnUpsertInput = z.infer<typeof osfColumnUpsertSchema>;
 export type OsfBuyerUpsertInput = z.infer<typeof osfBuyerUpsertSchema>;
 export type OsfProfilePatchInput = z.infer<typeof osfProfilePatchSchema>;
 export type OsfGenerateBodyInput = z.infer<typeof osfGenerateBodySchema>;
+
+const osfOptionalColumnGroupSchema = z.enum(["pricing", "cost", "margins", "sales"]);
+
+export const osfColumnAccessAssignmentSchema = z.object({
+  userId: cuidSchema,
+  columnGroups: z.array(osfOptionalColumnGroupSchema).max(10),
+});
+
+export const osfColumnAccessPutSchema = z.union([
+  osfColumnAccessAssignmentSchema,
+  z.object({
+    assignments: z.array(osfColumnAccessAssignmentSchema).min(1).max(200),
+  }),
+]);
+
+export type OsfColumnAccessPutInput = z.infer<typeof osfColumnAccessPutSchema>;
+
+/** Exact SKU query for purchasing supplier-compare / sku detail endpoints. */
+export const purchasingSkuQuerySchema = z.object({
+  sku: trimmedString(1, LIMITS.sku.max),
+});

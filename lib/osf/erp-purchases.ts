@@ -31,6 +31,17 @@ export type PurchaseRow = {
   rate?: number | string | null;
 };
 
+/** Per-supplier purchase summary for one SKU (derived from receipt history). */
+export type SupplierPurchaseSummary = {
+  supplierKey: string;
+  displayName: string;
+  bestEverRate: number | null;
+  bestEverDate: string | null;
+  lastRate: number | null;
+  lastDate: string | null;
+  lastQty: number | null;
+};
+
 const PAGE_LENGTH = 500;
 const MAX_PAGES = 60;
 
@@ -124,6 +135,71 @@ export function accumulateLastPurchasesFromRows(input: {
   return { result, latestReceiptForItem };
 }
 
+/**
+ * Reduce Purchase Receipt lines into per-supplier summaries for one SKU.
+ * Rows should be newest-first; first hit per supplier fixes last purchase.
+ * Best-ever tracks minimum positive rate (tie → newer date).
+ */
+export function accumulateSupplierPurchasesFromRows(input: {
+  rows: PurchaseRow[];
+  sku: string;
+  allowedSuppliers?: AllowedSupplier[];
+  result?: Map<string, SupplierPurchaseSummary>;
+}): Map<string, SupplierPurchaseSummary> {
+  const sku = input.sku.trim();
+  const result = input.result ?? new Map<string, SupplierPurchaseSummary>();
+  if (!sku) return result;
+  const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
+
+  for (const row of input.rows) {
+    const item = row.item_code?.trim();
+    if (!item || item !== sku) continue;
+    if (!isAllowedSupplier(row, allowlist)) continue;
+
+    const displayName = row.supplier_name?.trim() || row.supplier?.trim() || "";
+    if (!displayName) continue;
+    const supplierKey = normalizeSupplierKey(displayName);
+    if (!supplierKey) continue;
+
+    const date = row.posting_date?.trim() || null;
+    const qty = Number(row.qty);
+    const qtyVal = Number.isFinite(qty) ? qty : null;
+    const rateNum = row.rate != null ? Number(row.rate) : NaN;
+    const rateVal = Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null;
+
+    let entry = result.get(supplierKey);
+    if (!entry) {
+      entry = {
+        supplierKey,
+        displayName,
+        bestEverRate: rateVal,
+        bestEverDate: rateVal != null ? date : null,
+        lastRate: rateVal,
+        lastDate: date,
+        lastQty: qtyVal,
+      };
+      result.set(supplierKey, entry);
+      continue;
+    }
+
+    // Newest-first: first row for this supplier already set last*; only update best-ever.
+    if (rateVal != null) {
+      if (
+        entry.bestEverRate == null ||
+        rateVal < entry.bestEverRate ||
+        (rateVal === entry.bestEverRate &&
+          date != null &&
+          (entry.bestEverDate == null || date > entry.bestEverDate))
+      ) {
+        entry.bestEverRate = rateVal;
+        entry.bestEverDate = date;
+      }
+    }
+  }
+
+  return result;
+}
+
 async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
     headers: {
@@ -201,4 +277,72 @@ export async function fetchLastPurchaseByItem(input: {
   }
 
   return result;
+}
+
+const PURCHASE_RECEIPT_FIELDS = JSON.stringify([
+  "name",
+  "supplier",
+  "supplier_name",
+  "posting_date",
+  "`tabPurchase Receipt Item`.item_code",
+  "`tabPurchase Receipt Item`.qty",
+  "`tabPurchase Receipt Item`.rate",
+]);
+
+/**
+ * All allowlisted suppliers that purchased `sku`, with best-ever and last purchase.
+ * Tries an optional Frappe child `item_code` filter; falls back to unfiltered pagination.
+ */
+export async function fetchSupplierPurchasesBySku(input: {
+  cfg: OsfErpCredentials;
+  sku: string;
+  allowedSuppliers?: AllowedSupplier[];
+}): Promise<Map<string, SupplierPurchaseSummary>> {
+  const sku = input.sku.trim();
+  if (!sku) return new Map();
+
+  const tryWithItemFilter = async (useItemFilter: boolean) => {
+    const filters = useItemFilter
+      ? JSON.stringify([
+          ["docstatus", "=", 1],
+          ["Purchase Receipt Item", "item_code", "=", sku],
+        ])
+      : JSON.stringify([["docstatus", "=", 1]]);
+
+    let result = new Map<string, SupplierPurchaseSummary>();
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const path =
+        `/api/resource/Purchase Receipt?fields=${encodeURIComponent(PURCHASE_RECEIPT_FIELDS)}` +
+        `&filters=${encodeURIComponent(filters)}` +
+        `&order_by=${encodeURIComponent("posting_date desc, name desc")}` +
+        `&limit_start=${page * PAGE_LENGTH}&limit_page_length=${PAGE_LENGTH}`;
+
+      const json = await erpGetJson<{ data?: PurchaseRow[] }>(input.cfg, path);
+      const rows = json.data ?? [];
+      if (rows.length === 0) break;
+
+      result = accumulateSupplierPurchasesFromRows({
+        rows,
+        sku,
+        allowedSuppliers: input.allowedSuppliers,
+        result,
+      });
+
+      if (rows.length < PAGE_LENGTH) break;
+    }
+    return result;
+  };
+
+  try {
+    return await tryWithItemFilter(true);
+  } catch (err) {
+    if (err instanceof OsfErpError) {
+      console.warn(
+        "[osf erp-purchases] item_code filter rejected; falling back to unfiltered pagination",
+        err.message.slice(0, 200),
+      );
+      return tryWithItemFilter(false);
+    }
+    throw err;
+  }
 }

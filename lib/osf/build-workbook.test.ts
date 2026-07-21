@@ -215,6 +215,25 @@ describe("buildMainSheetRows", () => {
     // Cosmetics Margin = (100 - 60) / 100 = 40%
     expect(first["Cosmetics Margin %"]).toBeCloseTo(40, 1);
   });
+
+  it("cosmetics margin uses original MRP not discounted price when both exist", () => {
+    const rows = buildMainSheetRows({
+      catalog: [{ ...catalog[0]!, mrp: 100, discountedPrice: 80 }],
+      columns,
+      profiles: new Map(),
+      binMap: new Map(),
+      costMap: new Map([["CAN07_1", { cost: 60, supplier: "SupA" }]]),
+      purchaseMap: new Map(),
+      monthlySales: new Map(),
+      salesMonth: "2026-06",
+      asOfDate: "2026-07-16",
+    });
+    const first = rows[0]!;
+    expect(first["Cosmetics MRP"]).toBe(100);
+    expect(first["Discounted Price"]).toBe(80);
+    // (100 - 60) / 100 = 40%, not (80 - 60) / 80 = 25%
+    expect(first["Cosmetics Margin %"]).toBeCloseTo(40, 1);
+  });
 });
 
 const baseInput: Omit<BuildWorkbookInput, "buyers"> = {
@@ -278,6 +297,41 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(totals[lmjIdx]).toBe(5);
   });
 
+  it("filters Main columns when effectiveColumnGroups is core-only", () => {
+    const wb = parse(
+      buildOsfWorkbookBuffer({
+        ...baseInput,
+        effectiveColumnGroups: ["core"],
+      }),
+    );
+    const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
+      header: 1,
+      defval: "",
+    })[2] as string[];
+    expect(headers).toContain("LMJ");
+    expect(headers).not.toContain("Cosmetics MRP");
+    expect(headers).not.toContain("Latest Cost");
+    expect(headers).not.toContain("Cosmetics Margin %");
+    expect(headers).not.toContain("OGF Margin %");
+  });
+
+  it("includes pricing and margins on Main when all groups allowed", () => {
+    const wb = parse(
+      buildOsfWorkbookBuffer({
+        ...baseInput,
+        effectiveColumnGroups: ["core", "pricing", "cost", "margins", "sales"],
+      }),
+    );
+    const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
+      header: 1,
+      defval: "",
+    })[2] as string[];
+    expect(headers).toContain("Cosmetics MRP");
+    expect(headers).toContain("Latest Cost");
+    expect(headers).toContain("Cosmetics Margin %");
+    expect(headers).toContain("OGF Margin %");
+  });
+
   it("adds a per-buyer sheet filtered by brand and without pricing columns", () => {
     const wb = parse(
       buildOsfWorkbookBuffer({
@@ -294,12 +348,44 @@ describe("buildOsfWorkbookBuffer", () => {
     // Pricing columns are excluded from buyer sheets
     expect(headers).not.toContain("Latest Cost");
     expect(headers).not.toContain("Cosmetics MRP");
+    expect(headers).not.toContain("Cosmetics Margin %");
+    expect(headers).not.toContain("OGF Margin %");
     // Only BrandA rows remain (CAN07_1), not BrandB (MAU01_1)
     const dataRows = aoa.slice(3);
     const skuIdx = headers.indexOf("Variant SKU");
     const skus = dataRows.map((r) => r[skuIdx]);
     expect(skus).toContain("CAN07_1");
     expect(skus).not.toContain("MAU01_1");
+  });
+
+  it("buyer sheets never include pricing or margin columns", () => {
+    const wb = parse(
+      buildOsfWorkbookBuffer({
+        ...baseInput,
+        effectiveColumnGroups: ["core", "margins"],
+        buyers: [
+          { name: "Inoka", brands: [] },
+          { name: "Randil", brands: [] },
+        ],
+      }),
+    );
+    const mainHeaders = (
+      XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
+        header: 1,
+        defval: "",
+      })[2] as string[]
+    );
+    expect(mainHeaders).toContain("Cosmetics Margin %");
+
+    for (const name of ["Inoka", "Randil"] as const) {
+      const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets[name]!, {
+        header: 1,
+        defval: "",
+      })[2] as string[];
+      expect(headers).not.toContain("Cosmetics Margin %");
+      expect(headers).not.toContain("OGF Margin %");
+      expect(headers).not.toContain("Latest Cost");
+    }
   });
 
   it("includes the full catalog when a buyer has no brands", () => {

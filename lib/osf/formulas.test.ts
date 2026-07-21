@@ -4,6 +4,7 @@ import {
   cosmeticsMargin,
   ogfMargin,
   orderQty,
+  originalSellingPrice,
   percentOfRop,
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
@@ -52,9 +53,25 @@ describe("percentOfRop / 70%", () => {
   });
 });
 
+describe("originalSellingPrice", () => {
+  it("prefers MRP over discounted price", () => {
+    expect(originalSellingPrice(100, 80)).toBe(100);
+  });
+
+  it("falls back to catalog sell when MRP missing", () => {
+    expect(originalSellingPrice(null, 100)).toBe(100);
+  });
+});
+
 describe("margins", () => {
-  it("cosmetics margin (MRP − cost) / MRP", () => {
+  it("cosmetics margin (original sell − cost) / original sell", () => {
     expect(cosmeticsMargin(100, 40)).toBeCloseTo(0.6);
+  });
+
+  it("uses original not discounted when both exist", () => {
+    const sell = originalSellingPrice(100, 80)!;
+    expect(cosmeticsMargin(sell, 60)).toBeCloseTo(0.4);
+    expect(cosmeticsMargin(80, 60)).toBeCloseTo(0.25);
   });
 
   it("ogf margin independent of LWK", () => {

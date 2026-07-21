@@ -68,6 +68,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
+  const canViewAbandonedOrders = hasSidebarPermission("abandoned_orders.read");
   const canViewContactMaster =
     hasSidebarPermission("contacts.master.read") ||
     hasSidebarPermission("contacts.read");
@@ -271,6 +272,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             <SidebarGroupContent>
               {canViewOrders && (
                 <NavItem href="/dashboard/orders" icon={ShoppingCart} label="Orders" isActive={pathname === "/dashboard/orders"} />
+              )}
+              {canViewAbandonedOrders && (
+                <NavItem
+                  href="/dashboard/orders/abandoned-orders"
+                  icon={ClipboardList}
+                  label="Abandoned Orders"
+                  isActive={pathname === "/dashboard/orders/abandoned-orders"}
+                />
               )}
               {canViewOrders && (
                 <NavItem href="/dashboard/orders/pos-orders" icon={ShoppingBag} label="POS Orders" isActive={pathname === "/dashboard/orders/pos-orders"} />

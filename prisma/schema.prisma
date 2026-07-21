@@ -77,6 +77,9 @@ model Company {
   productOsfRops                ProductOsfRop[]
   osfColumnConfigs              OsfColumnConfig[]
   osfBuyers                     OsfBuyer[]
+  osfUserColumnAccess           OsfUserColumnAccess[]
+  shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
+  abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
 }
 
 model PrintFormat {
@@ -332,6 +335,7 @@ model User {
   riderCashHandovers                  RiderCashHandover[]       @relation("RiderCashHandovers")
   riderDeliveryTasks                  RiderDeliveryTask[]
   userRoles                           UserRole[]
+  osfUserColumnAccess                 OsfUserColumnAccess[]
   auditLogs                           AuditLog[]                @relation("AuditLogActor")
   cosmoAcademyExplanationsCreated     CosmoAcademyExplanation[] @relation("CosmoAcademyExplanationCreatedBy")
   cosmoAcademyProgress                CosmoAcademyProgress[]
@@ -342,6 +346,59 @@ model User {
   pickListGroupsPrinted               PickListGroup[]           @relation("PickListGroupPrintedBy")
   financeScopes                       UserFinanceScope[]
   merchantGroupMembership             MerchantGroupMember?
+  abandonedCheckoutFollowUps        ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutFollowUpBy")
+}
+
+model ShopifyAbandonedCheckout {
+  id                        String   @id @default(cuid())
+  companyId                 String
+  shopifyCheckoutGid       String
+  shopifyCheckoutId        String
+  shopifyAdminStoreHandle   String
+  companyLocationId        String?
+
+  customerName             String?
+  customerEmail            String?
+  customerPhone            String?
+  lineItemsSummary        String
+  lineItemsJson           Json?
+  totalPrice              Decimal
+  currency                 String
+
+  abandonedAt              DateTime
+  shopifyUpdatedAt         DateTime?
+  shopifyCompletedAt       DateTime?
+  shopifyRecoveredAt       DateTime?
+  abandonedCheckoutUrl     String?
+
+  followUpStatus           String   @default("pending")
+  customerResponse         String?
+  remark                   String?
+
+  lastFollowUpById         String?
+  lastFollowUpAt           DateTime?
+
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  company                   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation          CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+  lastFollowUpBy           User?  @relation("ShopifyAbandonedCheckoutFollowUpBy", fields: [lastFollowUpById], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, shopifyCheckoutGid])
+  @@index([companyId, followUpStatus, abandonedAt(sort: Desc)])
+  @@index([companyId, abandonedAt(sort: Desc)])
+  @@index([companyId, customerResponse])
+  @@index([shopifyAdminStoreHandle])
+}
+
+model CompanyAbandonedCheckoutSync {
+  companyId       String   @id
+  lastSyncedAt    DateTime?
+  lastSyncError   String?
+  updatedAt       DateTime @updatedAt
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model MerchantGroup {
@@ -500,6 +557,7 @@ model CompanyLocation {
   erpWarehouses             CompanyLocationWarehouse[]
   financeScopes             UserFinanceScope[]
   osfColumnConfigs          OsfColumnConfig[]
+  shopifyAbandonedCheckouts ShopifyAbandonedCheckout[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
@@ -1758,4 +1816,20 @@ model OsfBuyer {
 
   @@unique([companyId, name])
   @@index([companyId, sortOrder])
+}
+
+/// Per-user OSF Excel column-group marks (company-scoped).
+model OsfUserColumnAccess {
+  id           String   @id @default(cuid())
+  companyId    String
+  userId       String
+  columnGroups String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+  @@index([companyId])
+  @@index([userId])
 }

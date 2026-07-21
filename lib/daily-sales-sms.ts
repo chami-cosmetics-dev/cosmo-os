@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import { resolveFailureReportAmounts } from "@/lib/erp-sync-failure-email";
 import { sendSms } from "@/lib/hutch-sms";
 import {
   buildDashboardSalesDateFilter,
@@ -70,16 +71,16 @@ export function formatSalesAmount(value: number): string {
   return rounded.toLocaleString("en-LK", { maximumFractionDigits: 0 });
 }
 
-/** Order sales for SMS — matches ERP (excludes shipping fee). */
-export function salesAmountExcludingShipping(
-  totalPrice: unknown,
-  totalShipping: unknown,
-): number | null {
-  const total = Number(totalPrice);
+/** Order total for SMS — matches ERP (order total excluding shipping fee). */
+export function salesAmountExcludingShipping(input: {
+  totalPrice: unknown;
+  totalShipping?: unknown;
+  shippingLines?: unknown;
+  discountCodes?: unknown;
+}): number | null {
+  const total = Number(input.totalPrice);
   if (!Number.isFinite(total)) return null;
-  const shipping = Number(totalShipping ?? 0);
-  const shippingSafe = Number.isFinite(shipping) && shipping > 0 ? shipping : 0;
-  return Math.max(0, total - shippingSafe);
+  return resolveFailureReportAmounts(input).amountExcl;
 }
 
 export function normalizeRecipientList(raw: unknown): string[] {
@@ -183,6 +184,8 @@ async function aggregateRange(
     select: {
       totalPrice: true,
       totalShipping: true,
+      shippingLines: true,
+      discountCodes: true,
       financialStatus: true,
       sourceName: true,
       fulfillmentStatus: true,
@@ -200,7 +203,12 @@ async function aggregateRange(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, "order")) continue;
-    const amount = salesAmountExcludingShipping(order.totalPrice, order.totalShipping);
+    const amount = salesAmountExcludingShipping({
+      totalPrice: order.totalPrice,
+      totalShipping: order.totalShipping,
+      shippingLines: order.shippingLines,
+      discountCodes: order.discountCodes,
+    });
     if (amount == null) continue;
     total += amount;
     count += 1;

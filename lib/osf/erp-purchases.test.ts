@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   accumulateLastPurchasesFromRows,
+  accumulateSupplierPurchasesFromRows,
   buildSupplierAllowlist,
   isAllowedSupplier,
   normalizeSupplierKey,
@@ -193,5 +194,109 @@ describe("accumulateLastPurchasesFromRows", () => {
       allowedSuppliers: [{ name: "Acme", code: "ACME" }],
     });
     expect(result.get("CAN07")!.qty).toBe(12);
+  });
+});
+
+describe("accumulateSupplierPurchasesFromRows", () => {
+  it("groups two suppliers with best-ever and last purchase", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-A2",
+        supplier: "ACME",
+        supplier_name: "Acme Distributors",
+        posting_date: "2026-07-06",
+        item_code: "CAN07",
+        qty: 12,
+        rate: 90,
+      },
+      {
+        name: "PR-B1",
+        supplier: "BETA",
+        supplier_name: "Beta Trading",
+        posting_date: "2026-03-15",
+        item_code: "CAN07",
+        qty: 6,
+        rate: 80,
+      },
+      {
+        name: "PR-A1",
+        supplier: "ACME",
+        supplier_name: "Acme Distributors",
+        posting_date: "2025-11-12",
+        item_code: "CAN07",
+        qty: 4,
+        rate: 75,
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "CAN07",
+      allowedSuppliers: [
+        { name: "Acme Distributors", code: "ACME" },
+        { name: "Beta Trading", code: "BETA" },
+      ],
+    });
+    expect(result.size).toBe(2);
+    const acme = result.get("acme distributors")!;
+    expect(acme.lastRate).toBe(90);
+    expect(acme.lastDate).toBe("2026-07-06");
+    expect(acme.bestEverRate).toBe(75);
+    expect(acme.bestEverDate).toBe("2025-11-12");
+    const beta = result.get("beta trading")!;
+    expect(beta.bestEverRate).toBe(80);
+    expect(beta.lastRate).toBe(80);
+  });
+
+  it("skips disallowed suppliers", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-X",
+        supplier: "INTERCO",
+        supplier_name: "Vault Transfer",
+        posting_date: "2026-07-15",
+        item_code: "CAN07",
+        qty: 100,
+        rate: 10,
+      },
+      {
+        name: "PR-A",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-01",
+        item_code: "CAN07",
+        qty: 5,
+        rate: 40,
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "CAN07",
+      allowedSuppliers: [{ name: "Acme", code: "ACME" }],
+    });
+    expect(result.size).toBe(1);
+    expect(result.has("acme")).toBe(true);
+  });
+
+  it("lists unpriced supplier after priced ones stay null rates", () => {
+    const rows: PurchaseRow[] = [
+      {
+        name: "PR-1",
+        supplier: "ACME",
+        supplier_name: "Acme",
+        posting_date: "2026-07-01",
+        item_code: "CAN07",
+        qty: 5,
+        rate: null,
+      },
+    ];
+    const result = accumulateSupplierPurchasesFromRows({
+      rows,
+      sku: "CAN07",
+      allowedSuppliers: [],
+    });
+    const acme = result.get("acme")!;
+    expect(acme.bestEverRate).toBeNull();
+    expect(acme.lastRate).toBeNull();
+    expect(acme.lastDate).toBe("2026-07-01");
   });
 });
