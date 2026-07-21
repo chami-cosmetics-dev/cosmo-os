@@ -7,6 +7,7 @@ import {
   percentOfRop,
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
+  sumPositiveOrderQtys,
 } from "@/lib/osf/formulas";
 
 describe("orderQty", () => {
@@ -14,8 +15,8 @@ describe("orderQty", () => {
     expect(orderQty(10, 3)).toBe(7);
   });
 
-  it("floors at zero", () => {
-    expect(orderQty(5, 8)).toBe(0);
+  it("allows negative when stock exceeds ROP", () => {
+    expect(orderQty(5, 8)).toBe(-3);
   });
 
   it("treats missing stock as 0", () => {
@@ -24,6 +25,12 @@ describe("orderQty", () => {
 
   it("blank when ROP missing", () => {
     expect(orderQty(null, 5)).toBeNull();
+  });
+});
+
+describe("sumPositiveOrderQtys", () => {
+  it("sums only positive values", () => {
+    expect(sumPositiveOrderQtys([10, 3, -15, null])).toBe(13);
   });
 });
 

@@ -31,5 +31,6 @@
 
 ## Notes
 
-- Validation pass 1 (2026-07-20): Assumed per-warehouse absolute ROP stays for signed order qty; SKU reorder threshold % is additional (default 70%). Documented in Assumptions — confirm in `/speckit-clarify` if buyers meant to replace absolute ROP entirely.
-- No `extensions.yml` hooks registered for specify.
+- Validation pass 1 (2026-07-20): Assumed per-warehouse absolute ROP stays for signed order qty; SKU reorder threshold % is additional (default 70%). **Confirmed Clarifications 2026-07-20 Option A.**
+- Clarify session 2026-07-20: 5/5 answers integrated (ROP model, signed TOTAL buys-only, dual permissions, session-only price compare, sell-price prefill).
+- No `extensions.yml` hooks registered for specify/clarify.

@@ -99,6 +99,20 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
   });
 
+  it("shows purchasing ROP threshold bubble with explicit reminders.* only", () => {
+    const context = {
+      roleNames: ["admin"],
+      permissionKeys: ["reminders.purchasing_rop_threshold"],
+    };
+    expect(canSeeTaskReminderCategory(context, "purchasing_rop_threshold")).toBe(true);
+    expect(
+      canSeeTaskReminderCategory(
+        { roleNames: ["admin"], permissionKeys: [] },
+        "purchasing_rop_threshold",
+      ),
+    ).toBe(false);
+  });
+
   it("does not let store reminders.* unlock finance bubbles", () => {
     const context = {
       roleNames: ["store"],

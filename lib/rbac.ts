@@ -68,6 +68,14 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
   },
   {
+    key: "purchasing.tools.read",
+    description: "Use purchasing calculator, price compare, and filtered reorder OSF",
+  },
+  {
+    key: "purchasing.tools.manage",
+    description: "Edit SKU reorder threshold % and purchasing tool settings",
+  },
+  {
     key: "academy.learn",
     description: "View Cosmo Academy lessons and update own learning progress",
   },
@@ -457,6 +465,8 @@ const DEFAULT_ROLES = [
       "products.manage",
       "purchasing.osf.read",
       "purchasing.osf.manage",
+      "purchasing.tools.read",
+      "purchasing.tools.manage",
       "academy.learn",
       "academy.manage",
       "products.storage.read",

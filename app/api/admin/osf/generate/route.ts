@@ -7,10 +7,11 @@ import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { fetchLatestCostAndSupplier, OsfErpError } from "@/lib/osf/erp-cost-supplier";
 import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge";
 import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
-import { fetchBinActualQty, getAllOsfErpInstances } from "@/lib/osf/erp-stock";
+import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { aggregateMonthlySalesBySku } from "@/lib/osf/monthly-sales";
+import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 import { osfGenerateBodySchema } from "@/lib/validation/osf";
 
 function todayColombo(): string {
@@ -25,15 +26,6 @@ function todayColombo(): string {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("purchasing.osf.read");
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-  const companyId = auth.context!.user!.companyId;
-  if (!companyId) {
-    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
-  }
-
   const body = await request.json().catch(() => ({}));
   const parsed = osfGenerateBodySchema.safeParse(body);
   if (!parsed.success) {
@@ -43,10 +35,35 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const belowThresholdOnly = parsed.data.belowThresholdOnly === true;
+
+  if (belowThresholdOnly) {
+    const context = await getCurrentUserContext();
+    if (!context?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const canTools =
+      hasPermission(context, "purchasing.tools.read") ||
+      hasPermission(context, "purchasing.tools.manage");
+    if (!canTools) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    const auth = await requirePermission("purchasing.osf.read");
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+  }
+
+  const context = await getCurrentUserContext();
+  const companyId = context?.user?.companyId;
+  if (!companyId) {
+    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+  }
+
   const asOfDate = parsed.data.asOfDate ?? todayColombo();
   const { salesMonth, includeInactive, vendorIds, itemStatusCategories, skuPrefix } = parsed.data;
 
-  // "Recently purchased" window used to flag potential double-orders.
   const RECENT_PURCHASE_WINDOW_DAYS = 30;
   const recentSinceDate = new Date(
     Date.parse(`${asOfDate}T00:00:00Z`) - RECENT_PURCHASE_WINDOW_DAYS * 86_400_000,
@@ -67,7 +84,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [catalog, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =
+    const [catalogRaw, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =
       await Promise.all([
         buildCatalogRows(companyId, {
           includeInactive,
@@ -91,6 +108,7 @@ export async function POST(request: NextRequest) {
       profileMap.set(p.sku, {
         shopAvailability: p.shopAvailability,
         ogfPrice: p.ogfPrice != null ? Number(p.ogfPrice) : null,
+        reorderThresholdPercent: p.reorderThresholdPercent,
         rops: {},
       });
     }
@@ -98,16 +116,16 @@ export async function POST(request: NextRequest) {
       const entry = profileMap.get(r.sku) ?? {
         shopAvailability: null,
         ogfPrice: null,
+        reorderThresholdPercent: null,
         rops: {},
       };
       entry.rops[r.columnKey] = r.ropQty;
       profileMap.set(r.sku, entry);
     }
 
-    const skus = catalog.map((c) => c.sku);
+    let catalog = catalogRaw;
+    let skus = catalog.map((c) => c.sku);
 
-    // Stock columns can map to warehouses in different ERP instances, so group
-    // each column's warehouses by its location's ERP instance.
     const warehousesByInstance = new Map<string, Set<string>>();
     for (const col of columns) {
       if (!col.active || !col.includeInStock || !col.erpnextInstanceId) continue;
@@ -116,8 +134,6 @@ export async function POST(request: NextRequest) {
       warehousesByInstance.set(col.erpnextInstanceId, set);
     }
 
-    // Fetch stock (per-instance warehouses), cost, and purchases from every ERP
-    // instance in parallel, then merge into company-wide maps.
     const perInstanceResults = await Promise.all(
       erpInstances.map(async (inst) => {
         const whs = [...(warehousesByInstance.get(inst.id) ?? [])];
@@ -137,11 +153,33 @@ export async function POST(request: NextRequest) {
       }),
     );
 
-    // Bin keys are `${warehouse}::${item}`; warehouse names are unique per
-    // instance, so a plain union is safe.
     const binMap = new Map<string, number>();
     for (const { bins } of perInstanceResults) {
       for (const [key, qty] of bins) binMap.set(key, qty);
+    }
+
+    if (belowThresholdOnly) {
+      const stockCols = columns.filter((c) => c.active && c.includeInStock);
+      const ropCols = columns.filter((c) => c.active && c.includeInRop);
+      catalog = catalog.filter((row) => {
+        let totalStock = 0;
+        for (const col of stockCols) {
+          const qty = stockForColumn(binMap, col.warehouses, row.sku);
+          if (qty != null) totalStock += qty;
+        }
+        const profile = profileMap.get(row.sku);
+        let totalRop = 0;
+        for (const col of ropCols) {
+          const r = profile?.rops[col.key];
+          if (r != null && Number.isFinite(r)) totalRop += r;
+        }
+        return isBelowReorderThreshold(
+          totalStock,
+          totalRop,
+          profile?.reorderThresholdPercent ?? null,
+        );
+      });
+      skus = catalog.map((c) => c.sku);
     }
 
     const perInstanceErp: InstanceErpData[] = perInstanceResults.map((r) => ({
@@ -160,17 +198,21 @@ export async function POST(request: NextRequest) {
       monthlySales,
       salesMonth,
       asOfDate,
+      belowThresholdOnly,
       buyers: buyers
         .filter((b) => b.active)
         .map((b) => ({ name: b.name, brands: b.brands })),
     });
 
-    const filename = `OSF-${asOfDate}.xlsx`;
+    const filename = belowThresholdOnly
+      ? `OSF-reorder-${asOfDate}.xlsx`
+      : `OSF-${asOfDate}.xlsx`;
     return new NextResponse(new Uint8Array(buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename="${filename}"`,
+        "X-OSF-Row-Count": String(catalog.length),
       },
     });
   } catch (err) {

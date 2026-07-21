@@ -38,7 +38,8 @@ export type TaskReminderCategory =
   | "ready_dispatch"
   | "return_action"
   | "delivery_pending"
-  | "invoice_complete";
+  | "invoice_complete"
+  | "purchasing_rop_threshold";
 
 export type TaskReminder = {
   id: string;
@@ -611,6 +612,28 @@ async function fetchInvoiceCompleteReminders(
   return { reminders, totalCount };
 }
 
+async function fetchPurchasingRopThresholdReminders(companyId: string) {
+  const { listBelowThresholdSkus } = await import("@/lib/osf/below-threshold-skus");
+  try {
+    const items = await listBelowThresholdSkus(companyId, {
+      limit: REMINDER_LIMIT_PER_CATEGORY,
+    });
+    const reminders = items.map((item) => ({
+      id: `purchasing_rop_threshold:${item.sku}`,
+      category: "purchasing_rop_threshold" as const,
+      title: `${item.sku} below ROP threshold`,
+      body: `${item.productTitle}: stock ${item.stockPctOfRop}% of ROP (threshold ${item.thresholdPercent}%).`,
+      href: "/dashboard/purchasing/osf",
+      waitingHours: 0,
+      invoiceLabel: item.sku,
+    }));
+    return { reminders, totalCount: items.length };
+  } catch (err) {
+    console.error("[reminders] purchasing_rop_threshold", err);
+    return { reminders: [] as TaskReminder[], totalCount: 0 };
+  }
+}
+
 export async function fetchTaskReminders(
   companyId: string,
   context: PermissionContext,
@@ -673,6 +696,11 @@ export async function fetchTaskReminders(
     );
     reminders.push(...invoiceComplete.reminders);
     categoryCounts.invoice_complete = invoiceComplete.totalCount;
+  }
+  if (canSeeTaskReminderCategory(context, "purchasing_rop_threshold")) {
+    const purchasing = await fetchPurchasingRopThresholdReminders(companyId);
+    reminders.push(...purchasing.reminders);
+    categoryCounts.purchasing_rop_threshold = purchasing.totalCount;
   }
 
   reminders.sort((a, b) => b.waitingHours - a.waitingHours);

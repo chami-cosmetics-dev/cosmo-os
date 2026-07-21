@@ -70,6 +70,18 @@ export function formatSalesAmount(value: number): string {
   return rounded.toLocaleString("en-LK", { maximumFractionDigits: 0 });
 }
 
+/** Order sales for SMS — matches ERP (excludes shipping fee). */
+export function salesAmountExcludingShipping(
+  totalPrice: unknown,
+  totalShipping: unknown,
+): number | null {
+  const total = Number(totalPrice);
+  if (!Number.isFinite(total)) return null;
+  const shipping = Number(totalShipping ?? 0);
+  const shippingSafe = Number.isFinite(shipping) && shipping > 0 ? shipping : 0;
+  return Math.max(0, total - shippingSafe);
+}
+
 export function normalizeRecipientList(raw: unknown): string[] {
   const items: string[] = [];
   if (Array.isArray(raw)) {
@@ -170,6 +182,7 @@ async function aggregateRange(
     where: { companyId, ...dateFilter },
     select: {
       totalPrice: true,
+      totalShipping: true,
       financialStatus: true,
       sourceName: true,
       fulfillmentStatus: true,
@@ -187,8 +200,8 @@ async function aggregateRange(
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, "order")) continue;
-    const amount = Number(order.totalPrice);
-    if (!Number.isFinite(amount)) continue;
+    const amount = salesAmountExcludingShipping(order.totalPrice, order.totalShipping);
+    if (amount == null) continue;
     total += amount;
     count += 1;
     if (order.companyLocationId) {
