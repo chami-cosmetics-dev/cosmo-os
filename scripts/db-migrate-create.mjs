@@ -53,6 +53,8 @@ if (!dbUrl) {
 console.error("[db:migrate:create] Diffing cosmo-dev DB → schema.prisma");
 console.error(`[db:migrate:create] Using ${process.env.DIRECT_URL ? "DIRECT_URL" : "DATABASE_URL"}`);
 
+const quotedDbUrl = `\"${dbUrl}\"`;
+
 const result = spawnSync(
   "npx",
   [
@@ -60,7 +62,7 @@ const result = spawnSync(
     "migrate",
     "diff",
     "--from-url",
-    dbUrl,
+    quotedDbUrl,
     "--to-schema-datamodel",
     "prisma/schema.prisma",
     "--script",
@@ -68,12 +70,13 @@ const result = spawnSync(
   { cwd: root, encoding: "utf8", shell: true },
 );
 
-if (result.status !== 0) {
-  console.error(result.stderr || result.stdout);
+const sql = (result.stdout ?? "").trim();
+if (!sql) {
+  const err = (result.stderr ?? result.stdout ?? "").trim();
+  console.error(err || `prisma migrate diff exited with code ${result.status}`);
   process.exit(result.status ?? 1);
 }
 
-const sql = (result.stdout ?? "").trim();
 if (!sql) {
   console.error("No schema diff — prisma/schema.prisma matches the database.");
   process.exit(1);

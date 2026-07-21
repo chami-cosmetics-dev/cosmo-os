@@ -97,6 +97,9 @@ export const shopifyOrderWebhookSchema = z.object({
   email: z.string().optional().nullable(),
   contact_email: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
+  /** Used to mark matching abandoned checkout as recovered (Vault webhook path). */
+  checkout_id: z.union([z.number(), z.string()]).optional().nullable(),
+  checkout_token: z.string().optional().nullable(),
 
   shipping_address: shopifyAddressSchema,
   billing_address: shopifyAddressSchema,

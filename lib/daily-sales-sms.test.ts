@@ -17,13 +17,38 @@ describe("daily-sales-sms helpers", () => {
     expect(formatSalesAmount(198)).toBe("198");
   });
 
-  it("excludes shipping from sales amount (ERP-aligned)", () => {
-    expect(salesAmountExcludingShipping(5500, 500)).toBe(5000);
-    expect(salesAmountExcludingShipping("5500.00", "500.00")).toBe(5000);
-    expect(salesAmountExcludingShipping(5000, null)).toBe(5000);
-    expect(salesAmountExcludingShipping(5000, 0)).toBe(5000);
-    expect(salesAmountExcludingShipping(400, 500)).toBe(0);
-    expect(salesAmountExcludingShipping("bad", 100)).toBeNull();
+  it("excludes shipping from order total (ERP-aligned)", () => {
+    expect(
+      salesAmountExcludingShipping({ totalPrice: 5500, totalShipping: 500 }),
+    ).toBe(5000);
+    expect(
+      salesAmountExcludingShipping({ totalPrice: "5500.00", totalShipping: "500.00" }),
+    ).toBe(5000);
+    expect(
+      salesAmountExcludingShipping({ totalPrice: 5000, totalShipping: null }),
+    ).toBe(5000);
+    expect(
+      salesAmountExcludingShipping({ totalPrice: 5000, totalShipping: 0 }),
+    ).toBe(5000);
+    expect(
+      salesAmountExcludingShipping({ totalPrice: 400, totalShipping: 500 }),
+    ).toBe(0);
+    expect(
+      salesAmountExcludingShipping({ totalPrice: "bad", totalShipping: 100 }),
+    ).toBeNull();
+    expect(
+      salesAmountExcludingShipping({
+        totalPrice: 5000,
+        shippingLines: [{ price: "500.00" }],
+      }),
+    ).toBe(4500);
+    expect(
+      salesAmountExcludingShipping({
+        totalPrice: 5000,
+        totalShipping: 500,
+        discountCodes: [{ code: "FREESP" }],
+      }),
+    ).toBe(5000);
   });
 
   it("builds leadership SMS body layout", () => {

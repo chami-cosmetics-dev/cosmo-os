@@ -17,6 +17,7 @@ export default async function OsfPage() {
     hasPermission(context, "purchasing.tools.read") ||
     hasPermission(context, "purchasing.tools.manage");
   const canManageThreshold = hasPermission(context, "purchasing.tools.manage") || canManage;
+  const canAssignColumns = hasPermission(context, "purchasing.osf.permission");
   if (!canRead && !canManage) return <PermissionDeniedCard />;
 
   const companyId = context.user.companyId;
@@ -45,6 +46,7 @@ export default async function OsfPage() {
       canManage={canManage}
       canManageThreshold={canManageThreshold}
       canReorderOnly={canToolsRead}
+      canAssignColumns={canAssignColumns}
       initialLocations={locations}
       initialBuyers={buyers}
       brandOptions={vendors.map((v) => v.name)}

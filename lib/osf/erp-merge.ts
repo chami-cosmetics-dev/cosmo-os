@@ -1,10 +1,13 @@
 import type { ItemCostSupplier } from "@/lib/osf/erp-cost-supplier";
-import type { ItemLastPurchase } from "@/lib/osf/erp-purchases";
+import type { ItemLastPurchase, SupplierPurchaseSummary } from "@/lib/osf/erp-purchases";
+import { mergeSupplierPurchaseMaps } from "@/lib/osf/supplier-compare";
 
 export type InstanceErpData = {
   costs: Map<string, ItemCostSupplier>;
   purchases: Map<string, ItemLastPurchase>;
 };
+
+export { mergeSupplierPurchaseMaps };
 
 /**
  * Merge per-ERP-instance cost & purchase data into single company-wide maps.
@@ -79,4 +82,11 @@ export function mergeInstanceErpData(
   }
 
   return { costMap, purchaseMap };
+}
+
+/** Merge supplier-purchase maps from multiple ERP instances for one SKU. */
+export function mergeInstanceSupplierPurchases(
+  maps: Array<Map<string, SupplierPurchaseSummary>>,
+): Map<string, SupplierPurchaseSummary> {
+  return mergeSupplierPurchaseMaps(maps);
 }

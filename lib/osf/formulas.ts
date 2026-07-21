@@ -44,7 +44,22 @@ export function seventyPercentAvailabilityLabel(
   return "Below 70%";
 }
 
-/** Cosmetics Margin = (MRP − cost) / MRP when both exist and MRP ≠ 0. */
+/**
+ * Original/list selling price for margin: compare-at (MRP) when set, else catalog sell price.
+ * When a SKU is not on sale, sell price is the original — there is no separate discount.
+ */
+export function originalSellingPrice(
+  mrp: number | null | undefined,
+  discountedPrice: number | null | undefined,
+): number | null {
+  if (mrp != null && Number.isFinite(mrp) && mrp !== 0) return mrp;
+  if (discountedPrice != null && Number.isFinite(discountedPrice) && discountedPrice !== 0) {
+    return discountedPrice;
+  }
+  return null;
+}
+
+/** Cosmetics Margin = (original sell − cost) / original sell when both exist and sell ≠ 0. */
 export function cosmeticsMargin(
   mrp: number | null | undefined,
   cost: number | null | undefined,
