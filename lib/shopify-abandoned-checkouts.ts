@@ -129,9 +129,18 @@ async function fetchAbandonedCheckoutsPage({
     }),
   });
 
-  const json = (await res.json()) as { data?: { abandonedCheckouts?: ShopifyAbandonedCheckoutsPage }; errors?: Array<{ message: string }> };
+  const json = (await res.json().catch(() => ({}))) as {
+    data?: { abandonedCheckouts?: ShopifyAbandonedCheckoutsPage };
+    errors?: Array<{ message: string }>;
+  };
 
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new Error(
+        `[Shopify abandonedCheckouts] 401 Unauthorized for store "${storeHandle}". ` +
+          `After enabling read_orders, reinstall the custom app, copy the new Admin API access token into Cosmo env SHOPIFY_ADMIN_ACCESS_TOKEN, and confirm shopifyAdminStoreHandle matches that shop.`
+      );
+    }
     const message = json.errors?.[0]?.message ?? `Shopify sync failed with status ${res.status}`;
     throw new Error(`[Shopify abandonedCheckouts] ${message}`);
   }
