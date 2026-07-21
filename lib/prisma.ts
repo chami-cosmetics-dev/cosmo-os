@@ -135,6 +135,7 @@ let instance = globalForPrisma.prisma;
 if (instance && process.env.NODE_ENV !== "production") {
   if (
     !("smsNotificationConfig" in instance) ||
+    !("shopifyAbandonedCheckout" in instance) ||
     !hasModelField(instance, "CompanyLocation", "manualInvoicePrefix")
   ) {
     void (instance as PrismaClient).$disconnect();
@@ -144,6 +145,6 @@ if (instance && process.env.NODE_ENV !== "production") {
   }
 }
 
-export const prisma = instance ?? createPrisma();
+export const prisma: PrismaClient = instance ?? createPrisma();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
