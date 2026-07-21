@@ -156,18 +156,17 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
   try {
     if (!token) {
       // Vault OS: no Admin API token — abandoned checkouts arrive via checkouts/* webhooks.
+      // Do not set lastSyncError (that shows as a red banner); webhook ingest clears/sets sync meta itself.
       await prisma.companyAbandonedCheckoutSync.upsert({
         where: { companyId },
         create: {
           companyId,
           lastSyncedAt: now,
-          lastSyncError:
-            "No Admin API token — using Shopify checkouts webhooks. Configure checkouts/create|update|delete webhooks.",
+          lastSyncError: null,
         },
         update: {
-          lastSyncedAt: now,
-          lastSyncError:
-            "No Admin API token — using Shopify checkouts webhooks. Configure checkouts/create|update|delete webhooks.",
+          // Keep existing lastSyncedAt if webhooks already wrote a newer value.
+          lastSyncError: null,
         },
       });
       return { upserted: 0, updated: 0, recoveredDetected: 0 };
