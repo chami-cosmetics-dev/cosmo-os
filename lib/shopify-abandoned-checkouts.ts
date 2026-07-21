@@ -284,9 +284,9 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
           const lineItems = node.lineItems?.nodes ?? [];
           const lineItemsSummary = buildLineItemsSummary(lineItems);
 
-          const lineItemsJson = node.lineItems
-            ? (node.lineItems.nodes as unknown as Prisma.JsonValue)
-            : null;
+          const lineItemsJson = node.lineItems?.nodes?.length
+            ? (node.lineItems.nodes as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull;
 
           const customerPhone = node.billingAddress?.phone ?? node.shippingAddress?.phone ?? null;
 
@@ -319,16 +319,14 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
             followUpStatus: nextFollowUpStatus,
             customerResponse: nextCustomerResponse,
             remark: nextRemark,
-          } as const;
+          };
 
           if (current) {
             await prisma.shopifyAbandonedCheckout.update({
               where: {
                 companyId_shopifyCheckoutGid: { companyId, shopifyCheckoutGid },
               },
-              data: {
-                ...commonFields,
-              },
+              data: commonFields,
             });
             updated += 1;
           } else {

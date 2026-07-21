@@ -37,16 +37,13 @@ function buildWhere({
 }): Prisma.ShopifyAbandonedCheckoutWhereInput {
   const search = filters.search?.trim();
 
-  const followUpStatus = filters.followUpStatus?.length
-    ? filters.followUpStatus
-    : (["pending", "follow_up"] as const);
+  const followUpStatus: string[] = filters.followUpStatus?.length
+    ? [...filters.followUpStatus]
+    : ["pending", "follow_up"];
 
   const where: Prisma.ShopifyAbandonedCheckoutWhereInput = {
     companyId,
-    abandonedAt: undefined,
-    followUpStatus: undefined,
-    customerResponse: undefined,
-    ...(followUpStatus ? { followUpStatus: { in: followUpStatus } } : {}),
+    followUpStatus: { in: followUpStatus },
   };
 
   if (filters.from || filters.to) {
@@ -56,7 +53,7 @@ function buildWhere({
   }
 
   if (filters.customerResponse?.length) {
-    where.customerResponse = { in: filters.customerResponse };
+    where.customerResponse = { in: [...filters.customerResponse] };
   }
 
   if (search) {

@@ -21,8 +21,8 @@ export const PURCHASING_OSF_TOOLS_PERMISSION_KEYS = [
 
 export function hasFullOsfColumnAccess(context: RbacContext | null | undefined): boolean {
   return (
-    hasPermission(context, "purchasing.osf.manage") ||
-    hasPermission(context, "purchasing.osf.permission")
+    hasPermission(context ?? null, "purchasing.osf.manage") ||
+    hasPermission(context ?? null, "purchasing.osf.permission")
   );
 }
 
@@ -44,7 +44,7 @@ export async function resolveEffectiveOsfColumnGroups(
   const fullAccess = hasFullOsfColumnAccess(context);
   if (fullAccess) return columnGroupSet(ALL_OSF_COLUMN_GROUPS);
 
-  const userId = context.user?.id;
+  const userId = context?.user?.id;
   if (!userId) return columnGroupSet(["core"]);
 
   const row = await prisma.osfUserColumnAccess.findUnique({

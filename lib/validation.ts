@@ -248,20 +248,31 @@ const csvEnumSchema = <T extends string>(enumValues: readonly T[]) =>
   z
     .string()
     .optional()
+    .superRefine((s, ctx) => {
+      const raw = s?.trim();
+      if (!raw) return;
+      const parts = raw
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const allowed = new Set(enumValues);
+      for (const part of parts) {
+        if (!allowed.has(part as T)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Invalid value: ${part}`,
+          });
+        }
+      }
+    })
     .transform((s) => {
       const raw = s?.trim();
       if (!raw) return undefined;
       const parts = raw
         .split(",")
         .map((p) => p.trim())
-        .filter(Boolean);
-      const allowed = new Set(enumValues);
-      const normalized = parts.filter((p): p is T => allowed.has(p as T));
-      // If user passed an invalid value, force failure by comparing lengths
-      if (normalized.length !== parts.length) {
-        return z.NEVER.parse(raw);
-      }
-      return normalized.length ? normalized : undefined;
+        .filter(Boolean) as T[];
+      return parts.length ? parts : undefined;
     });
 
 export const abandonedOrdersFollowUpStatusCsvSchema = csvEnumSchema(FOLLOW_UP_STATUSES);

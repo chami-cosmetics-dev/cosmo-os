@@ -167,7 +167,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewFulfillmentSettings ||
     canViewContactAllocationSettings;
   const canViewOrderManagement =
-    canViewOrders || canCreateManualOrder || canViewReturns || canViewExchanges || Boolean(fulfillmentHref);
+    canViewOrders ||
+    canViewAbandonedOrders ||
+    canCreateManualOrder ||
+    canViewReturns ||
+    canViewExchanges ||
+    Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
   const canViewProductManagement = canViewProducts;
   const pathname = usePathname();

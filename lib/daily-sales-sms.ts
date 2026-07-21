@@ -80,7 +80,15 @@ export function salesAmountExcludingShipping(input: {
 }): number | null {
   const total = Number(input.totalPrice);
   if (!Number.isFinite(total)) return null;
-  return resolveFailureReportAmounts(input).amountExcl;
+  return resolveFailureReportAmounts({
+    totalPrice: total,
+    totalShipping:
+      input.totalShipping == null || input.totalShipping === ""
+        ? null
+        : (input.totalShipping as string | number),
+    shippingLines: input.shippingLines,
+    discountCodes: input.discountCodes,
+  }).amountExcl;
 }
 
 export function normalizeRecipientList(raw: unknown): string[] {

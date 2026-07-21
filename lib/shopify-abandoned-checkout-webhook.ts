@@ -133,7 +133,9 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
     customerEmail,
     customerPhone,
     lineItemsSummary: lineItemsSummary || "",
-    lineItemsJson: lineItems as unknown as Prisma.JsonValue,
+    lineItemsJson: lineItems.length
+      ? (lineItems as unknown as Prisma.InputJsonValue)
+      : Prisma.JsonNull,
     totalPrice: new Prisma.Decimal(totalPrice),
     currency,
     abandonedAt,

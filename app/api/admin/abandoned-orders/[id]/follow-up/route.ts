@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const perf = createPerfLogger("api.admin.abandoned-orders.follow-up.PATCH", {
     path: request.nextUrl.pathname,
@@ -28,7 +28,8 @@ export async function PATCH(
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const idResult = cuidSchema.safeParse(params.id);
+  const { id: rawId } = await params;
+  const idResult = cuidSchema.safeParse(rawId);
   if (!idResult.success) {
     perf.end({ status: 400, ok: false });
     return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
@@ -43,7 +44,10 @@ export async function PATCH(
   const bodyResult = abandonedOrderFollowUpPatchBodySchema.safeParse(bodyJson);
   if (!bodyResult.success) {
     perf.end({ status: 400, ok: false });
-    return NextResponse.json({ error: bodyResult.error.issues[0]?.message ?? "Invalid payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: bodyResult.error.issues[0]?.message ?? "Invalid payload" },
+      { status: 400 }
+    );
   }
 
   try {
@@ -63,4 +67,3 @@ export async function PATCH(
     return NextResponse.json({ error: message }, { status });
   }
 }
-
