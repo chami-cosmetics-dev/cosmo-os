@@ -1,6 +1,7 @@
 "use client";
 
 import { OsfBuyersSettings, type BuyerRow } from "@/components/organisms/osf-buyers-settings";
+import { OsfColumnAccessPanel } from "@/components/organisms/osf-column-access-panel";
 import { OsfColumnsSettings } from "@/components/organisms/osf-columns-settings";
 import { OsfGeneratePanel } from "@/components/organisms/osf-generate-panel";
 import { OsfProductEditor } from "@/components/organisms/osf-product-editor";
@@ -11,6 +12,7 @@ type Props = {
   canManage: boolean;
   canManageThreshold?: boolean;
   canReorderOnly?: boolean;
+  canAssignColumns?: boolean;
   initialLocations: LocationOption[];
   initialBuyers?: BuyerRow[];
   brandOptions?: string[];
@@ -20,6 +22,7 @@ export function OsfHubPanel({
   canManage,
   canManageThreshold = false,
   canReorderOnly = false,
+  canAssignColumns = false,
   initialLocations,
   initialBuyers,
   brandOptions,
@@ -37,6 +40,12 @@ export function OsfHubPanel({
       <section className="rounded-lg border p-4">
         <OsfGeneratePanel canReorderOnly={canReorderOnly} />
       </section>
+
+      {canAssignColumns && (
+        <section className="rounded-lg border p-4">
+          <OsfColumnAccessPanel />
+        </section>
+      )}
 
       <section className="rounded-lg border p-4">
         <OsfProductEditor canManage={canManage} canManageThreshold={canManageThreshold} />

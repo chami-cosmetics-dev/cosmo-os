@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+
 /**
  * Application-wide validation constants.
  * All user input must be validated server-side - never trust the client.
@@ -225,6 +227,92 @@ export function isReservedRoleName(name: string): boolean {
   const normalized = name.toLowerCase().trim();
   return RESERVED_ROLE_NAMES.includes(normalized as (typeof RESERVED_ROLE_NAMES)[number]);
 }
+
+/**
+ * Abandoned Orders Follow-up validation
+ * - Used for list filtering and follow-up PATCH mutations.
+ */
+
+export const abandonedOrdersFollowUpStatusSchema = z.enum(FOLLOW_UP_STATUSES);
+export const abandonedOrdersCustomerResponseSchema = z.enum(CUSTOMER_RESPONSES);
+
+const optionalYmdDateQuerySchema = ymdQuerySchema
+  .optional()
+  .transform((s) => {
+    if (!s?.trim()) return undefined;
+    const d = new Date(`${s}T00:00:00.000Z`);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  });
+
+const csvEnumSchema = <T extends string>(enumValues: readonly T[]) =>
+  z
+    .string()
+    .optional()
+    .superRefine((s, ctx) => {
+      const raw = s?.trim();
+      if (!raw) return;
+      const parts = raw
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+      const allowed = new Set(enumValues);
+      for (const part of parts) {
+        if (!allowed.has(part as T)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Invalid value: ${part}`,
+          });
+        }
+      }
+    })
+    .transform((s) => {
+      const raw = s?.trim();
+      if (!raw) return undefined;
+      const parts = raw
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean) as T[];
+      return parts.length ? parts : undefined;
+    });
+
+export const abandonedOrdersFollowUpStatusCsvSchema = csvEnumSchema(FOLLOW_UP_STATUSES);
+export const abandonedOrdersCustomerResponseCsvSchema = csvEnumSchema(CUSTOMER_RESPONSES);
+
+export const abandonedOrdersListQuerySchema = z.object({
+  from: optionalYmdDateQuerySchema,
+  to: optionalYmdDateQuerySchema,
+  status: abandonedOrdersFollowUpStatusCsvSchema,
+  response: abandonedOrdersCustomerResponseCsvSchema,
+  search: z.string().max(200).optional().transform((s) => s?.trim() || undefined),
+  page: pageSchema.optional(),
+  limit: limitSchema.optional(),
+});
+
+export const abandonedOrderFollowUpPatchBodySchema = z
+  .object({
+    followUpStatus: abandonedOrdersFollowUpStatusSchema,
+    customerResponse: abandonedOrdersCustomerResponseSchema.optional(),
+    remark: z
+      .string()
+      .optional()
+      .transform((s) => {
+        const t = s?.trim() ?? "";
+        return t ? t : undefined;
+      })
+      .refine(
+        (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
+        "Remark is too long"
+      ),
+  })
+  .superRefine((data, ctx) => {
+    if (data.followUpStatus === "closed" && !data.customerResponse) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "customerResponse is required when followUpStatus is closed",
+        path: ["customerResponse"],
+      });
+    }
+  });
 
 /** Password change - current password + new password with confirmation */
 export const passwordChangeSchema = z

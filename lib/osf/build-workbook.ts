@@ -2,6 +2,11 @@ import * as XLSX from "xlsx";
 
 import { baseSku } from "@/lib/osf/base-sku";
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
+import {
+  ALL_OSF_COLUMN_GROUPS,
+  columnGroupSet,
+  type OsfColumnGroupId,
+} from "@/lib/osf/column-groups";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import type { ItemCostSupplier } from "@/lib/osf/erp-cost-supplier";
 import type { ItemLastPurchase } from "@/lib/osf/erp-purchases";
@@ -11,6 +16,7 @@ import {
   formatMarginPercent,
   ogfMargin,
   orderQty,
+  originalSellingPrice,
   percentOfRop,
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
@@ -43,6 +49,8 @@ export type BuildWorkbookInput = {
   asOfDate: string;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
+  /** Column groups allowed on Main for the downloading user. Defaults to all groups. */
+  effectiveColumnGroups?: OsfColumnGroupId[];
   /** Optional per-buyer sheets (no pricing columns), filtered by brand. */
   buyers?: OsfBuyerConfig[];
 };
@@ -57,6 +65,8 @@ type OsfColumnDef = {
   sum?: boolean;
   /** Pricing/purchasing columns — excluded from buyer sheets. */
   pricing?: boolean;
+  /** Column group for per-user visibility filtering on Main. */
+  group?: OsfColumnGroupId;
 };
 
 /** ISO date (YYYY-MM-DD) → dd.mm.yyyy banner label used in the header band. */
@@ -248,7 +258,8 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["TOTAL ORDER QTY"] = buyTotalBySku.get(row.sku) ?? sumPositiveOrderQtys(orderVals);
     record["Common SKU Reorder"] = commonBuy.get(common) ?? 0;
 
-    record["Cosmetics MRP"] = row.mrp;
+    const listPrice = originalSellingPrice(row.mrp, row.discountedPrice);
+    record["Cosmetics MRP"] = listPrice;
     record["Discounted Price"] = row.discountedPrice;
     record["OGF Price"] = ogf;
     record["Latest Cost"] = cost;
@@ -257,7 +268,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     record["Last Purchase Date"] = purchase?.date ?? "";
     record["Days Since Last Purchase"] = daysBetween(purchase?.date ?? null, input.asOfDate);
     record["Purchased (last 30d)"] = purchase?.recentQty ?? null;
-    record["Cosmetics Margin %"] = formatMarginPercent(cosmeticsMargin(row.mrp, cost));
+    record["Cosmetics Margin %"] = formatMarginPercent(cosmeticsMargin(listPrice, cost));
     record["OGF Margin %"] = formatMarginPercent(ogfMargin(ogf, cost));
     record[`Sales Units (${input.salesMonth})`] = input.monthlySales.get(row.sku) ?? 0;
 
@@ -278,45 +289,60 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
   const dateLabel = formatDdMmYyyy(input.asOfDate);
 
   const defs: OsfColumnDef[] = [];
-  for (const h of identityHeaders()) defs.push({ header: h });
+  for (const h of identityHeaders()) defs.push({ header: h, group: "core" });
 
   stockCols.forEach((c, i) =>
-    defs.push({ header: c.label, section: i === 0 ? dateLabel : undefined, sum: true }),
+    defs.push({
+      header: c.label,
+      section: i === 0 ? dateLabel : undefined,
+      sum: true,
+      group: "core",
+    }),
   );
-  defs.push({ header: "Total Stock", sum: true });
-  defs.push({ header: "Common SKU Stock", sum: true });
+  defs.push({ header: "Total Stock", sum: true, group: "core" });
+  defs.push({ header: "Common SKU Stock", sum: true, group: "core" });
 
   ropCols.forEach((c, i) =>
-    defs.push({ header: `${c.label} ROP`, section: i === 0 ? "ROP" : undefined, sum: true }),
+    defs.push({
+      header: `${c.label} ROP`,
+      section: i === 0 ? "ROP" : undefined,
+      sum: true,
+      group: "core",
+    }),
   );
-  defs.push({ header: "Common ROP", sum: true });
+  defs.push({ header: "Common ROP", sum: true, group: "core" });
 
-  defs.push({ header: "% of ROP" });
-  defs.push({ header: "70% OF TOTAL ROP", sum: true });
-  defs.push({ header: "70% OF TOTAL ROP AVAILABILITY" });
+  defs.push({ header: "% of ROP", group: "core" });
+  defs.push({ header: "70% OF TOTAL ROP", sum: true, group: "core" });
+  defs.push({ header: "70% OF TOTAL ROP AVAILABILITY", group: "core" });
 
   stockCols.forEach((c, i) =>
     defs.push({
       header: `${c.label} ORDER QTY`,
       section: i === 0 ? "REORDER Amount" : undefined,
       sum: true,
+      group: "core",
     }),
   );
-  defs.push({ header: "TOTAL ORDER QTY", sum: true });
-  defs.push({ header: "Common SKU Reorder", sum: true });
+  defs.push({ header: "TOTAL ORDER QTY", sum: true, group: "core" });
+  defs.push({ header: "Common SKU Reorder", sum: true, group: "core" });
 
-  defs.push({ header: "Cosmetics MRP", section: "price", pricing: true });
-  defs.push({ header: "Discounted Price", pricing: true });
-  defs.push({ header: "OGF Price", pricing: true });
-  defs.push({ header: "Latest Cost", section: "Purchasing Cost", pricing: true });
-  defs.push({ header: "Latest supplier", pricing: true });
-  defs.push({ header: "Last Purchase Qty", pricing: true });
-  defs.push({ header: "Last Purchase Date", pricing: true });
-  defs.push({ header: "Days Since Last Purchase", pricing: true });
-  defs.push({ header: "Purchased (last 30d)", pricing: true });
-  defs.push({ header: "Cosmetics Margin %", pricing: true });
-  defs.push({ header: "OGF Margin %", pricing: true });
-  defs.push({ header: `Sales Units (${input.salesMonth})`, pricing: true });
+  defs.push({ header: "Cosmetics MRP", section: "price", pricing: true, group: "pricing" });
+  defs.push({ header: "Discounted Price", pricing: true, group: "pricing" });
+  defs.push({ header: "OGF Price", pricing: true, group: "pricing" });
+  defs.push({ header: "Latest Cost", section: "Purchasing Cost", pricing: true, group: "cost" });
+  defs.push({ header: "Latest supplier", pricing: true, group: "cost" });
+  defs.push({ header: "Last Purchase Qty", pricing: true, group: "cost" });
+  defs.push({ header: "Last Purchase Date", pricing: true, group: "cost" });
+  defs.push({ header: "Days Since Last Purchase", pricing: true, group: "cost" });
+  defs.push({ header: "Purchased (last 30d)", pricing: true, group: "cost" });
+  defs.push({ header: "Cosmetics Margin %", pricing: true, group: "margins" });
+  defs.push({ header: "OGF Margin %", pricing: true, group: "margins" });
+  defs.push({
+    header: `Sales Units (${input.salesMonth})`,
+    pricing: true,
+    group: "sales",
+  });
 
   return defs;
 }
@@ -366,16 +392,26 @@ function sanitizeSheetName(name: string, used: Set<string>): string {
   return candidate;
 }
 
+/** Filter column defs to allowed groups (core always included). */
+export function filterColumnDefsByGroups(
+  defs: OsfColumnDef[],
+  groups?: OsfColumnGroupId[],
+): OsfColumnDef[] {
+  const allowed = columnGroupSet(groups ?? ALL_OSF_COLUMN_GROUPS);
+  return defs.filter((d) => allowed.has(d.group ?? "core"));
+}
+
 export function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Buffer {
   const rows = buildMainSheetRows(input);
   const defs = mainColumnDescriptors(input);
+  const allowedGroups = columnGroupSet(input.effectiveColumnGroups ?? ALL_OSF_COLUMN_GROUPS);
+  const mainDefs = filterColumnDefsByGroups(defs, [...allowedGroups]);
   const wb = XLSX.utils.book_new();
   const used = new Set<string>();
 
-  // Main sheet: every column including pricing.
-  XLSX.utils.book_append_sheet(wb, renderSheet(defs, rows), sanitizeSheetName("Main", used));
+  XLSX.utils.book_append_sheet(wb, renderSheet(mainDefs, rows), sanitizeSheetName("Main", used));
 
-  // Buyer sheets: identity/stock/ROP/order only (pricing hidden), filtered by brand.
+  // Buyer sheets: stock/ROP/order only (no pricing columns).
   const buyerDefs = defs.filter((d) => !d.pricing);
   for (const buyer of input.buyers ?? []) {
     if (!buyer.name?.trim()) continue;

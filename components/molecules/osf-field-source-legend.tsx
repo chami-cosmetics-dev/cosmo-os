@@ -11,7 +11,7 @@ const ROWS: SourceRow[] = [
   { column: "MRP / Discounted", source: "Cosmo", note: "Compare-at / sell price" },
   { column: "OGF Price", source: "Cosmo UI", note: "Independent — not LWK" },
   { column: "Latest Cost / Supplier", source: "ERP", note: "Blank if missing — never invented" },
-  { column: "Cosmetics / OGF Margin", source: "Calc", note: "(price − cost) / price" },
+  { column: "Cosmetics / OGF Margin", source: "Calc", note: "(original sell − cost) / original sell — per-user column access" },
   { column: "Monthly sales units", source: "Cosmo", note: "delivery/invoice complete, Colombo month" },
 ];
 

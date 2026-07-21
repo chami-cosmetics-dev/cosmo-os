@@ -103,8 +103,8 @@ export function OsfBuyersSettings({ canManage, initialBuyers, brandOptions = [] 
         <div>
           <h3 className="font-medium">Buyer sheets</h3>
           <p className="text-sm text-muted-foreground">
-            Each buyer becomes its own sheet in the workbook (no pricing columns), showing only
-            their assigned brands. Leave brands empty to include the full catalog.
+            Each buyer becomes its own sheet (stock/ROP/order only — no pricing columns),
+            showing only their assigned brands. Leave brands empty for the full catalog.
           </p>
         </div>
         {canManage && (

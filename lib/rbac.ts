@@ -68,6 +68,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit OSF Shop Availability, ROP, OGF Price, and column mappings",
   },
   {
+    key: "purchasing.osf.permission",
+    description: "Assign which OSF Excel columns other purchasing users may download",
+  },
+  {
     key: "purchasing.tools.read",
     description: "Use purchasing calculator, price compare, and filtered reorder OSF",
   },
@@ -196,6 +200,14 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "merchant_reviews.manage",
     description: "Create and update merchant reviews",
+  },
+  {
+    key: "abandoned_orders.read",
+    description: "View abandoned orders from Shopify (list and export)",
+  },
+  {
+    key: "abandoned_orders.manage",
+    description: "Update abandoned order follow-up status, customer response, and remarks",
   },
   {
     key: "finance.approvals.read",
@@ -465,6 +477,7 @@ const DEFAULT_ROLES = [
       "products.manage",
       "purchasing.osf.read",
       "purchasing.osf.manage",
+      "purchasing.osf.permission",
       "purchasing.tools.read",
       "purchasing.tools.manage",
       "academy.learn",
