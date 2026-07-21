@@ -22,10 +22,6 @@ import {
 } from "@/components/ui/sheet";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { notify } from "@/lib/notify";
-import {
-  isReminderImpliedByPagePermissions,
-  stripImpliedReminderPermissions,
-} from "@/lib/reminder-permissions";
 
 const SEO_WELCOME_PERMISSION = "seo.welcome";
 
@@ -260,21 +256,19 @@ export function UserManagementPanel({
   }, [roleSearch]);
 
   function togglePermission(key: string) {
-    setSelectedPermissionKeys((current) => {
-      if (isReminderImpliedByPagePermissions(key, current)) return current;
-      return current.includes(key)
+    setSelectedPermissionKeys((current) =>
+      current.includes(key)
         ? current.filter((item) => item !== key)
-        : [...current, key];
-    });
+        : [...current, key],
+    );
   }
 
   function toggleEditRolePermission(key: string) {
-    setEditRolePermissionKeys((current) => {
-      if (isReminderImpliedByPagePermissions(key, current)) return current;
-      return current.includes(key)
+    setEditRolePermissionKeys((current) =>
+      current.includes(key)
         ? current.filter((item) => item !== key)
-        : [...current, key];
-    });
+        : [...current, key],
+    );
   }
 
   function startEditingRole(role: Role) {
@@ -409,7 +403,7 @@ export function UserManagementPanel({
         body: JSON.stringify({
           name: draftRoleName,
           description: draftRoleDescription || undefined,
-          permissionKeys: stripImpliedReminderPermissions(selectedPermissionKeys),
+          permissionKeys: selectedPermissionKeys,
         }),
       });
 
@@ -614,7 +608,7 @@ export function UserManagementPanel({
         body: JSON.stringify({
           name: editRoleName.trim(),
           description: editRoleDescription.trim() || undefined,
-          permissionKeys: stripImpliedReminderPermissions(editRolePermissionKeys),
+          permissionKeys: editRolePermissionKeys,
         }),
       });
 
@@ -1615,17 +1609,11 @@ function RolePermissionCheckbox({
   onToggle: (key: string) => void;
   disabled?: boolean;
 }) {
-  const implied = isReminderImpliedByPagePermissions(permissionKey, selectedKeys);
-  const checked = implied || selectedKeys.includes(permissionKey);
-  const isDisabled = Boolean(disabled || implied);
+  const checked = selectedKeys.includes(permissionKey);
+  const isDisabled = Boolean(disabled);
 
   return (
     <label
-      title={
-        implied
-          ? "Granted by related page permission — bubble shows automatically"
-          : undefined
-      }
       className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ${
         isDisabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
       } ${
@@ -1659,7 +1647,7 @@ const FULFILLMENT_SUBGROUP_LABELS: Record<string, string> = {
 
 const PERMISSION_GROUP_LABELS: Record<string, string> = {
   failed_webhooks: "Failed Webhooks",
-  reminders: "Reminder bubbles (optional)",
+  reminders: "Reminder bubbles",
 };
 
 type PermissionGroupItem =

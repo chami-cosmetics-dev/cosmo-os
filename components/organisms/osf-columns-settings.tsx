@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,11 +36,19 @@ function slugify(label: string): string {
     .slice(0, 64);
 }
 
+function columnRole(col: ColumnRow): string {
+  if (col.includeInStock && col.includeInRop) return "Warehouse — stock + ROP";
+  if (col.includeInStock && !col.includeInRop) return "Shop / stock only";
+  if (!col.includeInStock && col.includeInRop) return "ROP only";
+  return "Hidden columns";
+}
+
 export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
   const [columns, setColumns] = useState<ColumnRow[]>([]);
   const [locations, setLocations] = useState<LocationOption[]>(initialLocations ?? []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +91,14 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
       cancelled = true;
     };
   }, [initialLocations]);
+
+  function updateRow(idx: number, patch: Partial<ColumnRow>) {
+    setColumns((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  }
 
   async function save() {
     if (!canManage) return;
@@ -132,17 +148,19 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h3 className="font-medium">Column mapping</h3>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="max-w-2xl space-y-1">
+          <h3 className="font-medium">OSF location columns</h3>
           <p className="text-sm text-muted-foreground">
-            Map Excel stock/ROP labels to Cosmo locations (ERP warehouses).
+            Each row is one stock/ROP column in the Excel file. Link it to where ERP stock
+            comes from, then choose whether buyers set a reorder target (ROP) for that
+            location.
           </p>
         </div>
         {canManage && (
           <div className="flex gap-2">
             <Button type="button" variant="outline" size="sm" onClick={addRow}>
-              <Plus className="size-4" /> Add
+              <Plus className="size-4" /> Add location
             </Button>
             <Button type="button" size="sm" onClick={save} disabled={saving}>
               {saving ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -152,80 +170,92 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
         )}
       </div>
 
+      <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+        <li>
+          <span className="font-medium text-foreground">Show stock</span> — include this
+          location’s quantity in the workbook.
+        </li>
+        <li>
+          <span className="font-medium text-foreground">Set ROP</span> — buyers can enter a
+          reorder target here (typical for warehouses). Leave off for shops that only need
+          stock visibility.
+        </li>
+        <li>
+          <span className="font-medium text-foreground">In OSF</span> — turn off to hide the
+          column without deleting it.
+        </li>
+      </ul>
+
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[48rem] text-sm">
+        <table className="w-full min-w-[42rem] text-sm">
           <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
             <tr>
-              <th className="p-2">Key</th>
-              <th className="p-2">Excel label</th>
-              <th className="p-2">Location</th>
-              <th className="p-2">Stock</th>
-              <th className="p-2">ROP</th>
-              <th className="p-2" title="Left-to-right position of this column in the generated workbook (lower = further left)">
-                Display order
+              <th className="p-2">Name in Excel</th>
+              <th className="p-2">Pull stock from</th>
+              <th className="p-2 text-center" title="Include stock qty in the workbook">
+                Show stock
               </th>
-              <th className="p-2">Active</th>
+              <th className="p-2 text-center" title="Allow ROP targets for this location">
+                Set ROP
+              </th>
+              <th className="p-2 text-center" title="Include this column when generating OSF">
+                In OSF
+              </th>
+              {showAdvanced && (
+                <>
+                  <th className="p-2" title="Internal id used when saving ROP values">
+                    Internal key
+                  </th>
+                  <th
+                    className="p-2"
+                    title="Left-to-right position in the workbook (lower = further left)"
+                  >
+                    File order
+                  </th>
+                </>
+              )}
               <th className="p-2" />
             </tr>
           </thead>
           <tbody>
             {columns.map((col, idx) => (
-              <tr key={`${col.key}-${idx}`} className="border-t">
-                <td className="p-2">
-                  <Input
-                    value={col.key}
-                    disabled={!canManage}
-                    className="h-8 font-mono text-xs"
-                    onChange={(e) => {
-                      const next = [...columns];
-                      next[idx] = { ...col, key: slugify(e.target.value) || col.key };
-                      setColumns(next);
-                    }}
-                  />
-                </td>
+              <tr key={`${col.key}-${idx}`} className="border-t align-top">
                 <td className="p-2">
                   <Input
                     value={col.label}
                     disabled={!canManage}
                     className="h-8"
-                    onChange={(e) => {
-                      const next = [...columns];
-                      next[idx] = { ...col, label: e.target.value };
-                      setColumns(next);
-                    }}
+                    placeholder="e.g. Cosmetics.lk"
+                    onChange={(e) => updateRow(idx, { label: e.target.value })}
                     onBlur={() => {
                       if (!col.key || col.key.startsWith("col_")) {
-                        const next = [...columns];
-                        next[idx] = { ...col, key: slugify(col.label) || col.key };
-                        setColumns(next);
+                        updateRow(idx, { key: slugify(col.label) || col.key });
                       }
                     }}
                   />
+                  <p className="mt-1 text-[11px] text-muted-foreground">{columnRole(col)}</p>
                 </td>
                 <td className="p-2">
                   {col.directWarehouses.length > 0 ? (
                     <div
-                      className="truncate text-xs text-muted-foreground"
+                      className="text-xs text-muted-foreground"
                       title={`Direct ERP warehouse(s): ${col.directWarehouses.join(", ")}`}
                     >
-                      <span className="rounded bg-muted px-1.5 py-0.5">ERP warehouse</span>{" "}
-                      {col.directWarehouses.join(", ")}
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                        ERP warehouse
+                      </span>
+                      <div className="mt-1 truncate">{col.directWarehouses.join(", ")}</div>
                     </div>
                   ) : (
                     <select
                       className="h-8 w-full rounded-md border bg-background px-2 text-xs"
                       disabled={!canManage}
                       value={col.companyLocationId ?? ""}
-                      onChange={(e) => {
-                        const next = [...columns];
-                        next[idx] = {
-                          ...col,
-                          companyLocationId: e.target.value || null,
-                        };
-                        setColumns(next);
-                      }}
+                      onChange={(e) =>
+                        updateRow(idx, { companyLocationId: e.target.value || null })
+                      }
                     >
-                      <option value="">—</option>
+                      <option value="">Choose location…</option>
                       {locations.map((loc) => (
                         <option key={loc.id} value={loc.id}>
                           {loc.shortName || loc.name}
@@ -237,59 +267,63 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
                 <td className="p-2 text-center">
                   <input
                     type="checkbox"
+                    aria-label={`Show stock for ${col.label}`}
                     checked={col.includeInStock}
                     disabled={!canManage}
-                    onChange={(e) => {
-                      const next = [...columns];
-                      next[idx] = { ...col, includeInStock: e.target.checked };
-                      setColumns(next);
-                    }}
+                    onChange={(e) => updateRow(idx, { includeInStock: e.target.checked })}
                   />
                 </td>
                 <td className="p-2 text-center">
                   <input
                     type="checkbox"
+                    aria-label={`Set ROP for ${col.label}`}
                     checked={col.includeInRop}
                     disabled={!canManage}
-                    onChange={(e) => {
-                      const next = [...columns];
-                      next[idx] = { ...col, includeInRop: e.target.checked };
-                      setColumns(next);
-                    }}
-                  />
-                </td>
-                <td className="p-2 w-20">
-                  <Input
-                    type="number"
-                    value={col.sortOrder}
-                    disabled={!canManage}
-                    title="Column position in the workbook (lower number = further left)"
-                    className="h-8"
-                    onChange={(e) => {
-                      const next = [...columns];
-                      next[idx] = { ...col, sortOrder: Number(e.target.value) || 0 };
-                      setColumns(next);
-                    }}
+                    onChange={(e) => updateRow(idx, { includeInRop: e.target.checked })}
                   />
                 </td>
                 <td className="p-2 text-center">
                   <input
                     type="checkbox"
+                    aria-label={`Include ${col.label} in OSF`}
                     checked={col.active}
                     disabled={!canManage}
-                    onChange={(e) => {
-                      const next = [...columns];
-                      next[idx] = { ...col, active: e.target.checked };
-                      setColumns(next);
-                    }}
+                    onChange={(e) => updateRow(idx, { active: e.target.checked })}
                   />
                 </td>
+                {showAdvanced && (
+                  <>
+                    <td className="p-2">
+                      <Input
+                        value={col.key}
+                        disabled={!canManage}
+                        className="h-8 font-mono text-xs"
+                        onChange={(e) =>
+                          updateRow(idx, { key: slugify(e.target.value) || col.key })
+                        }
+                      />
+                    </td>
+                    <td className="p-2 w-24">
+                      <Input
+                        type="number"
+                        value={col.sortOrder}
+                        disabled={!canManage}
+                        title="Column position in the workbook (lower number = further left)"
+                        className="h-8"
+                        onChange={(e) =>
+                          updateRow(idx, { sortOrder: Number(e.target.value) || 0 })
+                        }
+                      />
+                    </td>
+                  </>
+                )}
                 <td className="p-2">
                   {canManage && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon-sm"
+                      aria-label={`Remove ${col.label}`}
                       onClick={() => setColumns(columns.filter((_, i) => i !== idx))}
                     >
                       <Trash2 className="size-4" />
@@ -300,14 +334,27 @@ export function OsfColumnsSettings({ canManage, initialLocations }: Props) {
             ))}
             {columns.length === 0 && (
               <tr>
-                <td colSpan={8} className="p-4 text-center text-muted-foreground">
-                  No columns yet. Add Cosmetics.lk, LMJ, LWK, … and map locations.
+                <td colSpan={showAdvanced ? 8 : 6} className="p-4 text-center text-muted-foreground">
+                  No locations yet. Add warehouses (stock + ROP) and shops (stock only).
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        onClick={() => setShowAdvanced((v) => !v)}
+      >
+        {showAdvanced ? (
+          <ChevronDown className="size-3.5" />
+        ) : (
+          <ChevronRight className="size-3.5" />
+        )}
+        {showAdvanced ? "Hide" : "Show"} advanced (internal key & file order)
+      </button>
     </div>
   );
 }

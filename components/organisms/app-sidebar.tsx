@@ -83,6 +83,10 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewOsf =
     hasSidebarPermission("purchasing.osf.read") ||
     hasSidebarPermission("purchasing.osf.manage");
+  const canViewPurchasingTools =
+    hasSidebarPermission("purchasing.tools.read") ||
+    hasSidebarPermission("purchasing.tools.manage");
+  const canViewPurchasing = canViewOsf || canViewPurchasingTools;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -164,7 +168,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewOrderManagement =
     canViewOrders || canCreateManualOrder || canViewReturns || canViewExchanges || Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
-  const canViewProductManagement = canViewProducts || canViewOsf;
+  const canViewProductManagement = canViewProducts;
   const pathname = usePathname();
 
   return (
@@ -457,8 +461,18 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewProducts && (
                 <NavItem href="/dashboard/products/vendors-categories" icon={Tags} label="Vendors & Categories" isActive={pathname === "/dashboard/products/vendors-categories"} />
               )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {canViewPurchasing && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Purchasing</SidebarGroupLabel>
+            <SidebarGroupContent>
               {canViewOsf && (
                 <NavItem href="/dashboard/purchasing/osf" icon={ClipboardList} label="Order Support File" isActive={pathname === "/dashboard/purchasing/osf"} />
+              )}
+              {canViewPurchasingTools && (
+                <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
             </SidebarGroupContent>
           </SidebarGroup>

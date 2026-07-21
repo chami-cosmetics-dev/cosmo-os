@@ -45,6 +45,9 @@ export const osfProfilePatchSchema = z.object({
   ogfPrice: z
     .union([z.number().finite().min(0).max(1_000_000), z.null()])
     .optional(),
+  reorderThresholdPercent: z
+    .union([z.number().int().min(1).max(100), z.null()])
+    .optional(),
   rops: z
     .record(
       columnKeySchema,
@@ -62,6 +65,7 @@ export const osfGenerateBodySchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "asOfDate must be YYYY-MM-DD")
     .optional(),
   includeInactive: z.boolean().optional().default(false),
+  belowThresholdOnly: z.boolean().optional().default(false),
   vendorIds: z.array(cuidSchema).max(100).optional(),
   itemStatusCategories: z.array(trimmedString(1, 80)).max(50).optional(),
   skuPrefix: trimmedString(1, LIMITS.sku.max).optional(),

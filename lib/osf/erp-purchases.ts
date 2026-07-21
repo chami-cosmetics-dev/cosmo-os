@@ -19,7 +19,9 @@ export type ItemLastPurchase = {
   recentQty: number | null;
 };
 
-type PurchaseRow = {
+export type AllowedSupplier = { name: string; code: string };
+
+export type PurchaseRow = {
   name?: string;
   supplier?: string | null;
   supplier_name?: string | null;
@@ -31,6 +33,96 @@ type PurchaseRow = {
 
 const PAGE_LENGTH = 500;
 const MAX_PAGES = 60;
+
+/** Trim + lowercase for supplier name/code matching. */
+export function normalizeSupplierKey(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+/** Build allowlist from Cosmo/Vault company Supplier name + code. */
+export function buildSupplierAllowlist(suppliers: AllowedSupplier[]): Set<string> {
+  const set = new Set<string>();
+  for (const s of suppliers) {
+    const name = normalizeSupplierKey(s.name);
+    const code = normalizeSupplierKey(s.code);
+    if (name) set.add(name);
+    if (code) set.add(code);
+  }
+  return set;
+}
+
+/**
+ * Empty allowlist = fail open (legacy unfiltered). Non-empty = ERP supplier id
+ * or supplier_name must match Cosmo name or code (case-insensitive).
+ */
+export function isAllowedSupplier(
+  row: Pick<PurchaseRow, "supplier" | "supplier_name">,
+  allowlist: Set<string>,
+): boolean {
+  if (allowlist.size === 0) return true;
+  const id = normalizeSupplierKey(row.supplier);
+  const name = normalizeSupplierKey(row.supplier_name);
+  return (id !== "" && allowlist.has(id)) || (name !== "" && allowlist.has(name));
+}
+
+/**
+ * Reduce Purchase Receipt lines (newest-first) into per-item last-purchase maps.
+ * Skips disallowed suppliers when allowlist is non-empty; walks back to latest allowed.
+ */
+export function accumulateLastPurchasesFromRows(input: {
+  rows: PurchaseRow[];
+  itemCodes: Set<string>;
+  recentSinceDate?: string | null;
+  allowedSuppliers?: AllowedSupplier[];
+  /** Existing map to mutate (for multi-page accumulation). */
+  result?: Map<string, ItemLastPurchase>;
+  latestReceiptForItem?: Map<string, string>;
+}): {
+  result: Map<string, ItemLastPurchase>;
+  latestReceiptForItem: Map<string, string>;
+} {
+  const result = input.result ?? new Map<string, ItemLastPurchase>();
+  const latestReceiptForItem = input.latestReceiptForItem ?? new Map<string, string>();
+  const recentSince = input.recentSinceDate?.trim() || null;
+  const allowlist = buildSupplierAllowlist(input.allowedSuppliers ?? []);
+
+  for (const row of input.rows) {
+    const item = row.item_code?.trim();
+    if (!item || !input.itemCodes.has(item)) continue;
+    if (!isAllowedSupplier(row, allowlist)) continue;
+
+    const receipt = row.name?.trim() ?? "";
+    const date = row.posting_date?.trim() || null;
+    const qty = Number(row.qty);
+    const qtyVal = Number.isFinite(qty) ? qty : 0;
+    const rateNum = row.rate != null ? Number(row.rate) : NaN;
+    const rateVal = Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null;
+
+    let entry = result.get(item);
+    if (!entry) {
+      // First allowed (newest) row for this item fixes the "latest purchase".
+      entry = {
+        supplier: row.supplier_name?.trim() || row.supplier?.trim() || null,
+        qty: qtyVal,
+        rate: rateVal,
+        date,
+        recentQty: 0,
+      };
+      result.set(item, entry);
+      latestReceiptForItem.set(item, receipt);
+    } else if (latestReceiptForItem.get(item) === receipt) {
+      // Another line of the same (latest) receipt for this item.
+      entry.qty = (entry.qty ?? 0) + qtyVal;
+      if (entry.rate == null && rateVal != null) entry.rate = rateVal;
+    }
+    // Recent-window total sums only allowed-supplier receipts within the window.
+    if (recentSince && date && date >= recentSince) {
+      entry.recentQty = (entry.recentQty ?? 0) + qtyVal;
+    }
+  }
+
+  return { result, latestReceiptForItem };
+}
 
 async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
   const res = await fetch(`${cfg.baseUrl}${path}`, {
@@ -53,19 +145,21 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
  * Uses Frappe's parent+child "fields-only" join on `Purchase Receipt` (child
  * `Purchase Receipt Item` columns in `fields`, parent-only filter) because the
  * child doctype is not directly queryable for this API user. Rows come back
- * newest-first, so the first time we see an item_code is its latest purchase.
- * Never invents data — items with no receipt stay blank.
+ * newest-first, so the first allowed item_code hit is its latest purchase.
+ * When `allowedSuppliers` is non-empty, skips receipts whose supplier is not
+ * in the company Cosmo/Vault Supplier list (intercompany transfers).
+ * Never invents data — items with no allowed receipt stay blank.
  */
 export async function fetchLastPurchaseByItem(input: {
   cfg: OsfErpCredentials;
   itemCodes: string[];
   /** Inclusive lower bound (YYYY-MM-DD) for the "recently purchased" window. */
   recentSinceDate?: string;
+  /** Company Supplier list; empty/omitted = no filter (legacy). */
+  allowedSuppliers?: AllowedSupplier[];
 }): Promise<Map<string, ItemLastPurchase>> {
-  const result = new Map<string, ItemLastPurchase>();
   const needed = new Set(input.itemCodes.map((s) => s.trim()).filter(Boolean));
-  if (needed.size === 0) return result;
-  const recentSince = input.recentSinceDate?.trim() || null;
+  if (needed.size === 0) return new Map();
 
   const fields = JSON.stringify([
     "name",
@@ -78,9 +172,8 @@ export async function fetchLastPurchaseByItem(input: {
   ]);
   const filters = JSON.stringify([["docstatus", "=", 1]]);
 
-  // Track which receipt fixed each item's "latest", so extra lines of that same
-  // receipt accumulate into the quantity.
-  const latestReceiptForItem = new Map<string, string>();
+  let result = new Map<string, ItemLastPurchase>();
+  let latestReceiptForItem = new Map<string, string>();
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const path =
@@ -93,39 +186,16 @@ export async function fetchLastPurchaseByItem(input: {
     const rows = json.data ?? [];
     if (rows.length === 0) break;
 
-    for (const row of rows) {
-      const item = row.item_code?.trim();
-      if (!item || !needed.has(item)) continue;
-      const receipt = row.name?.trim() ?? "";
-      const date = row.posting_date?.trim() || null;
-      const qty = Number(row.qty);
-      const qtyVal = Number.isFinite(qty) ? qty : 0;
-      const rateNum = row.rate != null ? Number(row.rate) : NaN;
-      const rateVal = Number.isFinite(rateNum) && rateNum > 0 ? rateNum : null;
-
-      let entry = result.get(item);
-      if (!entry) {
-        // First (newest) row for this item fixes the "latest purchase".
-        entry = {
-          supplier: row.supplier_name?.trim() || row.supplier?.trim() || null,
-          qty: qtyVal,
-          rate: rateVal,
-          date,
-          recentQty: 0,
-        };
-        result.set(item, entry);
-        latestReceiptForItem.set(item, receipt);
-      } else if (latestReceiptForItem.get(item) === receipt) {
-        // Another line of the same (latest) receipt for this item.
-        entry.qty = (entry.qty ?? 0) + qtyVal;
-        if (entry.rate == null && rateVal != null) entry.rate = rateVal;
-      }
-      // Recent-window total sums across ALL receipts within the window.
-      if (recentSince && date && date >= recentSince) {
-        entry.recentQty = (entry.recentQty ?? 0) + qtyVal;
-      }
-      // Older receipts otherwise only matter for the recent-window sum.
-    }
+    const next = accumulateLastPurchasesFromRows({
+      rows,
+      itemCodes: needed,
+      recentSinceDate: input.recentSinceDate,
+      allowedSuppliers: input.allowedSuppliers,
+      result,
+      latestReceiptForItem,
+    });
+    result = next.result;
+    latestReceiptForItem = next.latestReceiptForItem;
 
     if (rows.length < PAGE_LENGTH) break;
   }

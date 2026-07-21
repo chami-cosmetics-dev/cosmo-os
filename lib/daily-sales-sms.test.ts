@@ -7,6 +7,7 @@ import {
   isValidReportDate,
   monthStartYmd,
   normalizeRecipientList,
+  salesAmountExcludingShipping,
   shouldSkipAutomaticSend,
 } from "@/lib/daily-sales-sms";
 
@@ -14,6 +15,15 @@ describe("daily-sales-sms helpers", () => {
   it("formats amounts with thousand separators", () => {
     expect(formatSalesAmount(1970256)).toBe("1,970,256");
     expect(formatSalesAmount(198)).toBe("198");
+  });
+
+  it("excludes shipping from sales amount (ERP-aligned)", () => {
+    expect(salesAmountExcludingShipping(5500, 500)).toBe(5000);
+    expect(salesAmountExcludingShipping("5500.00", "500.00")).toBe(5000);
+    expect(salesAmountExcludingShipping(5000, null)).toBe(5000);
+    expect(salesAmountExcludingShipping(5000, 0)).toBe(5000);
+    expect(salesAmountExcludingShipping(400, 500)).toBe(0);
+    expect(salesAmountExcludingShipping("bad", 100)).toBeNull();
   });
 
   it("builds leadership SMS body layout", () => {

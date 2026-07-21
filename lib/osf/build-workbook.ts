@@ -14,11 +14,13 @@ import {
   percentOfRop,
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
+  sumPositiveOrderQtys,
 } from "@/lib/osf/formulas";
 
 export type OsfProfileData = {
   shopAvailability: string | null;
   ogfPrice: number | null;
+  reorderThresholdPercent?: number | null;
   rops: Record<string, number>;
 };
 
@@ -39,6 +41,8 @@ export type BuildWorkbookInput = {
   monthlySales: Map<string, number>;
   salesMonth: string;
   asOfDate: string;
+  /** When true, Info sheet explains reorder-only / empty filter. */
+  belowThresholdOnly?: boolean;
   /** Optional per-buyer sheets (no pricing columns), filtered by brand. */
   buyers?: OsfBuyerConfig[];
 };
@@ -158,10 +162,28 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
 
   const commonStock = new Map<string, number>();
   const commonRop = new Map<string, number>();
+  const buyTotalBySku = new Map<string, number>();
+
   for (const row of input.catalog) {
     const base = baseSku(row.sku);
     commonStock.set(base, (commonStock.get(base) ?? 0) + (totalStockBySku.get(row.sku) ?? 0));
     commonRop.set(base, (commonRop.get(base) ?? 0) + (totalRopBySku.get(row.sku) ?? 0));
+
+    const stocks = stockBySku.get(row.sku) ?? {};
+    const rops = ropBySku.get(row.sku) ?? {};
+    const orderVals: Array<number | null> = [];
+    for (const col of stockCols) {
+      const ropCol = ropCols.find((r) => r.key === col.key);
+      const ropVal = ropCol ? rops[col.key] : null;
+      orderVals.push(orderQty(ropVal, stocks[col.key]));
+    }
+    buyTotalBySku.set(row.sku, sumPositiveOrderQtys(orderVals));
+  }
+
+  const commonBuy = new Map<string, number>();
+  for (const row of input.catalog) {
+    const base = baseSku(row.sku);
+    commonBuy.set(base, (commonBuy.get(base) ?? 0) + (buyTotalBySku.get(row.sku) ?? 0));
   }
 
   const out: Record<string, string | number | null>[] = [];
@@ -215,17 +237,16 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       totalRop > 0 ? totalRop : null,
     );
 
-    let totalOrder = 0;
+    const orderVals: Array<number | null> = [];
     for (const col of stockCols) {
       const ropCol = ropCols.find((r) => r.key === col.key);
       const ropVal = ropCol ? rops[col.key] : null;
       const oq = orderQty(ropVal, stocks[col.key]);
       record[`${col.label} ORDER QTY`] = oq;
-      if (oq != null) totalOrder += oq;
+      orderVals.push(oq);
     }
-    record["TOTAL ORDER QTY"] = totalOrder;
-    const commonReorder = orderQty(commonRop.get(common) ?? null, commonStock.get(common) ?? null);
-    record["Common SKU Reorder"] = commonReorder;
+    record["TOTAL ORDER QTY"] = buyTotalBySku.get(row.sku) ?? sumPositiveOrderQtys(orderVals);
+    record["Common SKU Reorder"] = commonBuy.get(common) ?? 0;
 
     record["Cosmetics MRP"] = row.mrp;
     record["Discounted Price"] = row.discountedPrice;
@@ -375,11 +396,21 @@ export function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Buffer {
   }
 
   // Stamp metadata on a tiny Info sheet.
-  const info = XLSX.utils.aoa_to_sheet([
+  const infoRows: (string | number)[][] = [
     ["asOfDate", input.asOfDate],
     ["salesMonth", input.salesMonth],
     ["rows", rows.length],
-  ]);
+  ];
+  if (input.belowThresholdOnly) {
+    infoRows.push(["mode", "reorder-only (below threshold %)"]);
+    if (rows.length === 0) {
+      infoRows.push([
+        "notice",
+        "No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is below its reorder threshold % (default 70). SKUs without warehouse ROP are excluded.",
+      ]);
+    }
+  }
+  const info = XLSX.utils.aoa_to_sheet(infoRows);
   XLSX.utils.book_append_sheet(wb, info, sanitizeSheetName("Info", used));
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
