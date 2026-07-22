@@ -44,6 +44,8 @@ export async function GET(request: NextRequest) {
       imageUrl: true,
       itemStatusCategory: true,
       itemStatusLabel: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
       vendor: { select: { name: true } },
       category: { select: { name: true } },
     },
@@ -55,6 +57,8 @@ export async function GET(request: NextRequest) {
     variantTitle: string | null;
     itemStatusCategory: string;
     itemStatusLabel: string | null;
+    erp1ProductPriority: string | null;
+    erp2ProductPriority: string | null;
   };
 
   type GroupEntry = {
@@ -75,6 +79,8 @@ export async function GET(request: NextRequest) {
       variantTitle: item.variantTitle,
       itemStatusCategory: item.itemStatusCategory,
       itemStatusLabel: item.itemStatusLabel,
+      erp1ProductPriority: item.erp1ProductPriority,
+      erp2ProductPriority: item.erp2ProductPriority,
     };
     if (!existing) {
       const skus = new Map<string, FamilySkuEntry>();
@@ -108,10 +114,14 @@ export async function GET(request: NextRequest) {
     items: groups.map(({ representative: item, skus, productKeys: pKeys }) => {
       const statusMeta = getProductItemStatusMeta(item.itemStatusCategory);
       const hasExplanation = Array.from(pKeys).some((k) => explainedKeySet.has(k));
+      const p1 = item.erp1ProductPriority?.trim() || null;
+      const p2 = item.erp2ProductPriority?.trim() || null;
+      const priorityLabel =
+        p1 && p2 && p1 !== p2 ? `${p1} / ${p2}` : p1 || p2 || item.itemStatusLabel || statusMeta.label;
       return {
         ...item,
         academyProductTitle: getProductFamilyName(item.productTitle),
-        priorityLabel: item.itemStatusLabel || statusMeta.label,
+        priorityLabel,
         brandPriority: statusMeta.brandPriority,
         productPriority: statusMeta.productPriority,
         lifecycle: statusMeta.lifecycle,

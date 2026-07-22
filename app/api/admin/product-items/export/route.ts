@@ -31,7 +31,10 @@ export async function GET(request: NextRequest) {
     vendorId: searchParams.get("vendor_id") ?? undefined,
     categoryId: searchParams.get("category_id") ?? undefined,
     familyId: searchParams.get("family_id") ?? undefined,
-    itemStatusCategory: searchParams.get("item_status_category") ?? undefined,
+    erpProductPriority:
+      searchParams.get("erp_product_priority")?.trim() ||
+      searchParams.get("item_status_category")?.trim() ||
+      undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
   });
 
@@ -42,7 +45,8 @@ export async function GET(request: NextRequest) {
     "SKU",
     "Vendor",
     "Category",
-    "Item Status",
+    "ERP1 Priority",
+    "ERP2 Priority",
     "Price",
     "Compare At Price",
     "Stock",
@@ -59,7 +63,8 @@ export async function GET(request: NextRequest) {
       SKU: item.sku ?? "",
       Vendor: item.vendor?.name ?? "",
       Category: item.category?.name ?? "",
-      "Item Status": item.itemStatusLabel ?? item.itemStatusCategory,
+      "ERP1 Priority": item.erp1ProductPriority ?? "",
+      "ERP2 Priority": item.erp2ProductPriority ?? "",
       Price: formatPrice(item.priceDisplay ?? item.price),
       "Compare At Price": formatPrice(item.compareAtPriceDisplay ?? item.compareAtPrice),
       Stock: item.totalInventoryQuantity ?? item.inventoryQuantity,

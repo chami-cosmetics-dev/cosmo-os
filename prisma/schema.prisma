@@ -235,6 +235,11 @@ model ProductItem {
   barcode                         String?
   itemStatusCategory              String                    @default("UNCATEGORIZED")
   itemStatusLabel                 String?
+  /// Raw Product Priority from Cosmetics.lk ERP1 (Manufacturing tab)
+  erp1ProductPriority             String?
+  /// Raw Product Priority from Cosmetics.lk ERP2 (Manufacturing tab)
+  erp2ProductPriority             String?
+  erpPrioritySyncedAt             DateTime?
   inventoryQuantity               Int                       @default(0)
   createdAt                       DateTime                  @default(now())
   updatedAt                       DateTime                  @updatedAt
@@ -252,6 +257,8 @@ model ProductItem {
   @@index([companyId, vendorId])
   @@index([companyId, categoryId])
   @@index([companyId, itemStatusCategory])
+  @@index([companyId, erp1ProductPriority])
+  @@index([companyId, erp2ProductPriority])
 }
 
 model Invite {
