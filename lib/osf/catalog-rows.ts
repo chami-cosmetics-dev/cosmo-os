@@ -2,7 +2,6 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 
-import { PRODUCT_ITEM_STATUS_META } from "@/lib/product-item-status";
 import { prisma } from "@/lib/prisma";
 
 export type OsfCatalogRow = {
@@ -12,8 +11,11 @@ export type OsfCatalogRow = {
   barcode: string | null;
   imageUrl: string | null;
   siteStatus: string | null;
+  /** @deprecated Prefer erp1/erp2 — kept for workbook compatibility */
   itemStatusLabel: string | null;
   itemStatusCategory: string;
+  erp1ProductPriority: string | null;
+  erp2ProductPriority: string | null;
   mrp: number | null;
   discountedPrice: number | null;
   vendorId: string | null;
@@ -22,7 +24,9 @@ export type OsfCatalogRow = {
 export type CatalogFilters = {
   includeInactive?: boolean;
   vendorIds?: string[];
+  /** Exact ERP Product Priority values (match ERP1 or ERP2) */
   itemStatusCategories?: string[];
+  erpProductPriorities?: string[];
   skuPrefix?: string;
 };
 
@@ -44,9 +48,20 @@ export async function buildCatalogRows(
   if (filters.vendorIds?.length) {
     where.vendorId = { in: filters.vendorIds };
   }
-  if (filters.itemStatusCategories?.length) {
-    where.itemStatusCategory = { in: filters.itemStatusCategories };
+
+  const priorities =
+    filters.erpProductPriorities?.length
+      ? filters.erpProductPriorities
+      : filters.itemStatusCategories?.length
+        ? filters.itemStatusCategories
+        : null;
+  if (priorities?.length) {
+    where.OR = [
+      { erp1ProductPriority: { in: priorities } },
+      { erp2ProductPriority: { in: priorities } },
+    ];
   }
+
   if (filters.skuPrefix?.trim()) {
     where.sku = { startsWith: filters.skuPrefix.trim(), mode: "insensitive" };
   }
@@ -63,6 +78,8 @@ export async function buildCatalogRows(
       status: true,
       itemStatusCategory: true,
       itemStatusLabel: true,
+      erp1ProductPriority: true,
+      erp2ProductPriority: true,
       price: true,
       compareAtPrice: true,
       vendorId: true,
@@ -78,12 +95,12 @@ export async function buildCatalogRows(
       item.variantTitle && item.variantTitle !== "Default Title"
         ? `${item.productTitle} - ${item.variantTitle}`
         : item.productTitle;
-    const mrp =
-      item.compareAtPrice != null ? Number(item.compareAtPrice) : null;
+    const mrp = item.compareAtPrice != null ? Number(item.compareAtPrice) : null;
     const discounted = item.price != null ? Number(item.price) : null;
-    const statusMeta = PRODUCT_ITEM_STATUS_META[
-      item.itemStatusCategory as keyof typeof PRODUCT_ITEM_STATUS_META
-    ];
+    const erp1 = item.erp1ProductPriority?.trim() || null;
+    const erp2 = item.erp2ProductPriority?.trim() || null;
+    const combined =
+      erp1 && erp2 && erp1 !== erp2 ? `${erp1} / ${erp2}` : erp1 || erp2 || null;
     bySku.set(sku, {
       sku,
       productTitle: title,
@@ -91,8 +108,10 @@ export async function buildCatalogRows(
       barcode: item.barcode?.trim() || null,
       imageUrl: item.imageUrl?.trim() || null,
       siteStatus: item.status?.trim() || null,
-      itemStatusLabel: item.itemStatusLabel?.trim() || statusMeta?.label || null,
+      itemStatusLabel: combined,
       itemStatusCategory: item.itemStatusCategory,
+      erp1ProductPriority: erp1,
+      erp2ProductPriority: erp2,
       mrp: mrp != null && Number.isFinite(mrp) ? mrp : null,
       discountedPrice: discounted != null && Number.isFinite(discounted) ? discounted : null,
       vendorId: item.vendorId,

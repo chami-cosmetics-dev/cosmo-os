@@ -6,10 +6,10 @@ import { Download, Loader2 } from "lucide-react";
 import { OsfFieldSourceLegend } from "@/components/molecules/osf-field-source-legend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PRODUCT_ITEM_STATUS_CATEGORIES, PRODUCT_ITEM_STATUS_META } from "@/lib/product-item-status";
 import { notify } from "@/lib/notify";
 
 type Vendor = { id: string; name: string };
+type PriorityOption = { id: string; name: string };
 
 function currentMonthColombo(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -39,6 +39,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
   const [vendorId, setVendorId] = useState("");
   const [itemStatus, setItemStatus] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [busy, setBusy] = useState(false);
   const [busyMode, setBusyMode] = useState<"full" | "reorder" | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
@@ -47,6 +48,12 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
     fetch("/api/admin/vendors")
       .then((r) => (r.ok ? r.json() : []))
       .then((list: Vendor[]) => setVendors(Array.isArray(list) ? list : []))
+      .catch(() => undefined);
+    fetch("/api/admin/product-items/page-data?page=1&limit=1")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { priorities?: PriorityOption[] } | null) => {
+        if (data?.priorities) setPriorities(data.priorities);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -159,16 +166,16 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
           </select>
         </label>
         <label className="text-xs font-medium">
-          Item status (optional)
+          ERP Product Priority (optional)
           <select
             className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
             value={itemStatus}
             onChange={(e) => setItemStatus(e.target.value)}
           >
             <option value="">All</option>
-            {PRODUCT_ITEM_STATUS_CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {PRODUCT_ITEM_STATUS_META[cat].label}
+            {priorities.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </select>

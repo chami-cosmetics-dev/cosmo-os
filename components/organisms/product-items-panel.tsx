@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Download, FileUp, FolderOpen, Loader2, Package2, Search, X } from "lucide-react";
+import { Check, ChevronsUpDown, Download, FolderOpen, Loader2, Package2, RefreshCw, Search, X } from "lucide-react";
 
 import { ProductItemStorageSheet } from "@/components/organisms/product-item-storage-sheet";
 
@@ -17,22 +17,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
-import {
-  getProductItemStatusMeta,
-  PRODUCT_ITEM_STATUS_CATEGORIES,
-  PRODUCT_ITEM_STATUS_META,
-} from "@/lib/product-item-status";
+import { mergeErpPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
 import { cn } from "@/lib/utils";
 
 type ProductItem = {
@@ -54,8 +44,10 @@ type ProductItem = {
   inventoryQuantity: number;
   totalInventoryQuantity?: number;
   status: string | null;
-  itemStatusCategory: string;
-  itemStatusLabel: string | null;
+  itemStatusCategory?: string;
+  itemStatusLabel?: string | null;
+  erp1ProductPriority?: string | null;
+  erp2ProductPriority?: string | null;
   imageUrl: string | null;
   hasExplanation?: boolean;
 };
@@ -69,20 +61,7 @@ export type ProductItemsPanelInitialData = {
   vendors: Array<{ id: string; name: string }>;
   categories: Array<{ id: string; name: string }>;
   families: Array<{ id: string; name: string }>;
-};
-
-type PriorityImportPreview = {
-  totalRows: number;
-  parsedRows: number;
-  matchedSkus: number;
-  matchedItems: number;
-  unmatchedSkus: string[];
-  byCategory: Record<string, number>;
-  rows: Array<{
-    sku: string;
-    itemStatusLabel: string;
-    itemStatusCategory: string;
-  }>;
+  priorities?: Array<{ id: string; name: string }>;
 };
 
 interface ProductItemsPanelProps {
@@ -174,6 +153,24 @@ function SearchableFilter({
   );
 }
 
+function PriorityCell({ value, differ }: { value: string | null | undefined; differ?: boolean }) {
+  const text = value?.trim() || "—";
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center rounded-md border px-2 py-1 text-xs font-medium",
+        differ
+          ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100"
+          : "border-border/70 bg-secondary/20 text-foreground",
+        !value?.trim() && "text-muted-foreground",
+      )}
+      title={text}
+    >
+      <span className="truncate">{text}</span>
+    </span>
+  );
+}
+
 export function ProductItemsPanel({ initialData, canManage = false }: ProductItemsPanelProps = {}) {
   const hasInitialData = Boolean(initialData);
   const pagePerfRef = useRef(
@@ -181,42 +178,42 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
       hasInitialData,
     }),
   );
-  const priorityFileInputRef = useRef<HTMLInputElement | null>(null);
   const ALL_FILTER_VALUE = "__all__";
   const [items, setItems] = useState<ProductItem[]>(initialData?.items ?? []);
-  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>(
-    initialData?.locations ?? []
-  );
-  const [vendors, setVendors] = useState<Array<{ id: string; name: string }>>(
-    initialData?.vendors ?? []
-  );
-  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>(
-    initialData?.categories ?? []
-  );
-  const [families, setFamilies] = useState<Array<{ id: string; name: string }>>(
-    initialData?.families ?? []
+  const [locations, setLocations] = useState(initialData?.locations ?? []);
+  const [vendors, setVendors] = useState(initialData?.vendors ?? []);
+  const [categories, setCategories] = useState(initialData?.categories ?? []);
+  const [families, setFamilies] = useState(initialData?.families ?? []);
+  const [priorities, setPriorities] = useState(
+    () => mergeErpPriorityFilterOptions((initialData?.priorities ?? []).map((p) => p.name)),
   );
   const [loading, setLoading] = useState(!initialData);
+  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [locationFilter, setLocationFilter] = useState<string>("");
-  const [vendorFilter, setVendorFilter] = useState<string>("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [familyFilter, setFamilyFilter] = useState<string>("");
-  const [itemStatusFilter, setItemStatusFilter] = useState<string>("");
+  const [locationFilter, setLocationFilter] = useState("");
+  const [vendorFilter, setVendorFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [familyFilter, setFamilyFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
   const [page, setPage] = useState(initialData?.page ?? 1);
   const [limit, setLimit] = useState(initialData?.limit ?? 10);
   const [total, setTotal] = useState(initialData?.total ?? 0);
-  const [sortBy, setSortBy] = useState<string>("");
+  const [sortBy, setSortBy] = useState("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [savingStatusId, setSavingStatusId] = useState<string | null>(null);
-  const [storageItem, setStorageItem] = useState<{ sku: string; productTitle: string; familyName: string } | null>(null);
-  const [priorityImporting, setPriorityImporting] = useState(false);
-  const [priorityApplying, setPriorityApplying] = useState(false);
-  const [priorityPreview, setPriorityPreview] = useState<PriorityImportPreview | null>(null);
+  const [storageItem, setStorageItem] = useState<{
+    sku: string;
+    productTitle: string;
+    familyName: string;
+  } | null>(null);
 
   const hasActiveFilters = Boolean(
-    debouncedSearch.trim() || locationFilter || vendorFilter || categoryFilter || familyFilter || itemStatusFilter
+    debouncedSearch.trim() ||
+      locationFilter ||
+      vendorFilter ||
+      categoryFilter ||
+      familyFilter ||
+      priorityFilter,
   );
   const activeFilterCount = [
     Boolean(debouncedSearch.trim()),
@@ -224,7 +221,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     Boolean(vendorFilter),
     Boolean(categoryFilter),
     Boolean(familyFilter),
-    Boolean(itemStatusFilter),
+    Boolean(priorityFilter),
   ].filter(Boolean).length;
 
   useEffect(() => {
@@ -246,7 +243,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
     if (familyFilter) params.set("family_id", familyFilter);
-    if (itemStatusFilter) params.set("item_status_category", itemStatusFilter);
+    if (priorityFilter) params.set("erp_product_priority", priorityFilter);
     params.set("page", String(page));
     params.set("limit", String(limit));
     if (sortBy) {
@@ -262,27 +259,65 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
       perf.end({ ok: false });
       return;
     }
-    const data = (await res.json()) as {
-      items: ProductItem[];
-      total: number;
-      page: number;
-      limit: number;
-      locations: Array<{ id: string; name: string }>;
-      vendors: Array<{ id: string; name: string }>;
-      categories: Array<{ id: string; name: string }>;
-      families: Array<{ id: string; name: string }>;
-    };
+    const data = (await res.json()) as ProductItemsPanelInitialData;
     setItems(data.items);
     setTotal(data.total);
     setLocations(data.locations ?? []);
     setVendors(data.vendors ?? []);
     setCategories(data.categories ?? []);
     setFamilies(data.families ?? []);
+    setPriorities(mergeErpPriorityFilterOptions((data.priorities ?? []).map((p) => p.name)));
     setLoading(false);
     perf.end({ ok: true, total: data.total });
-  }, [categoryFilter, effectiveSearch, familyFilter, hasInitialData, itemStatusFilter, locationFilter, page, limit, sortBy, sortOrder, vendorFilter]);
+  }, [
+    categoryFilter,
+    effectiveSearch,
+    familyFilter,
+    hasInitialData,
+    priorityFilter,
+    locationFilter,
+    page,
+    limit,
+    sortBy,
+    sortOrder,
+    vendorFilter,
+  ]);
+
+  const syncPriorities = useCallback(async (opts?: { silent?: boolean }) => {
+    setSyncing(true);
+    try {
+      if (!opts?.silent) {
+        notify.success("Syncing priorities from ERP…");
+      }
+      const res = await fetch("/api/admin/product-items/sync-erp-priorities", { method: "POST" });
+      const data = (await res.json()) as {
+        error?: string;
+        updatedRows?: number;
+        sources?: Array<{ id: string; label: string; status: string; error?: string | null }>;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Priority sync failed");
+        return;
+      }
+      const failed = (data.sources ?? []).filter((s) => s.status === "failed");
+      if (failed.length > 0) {
+        notify.error(
+          `Partial sync: ${failed.map((s) => s.label).join(", ")} unavailable. Other ERP updated.`,
+        );
+      } else {
+        notify.success(`Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows).`);
+      }
+      await fetchPageData();
+    } catch {
+      notify.error("Priority sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }, [fetchPageData]);
 
   const skippedInitialFetch = useRef(false);
+  const syncedOnce = useRef(false);
+
   useEffect(() => {
     pagePerfRef.current.end({ initialItemCount: initialData?.items.length ?? 0 });
   }, [initialData]);
@@ -302,26 +337,15 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     return () => clearTimeout(timer);
   }, [fetchPageData, initialData]);
 
-  function handlePageChange(newPage: number) {
-    setPage(newPage);
-  }
-
-  function handleLimitChange(newLimit: number) {
-    setLimit(newLimit);
-    setPage(1);
-  }
-
-  function handleSort(key: string, order: "asc" | "desc") {
-    setSortBy(key);
-    setSortOrder(order);
-    setPage(1);
-  }
-
-  function formatPrice(val: string | null): string {
-    if (!val) return "-";
-    const n = parseFloat(val);
-    return Number.isNaN(n) ? val : n.toLocaleString("en-LK", { minimumFractionDigits: 2 });
-  }
+  // Auto-sync from ERP once after first paint (plan 2B)
+  useEffect(() => {
+    if (syncedOnce.current) return;
+    syncedOnce.current = true;
+    const timer = setTimeout(() => {
+      void syncPriorities({ silent: true });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [syncPriorities]);
 
   function clearFilters() {
     setSearch("");
@@ -330,7 +354,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     setVendorFilter("");
     setCategoryFilter("");
     setFamilyFilter("");
-    setItemStatusFilter("");
+    setPriorityFilter("");
     setSortBy("");
     setSortOrder("asc");
     setPage(1);
@@ -343,7 +367,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     if (vendorFilter) params.set("vendor_id", vendorFilter);
     if (categoryFilter) params.set("category_id", categoryFilter);
     if (familyFilter) params.set("family_id", familyFilter);
-    if (itemStatusFilter) params.set("item_status_category", itemStatusFilter);
+    if (priorityFilter) params.set("erp_product_priority", priorityFilter);
     if (sortBy) {
       params.set("sort_by", sortBy);
       params.set("sort_order", sortOrder);
@@ -351,108 +375,13 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     window.open(`/api/admin/product-items/export?${params.toString()}`, "_blank", "noopener");
   }
 
-  async function previewPriorityImport(file: File) {
-    try {
-      setPriorityImporting(true);
-      setPriorityPreview(null);
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/admin/product-items/status-import/preview", {
-        method: "POST",
-        body: formData,
-      });
-      const data = (await res.json()) as PriorityImportPreview & { error?: string };
-      if (!res.ok) {
-        notify.error(data.error ?? "Failed to read priority file");
-        return;
-      }
-      setPriorityPreview(data);
-      notify.success(`Preview ready. ${data.matchedSkus} SKU(s) matched.`);
-    } catch {
-      notify.error("Failed to read priority file");
-    } finally {
-      setPriorityImporting(false);
-      if (priorityFileInputRef.current) priorityFileInputRef.current.value = "";
-    }
+  function formatPrice(val: string | null): string {
+    if (!val) return "-";
+    const n = parseFloat(val);
+    return Number.isNaN(n) ? val : n.toLocaleString("en-LK", { minimumFractionDigits: 2 });
   }
 
-  async function applyPriorityImport() {
-    if (!priorityPreview) return;
-    try {
-      setPriorityApplying(true);
-      const res = await fetch("/api/admin/product-items/status-import/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: priorityPreview.rows }),
-      });
-      const data = (await res.json()) as { error?: string; updatedItems?: number };
-      if (!res.ok) {
-        notify.error(data.error ?? "Failed to apply priority file");
-        return;
-      }
-      notify.success(`Priority file applied. Updated ${data.updatedItems ?? 0} item row(s).`);
-      setPriorityPreview(null);
-      await fetchPageData();
-    } catch {
-      notify.error("Failed to apply priority file");
-    } finally {
-      setPriorityApplying(false);
-    }
-  }
-
-  function statusBadgeClass(category: string): string {
-    if (category === "DISCONTINUE") return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200";
-    if (category === "NEWLY_ADDED") return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200";
-    if (category.startsWith("TOP_PRIORITY")) return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200";
-    if (category.startsWith("PRIORITY")) return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200";
-    return "border-border/70 bg-secondary/20 text-muted-foreground";
-  }
-
-  function compactStatusLabel(category: string) {
-    const label = getProductItemStatusMeta(category).label;
-    return label
-      .replace("Top Priority Brand", "Top Brand")
-      .replace("Priority Brand", "Priority Brand")
-      .replace("Priority Product", "Priority")
-      .replace("Non Priority Product", "Non Priority");
-  }
-
-  async function updateItemStatus(itemId: string, itemStatusCategory: string) {
-    const previousItems = items;
-    const statusMeta = getProductItemStatusMeta(itemStatusCategory);
-    setSavingStatusId(itemId);
-    setItems((current) =>
-      current.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              itemStatusCategory: statusMeta.category,
-              itemStatusLabel: statusMeta.category === "UNCATEGORIZED" ? null : statusMeta.label,
-            }
-          : item
-      )
-    );
-
-    try {
-      const res = await fetch(`/api/admin/product-items/${itemId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemStatusCategory: statusMeta.category }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        setItems(previousItems);
-        notify.error(data.error ?? "Failed to update item status");
-        return;
-      }
-      notify.success("Item status updated.");
-    } catch {
-      setItems(previousItems);
-      notify.error("Failed to update item status");
-    } finally {
-      setSavingStatusId(null);
-    }
-  }
+  const isBusy = syncing;
 
   return (
     <div className="space-y-4">
@@ -463,6 +392,9 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             <Package2 className="size-5 text-muted-foreground" />
             Product Items
           </h1>
+          <p className="text-muted-foreground mt-1 text-xs">
+            Product Priority comes from ERP1 / ERP2 (Manufacturing). Syncs when you open this page.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="rounded-md border border-border/70 px-2.5 py-1 text-muted-foreground">
@@ -473,32 +405,25 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
               {activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"}
             </span>
           ) : null}
-          {canManage ? (
-            <>
-              <input
-                ref={priorityFileInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void previewPriorityImport(file);
-                }}
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => priorityFileInputRef.current?.click()}
-                disabled={priorityImporting || priorityApplying}
-                className="h-9 border-border/70"
-              >
-                {priorityImporting ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
-                Priority
-              </Button>
-            </>
-          ) : null}
-          <Button type="button" size="sm" variant="outline" onClick={downloadProductItemsExport} className="h-9 border-border/70">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void syncPriorities()}
+            disabled={isBusy}
+            className="h-9 border-border/70"
+          >
+            {syncing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
+            {syncing ? "Syncing…" : "Sync priorities"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={downloadProductItemsExport}
+            disabled={isBusy}
+            className="h-9 border-border/70"
+          >
             <Download className="size-4" />
             Export
           </Button>
@@ -512,6 +437,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             <Input
               placeholder="Search product, SKU..."
               value={search}
+              disabled={isBusy}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setPage(1);
@@ -570,19 +496,22 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             }}
           />
           <Select
-            value={itemStatusFilter || ALL_FILTER_VALUE}
+            value={priorityFilter || ALL_FILTER_VALUE}
             onValueChange={(value) => {
-              setItemStatusFilter(value === ALL_FILTER_VALUE ? "" : value);
+              setPriorityFilter(value === ALL_FILTER_VALUE ? "" : value);
               setPage(1);
             }}
+            disabled={isBusy}
           >
             <SelectTrigger className="h-9 w-full border-border/70 bg-background">
-              <SelectValue placeholder="Status" />
+              <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_FILTER_VALUE}>All statuses</SelectItem>
-              {PRODUCT_ITEM_STATUS_CATEGORIES.map((category) => (
-                <SelectItem key={category} value={category}>{PRODUCT_ITEM_STATUS_META[category].label}</SelectItem>
+              <SelectItem value={ALL_FILTER_VALUE}>All priorities</SelectItem>
+              {priorities.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -591,40 +520,17 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             size="sm"
             variant="ghost"
             onClick={clearFilters}
-            disabled={!hasActiveFilters && !sortBy}
+            disabled={(!hasActiveFilters && !sortBy) || isBusy}
             className="h-9 justify-start px-2"
           >
             <X className="size-4" />
             Clear
           </Button>
         </div>
-
-        {priorityPreview ? (
-          <div className="mt-3 rounded-md border border-border/70 bg-secondary/10 p-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="text-sm">
-                <p className="font-medium">Priority preview</p>
-                <p className="text-muted-foreground mt-1 text-xs">
-                  {priorityPreview.parsedRows} rows, {priorityPreview.matchedSkus} matched SKUs, {priorityPreview.matchedItems} item rows.
-                  {priorityPreview.unmatchedSkus.length > 0 ? ` ${priorityPreview.unmatchedSkus.length} unmatched.` : ""}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => setPriorityPreview(null)} disabled={priorityApplying}>
-                  Cancel
-                </Button>
-                <Button type="button" size="sm" onClick={applyPriorityImport} disabled={priorityApplying || priorityPreview.matchedSkus === 0}>
-                  {priorityApplying ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Apply
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       {loading && items.length === 0 ? (
-        <TableSkeleton columns={5} rows={8} />
+        <TableSkeleton columns={6} rows={8} />
       ) : items.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border/70 bg-background/70 p-8 text-center">
           <p className="text-muted-foreground text-sm">
@@ -641,22 +547,75 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
         <>
           <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] table-fixed text-sm">
+              <table className="w-full min-w-[1100px] table-fixed text-sm">
                 <thead className="bg-secondary/10">
                   <tr className="border-b border-border/60">
-                    <SortableColumnHeader label="Product" sortKey="product" currentSort={sortBy || undefined} currentOrder={sortOrder} onSort={handleSort} className="w-[34%] py-2 text-xs" />
-                    <SortableColumnHeader label="Family" sortKey="family" currentSort={sortBy || undefined} currentOrder={sortOrder} onSort={handleSort} className="w-[24%] py-2 text-xs" />
-                    <SortableColumnHeader label="Price" sortKey="price" currentSort={sortBy || undefined} currentOrder={sortOrder} onSort={handleSort} align="right" className="w-[12%] py-2 text-xs" />
-                    <SortableColumnHeader label="Stock" sortKey="stock" currentSort={sortBy || undefined} currentOrder={sortOrder} onSort={handleSort} align="center" className="w-[10%] py-2 text-xs" />
-                    <th className="w-[20%] px-4 py-2 text-left text-xs font-medium text-muted-foreground">Status</th>
+                    <SortableColumnHeader
+                      label="Product"
+                      sortKey="product"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={(key, order) => {
+                        setSortBy(key);
+                        setSortOrder(order);
+                        setPage(1);
+                      }}
+                      className="w-[30%] py-2 text-xs"
+                    />
+                    <SortableColumnHeader
+                      label="Family"
+                      sortKey="family"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={(key, order) => {
+                        setSortBy(key);
+                        setSortOrder(order);
+                        setPage(1);
+                      }}
+                      className="w-[18%] py-2 text-xs"
+                    />
+                    <SortableColumnHeader
+                      label="Price"
+                      sortKey="price"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={(key, order) => {
+                        setSortBy(key);
+                        setSortOrder(order);
+                        setPage(1);
+                      }}
+                      align="right"
+                      className="w-[10%] py-2 text-xs"
+                    />
+                    <SortableColumnHeader
+                      label="Stock"
+                      sortKey="stock"
+                      currentSort={sortBy || undefined}
+                      currentOrder={sortOrder}
+                      onSort={(key, order) => {
+                        setSortBy(key);
+                        setSortOrder(order);
+                        setPage(1);
+                      }}
+                      align="center"
+                      className="w-[10%] py-2 text-xs"
+                    />
+                    <th className="w-[16%] px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      ERP1 Priority
+                    </th>
+                    <th className="w-[16%] px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                      ERP2 Priority
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map((item) => {
-                    const statusMeta = getProductItemStatusMeta(item.itemStatusCategory);
                     const price = item.priceDisplay
                       ? item.priceDisplay.split(" - ").map(formatPrice).join(" - ")
                       : formatPrice(item.price);
+                    const p1 = item.erp1ProductPriority?.trim() || null;
+                    const p2 = item.erp2ProductPriority?.trim() || null;
+                    const differ = Boolean(p1 && p2 && p1 !== p2);
                     return (
                       <tr key={item.id} className="border-b border-border/50 last:border-0 hover:bg-secondary/8">
                         <td className="px-4 py-3 align-top">
@@ -669,7 +628,9 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
                             <div className="min-w-0 flex-1">
                               <p className="truncate font-medium">{item.productTitle}</p>
                               <p className="mt-1 truncate text-xs text-muted-foreground">
-                                {[item.sku ? `SKU ${item.sku}` : null, item.vendor?.name, item.category?.name].filter(Boolean).join(" / ") || "-"}
+                                {[item.sku ? `SKU ${item.sku}` : null, item.vendor?.name, item.category?.name]
+                                  .filter(Boolean)
+                                  .join(" / ") || "-"}
                               </p>
                               <div className="mt-1 flex items-center gap-1.5">
                                 {item.hasExplanation ? (
@@ -681,7 +642,13 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
                                   <button
                                     type="button"
                                     title="Open storage"
-                                    onClick={() => setStorageItem({ sku: item.sku!, productTitle: item.productTitle, familyName: item.familyName ?? item.productTitle })}
+                                    onClick={() =>
+                                      setStorageItem({
+                                        sku: item.sku!,
+                                        productTitle: item.productTitle,
+                                        familyName: item.familyName ?? item.productTitle,
+                                      })
+                                    }
                                     className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
                                   >
                                     <FolderOpen className="size-3" />
@@ -700,37 +667,20 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
                         </td>
                         <td className="px-4 py-3 text-right align-top">
                           <p className="font-medium tabular-nums">{price}</p>
-                          {item.compareAtPriceDisplay && item.compareAtPriceDisplay !== "-" ? (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Compare {item.compareAtPriceDisplay.split(" - ").map(formatPrice).join(" - ")}
-                            </p>
-                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-center align-top">
-                          <p className="font-medium tabular-nums">{item.totalInventoryQuantity ?? item.inventoryQuantity}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">{item.locationSummary ?? item.companyLocation?.name ?? "-"}</p>
+                          <p className="font-medium tabular-nums">
+                            {item.totalInventoryQuantity ?? item.inventoryQuantity}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {item.locationSummary ?? item.companyLocation?.name ?? "-"}
+                          </p>
                         </td>
                         <td className="px-4 py-3 align-top">
-                          {canManage ? (
-                            <Select
-                              value={statusMeta.category}
-                              onValueChange={(value) => updateItemStatus(item.id, value)}
-                              disabled={savingStatusId === item.id}
-                            >
-                              <SelectTrigger className={`h-8 w-full border px-2 text-xs font-medium ${statusBadgeClass(statusMeta.category)}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {PRODUCT_ITEM_STATUS_CATEGORIES.map((category) => (
-                                  <SelectItem key={category} value={category}>{compactStatusLabel(category)}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <span className={`inline-flex max-w-full items-center rounded-md border px-2 py-1 text-xs font-medium ${statusBadgeClass(statusMeta.category)}`}>
-                              {compactStatusLabel(statusMeta.category)}
-                            </span>
-                          )}
+                          <PriorityCell value={p1} differ={differ} />
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          <PriorityCell value={p2} differ={differ} />
                         </td>
                       </tr>
                     );
@@ -744,20 +694,26 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
               page={page}
               limit={limit}
               total={total}
-              onPageChange={handlePageChange}
-              onLimitChange={handleLimitChange}
+              onPageChange={setPage}
+              onLimitChange={(newLimit) => {
+                setLimit(newLimit);
+                setPage(1);
+              }}
               limitOptions={[10, 25, 50, 100]}
             />
           ) : null}
         </>
       )}
-      <ProductItemStorageSheet
-        open={Boolean(storageItem)}
-        sku={storageItem?.sku ?? null}
-        productTitle={storageItem?.productTitle ?? null}
-        familyName={storageItem?.familyName ?? null}
-        onClose={() => setStorageItem(null)}
-      />
+
+      {storageItem ? (
+        <ProductItemStorageSheet
+          open={Boolean(storageItem)}
+          onClose={() => setStorageItem(null)}
+          sku={storageItem.sku}
+          productTitle={storageItem.productTitle}
+          familyName={storageItem.familyName}
+        />
+      ) : null}
     </div>
   );
 }

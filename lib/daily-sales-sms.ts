@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
+import { aggregateErpDailySalesRange } from "@/lib/daily-sales-sms-erp";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { resolveFailureReportAmounts } from "@/lib/erp-sync-failure-email";
 import { sendSms } from "@/lib/hutch-sms";
@@ -145,7 +146,8 @@ function locationRowsFromAgg(
 ): DailySalesLocationRow[] {
   const rows: DailySalesLocationRow[] = [];
   for (const [locationId, value] of byLocation) {
-    if (value <= 0) continue;
+    // Keep negatives (same-day returns can make a company net negative).
+    if (value === 0) continue;
     const loc = locationNameById.get(locationId);
     rows.push({
       code: locationCode(loc?.shortName ?? null, loc?.name ?? locationId),
@@ -240,18 +242,35 @@ export async function buildDailySalesReport(
   }
 
   const mtdFrom = monthStartYmd(reportDate);
-  const [dayAgg, mtdAgg, locations] = await Promise.all([
+  const locations = await prisma.companyLocation.findMany({
+    where: { companyId },
+    select: { id: true, name: true, shortName: true },
+  });
+  const locationNameById = new Map(locations.map((l) => [l.id, l]));
+
+  // Prefer ERP SI posting_date + net_total (sales − same-day returns) on both
+  // Cosmo and Vault whenever ERP instances are configured — matches ERP day report.
+  const [dayErp, mtdErp] = await Promise.all([
+    aggregateErpDailySalesRange(companyId, reportDate, reportDate),
+    aggregateErpDailySalesRange(companyId, mtdFrom, reportDate),
+  ]);
+  if (dayErp && mtdErp) {
+    const base = {
+      reportDate,
+      dayValue: dayErp.total,
+      dayCount: dayErp.count,
+      mtdValue: mtdErp.total,
+      mtdCount: mtdErp.count,
+      dayLocations: locationRowsFromAgg(dayErp.byLocation, locationNameById),
+      locations: locationRowsFromAgg(mtdErp.byLocation, locationNameById),
+    };
+    return { ...base, messageBody: formatDailySalesSmsBody(base) };
+  }
+
+  const [dayAgg, mtdAgg] = await Promise.all([
     aggregateRange(companyId, reportDate, reportDate),
     aggregateRange(companyId, mtdFrom, reportDate),
-    prisma.companyLocation.findMany({
-      where: { companyId },
-      select: { id: true, name: true, shortName: true },
-    }),
   ]);
-
-  const locationNameById = new Map(locations.map((l) => [l.id, l]));
-  const dayLocations = locationRowsFromAgg(dayAgg.byLocation, locationNameById);
-  const locationRows = locationRowsFromAgg(mtdAgg.byLocation, locationNameById);
 
   const base = {
     reportDate,
@@ -259,8 +278,8 @@ export async function buildDailySalesReport(
     dayCount: dayAgg.count,
     mtdValue: mtdAgg.total,
     mtdCount: mtdAgg.count,
-    dayLocations,
-    locations: locationRows,
+    dayLocations: locationRowsFromAgg(dayAgg.byLocation, locationNameById),
+    locations: locationRowsFromAgg(mtdAgg.byLocation, locationNameById),
   };
 
   return { ...base, messageBody: formatDailySalesSmsBody(base) };
