@@ -1,3 +1,4 @@
+import { cleanStickerItemName } from "@/lib/sticker-item-name";
 import { cn } from "@/lib/utils";
 
 interface VaultStickerPreviewCardProps {
@@ -8,11 +9,6 @@ interface VaultStickerPreviewCardProps {
   className?: string;
 }
 
-function cleanItemName(name: string | null | undefined): string {
-  if (!name) return "-";
-  return name.trim().replace(/\s*\(Default Title\)\s*$/i, "").trim() || "-";
-}
-
 export function VaultStickerPreviewCard({
   sku,
   itemName,
@@ -20,7 +16,7 @@ export function VaultStickerPreviewCard({
   locationRef,
   className,
 }: VaultStickerPreviewCardProps) {
-  const displayName = cleanItemName(itemName);
+  const displayName = cleanStickerItemName(itemName);
   return (
     <div
       style={{ fontFamily: '"Aptos", "Segoe UI", Arial, sans-serif' }}
