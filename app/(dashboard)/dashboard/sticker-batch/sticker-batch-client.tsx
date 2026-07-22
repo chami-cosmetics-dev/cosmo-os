@@ -38,10 +38,7 @@ import {
   normalizeQuantity,
   totalStickerCount,
 } from "@/lib/sticker-print-quantity";
-import {
-  isLwkLocation,
-  resolveStickerUnitPrice,
-} from "@/lib/sticker-unit-price";
+import { resolveStickerUnitPrice } from "@/lib/sticker-unit-price";
 
 const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 
@@ -145,7 +142,6 @@ interface StickerBatchClientProps {
   suppliers: SupplierOption[];
   locations: LocationOption[];
   itemCatalog: ItemCatalogRow[];
-  ogfPriceBySku: Record<string, string>;
   companyName: string;
   companyAddress: string;
   initialBatches: BatchOption[];
@@ -238,7 +234,6 @@ export function StickerBatchClient({
   suppliers,
   locations,
   itemCatalog,
-  ogfPriceBySku,
   companyName,
   companyAddress,
   initialBatches,
@@ -631,16 +626,24 @@ export function StickerBatchClient({
 
   function resolveUnitPriceForItem(
     item: ItemCatalogRow | null | undefined,
-    locationId: string
+    _locationId: string
   ): string {
     if (!item) return "";
-    const location = locations.find((entry) => entry.id === locationId);
-    const sku = item.sku?.trim() ?? "";
+    // Prefer compare-at on this location row; if missing, use any same-SKU row's compare-at
+    let compareAt = item.compareAtPrice;
+    if (!compareAt && item.sku?.trim()) {
+      const sku = item.sku.trim();
+      const withCompare = itemCatalog.find(
+        (entry) =>
+          entry.sku?.trim() === sku &&
+          entry.compareAtPrice != null &&
+          entry.compareAtPrice !== ""
+      );
+      compareAt = withCompare?.compareAtPrice ?? null;
+    }
     return resolveStickerUnitPrice({
       price: item.price,
-      compareAtPrice: item.compareAtPrice,
-      ogfPrice: sku ? ogfPriceBySku[sku] : undefined,
-      isLwk: isLwkLocation(location?.locationReference),
+      compareAtPrice: compareAt,
     });
   }
 
