@@ -35,7 +35,7 @@ export default async function StickerBatchPage({
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return <PermissionDeniedCard />;
 
-  const [suppliers, locations, rawItemCatalog, ogfProfiles, company] =
+  const [suppliers, locations, rawItemCatalog, company] =
     await Promise.all([
       prisma.supplier.findMany({
         where: { companyId },
@@ -72,13 +72,6 @@ export default async function StickerBatchPage({
           variantTitle: true,
           price: true,
           compareAtPrice: true,
-        },
-      }),
-      prisma.productOsfProfile.findMany({
-        where: { companyId },
-        select: {
-          sku: true,
-          ogfPrice: true,
         },
       }),
       prisma.company.findUnique({
@@ -170,19 +163,11 @@ export default async function StickerBatchPage({
     compareAtPrice: item.compareAtPrice?.toString() ?? null,
   }));
 
-  const ogfPriceBySku: Record<string, string> = {};
-  for (const profile of ogfProfiles) {
-    const sku = profile.sku?.trim();
-    if (!sku || profile.ogfPrice == null) continue;
-    ogfPriceBySku[sku] = profile.ogfPrice.toString();
-  }
-
   return (
     <StickerBatchClient
       suppliers={suppliers}
       locations={locations}
       itemCatalog={itemCatalog}
-      ogfPriceBySku={ogfPriceBySku}
       companyName={company?.name ?? ""}
       companyAddress={company?.address ?? ""}
       initialBatches={initialBatches}
