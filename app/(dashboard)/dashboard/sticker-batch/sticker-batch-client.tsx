@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ChevronsUpDown } from "lucide-react";
-import Link from "next/link";
+import { AlertTriangle, Check, ChevronsUpDown, Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,9 +26,24 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { VaultStickerPreviewCard } from "@/components/organisms/vault-sticker-preview-card";
+import { notify } from "@/lib/notify";
+import {
+  expireFromManufacture,
+  formatDateTyping,
+  parseDDMMYYYY,
+} from "@/lib/sticker-dates";
+import { cleanStickerItemName } from "@/lib/sticker-item-name";
+import {
+  expandItemsByQuantity,
+  normalizeQuantity,
+  totalStickerCount,
+} from "@/lib/sticker-print-quantity";
+import {
+  isLwkLocation,
+  resolveStickerUnitPrice,
+} from "@/lib/sticker-unit-price";
 
 const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
-import { notify } from "@/lib/notify";
 
 type SupplierOption = {
   id: string;
@@ -51,6 +65,7 @@ type ItemCatalogRow = {
   productTitle: string;
   variantTitle: string | null;
   price: string;
+  compareAtPrice: string | null;
 };
 
 type ItemRow = {
@@ -130,6 +145,9 @@ interface StickerBatchClientProps {
   suppliers: SupplierOption[];
   locations: LocationOption[];
   itemCatalog: ItemCatalogRow[];
+  ogfPriceBySku: Record<string, string>;
+  companyName: string;
+  companyAddress: string;
   initialBatches: BatchOption[];
   today: string;
   initialSelectedBatchId?: string;
@@ -171,38 +189,6 @@ function formatToTwoDecimals(value: string) {
   const num = Number(value);
   if (!Number.isFinite(num)) return "";
   return num.toFixed(2);
-}
-
-function formatDateTyping(input: string) {
-  const digits = input.replace(/\D/g, "").slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-}
-
-function parseDDMMYYYY(value: string) {
-  const parts = value.split("/");
-  if (parts.length !== 3) return null;
-  const day = Number(parts[0]);
-  const month = Number(parts[1]);
-  const year = Number(parts[2]);
-  if (
-    !Number.isInteger(day) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(year)
-  )
-    return null;
-  if (year < 1000 || month < 1 || month > 12 || day < 1 || day > 31)
-    return null;
-  const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
-    return null;
-  }
-  return date;
 }
 
 function computeAge(manufactureDate: string, expireDate: string) {
@@ -252,6 +238,9 @@ export function StickerBatchClient({
   suppliers,
   locations,
   itemCatalog,
+  ogfPriceBySku,
+  companyName,
+  companyAddress,
   initialBatches,
   today,
   initialSelectedBatchId = "",
@@ -279,8 +268,8 @@ export function StickerBatchClient({
   const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
     supplierName: "",
     supplierCode: "",
-    companyName: "",
-    companyAddress: "",
+    companyName,
+    companyAddress,
     locationReference: "",
     locationAddress: "",
     locationPhone: "",
@@ -575,8 +564,8 @@ export function StickerBatchClient({
     setPreviewMeta({
       supplierName: "",
       supplierCode: "",
-      companyName: "",
-      companyAddress: "",
+      companyName,
+      companyAddress,
       locationReference: "",
       locationAddress: "",
       locationPhone: "",
@@ -640,6 +629,21 @@ export function StickerBatchClient({
     return null;
   }
 
+  function resolveUnitPriceForItem(
+    item: ItemCatalogRow | null | undefined,
+    locationId: string
+  ): string {
+    if (!item) return "";
+    const location = locations.find((entry) => entry.id === locationId);
+    const sku = item.sku?.trim() ?? "";
+    return resolveStickerUnitPrice({
+      price: item.price,
+      compareAtPrice: item.compareAtPrice,
+      ogfPrice: sku ? ogfPriceBySku[sku] : undefined,
+      isLwk: isLwkLocation(location?.locationReference),
+    });
+  }
+
   function setRow(rowId: string, patch: Partial<ItemRow>) {
     setRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, ...patch } : row)),
@@ -654,13 +658,13 @@ export function StickerBatchClient({
       setRow(rowId, { itemCode, itemName: "", unitPrice: "" });
       return;
     }
-    const itemName = item.variantTitle
+    const rawName = item.variantTitle
       ? `${item.productTitle} (${item.variantTitle})`
       : item.productTitle;
     setRow(rowId, {
       itemCode,
-      itemName,
-      unitPrice: formatToTwoDecimals(item.price),
+      itemName: cleanStickerItemName(rawName),
+      unitPrice: resolveUnitPriceForItem(item, rowLocationId),
     });
   }
 
@@ -671,11 +675,33 @@ export function StickerBatchClient({
   ) {
     const row = rows.find((r) => r.id === rowId);
     if (!row) return;
-    const nextMfg = field === "manufactureDate" ? value : row.manufactureDate;
-    const nextExp = field === "expireDate" ? value : row.expireDate;
+    if (field === "manufactureDate") {
+      const normalizedMfg = formatDateTyping(value);
+      const autoExp = expireFromManufacture(normalizedMfg);
+      const nextExp = autoExp ?? row.expireDate;
+      setRow(rowId, {
+        manufactureDate: normalizedMfg,
+        expireDate: nextExp,
+        age: computeAge(normalizedMfg, nextExp),
+      });
+      return;
+    }
+    const nextExp = formatDateTyping(value);
     setRow(rowId, {
-      [field]: value,
-      age: computeAge(nextMfg, nextExp),
+      expireDate: nextExp,
+      age: computeAge(row.manufactureDate, nextExp),
+    });
+  }
+
+  function handleRowLocationChange(rowId: string, locationId: string) {
+    const row = rows.find((entry) => entry.id === rowId);
+    if (!row) return;
+    const item = matchItem(row.itemCode, locationId || undefined);
+    setRow(rowId, {
+      locationId,
+      unitPrice: item
+        ? resolveUnitPriceForItem(item, locationId)
+        : row.unitPrice,
     });
   }
 
@@ -692,7 +718,18 @@ export function StickerBatchClient({
       notify.error("Add rows first");
       return;
     }
-    setRows((prev) => prev.map((row) => ({ ...row, locationId: selectedLocationId })));
+    setRows((prev) =>
+      prev.map((row) => {
+        const item = matchItem(row.itemCode, selectedLocationId);
+        return {
+          ...row,
+          locationId: selectedLocationId,
+          unitPrice: item
+            ? resolveUnitPriceForItem(item, selectedLocationId)
+            : row.unitPrice,
+        };
+      })
+    );
   }
 
   function handleLoadBatchFromHistory(batchId: string) {
@@ -704,6 +741,99 @@ export function StickerBatchClient({
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 50);
     }
+  }
+
+  function handlePrintStickers() {
+    const printableRows = rows.filter((row) => {
+      const base = Boolean(
+        row.itemCode.trim() &&
+          row.itemName.trim() &&
+          row.quantity.trim() &&
+          Number.parseInt(row.quantity, 10) > 0
+      );
+      if (!base) return false;
+      if (isVault) return true;
+      return Boolean(row.manufactureDate.trim() && row.expireDate.trim());
+    });
+    if (printableRows.length === 0) {
+      notify.error("Add complete sticker rows before printing");
+      return;
+    }
+
+    const previewSheetEl = document.querySelector<HTMLElement>(
+      ".sticker-preview-sheet"
+    );
+    if (!previewSheetEl) {
+      notify.error("Print preview is not ready");
+      return;
+    }
+
+    const printItems = printableRows.map((row) => ({
+      id: row.id,
+      quantity: normalizeQuantity(Number.parseInt(row.quantity, 10) || 1),
+    }));
+
+    const printSheet = document.createElement("div");
+    printSheet.className = "sticker-sheet flex flex-wrap gap-2";
+
+    const cardByItemId = new Map<string, HTMLElement>();
+    previewSheetEl
+      .querySelectorAll<HTMLElement>("[data-sticker-item-id]")
+      .forEach((host) => {
+        const itemId = host.getAttribute("data-sticker-item-id");
+        const card = host.querySelector<HTMLElement>(".sticker-card");
+        if (itemId && card) cardByItemId.set(itemId, card);
+      });
+
+    for (const { item } of expandItemsByQuantity(printItems)) {
+      const card = cardByItemId.get(item.id);
+      if (!card) continue;
+      printSheet.appendChild(card.cloneNode(true));
+    }
+
+    if (printSheet.childElementCount === 0) {
+      notify.error("No stickers to print");
+      return;
+    }
+
+    const allCss = Array.from(document.styleSheets)
+      .flatMap((sheet) => {
+        try {
+          return Array.from(sheet.cssRules).map((r) => r.cssText);
+        } catch {
+          return [];
+        }
+      })
+      .join("\n");
+
+    const printWin = window.open("", "_blank", "width=900,height=600");
+    if (!printWin) {
+      window.print();
+      return;
+    }
+
+    printWin.document.write(`<!DOCTYPE html><html><head><style>
+      ${allCss}
+      *{box-sizing:border-box}
+      body{margin:0;padding:0;background:white}
+      @page{margin:0}
+      .sticker-sheet{gap:0!important}
+      .sticker-card{
+        -webkit-print-color-adjust:exact!important;
+        print-color-adjust:exact!important;
+        background:#fde047!important;
+        break-inside:avoid!important;
+        page-break-inside:avoid!important;
+      }
+      .no-print{display:none!important}
+    </style></head><body>${printSheet.outerHTML}</body></html>`);
+    printWin.document.close();
+
+    setTimeout(() => {
+      printWin.focus();
+      printWin.print();
+      setTimeout(() => printWin.close(), 500);
+    }, 300);
   }
 
   useEffect(() => {
@@ -729,8 +859,8 @@ export function StickerBatchClient({
       setPreviewMeta({
         supplierName: "",
         supplierCode: "",
-        companyName: "",
-        companyAddress: "",
+        companyName,
+        companyAddress,
         locationReference: "",
         locationAddress: "",
         locationPhone: "",
@@ -764,8 +894,8 @@ export function StickerBatchClient({
           setPreviewMeta({
             supplierName: data.supplierName ?? "",
             supplierCode: data.supplierCode ?? "",
-            companyName: data.companyName ?? "",
-            companyAddress: data.companyAddress ?? "",
+            companyName: data.companyName?.trim() || companyName,
+            companyAddress: companyAddress || data.companyAddress || "",
             locationReference: "",
             locationAddress: "",
             locationPhone: "",
@@ -811,8 +941,8 @@ export function StickerBatchClient({
         setPreviewMeta({
           supplierName: data.supplierName ?? "",
           supplierCode: data.supplierCode ?? "",
-          companyName: data.companyName ?? "",
-          companyAddress: data.companyAddress ?? "",
+          companyName: data.companyName?.trim() || companyName,
+          companyAddress: companyAddress || data.companyAddress || "",
           locationReference,
           locationAddress,
           locationPhone,
@@ -821,12 +951,17 @@ export function StickerBatchClient({
         const nextRows = items.map((item, index) => {
           const manufactureDate = formatDateFromApi(item.manufactureDate);
           const expireDate = formatDateFromApi(item.expireDate);
+          const locationIdForRow = item.locationId ?? "";
+          const catalogItem = matchItem(item.itemCode ?? "", locationIdForRow || undefined);
+          const resolvedPrice = catalogItem
+            ? resolveUnitPriceForItem(catalogItem, locationIdForRow)
+            : formatToTwoDecimals(item.unitPrice ?? "");
           return {
             id: String(index + 1),
-            locationId: item.locationId ?? "",
+            locationId: locationIdForRow,
             itemCode: item.itemCode ?? "",
-            itemName: item.itemName ?? "",
-            unitPrice: formatToTwoDecimals(item.unitPrice ?? ""),
+            itemName: cleanStickerItemName(item.itemName ?? ""),
+            unitPrice: resolvedPrice,
             quantity: String(item.quantity ?? ""),
             manufactureDate,
             expireDate,
@@ -959,7 +1094,7 @@ export function StickerBatchClient({
           Sticker Batch
         </h1>
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
-          Create sticker batches, manage item rows, and reopen recent batches before sending them to print.
+          Create sticker batches, manage item rows, preview labels, and print from one workspace.
         </p>
       </section>
 
@@ -989,15 +1124,23 @@ export function StickerBatchClient({
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="space-y-1 border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent),color-mix(in_srgb,var(--primary)_8%,transparent))]">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>Sticker Batch</CardTitle>
+            <CardTitle>Sticker Batch & Print</CardTitle>
             <div className="flex flex-wrap gap-2">
-              <Button asChild variant="outline" size="sm" type="button" className="border-border/70 bg-background/85 hover:bg-secondary/10">
-                <Link href="/dashboard/sticker-print">Sticker Print</Link>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-border/70 bg-background/85 hover:bg-secondary/10"
+                onClick={() => void handlePrintStickers()}
+                disabled={rows.length === 0}
+              >
+                <Printer className="size-4" />
+                Print Stickers
               </Button>
             </div>
           </div>
           <p className="text-muted-foreground text-sm">
-            Sticker batch pre-data capture (UI only).
+            Capture batch items, review the sheet, and print labels here.
           </p>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -1215,7 +1358,9 @@ export function StickerBatchClient({
                     <td className="p-3">
                       <Select
                         value={row.locationId || undefined}
-                        onValueChange={(value) => setRow(row.id, { locationId: value })}
+                        onValueChange={(value) =>
+                          handleRowLocationChange(row.id, value)
+                        }
                       >
                         <SelectTrigger className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.locationId)}`}>
                           <SelectValue placeholder="Select location" />
@@ -1271,7 +1416,7 @@ export function StickerBatchClient({
                           )
                         }
                         onFocus={() => handleRowFocus(row.id)}
-                        placeholder="DD/MM/YYYY"
+                        placeholder="DD/MM/YYYY or 20260703"
                         maxLength={10}
                         className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.manufactureDate)}`}
                       />
@@ -1287,7 +1432,7 @@ export function StickerBatchClient({
                           )
                         }
                         onFocus={() => handleRowFocus(row.id)}
-                        placeholder="DD/MM/YYYY"
+                        placeholder="DD/MM/YYYY or 20260703"
                         maxLength={10}
                         className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.expireDate)}`}
                       />
@@ -1347,13 +1492,97 @@ export function StickerBatchClient({
                     selectedLocation?.locationReference?.trim() ||
                     previewMeta.locationReference
                   }
-                  supplierName={previewMeta.supplierName}
-                  companyName={previewMeta.companyName}
+                  supplierName={
+                    suppliers.find((s) => s.id === supplierId)?.name ??
+                    previewMeta.supplierName
+                  }
+                  companyName={previewMeta.companyName || companyName}
                   locationAddress={previewMeta.locationAddress}
-                  companyAddress={previewMeta.companyAddress}
+                  companyAddress={companyAddress || previewMeta.companyAddress}
                   locationPhone={previewMeta.locationPhone}
                 />
               )}
+            </div>
+          ) : null}
+          {rows.length > 0 ? (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  Print sheet ({totalStickerCount(
+                    rows.map((row) => ({
+                      quantity: Number.parseInt(row.quantity, 10) || 0,
+                    }))
+                  )}{" "}
+                  labels)
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => void handlePrintStickers()}
+                  disabled={rows.length === 0}
+                  className="shadow-[0_10px_24px_-18px_var(--primary)]"
+                >
+                  <Printer className="size-4" />
+                  Print Stickers
+                </Button>
+              </div>
+              <div className="sticker-preview-sheet flex flex-wrap gap-3">
+                {rows.map((row) => {
+                  const qty = normalizeQuantity(
+                    Number.parseInt(row.quantity, 10) || 1
+                  );
+                  const rowLocation =
+                    locations.find((location) => location.id === row.locationId) ??
+                    null;
+                  const locationRef =
+                    rowLocation?.locationReference?.trim() ||
+                    selectedLocation?.locationReference?.trim() ||
+                    previewMeta.locationReference;
+                  return (
+                    <div
+                      key={row.id}
+                      className="relative"
+                      data-sticker-item-id={row.id}
+                      data-sticker-quantity={qty}
+                    >
+                      <span
+                        className="no-print absolute -right-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1.5 text-[10px] font-semibold text-background shadow-sm"
+                        aria-label={`Quantity ${qty}`}
+                      >
+                        {qty}
+                      </span>
+                      {isVault ? (
+                        <VaultStickerPreviewCard
+                          sku={row.itemCode}
+                          itemName={row.itemName}
+                          supplierCode={
+                            suppliers.find((s) => s.id === supplierId)?.code ??
+                            previewMeta.supplierCode
+                          }
+                          locationRef={locationRef}
+                        />
+                      ) : (
+                        <StickerPreviewCard
+                          manufactureDate={row.manufactureDate}
+                          expireDate={row.expireDate}
+                          itemCode={row.itemCode}
+                          itemName={row.itemName}
+                          unitPrice={row.unitPrice}
+                          locationReference={locationRef}
+                          supplierName={
+                            suppliers.find((s) => s.id === supplierId)?.name ??
+                            previewMeta.supplierName
+                          }
+                          companyName={previewMeta.companyName || companyName}
+                          companyAddress={
+                            companyAddress || previewMeta.companyAddress
+                          }
+                          locationPhone={previewMeta.locationPhone}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
           <div className="flex justify-end">
@@ -1384,7 +1613,7 @@ export function StickerBatchClient({
               </p>
             </div>
             <p className="text-sm text-muted-foreground">
-              Open a batch in Sticker Batch Items or jump directly to print.
+              Open a batch in Sticker Batch Items or print from the batch workspace.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -1418,10 +1647,14 @@ export function StickerBatchClient({
                     >
                       Load to Sticker Batch Items
                     </Button>
-                    <Button asChild size="sm" variant="outline" type="button" className="border-border/70 bg-background/85 hover:bg-secondary/10">
-                      <Link href={`/dashboard/sticker-print?batchId=${row.id}`}>
-                        Open Print Page
-                      </Link>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      className="border-border/70 bg-background/85 hover:bg-secondary/10"
+                      onClick={() => handleLoadBatchFromHistory(row.id)}
+                    >
+                      Open & Print
                     </Button>
                   </div>
                 </div>
