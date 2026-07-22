@@ -6,8 +6,6 @@ import Link from "next/link";
 
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { VaultStickerPreviewCard } from "@/components/organisms/vault-sticker-preview-card";
-
-const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -18,6 +16,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { notify } from "@/lib/notify";
+import {
+  expandItemsByQuantity,
+  normalizeQuantity,
+  totalStickerCount,
+} from "@/lib/sticker-print-quantity";
+
+const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 
 type BatchOption = {
   id: string;
@@ -96,6 +101,7 @@ export function StickerPrintClient({
   }
 
   const stickers = useMemo(() => detail?.items ?? [], [detail]);
+  const labelCount = useMemo(() => totalStickerCount(stickers), [stickers]);
 
   useEffect(() => {
     if (initialBatchAppliedRef.current) return;
@@ -111,8 +117,30 @@ export function StickerPrintClient({
   }, [initialSelectedBatchId, batches]);
 
   async function handlePrint() {
-    const stickerSheetEl = document.querySelector<HTMLElement>(".sticker-sheet");
-    if (!stickerSheetEl) return;
+    const previewSheetEl = document.querySelector<HTMLElement>(
+      ".sticker-preview-sheet"
+    );
+    if (!previewSheetEl || stickers.length === 0) return;
+
+    const printSheet = document.createElement("div");
+    printSheet.className = "sticker-sheet flex flex-wrap gap-2";
+
+    const cardByItemId = new Map<string, HTMLElement>();
+    previewSheetEl
+      .querySelectorAll<HTMLElement>("[data-sticker-item-id]")
+      .forEach((host) => {
+        const itemId = host.getAttribute("data-sticker-item-id");
+        const card = host.querySelector<HTMLElement>(".sticker-card");
+        if (itemId && card) cardByItemId.set(itemId, card);
+      });
+
+    for (const { item } of expandItemsByQuantity(stickers)) {
+      const card = cardByItemId.get(item.id);
+      if (!card) continue;
+      printSheet.appendChild(card.cloneNode(true));
+    }
+
+    if (printSheet.childElementCount === 0) return;
 
     // Collect compiled CSS from the page so Tailwind classes work in the new window.
     const allCss = Array.from(document.styleSheets)
@@ -126,7 +154,10 @@ export function StickerPrintClient({
       .join("\n");
 
     const printWin = window.open("", "_blank", "width=900,height=600");
-    if (!printWin) { window.print(); return; }
+    if (!printWin) {
+      window.print();
+      return;
+    }
 
     printWin.document.write(`<!DOCTYPE html><html><head><style>
       ${allCss}
@@ -141,7 +172,8 @@ export function StickerPrintClient({
         break-inside:avoid!important;
         page-break-inside:avoid!important;
       }
-    </style></head><body>${stickerSheetEl.outerHTML}</body></html>`);
+      .no-print{display:none!important}
+    </style></head><body>${printSheet.outerHTML}</body></html>`);
     printWin.document.close();
 
     // Small delay lets the new window finish layout before the print dialog opens.
@@ -235,7 +267,7 @@ export function StickerPrintClient({
               </div>
               <div className="rounded-xl border border-border/70 bg-background/90 p-3 shadow-xs">
                 <p className="text-xs text-muted-foreground">Sticker Count</p>
-                <p className="text-sm font-medium">{stickers.length}</p>
+                <p className="text-sm font-medium">{labelCount}</p>
               </div>
             </div>
           )}
@@ -276,33 +308,47 @@ export function StickerPrintClient({
       )}
 
       {!loading && detail && stickers.length > 0 && (
-        <div className="sticker-sheet flex flex-wrap gap-2">
-          {stickers.map((item) =>
-            isVault ? (
-              <VaultStickerPreviewCard
+        <div className="sticker-preview-sheet flex flex-wrap gap-3">
+          {stickers.map((item) => {
+            const qty = normalizeQuantity(item.quantity);
+            return (
+              <div
                 key={item.id}
-                sku={item.itemCode}
-                itemName={item.itemName}
-                supplierCode={detail.supplierCode}
-                locationRef={item.locationReference}
-              />
-            ) : (
-              <StickerPreviewCard
-                key={item.id}
-                manufactureDate={item.manufactureDate}
-                expireDate={item.expireDate}
-                itemCode={item.itemCode}
-                itemName={item.itemName}
-                unitPrice={item.unitPrice}
-                locationReference={item.locationReference}
-                supplierName={detail.supplierName}
-                companyName={detail.companyName}
-                locationAddress={item.locationAddress}
-                companyAddress={detail.companyAddress}
-                locationPhone={item.locationPhone}
-              />
-            )
-          )}
+                className="relative"
+                data-sticker-item-id={item.id}
+                data-sticker-quantity={qty}
+              >
+                <span
+                  className="no-print absolute -right-1 -top-1 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1.5 text-[10px] font-semibold text-background shadow-sm"
+                  aria-label={`Quantity ${qty}`}
+                >
+                  {qty}
+                </span>
+                {isVault ? (
+                  <VaultStickerPreviewCard
+                    sku={item.itemCode}
+                    itemName={item.itemName}
+                    supplierCode={detail.supplierCode}
+                    locationRef={item.locationReference}
+                  />
+                ) : (
+                  <StickerPreviewCard
+                    manufactureDate={item.manufactureDate}
+                    expireDate={item.expireDate}
+                    itemCode={item.itemCode}
+                    itemName={item.itemName}
+                    unitPrice={item.unitPrice}
+                    locationReference={item.locationReference}
+                    supplierName={detail.supplierName}
+                    companyName={detail.companyName}
+                    locationAddress={item.locationAddress}
+                    companyAddress={detail.companyAddress}
+                    locationPhone={item.locationPhone}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
