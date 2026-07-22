@@ -207,9 +207,10 @@ function getInlineChangeClass(value: string) {
   return value.trim() ? inlineChangedClass : "";
 }
 
-function formatDateFromApi(value: string) {
+function formatDateFromApi(value: string | null | undefined) {
+  if (value == null || String(value).trim() === "") return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  if (Number.isNaN(date.getTime()) || date.getTime() === 0) return "";
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = String(date.getFullYear());
@@ -289,10 +290,16 @@ export function StickerBatchClient({
           row.quantity.trim()
         );
         if (!baseValid) return false;
-        if (isVault) return true;
-        const mfg = parseDDMMYYYY(row.manufactureDate.trim());
-        const exp = parseDDMMYYYY(row.expireDate.trim());
-        return Boolean(mfg && exp && exp >= mfg);
+        // MFD/EXP optional for Cosmo and Vault; if both set, EXP must be >= MFD
+        const mfgRaw = row.manufactureDate.trim();
+        const expRaw = row.expireDate.trim();
+        if (!mfgRaw && !expRaw) return true;
+        const mfg = mfgRaw ? parseDDMMYYYY(mfgRaw) : null;
+        const exp = expRaw ? parseDDMMYYYY(expRaw) : null;
+        if (mfgRaw && !mfg) return false;
+        if (expRaw && !exp) return false;
+        if (mfg && exp && exp < mfg) return false;
+        return true;
       }),
     [rows]
   );
@@ -370,8 +377,7 @@ export function StickerBatchClient({
         row.itemCode.trim() &&
         row.itemName.trim() &&
         row.unitPrice.trim() &&
-        row.quantity.trim() &&
-        (isVault || (row.manufactureDate.trim() && row.expireDate.trim()))
+        row.quantity.trim()
     );
   }
 
@@ -747,17 +753,14 @@ export function StickerBatchClient({
   }
 
   function handlePrintStickers() {
-    const printableRows = rows.filter((row) => {
-      const base = Boolean(
+    const printableRows = rows.filter((row) =>
+      Boolean(
         row.itemCode.trim() &&
           row.itemName.trim() &&
           row.quantity.trim() &&
           Number.parseInt(row.quantity, 10) > 0
-      );
-      if (!base) return false;
-      if (isVault) return true;
-      return Boolean(row.manufactureDate.trim() && row.expireDate.trim());
-    });
+      )
+    );
     if (printableRows.length === 0) {
       notify.error("Add complete sticker rows before printing");
       return;
