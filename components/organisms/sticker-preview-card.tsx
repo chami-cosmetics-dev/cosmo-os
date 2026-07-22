@@ -45,11 +45,13 @@ function parseDDMMYYYY(value: string) {
 
 function formatDateValue(value?: string | null) {
   const raw = value?.trim() ?? "";
-  if (!raw) return "-";
+  if (!raw) return "";
   const ddmmyyyy = parseDDMMYYYY(raw);
   if (ddmmyyyy) return raw;
+  // Ignore epoch / invalid defaults (e.g. Date from null)
   const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return "-";
+  if (Number.isNaN(date.getTime())) return "";
+  if (date.getTime() === 0) return "";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "2-digit",
@@ -84,14 +86,15 @@ export function StickerPreviewCard({
   itemCode,
   itemName,
   locationReference,
-  supplierName,
   unitPrice,
   companyName,
-  locationAddress,
   companyAddress,
   locationPhone,
   className,
 }: StickerPreviewCardProps) {
+  const mfdDisplay = formatDateValue(manufactureDate);
+  const expDisplay = formatDateValue(expireDate);
+
   return (
     <div
       style={{ fontFamily: '"Aptos", "Segoe UI", Arial, sans-serif' }}
@@ -106,12 +109,16 @@ export function StickerPreviewCard({
       </div>
       <div className="flex items-start justify-between text-[7px] leading-[1.05]">
         <div className="font-semibold">
-          <div>
-            <span>MFD:</span> {formatDateValue(manufactureDate)}
-          </div>
-          <div>
-            <span>EXP:</span> {formatDateValue(expireDate)}
-          </div>
+          {mfdDisplay ? (
+            <div>
+              <span>MFD:</span> {mfdDisplay}
+            </div>
+          ) : null}
+          {expDisplay ? (
+            <div>
+              <span>EXP:</span> {expDisplay}
+            </div>
+          ) : null}
           <div >
             <span>Ref:</span> {getLocationRefNumber(locationReference)}
           </div>
@@ -120,9 +127,6 @@ export function StickerPreviewCard({
           </div>
         </div>
         <div className="max-w-[0.72in] text-right">
-          <div className="truncate text-[7px] font-semibold">
-            {supplierName?.trim() || "-"}
-          </div>
           <div className="mt-0.5 text-[11px] font-semibold leading-none">
             MRP
           </div>

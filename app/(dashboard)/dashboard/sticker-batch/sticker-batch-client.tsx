@@ -207,9 +207,10 @@ function getInlineChangeClass(value: string) {
   return value.trim() ? inlineChangedClass : "";
 }
 
-function formatDateFromApi(value: string) {
+function formatDateFromApi(value: string | null | undefined) {
+  if (value == null || String(value).trim() === "") return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
+  if (Number.isNaN(date.getTime()) || date.getTime() === 0) return "";
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = String(date.getFullYear());
