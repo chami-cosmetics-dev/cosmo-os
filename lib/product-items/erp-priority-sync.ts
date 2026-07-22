@@ -187,7 +187,7 @@ export async function syncErpProductPriorities(companyId: string): Promise<ErpPr
 
   const sources: ErpPrioritySyncSource[] = [];
   const push = (id: "erp1" | "erp2", result: SlotFetch) => {
-    if (result.notConfigured) {
+    if (!result.ok && result.notConfigured) {
       sources.push({
         id,
         label: result.label,
