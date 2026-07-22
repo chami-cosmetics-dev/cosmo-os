@@ -1,3 +1,4 @@
+import { cleanStickerItemName } from "@/lib/sticker-item-name";
 import { cn } from "@/lib/utils";
 
 interface StickerPreviewCardProps {
@@ -101,7 +102,7 @@ export function StickerPreviewCard({
     >
       <div className="relative z-[2]">
       <div className="mb-0.5 text-center text-[8px] font-semibold leading-[1.05] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-        {itemName?.trim() || "-"}
+        {cleanStickerItemName(itemName)}
       </div>
       <div className="flex items-start justify-between text-[7px] leading-[1.05]">
         <div className="font-semibold">
@@ -136,7 +137,7 @@ export function StickerPreviewCard({
       </div>
 
       <div className="mt-0 text-center text-[7px] font-semibold leading-none uppercase truncate">
-        {locationAddress?.trim() || companyAddress?.trim() || "-"}
+        {companyAddress?.trim() || "-"}
       </div>
       <div className="mt-0.5 text-center text-[7px] font-semibold leading-none">
         TP: {locationPhone?.trim() || "-"}

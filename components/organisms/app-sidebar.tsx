@@ -11,7 +11,6 @@ import {
   Package,
   PackageCheck,
   Plus,
-  Printer,
   Settings,
   ShoppingBag,
   ShoppingCart,
@@ -456,11 +455,16 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
           <SidebarGroup>
             <SidebarGroupLabel>Stickers</SidebarGroupLabel>
             <SidebarGroupContent>
-              {canStickerBatch && (
-                <NavItem href="/dashboard/sticker-batch" icon={Sticker} label="Batch" isActive={pathname === "/dashboard/sticker-batch"} />
-              )}
-              {canStickerPrint && (
-                <NavItem href="/dashboard/sticker-print" icon={Printer} label="Print" isActive={pathname === "/dashboard/sticker-print"} />
+              {(canStickerBatch || canStickerPrint) && (
+                <NavItem
+                  href="/dashboard/sticker-batch"
+                  icon={Sticker}
+                  label="Batch & Print"
+                  isActive={
+                    pathname === "/dashboard/sticker-batch" ||
+                    pathname === "/dashboard/sticker-print"
+                  }
+                />
               )}
             </SidebarGroupContent>
           </SidebarGroup>
