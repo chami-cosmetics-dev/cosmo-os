@@ -226,40 +226,50 @@ export function PurchasingSkuCalculator() {
       </div>
 
       <div className="space-y-4">
-        <div className="max-h-72 overflow-y-auto rounded-md border">
-          {items.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">Search to load catalog SKUs.</p>
-          ) : (
-            <ul className="divide-y text-sm">
-              {items.map((item) => (
-                <li key={item.sku}>
-                  <button
-                    type="button"
-                    className={`w-full px-3 py-2 text-left hover:bg-muted/50 ${
-                      selected?.sku === item.sku ? "bg-muted" : ""
-                    }`}
-                    onClick={() => selectItem(item)}
-                  >
-                    <div className="font-mono text-xs">{item.sku}</div>
-                    <div className="truncate text-muted-foreground">{item.productTitle}</div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {!selected && (
+          <div className="max-h-72 overflow-y-auto rounded-md border">
+            {items.length === 0 ? (
+              <p className="p-3 text-sm text-muted-foreground">Search to load catalog SKUs.</p>
+            ) : (
+              <ul className="divide-y text-sm">
+                {items.map((item) => (
+                  <li key={item.sku}>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-muted/50"
+                      onClick={() => selectItem(item)}
+                    >
+                      <div className="font-mono text-xs">{item.sku}</div>
+                      <div className="truncate text-muted-foreground">{item.productTitle}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div className="space-y-4 rounded-md border p-3 text-sm">
           {!selected ? (
             <p className="text-muted-foreground">Select a SKU to calculate.</p>
           ) : (
             <>
-              <div>
-                <div className="font-mono text-xs">{selected.sku}</div>
-                <div className="font-medium">{selected.productTitle}</div>
-                {selected.brand && (
-                  <div className="text-muted-foreground">Brand: {selected.brand}</div>
-                )}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="font-mono text-xs">{selected.sku}</div>
+                  <div className="font-medium">{selected.productTitle}</div>
+                  {selected.brand && (
+                    <div className="text-muted-foreground">Brand: {selected.brand}</div>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clearSelection()}
+                >
+                  Change SKU
+                </Button>
               </div>
 
               <div className="space-y-1">
