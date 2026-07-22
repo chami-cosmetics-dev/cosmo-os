@@ -1,8 +1,6 @@
 export type StickerPriceInputs = {
   price: string | number | null | undefined;
   compareAtPrice?: string | number | null | undefined;
-  ogfPrice?: string | number | null | undefined;
-  isLwk: boolean;
 };
 
 function toMoney(value: string | number | null | undefined): string | null {
@@ -20,16 +18,9 @@ export function isLwkLocation(
 }
 
 /**
- * Resolve sticker unit price:
- * - LWK + ogfPrice → OGF
- * - LWK without ogf → empty (do not use discount price)
- * - else compareAtPrice if set, else price
+ * Resolve sticker unit price for any location:
+ * prefer original/list (compare-at) over discounted sell price.
  */
-export function resolveStickerUnitPrice(
-  input: StickerPriceInputs
-): string {
-  if (input.isLwk) {
-    return toMoney(input.ogfPrice) ?? "";
-  }
+export function resolveStickerUnitPrice(input: StickerPriceInputs): string {
   return toMoney(input.compareAtPrice) ?? toMoney(input.price) ?? "";
 }

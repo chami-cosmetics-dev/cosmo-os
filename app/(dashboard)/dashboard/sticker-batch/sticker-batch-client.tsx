@@ -38,10 +38,7 @@ import {
   normalizeQuantity,
   totalStickerCount,
 } from "@/lib/sticker-print-quantity";
-import {
-  isLwkLocation,
-  resolveStickerUnitPrice,
-} from "@/lib/sticker-unit-price";
+import { resolveStickerUnitPrice } from "@/lib/sticker-unit-price";
 
 const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 
@@ -145,7 +142,6 @@ interface StickerBatchClientProps {
   suppliers: SupplierOption[];
   locations: LocationOption[];
   itemCatalog: ItemCatalogRow[];
-  ogfPriceBySku: Record<string, string>;
   companyName: string;
   companyAddress: string;
   initialBatches: BatchOption[];
@@ -238,7 +234,6 @@ export function StickerBatchClient({
   suppliers,
   locations,
   itemCatalog,
-  ogfPriceBySku,
   companyName,
   companyAddress,
   initialBatches,
@@ -294,10 +289,16 @@ export function StickerBatchClient({
           row.quantity.trim()
         );
         if (!baseValid) return false;
-        if (isVault) return true;
-        const mfg = parseDDMMYYYY(row.manufactureDate.trim());
-        const exp = parseDDMMYYYY(row.expireDate.trim());
-        return Boolean(mfg && exp && exp >= mfg);
+        // MFD/EXP optional for Cosmo and Vault; if both set, EXP must be >= MFD
+        const mfgRaw = row.manufactureDate.trim();
+        const expRaw = row.expireDate.trim();
+        if (!mfgRaw && !expRaw) return true;
+        const mfg = mfgRaw ? parseDDMMYYYY(mfgRaw) : null;
+        const exp = expRaw ? parseDDMMYYYY(expRaw) : null;
+        if (mfgRaw && !mfg) return false;
+        if (expRaw && !exp) return false;
+        if (mfg && exp && exp < mfg) return false;
+        return true;
       }),
     [rows]
   );
@@ -375,8 +376,7 @@ export function StickerBatchClient({
         row.itemCode.trim() &&
         row.itemName.trim() &&
         row.unitPrice.trim() &&
-        row.quantity.trim() &&
-        (isVault || (row.manufactureDate.trim() && row.expireDate.trim()))
+        row.quantity.trim()
     );
   }
 
@@ -631,16 +631,24 @@ export function StickerBatchClient({
 
   function resolveUnitPriceForItem(
     item: ItemCatalogRow | null | undefined,
-    locationId: string
+    _locationId: string
   ): string {
     if (!item) return "";
-    const location = locations.find((entry) => entry.id === locationId);
-    const sku = item.sku?.trim() ?? "";
+    // Prefer compare-at on this location row; if missing, use any same-SKU row's compare-at
+    let compareAt = item.compareAtPrice;
+    if (!compareAt && item.sku?.trim()) {
+      const sku = item.sku.trim();
+      const withCompare = itemCatalog.find(
+        (entry) =>
+          entry.sku?.trim() === sku &&
+          entry.compareAtPrice != null &&
+          entry.compareAtPrice !== ""
+      );
+      compareAt = withCompare?.compareAtPrice ?? null;
+    }
     return resolveStickerUnitPrice({
       price: item.price,
-      compareAtPrice: item.compareAtPrice,
-      ogfPrice: sku ? ogfPriceBySku[sku] : undefined,
-      isLwk: isLwkLocation(location?.locationReference),
+      compareAtPrice: compareAt,
     });
   }
 
@@ -744,17 +752,14 @@ export function StickerBatchClient({
   }
 
   function handlePrintStickers() {
-    const printableRows = rows.filter((row) => {
-      const base = Boolean(
+    const printableRows = rows.filter((row) =>
+      Boolean(
         row.itemCode.trim() &&
           row.itemName.trim() &&
           row.quantity.trim() &&
           Number.parseInt(row.quantity, 10) > 0
-      );
-      if (!base) return false;
-      if (isVault) return true;
-      return Boolean(row.manufactureDate.trim() && row.expireDate.trim());
-    });
+      )
+    );
     if (printableRows.length === 0) {
       notify.error("Add complete sticker rows before printing");
       return;
