@@ -31,6 +31,8 @@ export async function GET() {
           imageUrl: true,
           itemStatusCategory: true,
           itemStatusLabel: true,
+          erp1ProductPriority: true,
+          erp2ProductPriority: true,
           vendor: { select: { name: true } },
           category: { select: { name: true } },
         },
@@ -61,6 +63,12 @@ export async function GET() {
       explanation.primaryProductItem.itemStatusCategory,
     );
     const progress = explanation.progress[0] ?? null;
+    const p1 = explanation.primaryProductItem.erp1ProductPriority?.trim() || null;
+    const p2 = explanation.primaryProductItem.erp2ProductPriority?.trim() || null;
+    const priorityLabel =
+      p1 && p2 && p1 !== p2
+        ? `${p1} / ${p2}`
+        : p1 || p2 || explanation.primaryProductItem.itemStatusLabel || statusMeta.label;
 
     return {
       id: explanation.id,
@@ -72,7 +80,7 @@ export async function GET() {
       imageUrl: explanation.primaryProductItem.imageUrl,
       vendorName: explanation.primaryProductItem.vendor?.name ?? null,
       categoryName: explanation.primaryProductItem.category?.name ?? null,
-      priorityLabel: explanation.primaryProductItem.itemStatusLabel || statusMeta.label,
+      priorityLabel,
       brandPriority: statusMeta.brandPriority,
       productPriority: statusMeta.productPriority,
       lifecycle: statusMeta.lifecycle,

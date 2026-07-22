@@ -40,7 +40,10 @@ export async function GET(request: NextRequest) {
     vendorId: searchParams.get("vendor_id") ?? undefined,
     categoryId: searchParams.get("category_id") ?? undefined,
     familyId: searchParams.get("family_id") ?? undefined,
-    itemStatusCategory: searchParams.get("item_status_category") ?? undefined,
+    erpProductPriority:
+      searchParams.get("erp_product_priority")?.trim() ||
+      searchParams.get("item_status_category")?.trim() ||
+      undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
   });
   perf.mark("query");

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
-import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
+import { mergeErpPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
 import { getProductFamilyName } from "@/lib/product-item-family";
 
 export type ProductItemsPageParams = {
@@ -17,6 +17,8 @@ export type ProductItemsPageParams = {
   categoryId?: string | null;
   familyId?: string | null;
   itemStatusCategory?: string | null;
+  /** Match ERP1 or ERP2 product priority (exact string) */
+  erpProductPriority?: string | null;
   search?: string | null;
 };
 
@@ -148,7 +150,7 @@ function sortGroupedItems<T extends ReturnType<typeof groupProductItems>[number]
 
 const getProductItemsPageLookups = unstable_cache(
   async (companyId: string) => {
-    const [locations, vendors, categories, familyRows] = await Promise.all([
+    const [locations, vendors, categories, familyRows, priorityRows] = await Promise.all([
       prisma.companyLocation.findMany({
         where: { companyId },
         orderBy: { name: "asc" },
@@ -170,19 +172,30 @@ const getProductItemsPageLookups = unstable_cache(
         distinct: ["productTitle"],
         select: { productTitle: true },
       }),
+      prisma.productItem.findMany({
+        where: { companyId },
+        select: { erp1ProductPriority: true, erp2ProductPriority: true },
+      }),
     ]);
     const familyNames = Array.from(
       new Set(familyRows.map((row) => getProductFamilyName(row.productTitle)))
     ).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base", numeric: true }));
+
+    const prioritySet = new Set<string>();
+    for (const row of priorityRows) {
+      if (row.erp1ProductPriority?.trim()) prioritySet.add(row.erp1ProductPriority.trim());
+      if (row.erp2ProductPriority?.trim()) prioritySet.add(row.erp2ProductPriority.trim());
+    }
 
     return {
       locations,
       vendors,
       categories,
       families: familyNames.map((name) => ({ id: name, name })),
+      priorities: mergeErpPriorityFilterOptions(prioritySet),
     };
   },
-  ["product-items-page-lookups"],
+  ["product-items-page-lookups-v3"],
   { revalidate: 60 }
 );
 
@@ -224,19 +237,36 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     }
   }
 
-  if (
-    params.itemStatusCategory &&
-    (PRODUCT_ITEM_STATUS_CATEGORIES as readonly string[]).includes(params.itemStatusCategory)
+  if (params.erpProductPriority?.trim()) {
+    const priority = params.erpProductPriority.trim();
+    where.OR = [
+      ...(Array.isArray(where.OR) ? where.OR : []),
+      { erp1ProductPriority: priority },
+      { erp2ProductPriority: priority },
+    ];
+  } else if (
+    params.itemStatusCategory?.trim()
   ) {
-    where.itemStatusCategory = params.itemStatusCategory;
+    // Legacy filter: treat as ERP priority string match (ERP1 or ERP2)
+    const priority = params.itemStatusCategory.trim();
+    where.OR = [
+      { erp1ProductPriority: priority },
+      { erp2ProductPriority: priority },
+    ];
   }
 
   if (params.search) {
-    where.OR = [
-      { productTitle: { contains: params.search, mode: "insensitive" } },
-      { variantTitle: { contains: params.search, mode: "insensitive" } },
-      { sku: { contains: params.search, mode: "insensitive" } },
+    const searchOr = [
+      { productTitle: { contains: params.search, mode: "insensitive" as const } },
+      { variantTitle: { contains: params.search, mode: "insensitive" as const } },
+      { sku: { contains: params.search, mode: "insensitive" as const } },
     ];
+    if (where.OR) {
+      where.AND = [{ OR: where.OR }, { OR: searchOr }];
+      delete where.OR;
+    } else {
+      where.OR = searchOr;
+    }
   }
 
   const [itemsResult, lookups] = await Promise.all([
@@ -318,5 +348,6 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     vendors: lookups.vendors,
     categories: lookups.categories,
     families: lookups.families,
+    priorities: lookups.priorities,
   };
 }

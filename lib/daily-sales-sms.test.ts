@@ -15,6 +15,27 @@ describe("daily-sales-sms helpers", () => {
   it("formats amounts with thousand separators", () => {
     expect(formatSalesAmount(1970256)).toBe("1,970,256");
     expect(formatSalesAmount(198)).toBe("198");
+    expect(formatSalesAmount(-27010)).toBe("-27,010");
+  });
+
+  it("includes negative location lines (net returns)", () => {
+    const body = formatDailySalesSmsBody({
+      reportDate: "2026-07-21",
+      dayValue: 127192.5,
+      dayCount: 12,
+      mtdValue: 5000000,
+      mtdCount: 300,
+      dayLocations: [
+        { code: "ORIGINS", value: 109900 },
+        { code: "AE", value: 44302.5 },
+        { code: "SUPPLEMENTVA", value: -27010 },
+      ],
+      locations: [{ code: "SUPPLEMENTVA", value: 1000 }],
+    });
+    expect(body).toContain("Value:  127,193");
+    expect(body).toContain("ORIGINS->: 109,900");
+    expect(body).toContain("AE->: 44,303");
+    expect(body).toContain("SUPPLEMENTVA->: -27,010");
   });
 
   it("excludes shipping from order total (ERP-aligned)", () => {
