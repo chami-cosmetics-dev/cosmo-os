@@ -38,9 +38,9 @@ export async function GET(
   const item = await prisma.productItem.findFirst({
     where: { id: idResult.data, companyId },
     include: {
-      vendor: { select: { id: true; name: true } },
-      category: { select: { id: true; name: true; fullName: true } },
-      companyLocation: { select: { id: true; name: true; shopifyLocationId: true } },
+      vendor: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, fullName: true } },
+      companyLocation: { select: { id: true, name: true, shopifyLocationId: true } },
     },
   });
 
