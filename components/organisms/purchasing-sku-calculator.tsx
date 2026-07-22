@@ -70,14 +70,27 @@ export function PurchasingSkuCalculator() {
   const searchSeq = useRef(0);
   const supplierSeq = useRef(0);
 
+  function clearSelection() {
+    setSelected(null);
+    setSellingPrice("");
+    setMarginPercent("");
+    setNewSupplierPrice("");
+    setSuppliers([]);
+    setSuppliersLoading(false);
+    setSuppliersError(null);
+    supplierSeq.current += 1;
+  }
+
   async function runSearch(query: string, opts?: { notifyEmpty?: boolean }) {
     const trimmed = query.trim();
     const seq = ++searchSeq.current;
     if (trimmed.length < SEARCH_MIN_CHARS) {
+      clearSelection();
       setItems([]);
       setLoading(false);
       return;
     }
+    clearSelection();
     setLoading(true);
     try {
       const res = await fetch(
@@ -212,7 +225,7 @@ export function PurchasingSkuCalculator() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-4">
         <div className="max-h-72 overflow-y-auto rounded-md border">
           {items.length === 0 ? (
             <p className="p-3 text-sm text-muted-foreground">Search to load catalog SKUs.</p>
