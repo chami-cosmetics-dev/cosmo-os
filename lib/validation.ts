@@ -314,6 +314,26 @@ export const abandonedOrderFollowUpPatchBodySchema = z
     }
   });
 
+/** Waybill Lookup page-data query (pending queue + upload history). */
+export const waybillLookupPageDataQuerySchema = z.object({
+  page: pageSchema.optional().transform((v) => v ?? 1),
+  limit: limitSchema.optional().transform((v) => v ?? 50),
+  rematch: z
+    .string()
+    .optional()
+    .transform((s) => s === "1" || s?.toLowerCase() === "true"),
+});
+
+/** Explicit rematch POST body. */
+export const waybillRematchBodySchema = z.object({
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .optional(),
+});
+
 /** Password change - current password + new password with confirmation */
 export const passwordChangeSchema = z
   .object({

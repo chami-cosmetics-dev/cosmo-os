@@ -59,6 +59,7 @@ export default async function StickerBatchPage({
           id: true,
           name: true,
           locationReference: true,
+          invoicePhone: true,
         },
       }),
       prisma.productItem.findMany({
