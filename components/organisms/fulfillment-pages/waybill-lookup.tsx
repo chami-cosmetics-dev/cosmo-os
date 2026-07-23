@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Upload } from "lucide-react";
+import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -110,9 +110,10 @@ export function WaybillLookupFulfillmentPage({
   const [pageLoading, setPageLoading] = useState(!initialData);
   const [pendingPage, setPendingPage] = useState(initialData?.pagination.page ?? 1);
   const [rematching, setRematching] = useState(false);
+  const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
   const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
 
-  const isBusy = loading || saving || importing || pageLoading || rematching;
+  const isBusy = loading || saving || importing || pageLoading || rematching || Boolean(deletingUploadId);
 
   async function loadPageData(options?: { page?: number; rematch?: boolean }) {
     const page = options?.page ?? pendingPage;
@@ -291,6 +292,39 @@ export function WaybillLookupFulfillmentPage({
     }
   }
 
+  async function handleDeleteUpload(uploadId: string, fileName: string) {
+    if (
+      !window.confirm(
+        `Delete upload "${fileName}"? Waybills still linked to this file will be removed from the queue.`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingUploadId(uploadId);
+    try {
+      const response = await fetch(`/api/admin/waybills/uploads/${uploadId}`, {
+        method: "DELETE",
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { deletedWaybills?: number; error?: string }
+        | null;
+      if (!response.ok) {
+        notify.error(data?.error ?? "Could not delete upload.");
+        return;
+      }
+      notify.success(
+        `Deleted ${fileName}` +
+          (data?.deletedWaybills != null ? ` (${data.deletedWaybills} waybill row(s)).` : ".")
+      );
+      await loadPageData({ page: pendingPage });
+    } catch {
+      notify.error("Could not delete upload.");
+    } finally {
+      setDeletingUploadId(null);
+    }
+  }
+
   const matchedOrder = result?.order ?? null;
   const waybills = result?.waybills ?? [];
   const pending = pageData?.pending ?? [];
@@ -318,246 +352,6 @@ export function WaybillLookupFulfillmentPage({
           waybills, and search invoice or waybill numbers when customers ask for delivery details.
         </p>
       </div>
-
-      {canImportWaybills && (
-        <Card className="border-border/70 shadow-xs">
-          <CardHeader className="border-b border-border/50">
-            <CardTitle>Waybill File Upload</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form onSubmit={handleImport} className="grid gap-3 md:grid-cols-[1fr_auto]">
-              <Input
-                type="file"
-                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-                onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
-                className="h-11"
-                disabled={isBusy}
-              />
-              <Button type="submit" disabled={isBusy || !importFile} className="h-11 gap-2">
-                {importing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Upload className="size-4" aria-hidden />}
-                {importing ? "Uploading..." : "Upload File"}
-              </Button>
-            </form>
-            <p className="text-xs text-muted-foreground">
-              Upload CSV, XLSX, or XLS files. New uploads add to (or update) the waybill queue — they do
-              not replace earlier files wholesale. The importer maps invoice references to OS orders and
-              keeps the full row for the details popup.
-            </p>
-            {importSummary && (
-              <div className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3 text-sm md:grid-cols-4">
-                <div>
-                  <p className="text-muted-foreground">Rows</p>
-                  <p className="font-semibold">{importSummary.totalRows}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Imported</p>
-                  <p className="font-semibold">{importSummary.imported}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Invalid</p>
-                  <p className="font-semibold">{importSummary.invalidRows}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Unmatched</p>
-                  <p className="font-semibold">{importSummary.unmatchedRows ?? 0}</p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card className="border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50">
-          <CardTitle>Upload History</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {pageLoading && !pageData ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Loading upload history...
-            </p>
-          ) : uploads.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No waybill files uploaded yet.</p>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-border/70">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">File</th>
-                    <th className="px-3 py-2 font-medium">Uploaded</th>
-                    <th className="px-3 py-2 font-medium">By</th>
-                    <th className="px-3 py-2 font-medium">Total</th>
-                    <th className="px-3 py-2 font-medium">Imported</th>
-                    <th className="px-3 py-2 font-medium">Invalid</th>
-                    <th className="px-3 py-2 font-medium">Unmatched</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {uploads.map((upload) => (
-                    <tr key={upload.id} className="border-t border-border/60">
-                      <td className="px-3 py-2 font-medium">{upload.fileName}</td>
-                      <td className="px-3 py-2">{formatDate(upload.createdAt)}</td>
-                      <td className="px-3 py-2">
-                        {upload.uploadedBy?.name || upload.uploadedBy?.email || "—"}
-                      </td>
-                      <td className="px-3 py-2">{upload.totalRows}</td>
-                      <td className="px-3 py-2">{upload.importedRows}</td>
-                      <td className="px-3 py-2">{upload.invalidRows}</td>
-                      <td className="px-3 py-2">{upload.unmatchedRows}</td>
-                      <td className="px-3 py-2 capitalize">{upload.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="border-border/70 shadow-xs">
-        <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/50">
-          <CardTitle>Pending Waybills</CardTitle>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            disabled={isBusy}
-            onClick={() => void handleRematch()}
-          >
-            {rematching ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <RefreshCw className="size-4" aria-hidden />
-            )}
-            {rematching ? "Re-checking..." : "Re-check matches"}
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-xs text-muted-foreground">
-            Shows unmatched waybills and matched orders that are not delivery-complete. Completed
-            deliveries leave this list but remain searchable below.
-          </p>
-          {pageLoading && !pageData ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Loading pending waybills...
-            </p>
-          ) : pending.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No pending waybills.</p>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-border/70">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Waybill No</th>
-                    <th className="px-3 py-2 font-medium">Invoice</th>
-                    <th className="px-3 py-2 font-medium">Courier</th>
-                    <th className="px-3 py-2 font-medium">Match</th>
-                    <th className="px-3 py-2 font-medium">OS order</th>
-                    <th className="px-3 py-2 font-medium">Upload</th>
-                    <th className="px-3 py-2 font-medium text-right">Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pending.map((row) => (
-                    <tr
-                      key={row.id}
-                      tabIndex={0}
-                      role="button"
-                      className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
-                      onClick={() =>
-                        setSelectedDetails({
-                          kind: "pending",
-                          waybill: row,
-                          matchStatus: row.matchStatus,
-                          order: row.order,
-                        })
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedDetails({
-                            kind: "pending",
-                            waybill: row,
-                            matchStatus: row.matchStatus,
-                            order: row.order,
-                          });
-                        }
-                      }}
-                    >
-                      <td className="px-3 py-2 font-medium">{row.waybillNo}</td>
-                      <td className="px-3 py-2">{row.invoiceNumber}</td>
-                      <td className="px-3 py-2">{row.courierName ?? "—"}</td>
-                      <td className="px-3 py-2 capitalize">{row.matchStatus}</td>
-                      <td className="px-3 py-2">{row.order?.displayId ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col">
-                          <span>{row.uploadFileName ?? "—"}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatDate(row.uploadedAt)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          disabled={isBusy}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedDetails({
-                              kind: "pending",
-                              waybill: row,
-                              matchStatus: row.matchStatus,
-                              order: row.order,
-                            });
-                          }}
-                        >
-                          <Eye className="size-4" aria-hidden />
-                          View
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {pagination && pagination.total > pagination.limit && (
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <p className="text-muted-foreground">
-                Page {pagination.page} of {totalPages} ({pagination.total} pending)
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isBusy || pendingPage <= 1}
-                  onClick={() => void loadPageData({ page: pendingPage - 1 })}
-                >
-                  Previous
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={isBusy || pendingPage >= totalPages}
-                  onClick={() => void loadPageData({ page: pendingPage + 1 })}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card className="border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50">
@@ -712,6 +506,268 @@ export function WaybillLookupFulfillmentPage({
           </CardContent>
         </Card>
       )}
+
+      {canImportWaybills && (
+        <Card className="border-border/70 shadow-xs">
+          <CardHeader className="border-b border-border/50">
+            <CardTitle>Waybill File Upload</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form onSubmit={handleImport} className="grid gap-3 md:grid-cols-[1fr_auto]">
+              <Input
+                type="file"
+                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                className="h-11"
+                disabled={isBusy}
+              />
+              <Button type="submit" disabled={isBusy || !importFile} className="h-11 gap-2">
+                {importing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Upload className="size-4" aria-hidden />}
+                {importing ? "Uploading..." : "Upload File"}
+              </Button>
+            </form>
+            <p className="text-xs text-muted-foreground">
+              Upload CSV, XLSX, or XLS files. New uploads add to (or update) the waybill queue — they do
+              not replace earlier files wholesale. The importer maps invoice references to OS orders and
+              keeps the full row for the details popup.
+            </p>
+            {importSummary && (
+              <div className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3 text-sm md:grid-cols-4">
+                <div>
+                  <p className="text-muted-foreground">Rows</p>
+                  <p className="font-semibold">{importSummary.totalRows}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Imported</p>
+                  <p className="font-semibold">{importSummary.imported}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Invalid</p>
+                  <p className="font-semibold">{importSummary.invalidRows}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Unmatched</p>
+                  <p className="font-semibold">{importSummary.unmatchedRows ?? 0}</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50">
+          <CardTitle>Upload History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pageLoading && !pageData ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading upload history...
+            </p>
+          ) : uploads.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No waybill files uploaded yet.</p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-border/70">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">File</th>
+                    <th className="px-3 py-2 font-medium">Uploaded</th>
+                    <th className="px-3 py-2 font-medium">By</th>
+                    <th className="px-3 py-2 font-medium">Total</th>
+                    <th className="px-3 py-2 font-medium">Imported</th>
+                    <th className="px-3 py-2 font-medium">Invalid</th>
+                    <th className="px-3 py-2 font-medium">Unmatched</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    {canImportWaybills && (
+                      <th className="px-3 py-2 font-medium text-right">Actions</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploads.map((upload) => (
+                    <tr key={upload.id} className="border-t border-border/60">
+                      <td className="px-3 py-2 font-medium">{upload.fileName}</td>
+                      <td className="px-3 py-2">{formatDate(upload.createdAt)}</td>
+                      <td className="px-3 py-2">
+                        {upload.uploadedBy?.name || upload.uploadedBy?.email || "—"}
+                      </td>
+                      <td className="px-3 py-2">{upload.totalRows}</td>
+                      <td className="px-3 py-2">{upload.importedRows}</td>
+                      <td className="px-3 py-2">{upload.invalidRows}</td>
+                      <td className="px-3 py-2">{upload.unmatchedRows}</td>
+                      <td className="px-3 py-2 capitalize">{upload.status}</td>
+                      {canImportWaybills && (
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 text-destructive hover:text-destructive"
+                            disabled={isBusy}
+                            onClick={() => void handleDeleteUpload(upload.id, upload.fileName)}
+                          >
+                            {deletingUploadId === upload.id ? (
+                              <Loader2 className="size-4 animate-spin" aria-hidden />
+                            ) : (
+                              <Trash2 className="size-4" aria-hidden />
+                            )}
+                            {deletingUploadId === upload.id ? "Deleting..." : "Delete"}
+                          </Button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 shadow-xs">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/50">
+          <CardTitle>Pending Waybills</CardTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={isBusy}
+            onClick={() => void handleRematch()}
+          >
+            {rematching ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="size-4" aria-hidden />
+            )}
+            {rematching ? "Re-checking..." : "Re-check matches"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Shows unmatched waybills and matched orders that are not delivery-complete. Completed
+            deliveries leave this list but remain findable via Search above.
+          </p>
+          {pageLoading && !pageData ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading pending waybills...
+            </p>
+          ) : pending.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No pending waybills.</p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-border/70">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Waybill No</th>
+                    <th className="px-3 py-2 font-medium">Invoice</th>
+                    <th className="px-3 py-2 font-medium">Courier</th>
+                    <th className="px-3 py-2 font-medium">Match</th>
+                    <th className="px-3 py-2 font-medium">OS order</th>
+                    <th className="px-3 py-2 font-medium">Upload</th>
+                    <th className="px-3 py-2 font-medium text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pending.map((row) => (
+                    <tr
+                      key={row.id}
+                      tabIndex={0}
+                      role="button"
+                      className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
+                      onClick={() =>
+                        setSelectedDetails({
+                          kind: "pending",
+                          waybill: row,
+                          matchStatus: row.matchStatus,
+                          order: row.order,
+                        })
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedDetails({
+                            kind: "pending",
+                            waybill: row,
+                            matchStatus: row.matchStatus,
+                            order: row.order,
+                          });
+                        }
+                      }}
+                    >
+                      <td className="px-3 py-2 font-medium">{row.waybillNo}</td>
+                      <td className="px-3 py-2">{row.invoiceNumber}</td>
+                      <td className="px-3 py-2">{row.courierName ?? "—"}</td>
+                      <td className="px-3 py-2 capitalize">{row.matchStatus}</td>
+                      <td className="px-3 py-2">{row.order?.displayId ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col">
+                          <span>{row.uploadFileName ?? "—"}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(row.uploadedAt)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          disabled={isBusy}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedDetails({
+                              kind: "pending",
+                              waybill: row,
+                              matchStatus: row.matchStatus,
+                              order: row.order,
+                            });
+                          }}
+                        >
+                          <Eye className="size-4" aria-hidden />
+                          View
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {pagination && pagination.total > pagination.limit && (
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <p className="text-muted-foreground">
+                Page {pagination.page} of {totalPages} ({pagination.total} pending)
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBusy || pendingPage <= 1}
+                  onClick={() => void loadPageData({ page: pendingPage - 1 })}
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBusy || pendingPage >= totalPages}
+                  onClick={() => void loadPageData({ page: pendingPage + 1 })}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog
         open={Boolean(selectedDetails)}
