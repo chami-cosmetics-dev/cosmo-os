@@ -4,7 +4,11 @@ import { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { normalizeInvoiceLookup, saveOrderWaybill } from "@/lib/order-waybills";
+import {
+  findOrderIdByInvoiceRef,
+  normalizeInvoiceLookup,
+  saveOrderWaybill,
+} from "@/lib/order-waybills";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -150,6 +154,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "File row limit is 10,000 per import." }, { status: 400 });
   }
 
+  // Cumulative multi-file import: each upload creates a WaybillUpload history row and
+  // upserts waybills by (companyId, waybillNo). Prior company waybills are never deleted.
   const uploadId = randomUUID();
   const fileType = isCsv ? "csv" : lowerFileName.endsWith(".xls") ? "xls" : "xlsx";
 
@@ -182,6 +188,7 @@ export async function POST(request: NextRequest) {
 
   let imported = 0;
   let invalidRows = 0;
+  let unmatchedRows = 0;
 
   for (const row of rows) {
     const invoiceNumber = pickValue(row, [
@@ -215,9 +222,12 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
+    const orderId = await findOrderIdByInvoiceRef(auth.companyId, invoiceNumber);
+    if (!orderId) unmatchedRows += 1;
+
     await saveOrderWaybill({
       companyId: auth.companyId,
-      orderId: null,
+      orderId,
       invoiceNumber,
       waybillNo,
       courierName,
@@ -232,6 +242,7 @@ export async function POST(request: NextRequest) {
     totalRows: rows.length,
     imported,
     invalidRows,
+    unmatchedRows,
   };
 
   await prisma.$executeRaw(
@@ -240,7 +251,7 @@ export async function POST(request: NextRequest) {
       SET
         "importedRows" = ${summary.imported},
         "invalidRows" = ${summary.invalidRows},
-        "unmatchedRows" = ${0},
+        "unmatchedRows" = ${summary.unmatchedRows},
         "summary" = ${JSON.stringify(summary)}::jsonb,
         "status" = ${"completed"},
         "updatedAt" = ${new Date()}

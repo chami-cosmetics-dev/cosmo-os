@@ -1,4 +1,5 @@
 import { cleanStickerItemName } from "@/lib/sticker-item-name";
+import { COSMETICS_LK_STICKER_PHONE } from "@/lib/sticker-cosmo";
 import { cn } from "@/lib/utils";
 
 interface StickerPreviewCardProps {
@@ -90,7 +91,6 @@ export function StickerPreviewCard({
   unitPrice,
   companyName,
   companyAddress,
-  locationPhone,
   className,
 }: StickerPreviewCardProps) {
   const mfdDisplay = formatDateValue(manufactureDate);
@@ -148,7 +148,7 @@ export function StickerPreviewCard({
         {companyAddress?.trim() || "-"}
       </div>
       <div className="mt-0.5 text-center text-[7px] font-semibold leading-none">
-        TP: {locationPhone?.trim() || "-"}
+        TP: {COSMETICS_LK_STICKER_PHONE}
       </div>
       </div>
     </div>
