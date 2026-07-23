@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ALL_OSF_COLUMN_GROUPS,
-  normalizeOptionalColumnGroups,
-} from "@/lib/osf/column-groups";
-import {
-  hasFullOsfColumnAccess,
-  resolveEffectiveOsfColumnGroupsFromMarks,
-} from "@/lib/osf/column-visibility";
+  allCatalogKeySet,
+  buildOsfAccessCatalog,
+  expandLegacyColumnGroups,
+  normalizeOsfColumnKeys,
+  resolveEffectiveOsfColumnKeysFromMarks,
+  stockAccessKey,
+} from "@/lib/osf/column-access-catalog";
+import type { OsfResolvedColumn } from "@/lib/osf/column-config";
+import { hasFullOsfColumnAccess } from "@/lib/osf/column-visibility";
 
 function ctx(perms: string[]) {
   return {
@@ -17,6 +19,23 @@ function ctx(perms: string[]) {
     sessionUser: {},
   };
 }
+
+const sampleColumns: OsfResolvedColumn[] = [
+  {
+    id: "1",
+    key: "lmj",
+    label: "LMJ",
+    companyLocationId: null,
+    companyLocationName: null,
+    erpnextInstanceId: null,
+    directWarehouses: [],
+    includeInStock: true,
+    includeInRop: true,
+    sortOrder: 1,
+    active: true,
+    warehouses: ["LMJ"],
+  },
+];
 
 describe("hasFullOsfColumnAccess", () => {
   it("true for manage or permission", () => {
@@ -29,36 +48,57 @@ describe("hasFullOsfColumnAccess", () => {
   });
 });
 
-describe("resolveEffectiveOsfColumnGroupsFromMarks", () => {
-  it("full access returns all groups", () => {
-    const groups = resolveEffectiveOsfColumnGroupsFromMarks([], true);
-    expect([...groups].sort()).toEqual([...ALL_OSF_COLUMN_GROUPS].sort());
-  });
-
-  it("unmarked restricted user gets core only", () => {
-    const groups = resolveEffectiveOsfColumnGroupsFromMarks([], false);
-    expect([...groups]).toEqual(["core"]);
-  });
-
-  it("marked margins includes margins", () => {
-    const groups = resolveEffectiveOsfColumnGroupsFromMarks(["margins"], false);
-    expect(groups.has("core")).toBe(true);
-    expect(groups.has("margins")).toBe(true);
-    expect(groups.has("cost")).toBe(false);
-  });
-
-  it("ignores unknown group ids", () => {
-    const groups = resolveEffectiveOsfColumnGroupsFromMarks(["bogus", "pricing"], false);
-    expect(groups.has("pricing")).toBe(true);
-    expect(groups.has("bogus" as never)).toBe(false);
+describe("buildOsfAccessCatalog", () => {
+  it("includes stock/rop/order keys and static headers", () => {
+    const catalog = buildOsfAccessCatalog(sampleColumns);
+    const ids = new Set(catalog.map((c) => c.id));
+    expect(ids.has(stockAccessKey("lmj"))).toBe(true);
+    expect(ids.has("rop:lmj")).toBe(true);
+    expect(ids.has("order:lmj")).toBe(true);
+    expect(ids.has("Cosmetics MRP")).toBe(true);
+    expect(ids.has("Sales Units")).toBe(true);
   });
 });
 
-describe("normalizeOptionalColumnGroups", () => {
-  it("dedupes and filters", () => {
-    expect(normalizeOptionalColumnGroups(["margins", "margins", "nope", "cost"])).toEqual([
-      "margins",
-      "cost",
+describe("resolveEffectiveOsfColumnKeysFromMarks", () => {
+  const catalogIds = allCatalogKeySet(buildOsfAccessCatalog(sampleColumns));
+
+  it("full access returns all", () => {
+    expect(resolveEffectiveOsfColumnKeysFromMarks([], true, catalogIds)).toBe("all");
+  });
+
+  it("unmarked restricted user gets empty set", () => {
+    const keys = resolveEffectiveOsfColumnKeysFromMarks([], false, catalogIds);
+    expect(keys).toEqual(new Set());
+  });
+
+  it("marked keys are kept; unknown ignored", () => {
+    const keys = resolveEffectiveOsfColumnKeysFromMarks(
+      ["Cosmetics MRP", "bogus", "rop:lmj"],
+      false,
+      catalogIds,
+    ) as Set<string>;
+    expect(keys.has("Cosmetics MRP")).toBe(true);
+    expect(keys.has("rop:lmj")).toBe(true);
+    expect(keys.has("bogus")).toBe(false);
+  });
+});
+
+describe("expandLegacyColumnGroups / normalize", () => {
+  it("maps legacy groups to static keys", () => {
+    expect(expandLegacyColumnGroups(["margins", "pricing"])).toEqual([
+      "Cosmetics Margin %",
+      "OGF Margin %",
+      "Cosmetics MRP",
+      "Discounted Price",
+      "OGF Price",
+    ]);
+  });
+
+  it("normalizeOsfColumnKeys dedupes against catalog", () => {
+    const ids = allCatalogKeySet(buildOsfAccessCatalog(sampleColumns));
+    expect(normalizeOsfColumnKeys(["Cosmetics MRP", "Cosmetics MRP", "nope"], ids)).toEqual([
+      "Cosmetics MRP",
     ]);
   });
 });

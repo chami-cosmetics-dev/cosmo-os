@@ -1,11 +1,13 @@
 import "server-only";
 
 import {
-  ALL_OSF_COLUMN_GROUPS,
-  columnGroupSet,
-  normalizeOptionalColumnGroups,
-  type OsfColumnGroupId,
-} from "@/lib/osf/column-groups";
+  allCatalogKeySet,
+  buildOsfAccessCatalog,
+  normalizeOsfColumnKeys,
+  resolveEffectiveOsfColumnKeysFromMarks,
+  type OsfAccessColumnMeta,
+} from "@/lib/osf/column-access-catalog";
+import { resolveOsfColumns } from "@/lib/osf/column-config";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 
@@ -26,33 +28,31 @@ export function hasFullOsfColumnAccess(context: RbacContext | null | undefined):
   );
 }
 
-export function resolveEffectiveOsfColumnGroupsFromMarks(
-  marks: string[] | null | undefined,
-  fullAccess: boolean,
-): Set<OsfColumnGroupId> {
-  if (fullAccess) return columnGroupSet(ALL_OSF_COLUMN_GROUPS);
-  return columnGroupSet([
-    "core",
-    ...normalizeOptionalColumnGroups(marks ?? []),
-  ]);
+export async function loadOsfAccessCatalog(companyId: string): Promise<OsfAccessColumnMeta[]> {
+  const columns = await resolveOsfColumns(companyId);
+  return buildOsfAccessCatalog(columns);
 }
 
-export async function resolveEffectiveOsfColumnGroups(
+export { resolveEffectiveOsfColumnKeysFromMarks };
+
+export async function resolveEffectiveOsfColumnKeys(
   context: RbacContext | null | undefined,
   companyId: string,
-): Promise<Set<OsfColumnGroupId>> {
+): Promise<Set<string> | "all"> {
+  const catalog = await loadOsfAccessCatalog(companyId);
+  const catalogIds = allCatalogKeySet(catalog);
   const fullAccess = hasFullOsfColumnAccess(context);
-  if (fullAccess) return columnGroupSet(ALL_OSF_COLUMN_GROUPS);
+  if (fullAccess) return "all";
 
   const userId = context?.user?.id;
-  if (!userId) return columnGroupSet(["core"]);
+  if (!userId) return new Set();
 
   const row = await prisma.osfUserColumnAccess.findUnique({
     where: { companyId_userId: { companyId, userId } },
-    select: { columnGroups: true },
+    select: { columnKeys: true },
   });
 
-  return resolveEffectiveOsfColumnGroupsFromMarks(row?.columnGroups, false);
+  return resolveEffectiveOsfColumnKeysFromMarks(row?.columnKeys, false, catalogIds);
 }
 
 export async function listPurchasingUsersForColumnAccess(companyId: string) {
@@ -92,4 +92,11 @@ export async function listPurchasingUsersForColumnAccess(companyId: string) {
   return [...byId.values()].sort((a, b) =>
     (a.name ?? a.email ?? a.id).localeCompare(b.name ?? b.email ?? b.id),
   );
+}
+
+export function sanitizeStoredColumnKeys(
+  keys: string[] | null | undefined,
+  catalog: OsfAccessColumnMeta[],
+): string[] {
+  return normalizeOsfColumnKeys(keys, allCatalogKeySet(catalog));
 }

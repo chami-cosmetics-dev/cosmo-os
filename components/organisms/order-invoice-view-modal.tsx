@@ -1372,7 +1372,14 @@ export function OrderInvoiceViewModal({
                       <tbody>
                         {orderDetail.lineItems.map((li) => (
                           <tr key={li.id} className="border-b last:border-0">
-                            <td className="px-3 py-2">{li.productTitle}</td>
+                            <td className="px-3 py-2">
+                              <div>{li.productTitle}</div>
+                              {li.sku && (
+                                <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+                                  SKU: {li.sku}
+                                </div>
+                              )}
+                            </td>
                             <td className="px-3 py-2 text-right">{li.quantity}</td>
                             <td className="px-3 py-2 text-right">
                               <OrderLineItemPrice
@@ -1470,15 +1477,24 @@ export function OrderInvoiceViewModal({
             )}
 
             {/* Cancel Order */}
-            {orderDetail.financialStatus?.toLowerCase() === "voided" && orderDetail.cancelledAt ? (
+            {orderDetail.financialStatus?.toLowerCase() === "voided" ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
                 <div className="flex items-center gap-2 font-medium text-destructive">
                   <XCircle className="size-4" />
                   Order Cancelled
                 </div>
-                {orderDetail.cancelledBy && (
-                  <p className="mt-1 text-muted-foreground">By {orderDetail.cancelledBy.name ?? orderDetail.cancelledBy.email}</p>
-                )}
+                <p className="mt-1 text-muted-foreground">
+                  When:{" "}
+                  {orderDetail.cancelledAt
+                    ? formatDate(orderDetail.cancelledAt)
+                    : "—"}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  By:{" "}
+                  {orderDetail.cancelledBy?.name?.trim() ||
+                    orderDetail.cancelledBy?.email?.trim() ||
+                    "ERP"}
+                </p>
                 {orderDetail.cancelReason && (
                   <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
                 )}

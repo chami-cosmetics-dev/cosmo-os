@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   listPurchasingUsersForColumnAccess,
+  loadOsfAccessCatalog,
   PURCHASING_OSF_TOOLS_PERMISSION_KEYS,
+  sanitizeStoredColumnKeys,
 } from "@/lib/osf/column-visibility";
-import { OSF_OPTIONAL_GROUP_META, normalizeOptionalColumnGroups } from "@/lib/osf/column-groups";
+import { allCatalogKeySet } from "@/lib/osf/column-access-catalog";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 import { osfColumnAccessPutSchema } from "@/lib/validation/osf";
@@ -21,24 +23,27 @@ export async function GET() {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const [users, marks] = await Promise.all([
+  const [users, marks, columns] = await Promise.all([
     listPurchasingUsersForColumnAccess(companyId),
     prisma.osfUserColumnAccess.findMany({
       where: { companyId },
-      select: { userId: true, columnGroups: true },
+      select: { userId: true, columnKeys: true },
     }),
+    loadOsfAccessCatalog(companyId),
   ]);
 
-  const marksByUser = new Map(marks.map((m) => [m.userId, m.columnGroups]));
+  const marksByUser = new Map(marks.map((m) => [m.userId, m.columnKeys]));
+  const catalogIds = allCatalogKeySet(columns);
 
   return NextResponse.json({
-    groups: OSF_OPTIONAL_GROUP_META,
+    columns,
     users: users.map((u) => ({
       id: u.id,
       name: u.name,
       email: u.email,
-      columnGroups: normalizeOptionalColumnGroups(marksByUser.get(u.id) ?? []),
+      columnKeys: sanitizeStoredColumnKeys(marksByUser.get(u.id) ?? [], columns),
     })),
+    catalogSize: catalogIds.size,
   });
 }
 
@@ -63,8 +68,22 @@ export async function PUT(request: NextRequest) {
     );
   }
 
+  const catalog = await loadOsfAccessCatalog(companyId);
+  const catalogIds = allCatalogKeySet(catalog);
+
   const assignments =
     "assignments" in parsed.data ? parsed.data.assignments : [parsed.data];
+
+  for (const a of assignments) {
+    for (const key of a.columnKeys) {
+      if (!catalogIds.has(key)) {
+        return NextResponse.json(
+          { error: `Unknown column access key: ${key}` },
+          { status: 400 },
+        );
+      }
+    }
+  }
 
   const userIds = assignments.map((a) => a.userId);
   const eligible = await listPurchasingUsersForColumnAccess(companyId);
@@ -79,26 +98,25 @@ export async function PUT(request: NextRequest) {
   }
 
   const updated = await Promise.all(
-    assignments.map((a) =>
-      prisma.osfUserColumnAccess.upsert({
+    assignments.map((a) => {
+      const columnKeys = sanitizeStoredColumnKeys(a.columnKeys, catalog);
+      return prisma.osfUserColumnAccess.upsert({
         where: { companyId_userId: { companyId, userId: a.userId } },
         create: {
           companyId,
           userId: a.userId,
-          columnGroups: normalizeOptionalColumnGroups(a.columnGroups),
+          columnKeys,
         },
-        update: {
-          columnGroups: normalizeOptionalColumnGroups(a.columnGroups),
-        },
-        select: { userId: true, columnGroups: true },
-      }),
-    ),
+        update: { columnKeys },
+        select: { userId: true, columnKeys: true },
+      });
+    }),
   );
 
   return NextResponse.json({
     users: updated.map((row) => ({
       userId: row.userId,
-      columnGroups: normalizeOptionalColumnGroups(row.columnGroups),
+      columnKeys: sanitizeStoredColumnKeys(row.columnKeys, catalog),
     })),
     permissionKeys: PURCHASING_OSF_TOOLS_PERMISSION_KEYS,
   });

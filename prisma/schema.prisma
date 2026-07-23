@@ -1825,16 +1825,16 @@ model OsfBuyer {
   @@index([companyId, sortOrder])
 }
 
-/// Per-user OSF Excel column-group marks (company-scoped).
+/// Per-user OSF Excel column marks (company-scoped). Keys are stable access ids.
 model OsfUserColumnAccess {
-  id           String   @id @default(cuid())
-  companyId    String
-  userId       String
-  columnGroups String[] @default([])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  companyId  String
+  userId     String
+  columnKeys String[] @default([])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, userId])
   @@index([companyId])

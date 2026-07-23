@@ -194,7 +194,7 @@ describe("buildMainSheetRows", () => {
     expect(row["WHA ORDER QTY"]).toBe(10);
     expect(row["WHB ORDER QTY"]).toBe(3);
     expect(row["WHC ORDER QTY"]).toBe(-15);
-    expect(row["TOTAL ORDER QTY"]).toBe(13);
+    expect(row["TOTAL ORDER QTY"]).toBe(0);
   });
 
   it("uses the purchase-receipt rate as Latest Cost when Item cost is missing", () => {
@@ -301,29 +301,47 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(totals[lmjIdx]).toBe(5);
   });
 
-  it("filters Main columns when effectiveColumnGroups is core-only", () => {
+  it("filters Main columns when effectiveColumnKeys is empty (identity only)", () => {
     const wb = parse(
       buildOsfWorkbookBuffer({
         ...baseInput,
-        effectiveColumnGroups: ["core"],
+        effectiveColumnKeys: new Set(),
       }),
     );
     const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
       header: 1,
       defval: "",
     })[2] as string[];
-    expect(headers).toContain("LMJ");
+    expect(headers).toContain("Variant SKU");
+    expect(headers).not.toContain("LMJ");
     expect(headers).not.toContain("Cosmetics MRP");
     expect(headers).not.toContain("Latest Cost");
     expect(headers).not.toContain("Cosmetics Margin %");
-    expect(headers).not.toContain("OGF Margin %");
   });
 
-  it("includes pricing and margins on Main when all groups allowed", () => {
+  it("includes marked keys and omits unmarked on Main", () => {
     const wb = parse(
       buildOsfWorkbookBuffer({
         ...baseInput,
-        effectiveColumnGroups: ["core", "pricing", "cost", "margins", "sales"],
+        effectiveColumnKeys: new Set(["Cosmetics MRP", "Latest Cost", "Cosmetics Margin %"]),
+      }),
+    );
+    const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
+      header: 1,
+      defval: "",
+    })[2] as string[];
+    expect(headers).toContain("Cosmetics MRP");
+    expect(headers).toContain("Latest Cost");
+    expect(headers).toContain("Cosmetics Margin %");
+    expect(headers).not.toContain("OGF Margin %");
+    expect(headers).not.toContain("LMJ");
+  });
+
+  it("includes all columns when effectiveColumnKeys is all", () => {
+    const wb = parse(
+      buildOsfWorkbookBuffer({
+        ...baseInput,
+        effectiveColumnKeys: "all",
       }),
     );
     const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
@@ -334,6 +352,7 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).toContain("Latest Cost");
     expect(headers).toContain("Cosmetics Margin %");
     expect(headers).toContain("OGF Margin %");
+    expect(headers).toContain("LMJ");
   });
 
   it("adds a per-buyer sheet filtered by brand and without pricing columns", () => {
@@ -366,7 +385,7 @@ describe("buildOsfWorkbookBuffer", () => {
     const wb = parse(
       buildOsfWorkbookBuffer({
         ...baseInput,
-        effectiveColumnGroups: ["core", "margins"],
+        effectiveColumnKeys: new Set(["Cosmetics Margin %", "OGF Margin %", "stock:lmj", "rop:lmj", "order:lmj", "Total Stock", "Common SKU Stock", "Common ROP", "% of ROP", "70% OF TOTAL ROP", "70% OF TOTAL ROP AVAILABILITY", "TOTAL ORDER QTY", "Common SKU Reorder"]),
         buyers: [
           { name: "Inoka", brands: [] },
           { name: "Randil", brands: [] },

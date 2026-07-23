@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { buildCsv, formatIsoDate } from "@/lib/reports/csv";
 import { fetchReturnsTrackingData } from "@/lib/page-data/order-returns";
-import { hasPermission, requirePermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -13,20 +13,14 @@ export async function GET(request: NextRequest) {
   }
 
   const companyId = auth.context?.user?.companyId;
-  const viewerUserId = auth.context?.user?.id;
-  if (!companyId || !viewerUserId) {
+  if (!companyId) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const canManage = hasPermission(auth.context!, "returns.manage");
   const status = request.nextUrl.searchParams.get("status");
   const search = request.nextUrl.searchParams.get("search")?.trim().toLowerCase() ?? "";
 
-  const data = await fetchReturnsTrackingData({
-    companyId,
-    viewerUserId,
-    canManage,
-  });
+  const data = await fetchReturnsTrackingData({ companyId });
 
   let rows = data.returns;
   if (status === "pending" || status === "solved") {

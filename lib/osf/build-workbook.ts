@@ -3,10 +3,11 @@ import * as XLSX from "xlsx";
 import { baseSku } from "@/lib/osf/base-sku";
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
 import {
-  ALL_OSF_COLUMN_GROUPS,
-  columnGroupSet,
-  type OsfColumnGroupId,
-} from "@/lib/osf/column-groups";
+  OSF_ACCESS_SALES_UNITS,
+  orderAccessKey,
+  ropAccessKey,
+  stockAccessKey,
+} from "@/lib/osf/column-access-catalog";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import type { ItemCostSupplier } from "@/lib/osf/erp-cost-supplier";
 import type { ItemLastPurchase } from "@/lib/osf/erp-purchases";
@@ -20,7 +21,7 @@ import {
   percentOfRop,
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
-  sumPositiveOrderQtys,
+  sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
 
 export type OsfProfileData = {
@@ -49,8 +50,11 @@ export type BuildWorkbookInput = {
   asOfDate: string;
   /** When true, Info sheet explains reorder-only / empty filter. */
   belowThresholdOnly?: boolean;
-  /** Column groups allowed on Main for the downloading user. Defaults to all groups. */
-  effectiveColumnGroups?: OsfColumnGroupId[];
+  /**
+   * Column access keys allowed on Main for the downloading user.
+   * `"all"` or omit = unrestricted. Identity columns always included.
+   */
+  effectiveColumnKeys?: Set<string> | "all";
   /** Optional per-buyer sheets (no pricing columns), filtered by brand. */
   buyers?: OsfBuyerConfig[];
 };
@@ -65,8 +69,10 @@ type OsfColumnDef = {
   sum?: boolean;
   /** Pricing/purchasing columns — excluded from buyer sheets. */
   pricing?: boolean;
-  /** Column group for per-user visibility filtering on Main. */
-  group?: OsfColumnGroupId;
+  /**
+   * Stable access id for per-user visibility. `null`/undefined = identity (always on).
+   */
+  accessKey?: string | null;
 };
 
 /** ISO date (YYYY-MM-DD) → dd.mm.yyyy banner label used in the header band. */
@@ -189,7 +195,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       const ropVal = ropCol ? rops[col.key] : null;
       orderVals.push(orderQty(ropVal, stocks[col.key]));
     }
-    buyTotalBySku.set(row.sku, sumPositiveOrderQtys(orderVals));
+    buyTotalBySku.set(row.sku, sumSignedOrderQtysFlooredAtZero(orderVals));
   }
 
   const commonBuy = new Map<string, number>();
@@ -259,7 +265,8 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       record[`${col.label} ORDER QTY`] = oq;
       orderVals.push(oq);
     }
-    record["TOTAL ORDER QTY"] = buyTotalBySku.get(row.sku) ?? sumPositiveOrderQtys(orderVals);
+    record["TOTAL ORDER QTY"] =
+      buyTotalBySku.get(row.sku) ?? sumSignedOrderQtysFlooredAtZero(orderVals);
     record["Common SKU Reorder"] = commonBuy.get(common) ?? 0;
 
     const listPrice = originalSellingPrice(row.mrp, row.discountedPrice);
@@ -293,59 +300,84 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
   const dateLabel = formatDdMmYyyy(input.asOfDate);
 
   const defs: OsfColumnDef[] = [];
-  for (const h of identityHeaders()) defs.push({ header: h, group: "core" });
+  for (const h of identityHeaders()) defs.push({ header: h, accessKey: null });
 
   stockCols.forEach((c, i) =>
     defs.push({
       header: c.label,
       section: i === 0 ? dateLabel : undefined,
       sum: true,
-      group: "core",
+      accessKey: stockAccessKey(c.key),
     }),
   );
-  defs.push({ header: "Total Stock", sum: true, group: "core" });
-  defs.push({ header: "Common SKU Stock", sum: true, group: "core" });
+  defs.push({ header: "Total Stock", sum: true, accessKey: "Total Stock" });
+  defs.push({ header: "Common SKU Stock", sum: true, accessKey: "Common SKU Stock" });
 
   ropCols.forEach((c, i) =>
     defs.push({
       header: `${c.label} ROP`,
       section: i === 0 ? "ROP" : undefined,
       sum: true,
-      group: "core",
+      accessKey: ropAccessKey(c.key),
     }),
   );
-  defs.push({ header: "Common ROP", sum: true, group: "core" });
+  defs.push({ header: "Common ROP", sum: true, accessKey: "Common ROP" });
 
-  defs.push({ header: "% of ROP", group: "core" });
-  defs.push({ header: "70% OF TOTAL ROP", sum: true, group: "core" });
-  defs.push({ header: "70% OF TOTAL ROP AVAILABILITY", group: "core" });
+  defs.push({ header: "% of ROP", accessKey: "% of ROP" });
+  defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP" });
+  defs.push({
+    header: "70% OF TOTAL ROP AVAILABILITY",
+    accessKey: "70% OF TOTAL ROP AVAILABILITY",
+  });
 
   stockCols.forEach((c, i) =>
     defs.push({
       header: `${c.label} ORDER QTY`,
       section: i === 0 ? "REORDER Amount" : undefined,
       sum: true,
-      group: "core",
+      accessKey: orderAccessKey(c.key),
     }),
   );
-  defs.push({ header: "TOTAL ORDER QTY", sum: true, group: "core" });
-  defs.push({ header: "Common SKU Reorder", sum: true, group: "core" });
+  defs.push({ header: "TOTAL ORDER QTY", sum: true, accessKey: "TOTAL ORDER QTY" });
+  defs.push({ header: "Common SKU Reorder", sum: true, accessKey: "Common SKU Reorder" });
 
-  defs.push({ header: "Cosmetics MRP", section: "price", pricing: true, group: "pricing" });
-  defs.push({ header: "Discounted Price", pricing: true, group: "pricing" });
-  defs.push({ header: "OGF Price", pricing: true, group: "pricing" });
-  defs.push({ header: "Latest Cost", section: "Purchasing Cost", pricing: true, group: "cost" });
-  defs.push({ header: "Latest supplier", pricing: true, group: "cost" });
-  defs.push({ header: "Last Purchase Qty", pricing: true, group: "cost" });
-  defs.push({ header: "Last Purchase Date", pricing: true, group: "cost" });
-  defs.push({ header: "Days Since Last Purchase", pricing: true, group: "cost" });
-  defs.push({ header: "Purchased (last 30d)", pricing: true, group: "cost" });
-  defs.push({ header: "Cosmetics Margin %", pricing: true, group: "margins" });
-  defs.push({ header: "OGF Margin %", pricing: true, group: "margins" });
+  defs.push({
+    header: "Cosmetics MRP",
+    section: "price",
+    pricing: true,
+    accessKey: "Cosmetics MRP",
+  });
+  defs.push({ header: "Discounted Price", pricing: true, accessKey: "Discounted Price" });
+  defs.push({ header: "OGF Price", pricing: true, accessKey: "OGF Price" });
+  defs.push({
+    header: "Latest Cost",
+    section: "Purchasing Cost",
+    pricing: true,
+    accessKey: "Latest Cost",
+  });
+  defs.push({ header: "Latest supplier", pricing: true, accessKey: "Latest supplier" });
+  defs.push({ header: "Last Purchase Qty", pricing: true, accessKey: "Last Purchase Qty" });
+  defs.push({ header: "Last Purchase Date", pricing: true, accessKey: "Last Purchase Date" });
+  defs.push({
+    header: "Days Since Last Purchase",
+    pricing: true,
+    accessKey: "Days Since Last Purchase",
+  });
+  defs.push({
+    header: "Purchased (last 30d)",
+    pricing: true,
+    accessKey: "Purchased (last 30d)",
+  });
+  defs.push({
+    header: "Cosmetics Margin %",
+    pricing: true,
+    accessKey: "Cosmetics Margin %",
+  });
+  defs.push({ header: "OGF Margin %", pricing: true, accessKey: "OGF Margin %" });
   defs.push({
     header: `Sales Units (${input.salesMonth})`,
     pricing: true,
-    group: "sales",
+    accessKey: OSF_ACCESS_SALES_UNITS,
   });
 
   return defs;
@@ -396,27 +428,37 @@ function sanitizeSheetName(name: string, used: Set<string>): string {
   return candidate;
 }
 
-/** Filter column defs to allowed groups (core always included). */
+/** Filter column defs by access keys (identity / null accessKey always included). */
+export function filterColumnDefsByAccessKeys(
+  defs: OsfColumnDef[],
+  keys?: Set<string> | "all",
+): OsfColumnDef[] {
+  if (keys == null || keys === "all") return defs;
+  return defs.filter((d) => d.accessKey == null || keys.has(d.accessKey));
+}
+
+/** @deprecated Prefer {@link filterColumnDefsByAccessKeys}. */
 export function filterColumnDefsByGroups(
   defs: OsfColumnDef[],
-  groups?: OsfColumnGroupId[],
+  _groups?: string[],
 ): OsfColumnDef[] {
-  const allowed = columnGroupSet(groups ?? ALL_OSF_COLUMN_GROUPS);
-  return defs.filter((d) => allowed.has(d.group ?? "core"));
+  return defs;
 }
 
 export function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Buffer {
   const rows = buildMainSheetRows(input);
   const defs = mainColumnDescriptors(input);
-  const allowedGroups = columnGroupSet(input.effectiveColumnGroups ?? ALL_OSF_COLUMN_GROUPS);
-  const mainDefs = filterColumnDefsByGroups(defs, [...allowedGroups]);
+  const mainDefs = filterColumnDefsByAccessKeys(defs, input.effectiveColumnKeys ?? "all");
   const wb = XLSX.utils.book_new();
   const used = new Set<string>();
 
   XLSX.utils.book_append_sheet(wb, renderSheet(mainDefs, rows), sanitizeSheetName("Main", used));
 
-  // Buyer sheets: stock/ROP/order only (no pricing columns).
-  const buyerDefs = defs.filter((d) => !d.pricing);
+  // Buyer sheets: stock/ROP/order only (no pricing columns), still honor access keys.
+  const buyerDefs = filterColumnDefsByAccessKeys(
+    defs.filter((d) => !d.pricing),
+    input.effectiveColumnKeys ?? "all",
+  );
   for (const buyer of input.buyers ?? []) {
     if (!buyer.name?.trim()) continue;
     const brandSet = new Set(
