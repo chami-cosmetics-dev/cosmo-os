@@ -76,11 +76,15 @@ export type OsfBuyerUpsertInput = z.infer<typeof osfBuyerUpsertSchema>;
 export type OsfProfilePatchInput = z.infer<typeof osfProfilePatchSchema>;
 export type OsfGenerateBodyInput = z.infer<typeof osfGenerateBodySchema>;
 
-const osfOptionalColumnGroupSchema = z.enum(["pricing", "cost", "margins", "sales"]);
+const osfColumnAccessKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120);
 
 export const osfColumnAccessAssignmentSchema = z.object({
   userId: cuidSchema,
-  columnGroups: z.array(osfOptionalColumnGroupSchema).max(10),
+  columnKeys: z.array(osfColumnAccessKeySchema).max(500),
 });
 
 export const osfColumnAccessPutSchema = z.union([

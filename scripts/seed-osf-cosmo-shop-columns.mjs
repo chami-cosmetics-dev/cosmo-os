@@ -48,7 +48,7 @@ async function main() {
         erpnextInstanceId: instanceId,
         directWarehouses: [shop.warehouse],
         includeInStock: true,
-        includeInRop: false,
+        includeInRop: true,
         sortOrder: shop.sortOrder,
         active: true,
       },
@@ -56,6 +56,7 @@ async function main() {
         label: shop.label,
         erpnextInstanceId: instanceId,
         directWarehouses: [shop.warehouse],
+        includeInRop: true,
         sortOrder: shop.sortOrder,
       },
     });

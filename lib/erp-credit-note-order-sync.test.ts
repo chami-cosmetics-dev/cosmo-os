@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  erpDrivenCancelFields,
   erpInvoiceIndicatesCreditNote,
   isErpReturnSalesInvoice,
   isErpSalesInvoiceCancelled,
   isErpSalesInvoiceCreditNoted,
   orderMatchesErpInvoiceReference,
+  resolveOrderCancelledByLabel,
 } from "@/lib/erp-credit-note-order-sync";
 import { mergeErpReturnSalesInvoiceIds } from "@/lib/erp-return-si";
 import { erpInvoiceReferenceLookupValues } from "@/lib/erp-invoice-reference";
@@ -26,6 +28,33 @@ describe("erp-credit-note-order-sync", () => {
     expect(isErpSalesInvoiceCreditNoted("Paid", 1)).toBe(false);
     expect(isErpSalesInvoiceCancelled(2)).toBe(true);
     expect(isErpSalesInvoiceCancelled(1)).toBe(false);
+  });
+
+  it("labels cancel actor as ERP when no OS user", () => {
+    expect(resolveOrderCancelledByLabel(null)).toBe("ERP");
+    expect(resolveOrderCancelledByLabel({ name: null, email: null })).toBe("ERP");
+    expect(resolveOrderCancelledByLabel({ name: "Ada", email: "a@x.com" })).toBe("Ada");
+    expect(resolveOrderCancelledByLabel({ name: "  ", email: "a@x.com" })).toBe("a@x.com");
+  });
+
+  it("erpDrivenCancelFields fills gaps only", () => {
+    const now = new Date("2026-07-08T11:57:15.382Z");
+    expect(
+      erpDrivenCancelFields({
+        cancelledAt: null,
+        cancelReason: null,
+        reason: "ERP credit note",
+        now,
+      }),
+    ).toEqual({ cancelledAt: now, cancelReason: "ERP credit note" });
+    expect(
+      erpDrivenCancelFields({
+        cancelledAt: now,
+        cancelReason: "already set",
+        reason: "ERP credit note",
+        now,
+      }),
+    ).toEqual({});
   });
 
   it("detects credit notes from ERP invoice + linked returns", () => {

@@ -22,6 +22,35 @@ export const ERP_CREDIT_NOTE_ORDER_PATCH = {
   erpnextSyncRetryLeaseExpiresAt: null,
 } as const satisfies Prisma.OrderUpdateInput;
 
+/** Cancel attribution when OS has no local user (ERP webhook / reconcile). */
+export const ERP_CANCEL_REASON_CREDIT_NOTE = "ERP credit note";
+export const ERP_CANCEL_REASON_CANCEL = "ERP cancel";
+
+/** Preserve existing OS cancel metadata; fill when/who gaps for ERP-driven voids. */
+export function erpDrivenCancelFields(input: {
+  cancelledAt: Date | null | undefined;
+  cancelReason: string | null | undefined;
+  reason: string;
+  now?: Date;
+}): Prisma.OrderUpdateInput {
+  const now = input.now ?? new Date();
+  return {
+    ...(input.cancelledAt ? {} : { cancelledAt: now }),
+    ...(input.cancelReason?.trim() ? {} : { cancelReason: input.reason }),
+  };
+}
+
+/** Display label for cancel actor — OS user name/email, else ERP. */
+export function resolveOrderCancelledByLabel(
+  cancelledBy: { name?: string | null; email?: string | null } | null | undefined,
+): string {
+  const name = cancelledBy?.name?.trim();
+  if (name) return name;
+  const email = cancelledBy?.email?.trim();
+  if (email) return email;
+  return "ERP";
+}
+
 export type ErpSalesInvoiceCreditNoteSignal = {
   name: string;
   is_return?: number | null;
@@ -67,6 +96,8 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
       name: true,
       financialStatus: true,
       fulfillmentStage: true,
+      cancelledAt: true,
+      cancelReason: true,
     },
   });
   if (!original) return null;
@@ -85,6 +116,11 @@ export async function applyErpCancelToOriginalOrder(invoiceRef: string) {
       erpnextSyncLastAutoRetryAt: null,
       erpnextSyncNextAutoRetryAt: null,
       erpnextSyncRetryLeaseExpiresAt: null,
+      ...erpDrivenCancelFields({
+        cancelledAt: original.cancelledAt,
+        cancelReason: original.cancelReason,
+        reason: ERP_CANCEL_REASON_CANCEL,
+      }),
     },
   });
   await cancelPendingApprovalsForOrder(original.id);
@@ -169,6 +205,8 @@ export async function applyErpCreditNoteToOriginalOrder(
       fulfillmentStage: true,
       erpReturnSalesInvoiceIds: true,
       revertedFromInvoiceCompleteAt: true,
+      cancelledAt: true,
+      cancelReason: true,
       returns: {
         select: { actionType: true },
       },
@@ -220,6 +258,11 @@ export async function applyErpCreditNoteToOriginalOrder(
     where: { id: original.id },
     data: {
       ...ERP_CREDIT_NOTE_ORDER_PATCH,
+      ...erpDrivenCancelFields({
+        cancelledAt: original.cancelledAt,
+        cancelReason: original.cancelReason,
+        reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+      }),
       ...(returnInvoiceName ? { erpReturnSalesInvoiceIds: nextReturnIds } : {}),
     },
   });
@@ -359,6 +402,8 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
       financialStatus: true,
       fulfillmentStage: true,
       revertedFromInvoiceCompleteAt: true,
+      cancelledAt: true,
+      cancelReason: true,
       companyLocation: {
         select: {
           erpnextInstance: {
@@ -381,25 +426,37 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     apiSecret: instance.apiSecret,
   };
 
-  // Already voided/returned — still backfill Return SI ids when ERP has them.
+  // Already voided/returned — still backfill Return SI ids when ERP has them,
+  // and fill cancel when/who gaps left by older ERP syncs.
   if (order.financialStatus === "voided" && order.fulfillmentStage === "returned") {
     const creditNotes = await fetchErpCreditNotesAgainst(creds, invoiceName);
     const names = creditNoteReturnNames(creditNotes);
-    if (names.length === 0) {
-      return { updated: false, reason: "already_credit_noted" };
-    }
-    const merged = mergeErpReturnSalesInvoiceIds(order.erpReturnSalesInvoiceIds, names);
-    if (
-      merged.length === order.erpReturnSalesInvoiceIds.length &&
-      merged.every((id, i) => id === order.erpReturnSalesInvoiceIds[i])
-    ) {
+    const merged = names.length
+      ? mergeErpReturnSalesInvoiceIds(order.erpReturnSalesInvoiceIds, names)
+      : order.erpReturnSalesInvoiceIds;
+    const returnSiChanged =
+      merged.length !== order.erpReturnSalesInvoiceIds.length ||
+      merged.some((id, i) => id !== order.erpReturnSalesInvoiceIds[i]);
+    const cancelPatch = erpDrivenCancelFields({
+      cancelledAt: order.cancelledAt,
+      cancelReason: order.cancelReason,
+      reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+    });
+    const needsCancelMeta = Boolean(cancelPatch.cancelledAt || cancelPatch.cancelReason);
+    if (!returnSiChanged && !needsCancelMeta) {
       return { updated: false, reason: "already_credit_noted" };
     }
     await prisma.order.update({
       where: { id: order.id },
-      data: { erpReturnSalesInvoiceIds: merged },
+      data: {
+        ...(returnSiChanged ? { erpReturnSalesInvoiceIds: merged } : {}),
+        ...cancelPatch,
+      },
     });
-    return { updated: true, reason: "return_si_backfilled" };
+    return {
+      updated: true,
+      reason: returnSiChanged ? "return_si_backfilled" : "cancel_meta_backfilled",
+    };
   }
 
   // Credit note was issued by OS at revert time — don't overwrite the "refunded" partial-void state.
@@ -448,6 +505,11 @@ export async function reconcileOrderErpCreditNote(orderId: string): Promise<{
     where: { id: order.id },
     data: {
       ...ERP_CREDIT_NOTE_ORDER_PATCH,
+      ...erpDrivenCancelFields({
+        cancelledAt: order.cancelledAt,
+        cancelReason: order.cancelReason,
+        reason: ERP_CANCEL_REASON_CREDIT_NOTE,
+      }),
       ...(names.length ? { erpReturnSalesInvoiceIds: nextReturnIds } : {}),
     },
   });
