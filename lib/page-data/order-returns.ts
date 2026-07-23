@@ -74,8 +74,6 @@ function isMissingOrderReturnTableError(error: unknown) {
 
 export async function fetchReturnsTrackingData(input: {
   companyId: string;
-  viewerUserId: string;
-  canManage: boolean;
 }): Promise<ReturnsTrackingData> {
   try {
     // Sweep all pending returns for orders already voided — regardless of actionType.
@@ -89,17 +87,10 @@ export async function fetchReturnsTrackingData(input: {
       data: { actionStatus: "solved", actionDate: new Date() },
     });
 
+    // Anyone with returns.read can see all company returns (not scoped to assigned merchant).
     const rows = await prisma.orderReturn.findMany({
       where: {
         companyId: input.companyId,
-        ...(input.canManage
-          ? {}
-          : {
-              OR: [
-                { merchantUserId: input.viewerUserId },
-                { merchantUserId: null },
-              ],
-            }),
       },
       orderBy: [{ returnDate: "desc" }, { createdAt: "desc" }],
       take: 300,

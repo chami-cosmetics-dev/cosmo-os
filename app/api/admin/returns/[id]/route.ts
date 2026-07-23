@@ -10,7 +10,7 @@ import {
 import { writeAuditLog } from "@/lib/audit-log";
 import { isCitypakCourier, isRiderReturn } from "@/lib/courier";
 import { prisma } from "@/lib/prisma";
-import { hasPermission, requirePermission } from "@/lib/rbac";
+import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 
@@ -83,16 +83,11 @@ export async function PUT(
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const canManageAll = hasPermission(auth.context!, "orders.manage");
+  // returns.manage can act on any company return (same visibility as returns.read).
   const existing = await prisma.orderReturn.findFirst({
     where: {
       id: parsedId.data,
       companyId,
-      ...(canManageAll
-        ? {}
-        : {
-            OR: [{ merchantUserId: viewerUserId }, { merchantUserId: null }],
-          }),
     },
     include: {
       order: {

@@ -1372,7 +1372,14 @@ export function OrderInvoiceViewModal({
                       <tbody>
                         {orderDetail.lineItems.map((li) => (
                           <tr key={li.id} className="border-b last:border-0">
-                            <td className="px-3 py-2">{li.productTitle}</td>
+                            <td className="px-3 py-2">
+                              <div>{li.productTitle}</div>
+                              {li.sku && (
+                                <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+                                  SKU: {li.sku}
+                                </div>
+                              )}
+                            </td>
                             <td className="px-3 py-2 text-right">{li.quantity}</td>
                             <td className="px-3 py-2 text-right">
                               <OrderLineItemPrice
