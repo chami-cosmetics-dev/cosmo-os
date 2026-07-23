@@ -6,7 +6,6 @@ import { Boxes, Download, History, Loader2, MapPin, Printer, RefreshCw, Users } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
-import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
