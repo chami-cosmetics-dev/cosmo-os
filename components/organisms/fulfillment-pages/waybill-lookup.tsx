@@ -353,160 +353,6 @@ export function WaybillLookupFulfillmentPage({
         </p>
       </div>
 
-      <Card className="border-border/70 shadow-xs">
-        <CardHeader className="border-b border-border/50">
-          <CardTitle>Search</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={invoice}
-                onChange={(event) => setInvoice(event.target.value)}
-                placeholder="Invoice or waybill number"
-                className="h-11 pl-9"
-                disabled={isBusy}
-              />
-            </div>
-            <Button type="submit" disabled={isBusy} className="h-11 gap-2">
-              {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Search className="size-4" aria-hidden />}
-              {loading ? "Searching..." : "Search"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {matchedOrder && (
-        <Card className="border-border/70 shadow-xs">
-          <CardHeader className="border-b border-border/50">
-            <CardTitle>Matched Order</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 text-sm md:grid-cols-3">
-              <div>
-                <p className="text-muted-foreground">Order</p>
-                <FulfillmentOrderReference order={matchedOrder} variant="labeled" className="text-sm" />
-              </div>
-              <div>
-                <p className="text-muted-foreground">Courier</p>
-                <p className="font-medium">{matchedOrder.courierName ?? "-"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Stage</p>
-                <p className="font-medium">{stageLabel(matchedOrder.fulfillmentStage)}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Customer</p>
-                <p className="font-medium">{matchedOrder.customerPhone ?? matchedOrder.customerEmail ?? "-"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Location</p>
-                <p className="font-medium">{matchedOrder.locationName}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Dispatched</p>
-                <p className="font-medium">{formatDate(matchedOrder.dispatchedAt)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {result && !matchedOrder && waybills.length === 0 && (
-        <Card className="border-border/70 shadow-xs">
-          <CardContent>
-            <p className="text-sm text-muted-foreground">No waybill or order matched this number.</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {result && (
-        <Card className="border-border/70 shadow-xs">
-          <CardHeader className="border-b border-border/50">
-            <CardTitle>Waybill Results</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {waybills.length > 0 ? (
-              <div className="overflow-hidden rounded-md border border-border/70">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 text-left text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Waybill No</th>
-                      <th className="px-3 py-2 font-medium">Invoice</th>
-                      <th className="px-3 py-2 font-medium text-right">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {waybills.map((waybill) => (
-                      <tr
-                        key={waybill.id}
-                        tabIndex={0}
-                        role="button"
-                        className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
-                        onClick={() =>
-                          setSelectedDetails({ kind: "search", waybill })
-                        }
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedDetails({ kind: "search", waybill });
-                          }
-                        }}
-                      >
-                        <td className="px-3 py-2 font-medium">{waybill.waybillNo}</td>
-                        <td className="px-3 py-2">{waybill.invoiceNumber}</td>
-                        <td className="px-3 py-2 text-right">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            disabled={isBusy}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedDetails({ kind: "search", waybill });
-                            }}
-                          >
-                            <Eye className="size-4" aria-hidden />
-                            View
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No waybill saved for this number yet.</p>
-            )}
-
-            {canImportWaybills && matchedOrder && (
-              <form onSubmit={handleSave} className="grid gap-3 border-t border-border/60 pt-4 md:grid-cols-[1fr_1fr_auto]">
-                <Input
-                  value={waybillNo}
-                  onChange={(event) => setWaybillNo(event.target.value)}
-                  placeholder="Waybill number"
-                  className="h-11"
-                  disabled={isBusy}
-                />
-                <Input
-                  value={courierName}
-                  onChange={(event) => setCourierName(event.target.value)}
-                  placeholder="Courier name"
-                  className="h-11"
-                  disabled={isBusy}
-                />
-                <Button type="submit" disabled={isBusy} className="h-11 gap-2">
-                  {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
-                  {saving ? "Saving..." : "Save"}
-                </Button>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       {canImportWaybills && (
         <Card className="border-border/70 shadow-xs">
           <CardHeader className="border-b border-border/50">
@@ -646,9 +492,144 @@ export function WaybillLookupFulfillmentPage({
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
+          <form onSubmit={handleSearch} className="flex flex-col gap-3 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={invoice}
+                onChange={(event) => setInvoice(event.target.value)}
+                placeholder="Invoice or waybill number"
+                className="h-11 pl-9"
+                disabled={isBusy}
+              />
+            </div>
+            <Button type="submit" disabled={isBusy} className="h-11 gap-2">
+              {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Search className="size-4" aria-hidden />}
+              {loading ? "Searching..." : "Search"}
+            </Button>
+          </form>
+
+          {matchedOrder && (
+            <div className="space-y-3 rounded-md border border-border/70 bg-muted/20 p-3">
+              <p className="text-sm font-medium">Matched Order</p>
+              <div className="grid gap-3 text-sm md:grid-cols-3">
+                <div>
+                  <p className="text-muted-foreground">Order</p>
+                  <FulfillmentOrderReference order={matchedOrder} variant="labeled" className="text-sm" />
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Courier</p>
+                  <p className="font-medium">{matchedOrder.courierName ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Stage</p>
+                  <p className="font-medium">{stageLabel(matchedOrder.fulfillmentStage)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Customer</p>
+                  <p className="font-medium">{matchedOrder.customerPhone ?? matchedOrder.customerEmail ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Location</p>
+                  <p className="font-medium">{matchedOrder.locationName}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Dispatched</p>
+                  <p className="font-medium">{formatDate(matchedOrder.dispatchedAt)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {result && !matchedOrder && waybills.length === 0 && (
+            <p className="text-sm text-muted-foreground">No waybill or order matched this number.</p>
+          )}
+
+          {result && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Waybill Results</p>
+              {waybills.length > 0 ? (
+                <div className="overflow-hidden rounded-md border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-left text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">Waybill No</th>
+                        <th className="px-3 py-2 font-medium">Invoice</th>
+                        <th className="px-3 py-2 font-medium text-right">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {waybills.map((waybill) => (
+                        <tr
+                          key={waybill.id}
+                          tabIndex={0}
+                          role="button"
+                          className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
+                          onClick={() =>
+                            setSelectedDetails({ kind: "search", waybill })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setSelectedDetails({ kind: "search", waybill });
+                            }
+                          }}
+                        >
+                          <td className="px-3 py-2 font-medium">{waybill.waybillNo}</td>
+                          <td className="px-3 py-2">{waybill.invoiceNumber}</td>
+                          <td className="px-3 py-2 text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="gap-2"
+                              disabled={isBusy}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedDetails({ kind: "search", waybill });
+                              }}
+                            >
+                              <Eye className="size-4" aria-hidden />
+                              View
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No waybill saved for this number yet.</p>
+              )}
+
+              {canImportWaybills && matchedOrder && (
+                <form onSubmit={handleSave} className="grid gap-3 border-t border-border/60 pt-4 md:grid-cols-[1fr_1fr_auto]">
+                  <Input
+                    value={waybillNo}
+                    onChange={(event) => setWaybillNo(event.target.value)}
+                    placeholder="Waybill number"
+                    className="h-11"
+                    disabled={isBusy}
+                  />
+                  <Input
+                    value={courierName}
+                    onChange={(event) => setCourierName(event.target.value)}
+                    placeholder="Courier name"
+                    className="h-11"
+                    disabled={isBusy}
+                  />
+                  <Button type="submit" disabled={isBusy} className="h-11 gap-2">
+                    {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                </form>
+              )}
+            </div>
+          )}
+
           <p className="text-xs text-muted-foreground">
             Shows unmatched waybills and matched orders that are not delivery-complete. Completed
-            deliveries leave this list but remain findable via Search above.
+            deliveries leave this list but remain findable via Search.
           </p>
           {pageLoading && !pageData ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
