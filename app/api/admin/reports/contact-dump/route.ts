@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { CONTACT_DUMP_PARTS, type ContactDumpPartKey, buildContactDumpCsv } from "@/lib/reports/contact-dump";
 import { getContactDumpPermission } from "@/lib/report-permissions";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
   });
 
   const csv = buildContactDumpCsv(contacts);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatAppIsoDate(new Date());
   const suffix = part === "all" ? "all" : part.replace("_", "-");
   const fileName = `contact-dump-${suffix}-${today}.csv`;
 

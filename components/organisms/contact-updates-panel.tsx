@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { formatAppDate } from "@/lib/format-datetime";
+import { formatAppDate, formatAppIsoDate } from "@/lib/format-datetime";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 
 type ContactItem = {
@@ -156,7 +156,7 @@ function buildInitialForm(contact: ContactItem | null): DetailForm {
   if (contact?.remindAt) {
     const d = new Date(contact.remindAt);
     if (!Number.isNaN(d.getTime())) {
-      remindDate = d.toISOString().slice(0, 10);
+      remindDate = formatAppIsoDate(d);
     }
   }
   return {

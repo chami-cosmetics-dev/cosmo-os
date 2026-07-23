@@ -1,3 +1,4 @@
+import { formatAppIsoDate, formatAppIsoDateTime } from "@/lib/format-datetime";
 import { formatFulfillmentOrderReferenceText } from "@/lib/fulfillment-order-reference";
 
 export type CsvPrimitive = string | number | null | undefined;
@@ -26,14 +27,14 @@ export function buildCsv<T extends Record<string, CsvPrimitive>>(
   return `\uFEFF${lines.join("\r\n")}`;
 }
 
+/** YYYY-MM-DD in Asia/Colombo (report date columns). */
 export function formatIsoDate(value: Date | null | undefined) {
-  if (!value) return "";
-  return value.toISOString().slice(0, 10);
+  return formatAppIsoDate(value, "");
 }
 
+/** YYYY-MM-DD HH:mm:ss in Asia/Colombo (report timestamp columns). */
 export function formatIsoDateTime(value: Date | null | undefined) {
-  if (!value) return "";
-  return value.toISOString().replace("T", " ");
+  return formatAppIsoDateTime(value, "");
 }
 
 export function startOfDay(value: Date) {

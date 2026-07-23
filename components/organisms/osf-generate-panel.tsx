@@ -7,29 +7,17 @@ import { OsfFieldSourceLegend } from "@/components/molecules/osf-field-source-le
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 
 type Vendor = { id: string; name: string };
 type PriorityOption = { id: string; name: string };
 
 function currentMonthColombo(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Colombo",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "01";
-  return `${get("year")}-${get("month")}`;
+  return formatAppIsoDate(new Date()).slice(0, 7);
 }
 
 function todayColombo(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Colombo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "01";
-  return `${get("year")}-${get("month")}-${get("day")}`;
+  return formatAppIsoDate(new Date());
 }
 
 export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: boolean }) {

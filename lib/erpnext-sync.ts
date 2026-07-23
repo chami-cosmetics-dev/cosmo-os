@@ -18,9 +18,10 @@ import { resolveShopifyShippingLineTotal } from "@/lib/order-shipping-display";
 import { orderHasFreeShippingCoupon } from "@/lib/shopify-discount-codes";
 import {
   isCcCheckoutGateway,
-  orderHasCcCheckoutGateway,
+  orderHasEarlyFinancialInvoiceCompleteGateway,
 } from "@/lib/delivery-payment-approval";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 
 function resolveOrderShippingAmountForErp(input: {
   discountCodes?: unknown;
@@ -80,7 +81,7 @@ function authHeaders(cfg: ErpConfig): Record<string, string> {
 }
 
 function toDateStr(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return formatAppIsoDate(d);
 }
 
 // ERPNext stores posting_date/posting_time as naive datetimes in Asia/Colombo timezone.
@@ -159,7 +160,11 @@ function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   return null;
 }
 
-/** After SI exists: create prepaid PE for paid gateways; for CC Checkout also set early invoiceCompleteAt. */
+/**
+ * After SI exists: create prepaid PE for paid gateways.
+ * CC Checkout / WebXPay also set early `invoiceCompleteAt` so they skip manual invoice-complete.
+ * KOKO / bank transfer get `invoiceCompleteAt` on finance approval instead.
+ */
 async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   order: {
     id: string;
@@ -186,13 +191,13 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
   const gateways = (
     [input.order.paymentGatewayPrimary, ...input.order.paymentGatewayNames] as (string | null)[]
   ).filter((g): g is string => typeof g === "string" && g.length > 0);
-  const isCc = orderHasCcCheckoutGateway(input.order) || gateways.some(isCcCheckoutGateway);
+  const earlyInvoiceComplete = orderHasEarlyFinancialInvoiceCompleteGateway(input.order);
   const cfg = getErpConfig(input.location.erpnextInstance);
   const mopName = resolvePrepaidMop(cfg, gateways);
 
   if (!mopName) {
-    if (isCc) {
-      const errMsg = "No WebXPay ERP payment mode configured for CC Checkout";
+    if (earlyInvoiceComplete) {
+      const errMsg = "No WebXPay ERP payment mode configured for CC Checkout / WebXPay";
       await prisma.order.update({
         where: { id: input.order.id },
         data: {
@@ -230,11 +235,11 @@ async function syncPaidGatewayPeAndMaybeCcInvoiceComplete(input: {
         },
         input.location,
         input.paidAt,
-        { requirePe: isCc },
+        { requirePe: earlyInvoiceComplete },
       );
     }
 
-    if (isCc) {
+    if (earlyInvoiceComplete) {
       await markOrderFinanciallyInvoiceComplete({ orderId: input.order.id, at: input.paidAt });
       await prisma.order.update({
         where: { id: input.order.id },
@@ -1010,6 +1015,205 @@ export async function createDeliveryPaymentEntry(
   return { outcome: "created" };
 }
 
+/** Exported for unit tests — paid returns must not update outstanding only on the return SI. */
+export function creditNoteUpdateOutstandingForSelf(): 0 {
+  return 0;
+}
+
+export type EnsureErpnextCreditNoteResult = {
+  creditNoteName: string;
+  originalInvoiceName: string;
+  originalStatus: string;
+  created: boolean;
+};
+
+type OriginalSiForCreditNote = {
+  name: string;
+  customer: string;
+  debit_to: string;
+  grand_total: number;
+  status?: string | null;
+  company?: string;
+  custom_payment_type?: string | null;
+  custom_merchant_coupon_code?: string | null;
+  items: Array<{
+    item_code: string;
+    item_name?: string;
+    description?: string;
+    qty: number;
+    rate: number;
+    income_account?: string;
+    cost_center?: string;
+    uom?: string;
+  }>;
+};
+
+async function resolveOriginalSalesInvoiceName(
+  cfg: ErpConfig,
+  order: { name: string | null; orderNumber: string | null; erpnextInvoiceId?: string | null },
+  company: string,
+): Promise<{ originalSiName: string; orderName: string }> {
+  const orderName = order.name ?? order.orderNumber;
+  if (!orderName) throw new Error("[ERPNext] credit note: order has no name");
+
+  if (isUsableErpInvoiceId(order.erpnextInvoiceId)) {
+    return { originalSiName: order.erpnextInvoiceId.trim(), orderName };
+  }
+
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["po_no", "=", orderName],
+      ["company", "=", company],
+      ["docstatus", "=", "1"],
+      ["is_return", "=", 0],
+    ]),
+  );
+  const fields = encodeURIComponent(JSON.stringify(["name"]));
+  const list = await erpnextGet<Array<{ name: string }>>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
+  );
+  if (!list || list.length === 0) {
+    throw new Error(`[ERPNext] credit note: no submitted SI found for po_no="${orderName}"`);
+  }
+  return { originalSiName: list[0].name, orderName };
+}
+
+async function listSubmittedReturnSisAgainst(
+  cfg: ErpConfig,
+  originalSiName: string,
+): Promise<string[]> {
+  const filters = encodeURIComponent(
+    JSON.stringify([
+      ["return_against", "=", originalSiName],
+      ["docstatus", "=", 1],
+      ["is_return", "=", 1],
+    ]),
+  );
+  const fields = encodeURIComponent(JSON.stringify(["name"]));
+  const list = await erpnextGet<Array<{ name: string }>>(
+    cfg,
+    `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit_page_length=20`,
+  );
+  return (list ?? []).map((row) => row.name).filter(Boolean);
+}
+
+async function fetchSalesInvoiceStatus(
+  cfg: ErpConfig,
+  invoiceName: string,
+): Promise<{ status: string; customer: string; debit_to: string; company: string; grand_total: number } | null> {
+  const doc = await erpnextGet<{
+    status?: string | null;
+    customer: string;
+    debit_to: string;
+    company: string;
+    grand_total: number;
+  }>(cfg, `/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}`);
+  if (!doc) return null;
+  return {
+    status: doc.status?.trim() || "",
+    customer: doc.customer,
+    debit_to: doc.debit_to,
+    company: doc.company,
+    grand_total: doc.grand_total,
+  };
+}
+
+/**
+ * Best-effort: allocate return SI against original so status becomes Credit Note Issued
+ * (needed on newer ERPNext when return alone leaves original Paid).
+ */
+async function tryReconcileCreditNoteAgainstOriginal(
+  cfg: ErpConfig,
+  input: {
+    company: string;
+    customer: string;
+    debitTo: string;
+    originalSiName: string;
+    creditNoteName: string;
+    amount: number;
+  },
+): Promise<void> {
+  const amount = Math.abs(Number(input.amount) || 0);
+  if (!(amount > 0)) return;
+
+  try {
+    const pr = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Reconciliation", {
+      doctype: "Payment Reconciliation",
+      company: input.company,
+      party_type: "Customer",
+      party: input.customer,
+      receivable_payable_account: input.debitTo,
+      invoices: [
+        {
+          invoice_type: "Sales Invoice",
+          invoice_number: input.originalSiName,
+          outstanding_amount: amount,
+          amount,
+          allocated_amount: amount,
+        },
+      ],
+      payments: [
+        {
+          reference_type: "Sales Invoice",
+          reference_name: input.creditNoteName,
+          amount,
+          allocated_amount: amount,
+        },
+      ],
+    });
+
+    const submitRes = await fetch(`${cfg.baseUrl}/api/method/frappe.client.submit`, {
+      method: "POST",
+      headers: authHeaders(cfg),
+      body: JSON.stringify({ doc: { doctype: "Payment Reconciliation", name: pr.name } }),
+    });
+    if (!submitRes.ok) {
+      const text = await submitRes.text().catch(() => "");
+      console.warn(
+        `[ERPNext] Payment Reconciliation submit failed for ${input.creditNoteName}: ${text.slice(0, 300)}`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[ERPNext] Payment Reconciliation fallback failed for ${input.creditNoteName}:`,
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+async function assertOriginalCreditNoted(
+  cfg: ErpConfig,
+  originalSiName: string,
+  creditNoteName: string,
+): Promise<string> {
+  let current = await fetchSalesInvoiceStatus(cfg, originalSiName);
+  if (!current) {
+    throw new Error(`[ERPNext] credit note: could not re-fetch original SI "${originalSiName}"`);
+  }
+  if (current.status.toLowerCase() === "credit note issued") {
+    return current.status;
+  }
+
+  await tryReconcileCreditNoteAgainstOriginal(cfg, {
+    company: current.company,
+    customer: current.customer,
+    debitTo: current.debit_to,
+    originalSiName,
+    creditNoteName,
+    amount: current.grand_total,
+  });
+
+  current = await fetchSalesInvoiceStatus(cfg, originalSiName);
+  if (current && current.status.toLowerCase() === "credit note issued") {
+    return current.status;
+  }
+
+  throw new Error(
+    `[ERPNext] Return SI ${creditNoteName} exists but original ${originalSiName} is still "${current?.status || "unknown"}" (expected Credit Note Issued). Reconcile the credit note against the invoice in ERPNext, then retry.`,
+  );
+}
+
 /**
  * Create a credit note (return Sales Invoice) in ERPNext for an order whose
  * invoice_complete was reverted by a finance user. Non-fatal — caller must catch.
@@ -1018,100 +1222,116 @@ export async function createErpnextCreditNote(
   order: { id: string; name: string | null; orderNumber: string | null; erpnextInvoiceId?: string | null },
   location: LocationWithErpInstance,
 ): Promise<{ creditNoteName: string }> {
+  const ensured = await ensureErpnextCreditNote(order, location, {
+    requireOriginalCreditNoted: false,
+  });
+  return { creditNoteName: ensured.creditNoteName };
+}
+
+/**
+ * Ensure a submitted return SI exists against the original invoice.
+ * When `requireOriginalCreditNoted` (default true), also require original status
+ * Credit Note Issued — failing if the original remains Paid.
+ */
+export async function ensureErpnextCreditNote(
+  order: {
+    id: string;
+    name: string | null;
+    orderNumber: string | null;
+    erpnextInvoiceId?: string | null;
+    erpReturnSalesInvoiceIds?: string[] | null;
+  },
+  location: LocationWithErpInstance,
+  options?: { requireOriginalCreditNoted?: boolean },
+): Promise<EnsureErpnextCreditNoteResult> {
+  const requireOriginalCreditNoted = options?.requireOriginalCreditNoted !== false;
   const cfg = getErpConfig(location.erpnextInstance);
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
-    throw new Error("[ERPNext] createErpnextCreditNote: ERP credentials not configured");
+    throw new Error("[ERPNext] ensureErpnextCreditNote: ERP credentials not configured");
   }
   if (!location.erpnextCompany) {
-    throw new Error("[ERPNext] createErpnextCreditNote: location has no erpnextCompany");
+    throw new Error("[ERPNext] ensureErpnextCreditNote: location has no erpnextCompany");
   }
 
-  const orderName = order.name ?? order.orderNumber;
-  if (!orderName) throw new Error("[ERPNext] createErpnextCreditNote: order has no name");
-
-  // For ERP-native orders (erpnextInvoiceId set), the SI name IS the invoice id — fetch directly.
-  // For Shopify-sourced orders, find the SI by po_no (Shopify order name stored there).
-  let originalSiName: string;
-  if (order.erpnextInvoiceId) {
-    originalSiName = order.erpnextInvoiceId;
-  } else {
-    const filters = encodeURIComponent(
-      JSON.stringify([
-        ["po_no", "=", orderName],
-        ["company", "=", location.erpnextCompany],
-        ["docstatus", "=", "1"],
-      ]),
-    );
-    const fields = encodeURIComponent(
-      JSON.stringify(["name"]),
-    );
-    const list = await erpnextGet<Array<{ name: string }>>(
-      cfg,
-      `/api/resource/Sales Invoice?filters=${filters}&fields=${fields}&limit=1`,
-    );
-    if (!list || list.length === 0) {
-      throw new Error(`[ERPNext] createErpnextCreditNote: no submitted SI found for po_no="${orderName}"`);
-    }
-    originalSiName = list[0].name;
-  }
-
-  // Fetch full SI document to get items, debit_to, and any custom mandatory fields
-  const originalSi = await erpnextGet<{
-    name: string;
-    customer: string;
-    debit_to: string;
-    grand_total: number;
-    custom_payment_type?: string | null;
-    custom_merchant_coupon_code?: string | null;
-    items: Array<{
-      item_code: string;
-      item_name?: string;
-      description?: string;
-      qty: number;
-      rate: number;
-      income_account?: string;
-      cost_center?: string;
-      uom?: string;
-    }>;
-  }>(cfg, `/api/resource/Sales Invoice/${encodeURIComponent(originalSiName)}`);
-
-  if (!originalSi) {
-    throw new Error(`[ERPNext] createErpnextCreditNote: could not fetch SI "${originalSiName}"`);
-  }
-
-  const today = toDateStr(new Date());
-  const returnItems = originalSi.items.map((item) => ({
-    item_code: item.item_code,
-    item_name: item.item_name,
-    description: item.description,
-    qty: -Math.abs(item.qty),
-    rate: item.rate,
-    income_account: item.income_account,
-    cost_center: item.cost_center,
-    uom: item.uom,
-  }));
-
-  const creditNote = await erpnextPost<{ name: string }>(cfg, "/api/resource/Sales Invoice", {
-    doctype: "Sales Invoice",
-    is_return: 1,
-    return_against: originalSiName,
-    company: location.erpnextCompany,
-    customer: originalSi.customer,
-    debit_to: originalSi.debit_to,
-    posting_date: today,
-    po_no: orderName,
-    items: returnItems,
-    docstatus: 1,
-    // Pass through custom mandatory fields from the original SI (e.g. Cosmetics.lk requires these)
-    ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
-    ...(originalSi.custom_merchant_coupon_code ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code } : {}),
-  });
-
-  console.log(
-    `[ERPNext] Credit note ${creditNote.name} created against ${originalSiName} for order ${orderName}`,
+  const { originalSiName, orderName } = await resolveOriginalSalesInvoiceName(
+    cfg,
+    order,
+    location.erpnextCompany,
   );
 
-  return { creditNoteName: creditNote.name };
+  const existingOs = (order.erpReturnSalesInvoiceIds ?? []).map((v) => v.trim()).filter(Boolean);
+  let creditNoteName = existingOs[0] ?? null;
+  let created = false;
+
+  if (!creditNoteName) {
+    const existingErp = await listSubmittedReturnSisAgainst(cfg, originalSiName);
+    creditNoteName = existingErp[0] ?? null;
+  }
+
+  if (!creditNoteName) {
+    const originalSi = await erpnextGet<OriginalSiForCreditNote>(
+      cfg,
+      `/api/resource/Sales Invoice/${encodeURIComponent(originalSiName)}`,
+    );
+    if (!originalSi) {
+      throw new Error(`[ERPNext] ensureErpnextCreditNote: could not fetch SI "${originalSiName}"`);
+    }
+
+    const today = toDateStr(new Date());
+    const returnItems = originalSi.items.map((item) => ({
+      item_code: item.item_code,
+      item_name: item.item_name,
+      description: item.description,
+      qty: -Math.abs(item.qty),
+      rate: item.rate,
+      income_account: item.income_account,
+      cost_center: item.cost_center,
+      uom: item.uom,
+    }));
+
+    const creditNote = await erpnextPost<{ name: string }>(cfg, "/api/resource/Sales Invoice", {
+      doctype: "Sales Invoice",
+      is_return: 1,
+      return_against: originalSiName,
+      // Uncheck "Update Outstanding for Self" so paid originals flip to Credit Note Issued
+      update_outstanding_for_self: creditNoteUpdateOutstandingForSelf(),
+      company: location.erpnextCompany,
+      customer: originalSi.customer,
+      debit_to: originalSi.debit_to,
+      posting_date: today,
+      po_no: orderName,
+      items: returnItems,
+      docstatus: 1,
+      ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
+      ...(originalSi.custom_merchant_coupon_code
+        ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code }
+        : {}),
+    });
+
+    creditNoteName = creditNote.name;
+    created = true;
+    console.log(
+      `[ERPNext] Credit note ${creditNoteName} created against ${originalSiName} for order ${orderName}`,
+    );
+  }
+
+  if (!requireOriginalCreditNoted) {
+    const statusDoc = await fetchSalesInvoiceStatus(cfg, originalSiName);
+    return {
+      creditNoteName,
+      originalInvoiceName: originalSiName,
+      originalStatus: statusDoc?.status || "",
+      created,
+    };
+  }
+
+  const originalStatus = await assertOriginalCreditNoted(cfg, originalSiName, creditNoteName);
+  return {
+    creditNoteName,
+    originalInvoiceName: originalSiName,
+    originalStatus,
+    created,
+  };
 }
 
 export type SalesInvoiceCancellationResult = {
@@ -1661,7 +1881,8 @@ export async function syncOrderToERPNext(
       paidAt: order.createdAt,
       directPe: {
         invoiceName: si.name,
-        customerName,
+        // Must be ERP Customer.name (often phone-based), not Shopify display name.
+        customerName: erpCustomerName,
         debitTo: si.debit_to,
         amount: si.grand_total,
         dateStr,

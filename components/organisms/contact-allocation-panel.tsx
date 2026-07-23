@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { APP_LOCALE, APP_TIME_ZONE } from "@/lib/format-datetime";
 import type {
   ContactAllocationContact,
   ContactAllocationFilters,
@@ -69,7 +70,11 @@ function formatMonth(value: string | null | undefined) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("en-LK", { year: "numeric", month: "2-digit" });
+  return date.toLocaleDateString(APP_LOCALE, {
+    year: "numeric",
+    month: "2-digit",
+    timeZone: APP_TIME_ZONE,
+  });
 }
 
 function parseTpNumbers(value: string) {

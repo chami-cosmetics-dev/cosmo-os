@@ -7,6 +7,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
 import { formatAddress, getCustomerName } from "@/lib/reports/csv";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 
 const DM_GENERAL_MERCHANT_ID = "__dm_general";
@@ -24,7 +25,7 @@ function parseStatus(value: string | null): ExportStatus {
 }
 
 function buildFileName(status: ExportStatus) {
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = formatAppIsoDate(new Date());
   return status === "all"
     ? `merchant-reviews-${stamp}.xlsx`
     : `merchant-reviews-${status}-${stamp}.xlsx`;

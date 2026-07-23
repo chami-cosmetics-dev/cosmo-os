@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
 import { fetchOutletReviewSheetData } from "@/lib/page-data/outlet-review-sheet";
+import { formatAppDate, formatAppIsoDate } from "@/lib/format-datetime";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-LK", { year: "numeric", month: "2-digit", day: "2-digit" });
+  return formatAppDate(iso, iso);
 }
 
 function toSheetName(name: string, usedNames: Set<string>): string {
@@ -106,7 +105,7 @@ export async function GET(request: NextRequest) {
     XLSX.utils.book_append_sheet(workbook, worksheet, toSheetName(sheet.outletName, usedSheetNames));
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = formatAppIsoDate(new Date());
   const outletLabel = outletId && outletId !== "__all"
     ? (data.outlets.find((o) => o.id === outletId)?.name ?? "outlet").replace(/\s+/g, "-").toLowerCase()
     : "all";

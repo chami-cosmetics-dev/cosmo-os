@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 import { prisma as prismaClient } from "@/lib/prisma";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { LIMITS } from "@/lib/validation";
 
 const prisma: PrismaClient = prismaClient;
@@ -222,7 +223,7 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
     }
 
     const sinceDate = new Date(Date.now() - ABANDONED_CHECKOUT_SYNC_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    const sinceYmd = sinceDate.toISOString().slice(0, 10);
+    const sinceYmd = formatAppIsoDate(sinceDate);
     const query = `created_at:>='${sinceYmd}'`;
 
     let upserted = 0;

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 import { sendResignationNotice } from "@/lib/maileroo";
+import { formatAppDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
 
@@ -127,7 +128,7 @@ export async function POST(
           targetUser.knownName ?? targetUser.name ?? targetUser.email ?? "Unknown";
         const staffData = {
           staffName,
-          resignationDate: validResignedAt.toLocaleDateString(),
+          resignationDate: formatAppDate(validResignedAt),
           reason: reason ?? "Not provided",
           employeeNumber:
             targetUser.employeeProfile?.employeeNumber ?? "-",

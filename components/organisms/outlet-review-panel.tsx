@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { notify } from "@/lib/notify";
+import { formatAppDate } from "@/lib/format-datetime";
 
 type OutletOption = { id: string; name: string };
 
@@ -58,9 +59,7 @@ function toReviewStatus(value: string): ReviewStatus {
 }
 
 function formatDate(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-LK", { year: "numeric", month: "short", day: "2-digit" });
+  return formatAppDate(iso, iso);
 }
 
 export function OutletReviewPanel({

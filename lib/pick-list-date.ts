@@ -1,4 +1,4 @@
-const PICK_LIST_TIMEZONE = "Asia/Colombo";
+import { formatAppDateShort, formatAppIsoDate } from "@/lib/format-datetime";
 
 /** Start and end of the given calendar day (YYYY-MM-DD) in Sri Lanka time. Defaults to today. */
 export function getPickListTodayBounds(dateStr?: string) {
@@ -6,12 +6,7 @@ export function getPickListTodayBounds(dateStr?: string) {
   if (dateStr && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     resolved = dateStr;
   } else {
-    resolved = new Intl.DateTimeFormat("en-CA", {
-      timeZone: PICK_LIST_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
+    resolved = formatAppIsoDate(new Date());
   }
 
   return {
@@ -23,12 +18,5 @@ export function getPickListTodayBounds(dateStr?: string) {
 
 export function formatPickListTodayLabel(dateStr?: string) {
   const { label } = getPickListTodayBounds(dateStr);
-  const [y, m, d] = label.split("-").map(Number);
-  const date = new Date(Date.UTC(y!, m! - 1, d!));
-  return date.toLocaleDateString("en-LK", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: PICK_LIST_TIMEZONE,
-  });
+  return formatAppDateShort(`${label}T12:00:00+05:30`, label);
 }

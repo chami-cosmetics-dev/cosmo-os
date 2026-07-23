@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   isCcCheckoutGateway,
+  isEarlyFinancialInvoiceCompleteGateway,
   isPrePaidGateway,
   normalizePaymentGatewayKey,
   orderHasCcCheckoutGateway,
+  orderHasEarlyFinancialInvoiceCompleteGateway,
   shouldSkipDeliveryPaymentApproval,
 } from "@/lib/delivery-payment-approval";
 
@@ -39,6 +41,27 @@ describe("orderHasCcCheckoutGateway", () => {
       orderHasCcCheckoutGateway({
         paymentGatewayPrimary: null,
         paymentGatewayNames: ["CC-CHECKOUT"],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("isEarlyFinancialInvoiceCompleteGateway", () => {
+  it("matches CC Checkout and WebXPay only", () => {
+    expect(isEarlyFinancialInvoiceCompleteGateway("CC CHECKOUT")).toBe(true);
+    expect(isEarlyFinancialInvoiceCompleteGateway("WebXPay")).toBe(true);
+    expect(isEarlyFinancialInvoiceCompleteGateway("KOKO")).toBe(false);
+    expect(isEarlyFinancialInvoiceCompleteGateway("bank_transfer")).toBe(false);
+    expect(isEarlyFinancialInvoiceCompleteGateway("cod")).toBe(false);
+  });
+});
+
+describe("orderHasEarlyFinancialInvoiceCompleteGateway", () => {
+  it("detects WebXPay on names", () => {
+    expect(
+      orderHasEarlyFinancialInvoiceCompleteGateway({
+        paymentGatewayPrimary: null,
+        paymentGatewayNames: ["webxpay"],
       }),
     ).toBe(true);
   });

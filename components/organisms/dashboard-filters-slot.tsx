@@ -7,14 +7,15 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 
 const DASHBOARD_LOCALE = "en-LK";
 const DASHBOARD_TIME_ZONE = "Asia/Colombo";
 
 function shiftDate(dateValue: string, days: number) {
-  const date = new Date(dateValue);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return formatAppIsoCalendarDate(date);
 }
 
 function PresetButton({

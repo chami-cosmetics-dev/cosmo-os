@@ -19,7 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { formatAppCalendarDate } from "@/lib/format-datetime";
+import { formatAppStoredDateTime } from "@/lib/format-datetime";
 import type { ReturnsTrackingData, ReturnTrackingItem } from "@/lib/page-data/order-returns";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import {
@@ -78,7 +78,7 @@ type BulkRemarkDraft = {
 };
 
 function formatDateOnly(value?: string | null) {
-  return formatAppCalendarDate(value, "N/A");
+  return formatAppStoredDateTime(value, "N/A");
 }
 
 function actionTypeBadge(item: ReturnTrackingItem) {
@@ -976,8 +976,8 @@ export function ReturnedOrdersPanel({ initialData }: { initialData: ReturnsTrack
                             : "Finance-reverted order — item has been returned to store, awaiting void approval from finance."
                           : selected.actionType === "cancel"
                             ? selected.actionStatus === "pending"
-                              ? "Cancel request is awaiting finance. Finance will process cancellation in ERPNext."
-                              : "Cancel request processed. Order voids automatically when ERPNext posts the credit note."
+                              ? "Cancel request is awaiting finance. On approve, paid orders get an ERP credit note; unpaid invoices are cancelled."
+                              : "Cancel request processed."
                             : selected.actionType === "rearrange"
                               ? selected.actionStatus === "pending"
                                 ? "Rearrange is awaiting finance approval."

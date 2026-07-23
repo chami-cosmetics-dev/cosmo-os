@@ -826,7 +826,7 @@ export async function createOrGetReturnCancelApproval(input: {
         userId,
         type: "approval_requested",
         title: "Return cancel approval requested",
-        body: `Process cancellation in ERPNext for ${input.invoiceLabel}. Open the linked Sales Invoice from Finance Approvals.`,
+        body: `Approve in Finance Approvals for ${input.invoiceLabel}. Paid orders create an ERP credit note; unpaid orders cancel the Sales Invoice.`,
         entityType: "ApprovalRequest",
         entityId: id,
       })

@@ -40,6 +40,7 @@ import {
 import { orderStageUpdate, orderStageUpdateIfChanged } from "@/lib/order-stage-timing";
 import { getErpOutOfStockFulfillmentBlock } from "@/lib/erp-fulfillment-block";
 import { isExplicitlyPackageReady } from "@/lib/fulfillment-stage-display";
+import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 
 const addSampleSchema = z.object({
   sampleFreeIssueItemId: cuidSchema,
@@ -190,7 +191,7 @@ function dateOnlyUtc(value: string) {
 }
 
 function dateInputValueUtc(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return formatAppIsoCalendarDate(date);
 }
 
 function addDaysUtc(date: Date, days: number) {
@@ -1135,7 +1136,7 @@ export async function PATCH(
               orderId: order.id,
               merchantUserId: order.assignedMerchantId,
               dispatchedAt: order.dispatchedAt!,
-              returnDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
+              returnDate: now,
               shippingServiceType: shipping.type,
               shippingServiceName: shipping.name,
               riderId: order.dispatchedByRiderId,
@@ -1195,7 +1196,7 @@ export async function PATCH(
               orderId: order.id,
               merchantUserId: order.assignedMerchantId,
               dispatchedAt: order.dispatchedAt ?? now,
-              returnDate: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
+              returnDate: now,
               shippingServiceType: shipping.type,
               shippingServiceName: shipping.name,
               riderId: order.dispatchedByRiderId,

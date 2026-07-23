@@ -18,6 +18,7 @@ import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
+import { formatAppDate } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
 type Location = { id: string; name: string; address: string | null };
@@ -71,9 +72,7 @@ interface StaffManagementPanelProps {
 }
 
 function formatDate(date: string | null): string {
-  if (!date) return "-";
-  const d = new Date(date);
-  return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString();
+  return formatAppDate(date, "-");
 }
 
 export function StaffManagementPanel({

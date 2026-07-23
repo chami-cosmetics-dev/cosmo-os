@@ -4,20 +4,14 @@ import { PermissionDeniedCard } from "@/components/molecules/permission-denied-c
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { formatAppDateTimeShort } from "@/lib/format-datetime";
 import { DailySalesSmsLogsPanel } from "@/components/organisms/daily-sales-sms-logs-panel";
 import { OgfResendButton } from "./ogf-resend-button";
 
 export const dynamic = "force-dynamic";
 
 function formatColombo(date: Date | string) {
-  return new Date(date).toLocaleString("en-GB", {
-    timeZone: "Asia/Colombo",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatAppDateTimeShort(date);
 }
 
 function parseBatchDate(batchCode: string) {
