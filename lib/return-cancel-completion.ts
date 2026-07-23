@@ -177,7 +177,7 @@ export async function runReturnCancelExternalCompletion(input: {
       input.location,
       {
         strict: true,
-        directInvoiceName: input.order.erpnextInvoiceId,
+        directInvoiceName: input.order.erpnextInvoiceId ?? undefined,
       },
     );
 
