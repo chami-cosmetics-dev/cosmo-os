@@ -52,6 +52,7 @@ type LocationOption = {
   id: string;
   name: string;
   locationReference: string | null;
+  invoicePhone: string | null;
 };
 
 type ItemCatalogRow = {
@@ -331,6 +332,16 @@ export function StickerBatchClient({
     if (!activeRow?.locationId) return null;
     return locations.find((location) => location.id === activeRow.locationId) ?? null;
   }, [locations, activeRow]);
+
+  function resolveLocationPhone(locationId?: string | null): string {
+    const fromRow = locationId
+      ? locations.find((location) => location.id === locationId)?.invoicePhone?.trim()
+      : "";
+    if (fromRow) return fromRow;
+    const fromSelected = selectedLocation?.invoicePhone?.trim();
+    if (fromSelected) return fromSelected;
+    return previewMeta.locationPhone.trim();
+  }
 
   const normalizedRowsForCompare = useMemo(
     () =>
@@ -716,6 +727,12 @@ export function StickerBatchClient({
 
   function handleLocationChange(locationId: string) {
     setSelectedLocationId(locationId);
+    const phone =
+      locations.find((location) => location.id === locationId)?.invoicePhone?.trim() ??
+      "";
+    if (phone) {
+      setPreviewMeta((prev) => ({ ...prev, locationPhone: phone }));
+    }
   }
 
   function applySelectedLocationToAllRows() {
@@ -920,7 +937,13 @@ export function StickerBatchClient({
         const locationReference = firstItem?.locationReference?.trim() ?? "";
         const locationName = firstItem?.locationName?.trim() ?? "";
         const locationAddress = firstItem?.locationAddress?.trim() ?? "";
-        const locationPhone = firstItem?.locationPhone?.trim() ?? "";
+        const locationPhone =
+          firstItem?.locationPhone?.trim() ||
+          (locationId
+            ? locations.find((location) => location.id === locationId)
+                ?.invoicePhone?.trim() ?? ""
+            : "") ||
+          "";
 
         const matchedLocationById = locationId
           ? locations.find((location) => location.id === locationId)
@@ -1505,7 +1528,9 @@ export function StickerBatchClient({
                   companyName={previewMeta.companyName || companyName}
                   locationAddress={previewMeta.locationAddress}
                   companyAddress={companyAddress || previewMeta.companyAddress}
-                  locationPhone={previewMeta.locationPhone}
+                  locationPhone={resolveLocationPhone(
+                    activeRow.locationId || selectedLocationId
+                  )}
                 />
               )}
             </div>
@@ -1582,7 +1607,7 @@ export function StickerBatchClient({
                           companyAddress={
                             companyAddress || previewMeta.companyAddress
                           }
-                          locationPhone={previewMeta.locationPhone}
+                          locationPhone={resolveLocationPhone(row.locationId)}
                         />
                       )}
                     </div>

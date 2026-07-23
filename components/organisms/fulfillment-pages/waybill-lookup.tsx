@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { Eye, Loader2, PackageSearch, Plus, Search, Upload } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { Eye, Loader2, PackageSearch, Plus, RefreshCw, Search, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -16,6 +16,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import type {
+  WaybillLookupPageData,
+  WaybillPendingRow,
+} from "@/lib/page-data/waybill-lookup-types";
 
 type LookupResult = {
   order: {
@@ -52,7 +56,22 @@ type ImportSummary = {
   totalRows: number;
   imported: number;
   invalidRows: number;
+  unmatchedRows?: number;
 };
+
+type DetailsTarget =
+  | {
+      kind: "search";
+      waybill: LookupResult["waybills"][number];
+      matchStatus?: undefined;
+      order?: undefined;
+    }
+  | {
+      kind: "pending";
+      waybill: WaybillPendingRow;
+      matchStatus: WaybillPendingRow["matchStatus"];
+      order: WaybillPendingRow["order"];
+    };
 
 function formatDate(value: string | null) {
   return formatAppDateTime(value, "-");
@@ -73,8 +92,10 @@ function hasDisplayValue(value: unknown) {
 
 export function WaybillLookupFulfillmentPage({
   canImportWaybills,
+  initialData = null,
 }: {
   canImportWaybills: boolean;
+  initialData?: WaybillLookupPageData | null;
 }) {
   const [invoice, setInvoice] = useState("");
   const [waybillNo, setWaybillNo] = useState("");
@@ -85,7 +106,50 @@ export function WaybillLookupFulfillmentPage({
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
-  const [selectedWaybill, setSelectedWaybill] = useState<LookupResult["waybills"][number] | null>(null);
+  const [pageData, setPageData] = useState<WaybillLookupPageData | null>(initialData);
+  const [pageLoading, setPageLoading] = useState(!initialData);
+  const [pendingPage, setPendingPage] = useState(initialData?.pagination.page ?? 1);
+  const [rematching, setRematching] = useState(false);
+  const [selectedDetails, setSelectedDetails] = useState<DetailsTarget | null>(null);
+
+  const isBusy = loading || saving || importing || pageLoading || rematching;
+
+  async function loadPageData(options?: { page?: number; rematch?: boolean }) {
+    const page = options?.page ?? pendingPage;
+    setPageLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(pageData?.pagination.limit ?? 50),
+      });
+      if (options?.rematch) params.set("rematch", "1");
+      const response = await fetch(`/api/admin/waybills/page-data?${params.toString()}`);
+      const data = (await response.json().catch(() => null)) as
+        | (WaybillLookupPageData & { error?: string })
+        | null;
+      if (!response.ok || !data) {
+        notify.error(data?.error ?? "Could not load waybill queue.");
+        return;
+      }
+      setPageData(data);
+      setPendingPage(data.pagination.page);
+      if (options?.rematch && data.rematch) {
+        notify.success(
+          `Re-checked ${data.rematch.attempted} unmatched waybill(s); matched ${data.rematch.matched}.`
+        );
+      }
+    } catch {
+      notify.error("Could not load waybill queue.");
+    } finally {
+      setPageLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (initialData) return;
+    void loadPageData({ page: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initial fetch only when no server data
+  }, [initialData]);
 
   async function searchInvoice(nextInvoice = invoice) {
     const trimmed = nextInvoice.trim();
@@ -155,6 +219,7 @@ export function WaybillLookupFulfillmentPage({
       setWaybillNo("");
       setCourierName(data?.order?.courierName ?? "");
       notify.success("Waybill saved.");
+      await loadPageData({ page: pendingPage });
     } catch {
       notify.error("Could not save waybill.");
     } finally {
@@ -189,7 +254,12 @@ export function WaybillLookupFulfillmentPage({
 
       setImportSummary(data.summary);
       setImportFile(null);
-      notify.success(`Imported ${data.summary.imported} waybill(s).`);
+      const unmatched = data.summary.unmatchedRows ?? 0;
+      notify.success(
+        `Imported ${data.summary.imported} waybill(s)` +
+          (unmatched > 0 ? ` (${unmatched} unmatched).` : ".")
+      );
+      await loadPageData({ page: 1 });
     } catch {
       notify.error("Could not import waybill file.");
     } finally {
@@ -197,10 +267,43 @@ export function WaybillLookupFulfillmentPage({
     }
   }
 
+  async function handleRematch() {
+    setRematching(true);
+    try {
+      const response = await fetch("/api/admin/waybills/rematch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { attempted?: number; matched?: number; error?: string }
+        | null;
+      if (!response.ok || data?.attempted == null) {
+        notify.error(data?.error ?? "Could not re-check matches.");
+        return;
+      }
+      notify.success(`Re-checked ${data.attempted} unmatched waybill(s); matched ${data.matched ?? 0}.`);
+      await loadPageData({ page: pendingPage });
+    } catch {
+      notify.error("Could not re-check matches.");
+    } finally {
+      setRematching(false);
+    }
+  }
+
   const matchedOrder = result?.order ?? null;
   const waybills = result?.waybills ?? [];
-  const selectedRawEntries = selectedWaybill?.rawPayload
-    ? Object.entries(selectedWaybill.rawPayload).filter(([, value]) => hasDisplayValue(value))
+  const pending = pageData?.pending ?? [];
+  const uploads = pageData?.uploads ?? [];
+  const pagination = pageData?.pagination;
+  const totalPages = pagination ? Math.max(1, Math.ceil(pagination.total / pagination.limit)) : 1;
+
+  const selectedRawEntries = selectedDetails
+    ? Object.entries(
+        selectedDetails.kind === "pending"
+          ? selectedDetails.waybill.rawPayload ?? {}
+          : selectedDetails.waybill.rawPayload ?? {}
+      ).filter(([, value]) => hasDisplayValue(value))
     : [];
 
   return (
@@ -211,14 +314,15 @@ export function WaybillLookupFulfillmentPage({
           Waybill Lookup
         </h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Upload courier files, then search invoice or waybill numbers when customers ask for delivery details.
+          Upload courier files (each upload adds to the queue — prior files are kept), work pending
+          waybills, and search invoice or waybill numbers when customers ask for delivery details.
         </p>
       </div>
 
       {canImportWaybills && (
         <Card className="border-border/70 shadow-xs">
           <CardHeader className="border-b border-border/50">
-          <CardTitle>Waybill File Upload</CardTitle>
+            <CardTitle>Waybill File Upload</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <form onSubmit={handleImport} className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -227,17 +331,20 @@ export function WaybillLookupFulfillmentPage({
                 accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
                 className="h-11"
+                disabled={isBusy}
               />
-              <Button type="submit" disabled={importing || !importFile} className="h-11 gap-2">
+              <Button type="submit" disabled={isBusy || !importFile} className="h-11 gap-2">
                 {importing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Upload className="size-4" aria-hidden />}
-                Upload File
+                {importing ? "Uploading..." : "Upload File"}
               </Button>
             </form>
             <p className="text-xs text-muted-foreground">
-              Upload CSV, XLSX, or XLS files. The importer saves invoice and waybill numbers for search and keeps the full row for the details popup.
+              Upload CSV, XLSX, or XLS files. New uploads add to (or update) the waybill queue — they do
+              not replace earlier files wholesale. The importer maps invoice references to OS orders and
+              keeps the full row for the details popup.
             </p>
             {importSummary && (
-              <div className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3 text-sm md:grid-cols-3">
+              <div className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3 text-sm md:grid-cols-4">
                 <div>
                   <p className="text-muted-foreground">Rows</p>
                   <p className="font-semibold">{importSummary.totalRows}</p>
@@ -250,11 +357,207 @@ export function WaybillLookupFulfillmentPage({
                   <p className="text-muted-foreground">Invalid</p>
                   <p className="font-semibold">{importSummary.invalidRows}</p>
                 </div>
+                <div>
+                  <p className="text-muted-foreground">Unmatched</p>
+                  <p className="font-semibold">{importSummary.unmatchedRows ?? 0}</p>
+                </div>
               </div>
             )}
           </CardContent>
         </Card>
       )}
+
+      <Card className="border-border/70 shadow-xs">
+        <CardHeader className="border-b border-border/50">
+          <CardTitle>Upload History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pageLoading && !pageData ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading upload history...
+            </p>
+          ) : uploads.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No waybill files uploaded yet.</p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-border/70">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">File</th>
+                    <th className="px-3 py-2 font-medium">Uploaded</th>
+                    <th className="px-3 py-2 font-medium">By</th>
+                    <th className="px-3 py-2 font-medium">Total</th>
+                    <th className="px-3 py-2 font-medium">Imported</th>
+                    <th className="px-3 py-2 font-medium">Invalid</th>
+                    <th className="px-3 py-2 font-medium">Unmatched</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploads.map((upload) => (
+                    <tr key={upload.id} className="border-t border-border/60">
+                      <td className="px-3 py-2 font-medium">{upload.fileName}</td>
+                      <td className="px-3 py-2">{formatDate(upload.createdAt)}</td>
+                      <td className="px-3 py-2">
+                        {upload.uploadedBy?.name || upload.uploadedBy?.email || "—"}
+                      </td>
+                      <td className="px-3 py-2">{upload.totalRows}</td>
+                      <td className="px-3 py-2">{upload.importedRows}</td>
+                      <td className="px-3 py-2">{upload.invalidRows}</td>
+                      <td className="px-3 py-2">{upload.unmatchedRows}</td>
+                      <td className="px-3 py-2 capitalize">{upload.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 shadow-xs">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border/50">
+          <CardTitle>Pending Waybills</CardTitle>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={isBusy}
+            onClick={() => void handleRematch()}
+          >
+            {rematching ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : (
+              <RefreshCw className="size-4" aria-hidden />
+            )}
+            {rematching ? "Re-checking..." : "Re-check matches"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Shows unmatched waybills and matched orders that are not delivery-complete. Completed
+            deliveries leave this list but remain searchable below.
+          </p>
+          {pageLoading && !pageData ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading pending waybills...
+            </p>
+          ) : pending.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No pending waybills.</p>
+          ) : (
+            <div className="overflow-hidden rounded-md border border-border/70">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Waybill No</th>
+                    <th className="px-3 py-2 font-medium">Invoice</th>
+                    <th className="px-3 py-2 font-medium">Courier</th>
+                    <th className="px-3 py-2 font-medium">Match</th>
+                    <th className="px-3 py-2 font-medium">OS order</th>
+                    <th className="px-3 py-2 font-medium">Upload</th>
+                    <th className="px-3 py-2 font-medium text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pending.map((row) => (
+                    <tr
+                      key={row.id}
+                      tabIndex={0}
+                      role="button"
+                      className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
+                      onClick={() =>
+                        setSelectedDetails({
+                          kind: "pending",
+                          waybill: row,
+                          matchStatus: row.matchStatus,
+                          order: row.order,
+                        })
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedDetails({
+                            kind: "pending",
+                            waybill: row,
+                            matchStatus: row.matchStatus,
+                            order: row.order,
+                          });
+                        }
+                      }}
+                    >
+                      <td className="px-3 py-2 font-medium">{row.waybillNo}</td>
+                      <td className="px-3 py-2">{row.invoiceNumber}</td>
+                      <td className="px-3 py-2">{row.courierName ?? "—"}</td>
+                      <td className="px-3 py-2 capitalize">{row.matchStatus}</td>
+                      <td className="px-3 py-2">{row.order?.displayId ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col">
+                          <span>{row.uploadFileName ?? "—"}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(row.uploadedAt)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          disabled={isBusy}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedDetails({
+                              kind: "pending",
+                              waybill: row,
+                              matchStatus: row.matchStatus,
+                              order: row.order,
+                            });
+                          }}
+                        >
+                          <Eye className="size-4" aria-hidden />
+                          View
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {pagination && pagination.total > pagination.limit && (
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <p className="text-muted-foreground">
+                Page {pagination.page} of {totalPages} ({pagination.total} pending)
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBusy || pendingPage <= 1}
+                  onClick={() => void loadPageData({ page: pendingPage - 1 })}
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isBusy || pendingPage >= totalPages}
+                  onClick={() => void loadPageData({ page: pendingPage + 1 })}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className="border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50">
@@ -269,11 +572,12 @@ export function WaybillLookupFulfillmentPage({
                 onChange={(event) => setInvoice(event.target.value)}
                 placeholder="Invoice or waybill number"
                 className="h-11 pl-9"
+                disabled={isBusy}
               />
             </div>
-            <Button type="submit" disabled={loading} className="h-11 gap-2">
+            <Button type="submit" disabled={isBusy} className="h-11 gap-2">
               {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Search className="size-4" aria-hidden />}
-              Search
+              {loading ? "Searching..." : "Search"}
             </Button>
           </form>
         </CardContent>
@@ -346,11 +650,13 @@ export function WaybillLookupFulfillmentPage({
                         tabIndex={0}
                         role="button"
                         className="border-t border-border/60 transition-colors hover:bg-muted/35 focus:bg-muted/35 focus:outline-none focus:ring-2 focus:ring-ring/60"
-                        onClick={() => setSelectedWaybill(waybill)}
+                        onClick={() =>
+                          setSelectedDetails({ kind: "search", waybill })
+                        }
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setSelectedWaybill(waybill);
+                            setSelectedDetails({ kind: "search", waybill });
                           }
                         }}
                       >
@@ -362,9 +668,10 @@ export function WaybillLookupFulfillmentPage({
                             variant="outline"
                             size="sm"
                             className="gap-2"
+                            disabled={isBusy}
                             onClick={(event) => {
                               event.stopPropagation();
-                              setSelectedWaybill(waybill);
+                              setSelectedDetails({ kind: "search", waybill });
                             }}
                           >
                             <Eye className="size-4" aria-hidden />
@@ -387,16 +694,18 @@ export function WaybillLookupFulfillmentPage({
                   onChange={(event) => setWaybillNo(event.target.value)}
                   placeholder="Waybill number"
                   className="h-11"
+                  disabled={isBusy}
                 />
                 <Input
                   value={courierName}
                   onChange={(event) => setCourierName(event.target.value)}
                   placeholder="Courier name"
                   className="h-11"
+                  disabled={isBusy}
                 />
-                <Button type="submit" disabled={saving} className="h-11 gap-2">
+                <Button type="submit" disabled={isBusy} className="h-11 gap-2">
                   {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
-                  Save
+                  {saving ? "Saving..." : "Save"}
                 </Button>
               </form>
             )}
@@ -404,37 +713,64 @@ export function WaybillLookupFulfillmentPage({
         </Card>
       )}
 
-      <Dialog open={Boolean(selectedWaybill)} onOpenChange={(open) => !open && setSelectedWaybill(null)}>
+      <Dialog
+        open={Boolean(selectedDetails)}
+        onOpenChange={(open) => !open && setSelectedDetails(null)}
+      >
         <DialogContent className="flex max-h-[86vh] flex-col overflow-hidden sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Waybill Details</DialogTitle>
             <DialogDescription>
-              Full uploaded row for invoice {selectedWaybill?.invoiceNumber ?? "-"}.
+              Full uploaded row for invoice{" "}
+              {selectedDetails?.waybill.invoiceNumber ?? "-"}.
             </DialogDescription>
           </DialogHeader>
-          {selectedWaybill && (
+          {selectedDetails && (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
               <div className="grid gap-3 rounded-md border border-border/70 bg-muted/20 p-3 text-sm sm:grid-cols-2">
                 <div>
                   <p className="text-muted-foreground">Invoice number</p>
-                  <p className="font-medium">{selectedWaybill.invoiceNumber}</p>
+                  <p className="font-medium">{selectedDetails.waybill.invoiceNumber}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Waybill number</p>
-                  <p className="font-medium">{selectedWaybill.waybillNo}</p>
+                  <p className="font-medium">{selectedDetails.waybill.waybillNo}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Courier</p>
-                  <p className="font-medium">{selectedWaybill.courierName ?? "-"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Saved</p>
-                  <p className="font-medium">{formatDate(selectedWaybill.createdAt)}</p>
+                  <p className="font-medium">{selectedDetails.waybill.courierName ?? "-"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Uploaded</p>
-                  <p className="font-medium">{formatDate(selectedWaybill.uploadedAt)}</p>
+                  <p className="font-medium">
+                    {formatDate(
+                      selectedDetails.kind === "pending"
+                        ? selectedDetails.waybill.uploadedAt
+                        : selectedDetails.waybill.uploadedAt
+                    )}
+                  </p>
                 </div>
+                {selectedDetails.kind === "pending" && (
+                  <>
+                    <div>
+                      <p className="text-muted-foreground">Match status</p>
+                      <p className="font-medium capitalize">{selectedDetails.matchStatus}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">OS order</p>
+                      {selectedDetails.order ? (
+                        <p className="font-medium">
+                          {selectedDetails.order.displayId}
+                          {selectedDetails.order.deliveryCompleteAt
+                            ? " (delivery complete)"
+                            : " (not delivery complete)"}
+                        </p>
+                      ) : (
+                        <p className="font-medium text-muted-foreground">No OS order match found</p>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {selectedRawEntries.length > 0 ? (
