@@ -1477,15 +1477,24 @@ export function OrderInvoiceViewModal({
             )}
 
             {/* Cancel Order */}
-            {orderDetail.financialStatus?.toLowerCase() === "voided" && orderDetail.cancelledAt ? (
+            {orderDetail.financialStatus?.toLowerCase() === "voided" ? (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
                 <div className="flex items-center gap-2 font-medium text-destructive">
                   <XCircle className="size-4" />
                   Order Cancelled
                 </div>
-                {orderDetail.cancelledBy && (
-                  <p className="mt-1 text-muted-foreground">By {orderDetail.cancelledBy.name ?? orderDetail.cancelledBy.email}</p>
-                )}
+                <p className="mt-1 text-muted-foreground">
+                  When:{" "}
+                  {orderDetail.cancelledAt
+                    ? formatDate(orderDetail.cancelledAt)
+                    : "—"}
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  By:{" "}
+                  {orderDetail.cancelledBy?.name?.trim() ||
+                    orderDetail.cancelledBy?.email?.trim() ||
+                    "ERP"}
+                </p>
                 {orderDetail.cancelReason && (
                   <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
                 )}

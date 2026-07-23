@@ -339,7 +339,7 @@ export function StickerPrintClient({
                     itemName={item.itemName}
                     unitPrice={item.unitPrice}
                     locationReference={item.locationReference}
-                    supplierName={detail.supplierName}
+                    supplierCode={detail.supplierCode}
                     companyName={detail.companyName}
                     locationAddress={item.locationAddress}
                     companyAddress={detail.companyAddress}

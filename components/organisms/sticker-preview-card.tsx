@@ -7,7 +7,7 @@ interface StickerPreviewCardProps {
   itemCode?: string | null;
   itemName?: string | null;
   locationReference?: string | null;
-  supplierName?: string | null;
+  supplierCode?: string | null;
   unitPrice?: string | number | null;
   companyName?: string | null;
   locationAddress?: string | null;
@@ -86,6 +86,7 @@ export function StickerPreviewCard({
   itemCode,
   itemName,
   locationReference,
+  supplierCode,
   unitPrice,
   companyName,
   companyAddress,
@@ -127,6 +128,9 @@ export function StickerPreviewCard({
           </div>
         </div>
         <div className="max-w-[0.72in] text-right">
+          <div className="truncate text-[7px] font-semibold">
+            {supplierCode?.trim() || "-"}
+          </div>
           <div className="mt-0.5 text-[11px] font-semibold leading-none">
             MRP
           </div>

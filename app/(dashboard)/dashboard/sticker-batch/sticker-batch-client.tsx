@@ -1498,9 +1498,9 @@ export function StickerBatchClient({
                     selectedLocation?.locationReference?.trim() ||
                     previewMeta.locationReference
                   }
-                  supplierName={
-                    suppliers.find((s) => s.id === supplierId)?.name ??
-                    previewMeta.supplierName
+                  supplierCode={
+                    suppliers.find((s) => s.id === supplierId)?.code ??
+                    previewMeta.supplierCode
                   }
                   companyName={previewMeta.companyName || companyName}
                   locationAddress={previewMeta.locationAddress}
@@ -1574,9 +1574,9 @@ export function StickerBatchClient({
                           itemName={row.itemName}
                           unitPrice={row.unitPrice}
                           locationReference={locationRef}
-                          supplierName={
-                            suppliers.find((s) => s.id === supplierId)?.name ??
-                            previewMeta.supplierName
+                          supplierCode={
+                            suppliers.find((s) => s.id === supplierId)?.code ??
+                            previewMeta.supplierCode
                           }
                           companyName={previewMeta.companyName || companyName}
                           companyAddress={

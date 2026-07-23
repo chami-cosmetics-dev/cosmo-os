@@ -8,13 +8,24 @@ export function orderQty(rop: number | null | undefined, stock: number | null | 
   return Math.floor(rop) - Math.floor(s);
 }
 
-/** Sum only positive order qtys for TOTAL / Common buy aggregates. */
+/** Sum only positive order qtys (legacy; prefer {@link sumSignedOrderQtysFlooredAtZero}). */
 export function sumPositiveOrderQtys(values: Array<number | null | undefined>): number {
   let sum = 0;
   for (const v of values) {
     if (v != null && Number.isFinite(v) && v > 0) sum += v;
   }
   return sum;
+}
+
+/** Signed sum of order qtys; negative nets become 0 (TOTAL / Common buy aggregates). */
+export function sumSignedOrderQtysFlooredAtZero(
+  values: Array<number | null | undefined>,
+): number {
+  let sum = 0;
+  for (const v of values) {
+    if (v != null && Number.isFinite(v)) sum += v;
+  }
+  return sum < 0 ? 0 : sum;
 }
 
 /** Stock as % of ROP. Blank when ROP missing or zero. */

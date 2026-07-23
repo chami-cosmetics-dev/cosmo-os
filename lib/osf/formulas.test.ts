@@ -9,6 +9,7 @@ import {
   seventyPercentAvailabilityLabel,
   seventyPercentOfRop,
   sumPositiveOrderQtys,
+  sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
 
 describe("orderQty", () => {
@@ -32,6 +33,20 @@ describe("orderQty", () => {
 describe("sumPositiveOrderQtys", () => {
   it("sums only positive values", () => {
     expect(sumPositiveOrderQtys([10, 3, -15, null])).toBe(13);
+  });
+});
+
+describe("sumSignedOrderQtysFlooredAtZero", () => {
+  it("floors negative net at zero", () => {
+    expect(sumSignedOrderQtysFlooredAtZero([10, 3, -15, null])).toBe(0);
+  });
+
+  it("keeps positive net including negatives", () => {
+    expect(sumSignedOrderQtysFlooredAtZero([10, 3, -5])).toBe(8);
+  });
+
+  it("sums all-positive values", () => {
+    expect(sumSignedOrderQtysFlooredAtZero([10, 3])).toBe(13);
   });
 });
 
