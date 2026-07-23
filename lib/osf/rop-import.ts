@@ -167,10 +167,6 @@ export function parseRopImportSheet(
     const cells: Array<{ columnKey: string; columnLabel: string; qty: number }> = [];
     for (const col of columnIndexes) {
       const parsed = parseRopQtyCell(row[col.index]);
-      if ("blank" in parsed && parsed.blank) {
-        skippedBlank += 1;
-        continue;
-      }
       if (!parsed.ok) {
         errors.push({
           row: r + 1,
@@ -178,6 +174,10 @@ export function parseRopImportSheet(
           column: col.columnLabel,
           message: parsed.message,
         });
+        continue;
+      }
+      if ("blank" in parsed) {
+        skippedBlank += 1;
         continue;
       }
       cells.push({
