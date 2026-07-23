@@ -6,7 +6,7 @@ import { Boxes, Download, History, Loader2, MapPin, Printer, RefreshCw, Users } 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
-import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 import { formatPickListBarcode } from "@/lib/product-item-barcode";
 
 type PickListItem = {
@@ -222,7 +222,7 @@ export function PickListPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `pick-list-singles-${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.download = `pick-list-singles-${formatAppIsoDate(new Date())}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();

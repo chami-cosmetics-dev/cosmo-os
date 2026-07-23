@@ -1,4 +1,5 @@
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
+import { formatAppIsoTime } from "@/lib/format-datetime";
 import { buildCsv, escapeCsvCell, formatCsvHeader, formatIsoDate } from "@/lib/reports/csv";
 
 function formatSourceName(sourceName: string): string {
@@ -12,8 +13,7 @@ function formatSourceName(sourceName: string): string {
 }
 
 function formatIsoTime(value: Date | null | undefined) {
-  if (!value) return "";
-  return value.toISOString().slice(11);
+  return formatAppIsoTime(value, "");
 }
 
 function summarizePaymentGateway(value: string) {
@@ -279,7 +279,7 @@ export function createOrderInvoiceRow(input: {
   const sourceName = formatSourceName(input.sourceName);
   const month = input.createdAt.toLocaleString("en-US", {
     month: "long",
-    timeZone: "UTC",
+    timeZone: "Asia/Colombo",
   });
   return {
     invoice_no: input.invoiceNo,

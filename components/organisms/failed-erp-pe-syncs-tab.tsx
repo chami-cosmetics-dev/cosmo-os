@@ -53,9 +53,11 @@ export function FailedErpPeSyncsTab() {
   const [limit, setLimit] = useState(20);
   const [total, setTotal] = useState(0);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [retryingAll, setRetryingAll] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [retryMopOverride, setRetryMopOverride] = useState<Record<string, string>>({});
+  const isBusy = busyId !== null || retryingAll;
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 500);
@@ -153,6 +155,38 @@ export function FailedErpPeSyncsTab() {
     }
   }
 
+  async function handleRetryAll() {
+    setRetryingAll(true);
+    try {
+      const res = await fetch("/api/admin/orders/failed-erp-syncs/retry-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "payment_entry" }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        total?: number;
+        succeeded?: number;
+        failed?: number;
+        skipped?: number;
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Retry all failed");
+        return;
+      }
+      notify.success(
+        data.message ??
+          `Retried ${data.total ?? 0} payment entries (${data.succeeded ?? 0} succeeded, ${data.failed ?? 0} failed)`,
+      );
+      await fetchData();
+    } catch {
+      notify.error("Retry all failed");
+    } finally {
+      setRetryingAll(false);
+    }
+  }
+
   function formatDate(val: string | null) {
     return formatAppDateTime(val);
   }
@@ -161,13 +195,37 @@ export function FailedErpPeSyncsTab() {
     <div className="space-y-4">
       <Card className="border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 pb-3">
-          <CardTitle className="text-base">Failed Payment Entries</CardTitle>
-          <p className="text-muted-foreground text-sm">
-            Orders marked invoice complete in Vault where the ERP Payment Entry failed. Each row
-            shows the <span className="font-medium">attempted ERP payment mode</span> and error.
-            Retry with the same mode, pick a different mode only if needed, or create the Payment
-            Entry manually in ERPNext against the Sales Invoice and clear this row.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-1">
+              <CardTitle className="text-base">Failed Payment Entries</CardTitle>
+              <p className="text-muted-foreground text-sm">
+                Orders where the ERP Payment Entry failed (prepaid PE at intake/approval, or
+                invoice-complete PE). Each row shows the{" "}
+                <span className="font-medium">attempted ERP payment mode</span> and error. Retry
+                with the same mode, pick a different mode only if needed, or create the Payment
+                Entry manually in ERPNext against the Sales Invoice and clear this row.
+              </p>
+            </div>
+            {total > 0 && (
+              <Button
+                onClick={() => void handleRetryAll()}
+                disabled={isBusy}
+                className="gap-2 shadow-[0_10px_24px_-18px_var(--primary)]"
+              >
+                {retryingAll ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Retrying All…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="size-4" aria-hidden />
+                    Retry All
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardHeader>
       </Card>
 
@@ -208,7 +266,7 @@ export function FailedErpPeSyncsTab() {
               <tbody>
                 {items.map((item) => {
                   const attemptedMop = formatAttemptedErpMop(item);
-                  const isBusy = busyId === item.id;
+                  const rowBusy = busyId === item.id;
                   return (
                     <tr key={item.id} className="border-b border-border/50 last:border-0 align-top">
                       <td className="px-4 py-2">
@@ -244,7 +302,7 @@ export function FailedErpPeSyncsTab() {
                               onChange={(mop) =>
                                 setRetryMopOverride((prev) => ({ ...prev, [item.id]: mop }))
                               }
-                              disabled={busyId !== null}
+                              disabled={isBusy}
                               allowEmpty
                               emptyLabel="Same as attempted"
                               placeholder="Same as attempted"
@@ -255,9 +313,9 @@ export function FailedErpPeSyncsTab() {
                               size="sm"
                               className="gap-2"
                               onClick={() => void handleRetry(item)}
-                              disabled={busyId !== null}
+                              disabled={isBusy}
                             >
-                              {isBusy ? (
+                              {rowBusy ? (
                                 <>
                                   <Loader2 className="size-4 animate-spin" aria-hidden />
                                   Working…
@@ -274,7 +332,7 @@ export function FailedErpPeSyncsTab() {
                               variant="outline"
                               className="gap-2"
                               onClick={() => void handleDismiss(item)}
-                              disabled={busyId !== null}
+                              disabled={isBusy}
                             >
                               <CheckCircle2 className="size-4" aria-hidden />
                               Cleared in ERP

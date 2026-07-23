@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { formatAppDateTimeShort } from "@/lib/format-datetime";
 import { getProductItemStatusMeta } from "@/lib/product-item-status";
 
 type FamilySku = { sku: string; productTitle: string; variantTitle: string | null; itemStatusCategory: string; itemStatusLabel: string | null };
@@ -118,10 +119,7 @@ type SalesSummary = {
 };
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-LK", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatAppDateTimeShort(value, value);
 }
 
 function formatRecordingTime(seconds: number) {

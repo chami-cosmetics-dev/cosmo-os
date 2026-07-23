@@ -26,6 +26,20 @@ import {
 } from "@/src/utils/completed-dates";
 import { formatMoney, parseMoney } from "@/src/utils/money";
 import { submitOrQueue } from "@/src/utils/submit-or-queue";
+import { APP_TIME_ZONE } from "@/src/constants/app";
+
+function formatHandoverCalendarDate(value: string) {
+  return new Date(value).toLocaleDateString("en-LK", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
+function formatHandoverSubmittedAt(value: string) {
+  return new Date(value).toLocaleString("en-LK", { timeZone: APP_TIME_ZONE });
+}
 
 function HandoverPreview({
   summary,
@@ -245,12 +259,12 @@ export default function CashScreen() {
               <View key={`${handover.tenant}-${handover.id}`} style={styles.historyRow}>
                 <View style={styles.historyHeader}>
                   <Text style={styles.historyDate}>
-                    {handover.companyLabel} · {new Date(handover.handoverDate).toLocaleDateString("en-LK")}
+                    {handover.companyLabel} · {formatHandoverCalendarDate(handover.handoverDate)}
                   </Text>
                   <Text style={styles.historyStatus}>{handover.status}</Text>
                 </View>
                 <Text style={styles.historyMeta}>
-                  Submitted: {new Date(handover.submittedAt).toLocaleString("en-LK")}
+                  Submitted: {formatHandoverSubmittedAt(handover.submittedAt)}
                 </Text>
                 <Text style={styles.historyMeta}>
                   Total: {formatMoney(handover.totalHandedOverCash)} | Variance: {formatMoney(handover.varianceAmount)}
@@ -287,12 +301,12 @@ export default function CashScreen() {
             <View key={`${handover.tenant}-${handover.id}`} style={styles.historyRow}>
               <View style={styles.historyHeader}>
                 <Text style={styles.historyDate}>
-                  {handover.companyLabel} · {new Date(handover.handoverDate).toLocaleDateString("en-LK")}
+                  {handover.companyLabel} · {formatHandoverCalendarDate(handover.handoverDate)}
                 </Text>
                 <Text style={styles.historyStatus}>{handover.status}</Text>
               </View>
               <Text style={styles.historyMeta}>
-                Submitted: {new Date(handover.submittedAt).toLocaleString("en-LK")}
+                Submitted: {formatHandoverSubmittedAt(handover.submittedAt)}
               </Text>
               <Text style={styles.historyMeta}>
                 Total: {formatMoney(handover.totalHandedOverCash)} | Variance: {formatMoney(handover.varianceAmount)}

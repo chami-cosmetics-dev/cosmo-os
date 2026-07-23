@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { formatAppIsoDate } from "@/lib/format-datetime";
+
 const BASE_URL = (process.env.ERPNEXT_BASE_URL ?? "").replace(/\/$/, "");
 const API_KEY = process.env.ERPNEXT_API_KEY ?? "";
 const API_SECRET = process.env.ERPNEXT_API_SECRET ?? "";
@@ -17,7 +19,7 @@ function authHeaders() {
 }
 
 function toDateStr(d: Date) {
-  return d.toISOString().slice(0, 10);
+  return formatAppIsoDate(d);
 }
 
 export async function POST(req: Request) {

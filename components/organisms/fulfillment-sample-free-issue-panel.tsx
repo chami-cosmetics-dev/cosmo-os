@@ -26,7 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
-import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAppDateTime, formatAppIsoCalendarDate, formatAppIsoDate } from "@/lib/format-datetime";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -97,11 +97,15 @@ function formatAddress(addr: unknown) {
 }
 
 function toDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return formatAppIsoDate(date);
+}
+
+function toCalendarDateInputValue(date: Date) {
+  return formatAppIsoCalendarDate(date);
 }
 
 function todayDateInputValue() {
-  return toDateInputValue(new Date());
+  return formatAppIsoDate(new Date());
 }
 
 function addDays(date: Date, days: number) {
@@ -449,9 +453,9 @@ export function FulfillmentSampleFreeIssuePanel({
   const sendLaterMin = orderDate ? toDateInputValue(orderDate) : "";
   const sendLaterMax = orderDate ? toDateInputValue(addDays(orderDate, 3)) : "";
   const savedSendLaterDate = detail?.sampleFreeIssueSendLaterDate
-    ? toDateInputValue(new Date(detail.sampleFreeIssueSendLaterDate))
+    ? toCalendarDateInputValue(new Date(detail.sampleFreeIssueSendLaterDate))
     : order?.sampleFreeIssueSendLaterDate
-      ? toDateInputValue(new Date(order.sampleFreeIssueSendLaterDate))
+      ? toCalendarDateInputValue(new Date(order.sampleFreeIssueSendLaterDate))
       : null;
   const isScheduledForFuture =
     savedSendLaterDate !== null && savedSendLaterDate > todayDateInputValue();

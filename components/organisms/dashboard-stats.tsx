@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { DashboardSalesCharts } from "@/components/organisms/dashboard-sales-charts";
 import { DashboardSummaryCharts } from "@/components/organisms/dashboard-summary-charts";
+import { formatAppIsoCalendarDate, formatAppTime } from "@/lib/format-datetime";
 
 interface DashboardStatsProps {
   stats: {
@@ -318,7 +319,7 @@ export function DashboardStats({ stats }: DashboardStatsProps) {
           )}
           {lastUpdatedAt && (
             <p className="text-muted-foreground mt-1 text-xs">
-              Last updated: {new Date(lastUpdatedAt).toLocaleTimeString()}
+              Last updated: {formatAppTime(lastUpdatedAt)}
             </p>
           )}
         </div>
@@ -643,9 +644,9 @@ function getInitialRange(stats: DashboardStatsProps["stats"]) {
 }
 
 function shiftDate(dateValue: string, days: number) {
-  const date = new Date(dateValue);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return formatAppIsoCalendarDate(date);
 }
 
 function aggregateMerchantStats(orders: LiveOrder[]): DashboardStatsProps["stats"] {

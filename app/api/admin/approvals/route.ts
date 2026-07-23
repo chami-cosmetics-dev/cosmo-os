@@ -21,6 +21,7 @@ import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
+import { resolveReturnCancelCompletionMode } from "@/lib/return-cancel-completion";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,7 @@ export async function GET() {
     reviewedByEmail: string | null;
     shopifyOrderId: string | null;
     erpnextInvoiceId: string | null;
+    financialStatus: string | null;
     sourceName: string | null;
     erpBaseUrl: string | null;
     returnedByName: string | null;
@@ -111,8 +113,9 @@ export async function GET() {
         rev."name" AS "reviewedByName",
         rev."email" AS "reviewedByEmail",
         o."shopifyOrderId",
-        o."erpnextInvoiceId",
-        o."sourceName",
+        COALESCE(o."erpnextInvoiceId", ort_order."erpnextInvoiceId") AS "erpnextInvoiceId",
+        COALESCE(o."financialStatus", ort_order."financialStatus") AS "financialStatus",
+        COALESCE(o."sourceName", ort_order."sourceName") AS "sourceName",
         ei."baseUrl" AS "erpBaseUrl",
         returnedBy."name" AS "returnedByName",
         returnedBy."email" AS "returnedByEmail",
@@ -127,14 +130,14 @@ export async function GET() {
         rider."mobile" AS "riderMobile"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
-      LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
-      LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
-      LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
       LEFT JOIN "Order" ort_order ON ort_order."id" = ort."orderId"
+      LEFT JOIN "CompanyLocation" cl ON cl."id" = COALESCE(o."companyLocationId", ort_order."companyLocationId")
+      LEFT JOIN "ErpnextInstance" ei ON ei."id" = cl."erpnextInstanceId"
+      LEFT JOIN "User" rev ON rev."id" = ar."reviewedById"
       LEFT JOIN "User" returnedBy ON returnedBy."id" = ort."returnedById"
       LEFT JOIN "User" cancelBy ON cancelBy."id" = ort."actionById"
-      LEFT JOIN "User" rider ON rider."id" = o."dispatchedByRiderId"
+      LEFT JOIN "User" rider ON rider."id" = COALESCE(o."dispatchedByRiderId", ort_order."dispatchedByRiderId")
       WHERE ar."companyId" = ${companyId}
         AND ar."type" IN (
           ${RETURN_REARRANGE_PAYMENT_APPROVAL},
@@ -169,6 +172,10 @@ export async function GET() {
         ...enriched,
         shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
         erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
+        completionMode:
+          row.type === RETURN_CANCEL_APPROVAL
+            ? resolveReturnCancelCompletionMode(row.financialStatus)
+            : undefined,
         erpAdminInvoiceUrl: buildErpAdminInvoiceUrl({
           baseUrl: row.erpBaseUrl,
           sourceName: row.sourceName,

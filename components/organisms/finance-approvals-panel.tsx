@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, ExternalLink, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAppDateTime, formatAppStoredDateTime } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FinanceApprovalItem = {
@@ -32,6 +32,8 @@ export type FinanceApprovalItem = {
   shopifyOrderId?: string | null;
   erpnextInvoiceId?: string | null;
   erpAdminInvoiceUrl?: string | null;
+  /** Server-computed for return_cancel: credit_note (paid) or cancel_si (unpaid). */
+  completionMode?: "credit_note" | "cancel_si" | null;
   returnedByName?: string | null;
   returnedByEmail?: string | null;
   cancelRequestedByName?: string | null;
@@ -357,6 +359,9 @@ export function FinanceApprovalsPanel({
         code?: string;
         erpSyncFailed?: boolean;
         erpSyncError?: string;
+        completionMode?: "credit_note" | "cancel_si";
+        creditNoteName?: string;
+        invoiceName?: string;
       };
       if (!response.ok) {
         notify.error(approvalErrorMessage(data));
@@ -374,11 +379,20 @@ export function FinanceApprovalsPanel({
       } else if (action === "approve" && selected.type === "delivery_payment_approval") {
         notify.success("Delivery payment approved — invoice complete and ERP payment recorded.");
       } else if (action === "approve" && selected.type === "return_cancel") {
-        notify.success(
-          selected.erpAdminInvoiceUrl
-            ? "ERP Sales Invoice opened. Complete cancellation in ERPNext, then this request is marked processed."
-            : "Cancel request marked processed. Complete cancellation in ERPNext if not done already.",
-        );
+        const mode = data.completionMode ?? selected.completionMode;
+        if (mode === "credit_note") {
+          notify.success(
+            data.creditNoteName
+              ? `Return cancel approved — credit note ${data.creditNoteName} created and original invoice credit-noted.`
+              : "Return cancel approved — ERP credit note created and order voided.",
+          );
+        } else {
+          notify.success(
+            data.invoiceName
+              ? `Return cancel approved — Sales Invoice ${data.invoiceName} cancelled.`
+              : "Return cancel approved — unpaid Sales Invoice cancelled and order voided.",
+          );
+        }
       } else {
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");
       }
@@ -627,10 +641,15 @@ export function FinanceApprovalsPanel({
                   <p><span className="font-medium">Requested:</span> {formatDate(selected.createdAt)}</p>
                   {selected.type === "return_cancel" && (
                     <div className="space-y-3 border-t border-border/60 pt-3">
+                      <p className="text-sm text-muted-foreground">
+                        {selected.completionMode === "credit_note"
+                          ? "Paid order — approve creates an ERP credit note and voids the order (Cosmo also cancels Shopify when configured)."
+                          : "Unpaid order — approve cancels the ERP Sales Invoice and voids the order."}
+                      </p>
                       {!selected.erpAdminInvoiceUrl && (
                         <p className="text-amber-700 text-sm dark:text-amber-300">
-                          ERP Sales Invoice link is unavailable. Open ERPNext manually using invoice{" "}
-                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"}, then mark processed.
+                          ERP Sales Invoice link is unavailable. Approve still attempts ERP using invoice{" "}
+                          {selected.erpnextInvoiceId ?? selected.invoiceNo ?? "reference"} when possible.
                         </p>
                       )}
                       <div className="space-y-1 text-sm text-muted-foreground">
@@ -644,7 +663,7 @@ export function FinanceApprovalsPanel({
                         <p><span className="font-medium text-foreground">Cancel requested by:</span> {selected.cancelRequestedByName ?? selected.cancelRequestedByEmail ?? "-"}</p>
                         <p><span className="font-medium text-foreground">Return remark:</span> {selected.returnRemark ?? "-"}</p>
                         <p><span className="font-medium text-foreground">Cancel remark:</span> {selected.cancelRemark ?? "-"}</p>
-                        <p><span className="font-medium text-foreground">Return date:</span> {selected.returnDate ? formatDate(selected.returnDate) : "-"}</p>
+                        <p><span className="font-medium text-foreground">Return date:</span> {selected.returnDate ? formatAppStoredDateTime(selected.returnDate, "-") : "-"}</p>
                         <p><span className="font-medium text-foreground">Cancel requested:</span> {selected.cancelRequestedAt ? formatDate(selected.cancelRequestedAt) : "-"}</p>
                       </div>
                     </div>
@@ -696,13 +715,13 @@ export function FinanceApprovalsPanel({
                         <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
                           {busy === "approve" ? (
                             <Loader2 className="size-4 animate-spin" />
-                          ) : selected.type === "return_cancel" ? (
-                            <ExternalLink className="size-4" />
                           ) : (
                             <CheckCircle2 className="size-4" />
                           )}
                           {selected.type === "return_cancel"
-                            ? "Mark processed (cancel in ERPNext)"
+                            ? selected.completionMode === "credit_note"
+                              ? "Approve — create credit note"
+                              : "Approve — cancel unpaid SI"
                             : selected.type === "order_cancel_approval"
                               ? "Confirm Cancel (Shopify + ERP done)"
                               : `Approve — ${typeLabel(selected.type)}`}

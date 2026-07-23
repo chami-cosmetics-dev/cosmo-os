@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { formatAppIsoDate } from "@/lib/format-datetime";
+import { formatAppDateTime, formatAppIsoDate } from "@/lib/format-datetime";
 
 type ConfigResponse = {
   enabled: boolean;
@@ -60,7 +60,7 @@ export function DailySalesSmsSettingsForm({ canEdit }: DailySalesSmsSettingsForm
       setRecipientsText((data.recipients ?? []).join("\n"));
       if (data.lastSentReportDate) {
         setLastSend(
-          `${data.lastSentReportDate} · ${data.lastSendStatus ?? "—"}${data.lastSendAt ? ` · ${new Date(data.lastSendAt).toLocaleString("en-LK", { timeZone: "Asia/Colombo" })}` : ""}`,
+          `${data.lastSentReportDate} · ${data.lastSendStatus ?? "—"}${data.lastSendAt ? ` · ${formatAppDateTime(data.lastSendAt)}` : ""}`,
         );
       }
     } catch {

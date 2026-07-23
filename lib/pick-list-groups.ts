@@ -3,16 +3,12 @@ import { buildPickListAggregationForOrders } from "@/lib/pick-list-data";
 import { getPickListTodayBounds } from "@/lib/pick-list-date";
 import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
 
+import { formatAppDateTime } from "@/lib/format-datetime";
+
 export const PICK_LIST_GROUP_MAX_ORDERS = 100;
 
 export function formatPickListGroupLabel(createdAt: Date, printedByName: string | null) {
-  const when = createdAt.toLocaleString("en-LK", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const when = formatAppDateTime(createdAt);
   const who = printedByName?.trim() || "Unknown user";
   return `${when} · ${who}`;
 }

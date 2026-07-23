@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { LIMITS } from "@/lib/validation";
 
 type StaffMember = {
@@ -29,7 +30,7 @@ interface ResignationFormProps {
 }
 
 function formatDateForInput(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return formatAppIsoDate(date);
 }
 
 export function ResignationForm({

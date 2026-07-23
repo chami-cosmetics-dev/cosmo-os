@@ -7,20 +7,14 @@ import { DailySalesSmsLogsPanel } from "@/components/organisms/daily-sales-sms-l
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDailySalesSmsConfig } from "@/lib/daily-sales-sms";
 import { buildDailySalesSmsStatusSummary } from "@/lib/daily-sales-sms-status";
+import { formatAppDateTimeShort } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 function formatColombo(date: Date | string) {
-  return new Date(date).toLocaleString("en-GB", {
-    timeZone: "Asia/Colombo",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatAppDateTimeShort(date);
 }
 
 export default async function SalesSmsLogsPage() {

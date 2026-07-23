@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { notify } from "@/lib/notify";
+import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
 
 const GENDER_OPTIONS = [
   { value: "", label: "Select gender" },
@@ -66,10 +67,7 @@ interface StaffEditFormProps {
 }
 
 function formatDateForInput(date: string | Date | null | undefined): string {
-  if (date == null) return "";
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 10);
+  return formatAppIsoCalendarDate(date, "");
 }
 
 function withSelectedOption<T extends { id: string }>(

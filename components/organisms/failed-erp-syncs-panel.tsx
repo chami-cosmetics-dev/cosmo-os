@@ -162,6 +162,8 @@ export function FailedErpSyncsPanel() {
     try {
       const res = await fetch("/api/admin/orders/failed-erp-syncs/retry-all", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "sales_invoice" }),
       });
       const data = (await res.json()) as {
         error?: string;

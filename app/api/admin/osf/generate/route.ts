@@ -12,18 +12,12 @@ import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/
 import { aggregateMonthlySalesBySku } from "@/lib/osf/monthly-sales";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 import { osfGenerateBodySchema } from "@/lib/validation/osf";
 
 function todayColombo(): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Colombo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "01";
-  return `${get("year")}-${get("month")}-${get("day")}`;
+  return formatAppIsoDate(new Date());
 }
 
 export async function POST(request: NextRequest) {

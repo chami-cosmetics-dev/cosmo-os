@@ -1,3 +1,4 @@
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { formatCsvHeader } from "@/lib/reports/csv";
 
 type ContactDumpRow = {
@@ -64,8 +65,7 @@ export const CONTACT_DUMP_PARTS = {
 export type ContactDumpPartKey = keyof typeof CONTACT_DUMP_PARTS;
 
 function formatDate(value: Date | null) {
-  if (!value) return "";
-  return value.toISOString().slice(0, 10);
+  return formatAppIsoDate(value, "");
 }
 
 function escapeCsvCell(value: string) {

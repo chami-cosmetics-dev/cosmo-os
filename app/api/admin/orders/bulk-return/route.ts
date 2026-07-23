@@ -11,6 +11,7 @@ import {
   RETURN_REMARK_TEMPLATE_CODES,
 } from "@/lib/return-remark-templates";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { parseAppCalendarDayStart } from "@/lib/format-datetime";
 
 const bulkReturnEntrySchema = z.object({
   reference: z.string().trim().min(1).max(120),
@@ -68,9 +69,8 @@ function duplicateKey(value: string) {
   return value.trim().toLowerCase();
 }
 
-function startOfTodayUtc() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+function resolveBulkReturnDate(ymd?: string) {
+  return parseAppCalendarDayStart(ymd) ?? new Date();
 }
 
 function getOrderLabel(order: {
@@ -320,9 +320,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
   }
 
-  const returnDate = parsed.data.returnDate
-    ? new Date(`${parsed.data.returnDate}T00:00:00.000Z`)
-    : startOfTodayUtc();
+  const returnDate = resolveBulkReturnDate(parsed.data.returnDate);
 
   const previewRows = await buildPreviewRows(companyId, entries);
   const validRows = previewRows.filter((row) => row.status === "valid" && row.orderId);
