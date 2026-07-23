@@ -26,7 +26,7 @@ import {
 } from "@/lib/fulfillment-queue-filters";
 import { useFulfillmentOrderDeepLink } from "@/hooks/use-fulfillment-order-deep-link";
 import { notify } from "@/lib/notify";
-import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAppDateTime, formatAppIsoCalendarDate } from "@/lib/format-datetime";
 import { TASK_REMINDER_ORDER_ID_PARAM } from "@/lib/task-reminder-links";
 
 export type FulfillmentOrder = {
@@ -349,7 +349,7 @@ export function FulfillmentOrderSelector({
                                 </span>
                                 {showFutureSendLater && order.sampleFreeIssueSendLaterDate && (
                                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                                    Send {new Date(order.sampleFreeIssueSendLaterDate).toISOString().slice(0, 10)}
+                                    Send {formatAppIsoCalendarDate(order.sampleFreeIssueSendLaterDate)}
                                   </span>
                                 )}
                               </span>

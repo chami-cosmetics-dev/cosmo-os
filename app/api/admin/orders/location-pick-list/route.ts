@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { requireAnyPermission } from "@/lib/rbac";
 
 export const runtime = "nodejs";
@@ -276,7 +277,7 @@ export async function GET(request: NextRequest) {
     locationGroups.set(locationId, location);
   }
 
-  const printedAt = new Date().toLocaleString("en-LK");
+  const printedAt = formatAppDateTime(new Date());
   const documents = [...locationGroups.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((location) => {

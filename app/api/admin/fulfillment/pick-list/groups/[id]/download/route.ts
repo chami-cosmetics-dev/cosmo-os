@@ -11,6 +11,7 @@ import {
   markPickListGroupDownloaded,
 } from "@/lib/pick-list-groups";
 import { prisma } from "@/lib/prisma";
+import { formatAppIsoDate, formatAppIsoDateTime } from "@/lib/format-datetime";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
 
@@ -64,7 +65,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     groupMeta.printedBy.name?.trim() ||
     groupMeta.printedBy.email?.trim() ||
     null;
-  const dateLabel = groupMeta.createdAt.toISOString().slice(0, 10);
+  const dateLabel = formatAppIsoDate(groupMeta.createdAt);
   const headerLine = formatPickListGroupLabel(groupMeta.createdAt, printedByName);
 
   const pdf = await generatePickListPdf(
@@ -78,7 +79,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     await markPickListGroupDownloaded(companyId, groupIdResult.data);
   }
 
-  const stamp = groupMeta.createdAt.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const stamp = formatAppIsoDateTime(groupMeta.createdAt).replace(/[: ]/g, "-");
   return new NextResponse(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",

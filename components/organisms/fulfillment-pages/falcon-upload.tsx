@@ -6,10 +6,11 @@ import { CalendarDays, Download, FileSpreadsheet, Loader2, Search } from "lucide
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return formatAppIsoDate(new Date());
 }
 
 function getFilename(response: Response) {

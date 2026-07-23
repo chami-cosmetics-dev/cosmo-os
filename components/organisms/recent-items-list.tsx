@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatAppDate } from "@/lib/format-datetime";
 
 interface Item {
   id: string;
@@ -29,7 +30,7 @@ export function RecentItemsList({ items }: RecentItemsListProps) {
                 <span className="font-medium">{item.name}</span>
                 {item.createdAt && (
                   <span className="text-muted-foreground text-xs">
-                    {new Date(item.createdAt).toLocaleDateString()}
+                    {formatAppDate(item.createdAt)}
                   </span>
                 )}
               </li>

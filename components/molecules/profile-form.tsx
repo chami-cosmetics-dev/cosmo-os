@@ -8,6 +8,7 @@ import { ProfilePhotoUpload } from "@/components/molecules/profile-photo-upload"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { formatAppCalendarDate, formatAppIsoCalendarDate } from "@/lib/format-datetime";
 
 const GENDER_OPTIONS = [
   { value: "", label: "Select gender" },
@@ -44,17 +45,11 @@ interface ProfileFormProps {
 }
 
 function formatDateForInput(date: string | Date | null | undefined): string {
-  if (date == null) return "";
-  const parsed = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().slice(0, 10);
+  return formatAppIsoCalendarDate(date, "");
 }
 
 function formatDateDisplay(date: string | Date | null | undefined): string {
-  if (date == null) return "-";
-  const parsed = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(parsed.getTime())) return "-";
-  return parsed.toLocaleDateString();
+  return formatAppCalendarDate(date, "-");
 }
 
 export function ProfileForm({ initialData }: ProfileFormProps) {

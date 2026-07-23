@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DailySalesSmsResendButton } from "@/components/molecules/daily-sales-sms-resend-button";
 import { normalizeRecipientList } from "@/lib/daily-sales-sms";
+import { formatAppDateTimeShort } from "@/lib/format-datetime";
 
 export type DailySalesSmsLogRow = {
   id: string;
@@ -13,14 +14,7 @@ export type DailySalesSmsLogRow = {
 };
 
 function formatColombo(date: Date | string) {
-  return new Date(date).toLocaleString("en-GB", {
-    timeZone: "Asia/Colombo",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatAppDateTimeShort(date);
 }
 
 function recipientsLabel(raw: unknown): string {

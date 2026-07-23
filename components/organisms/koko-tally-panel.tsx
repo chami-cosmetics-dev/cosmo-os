@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 
 // ---------------------------------------------------------------------------
 // KokoCompany option type
@@ -541,7 +542,7 @@ export function KokoTallyPanel() {
   // ---- Export results as multi-sheet Excel workbook ----
   const handleExport = useCallback(() => {
     if (!result) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = formatAppIsoDate(new Date());
 
     const allPairs = [...result.matched, ...result.extendedMatched];
     const samplePair = allPairs[0];

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  creditNoteUpdateOutstandingForSelf,
+  isUsableErpSalesInvoiceId,
+} from "@/lib/erpnext-sync";
 import { isCcCheckoutGateway } from "@/lib/delivery-payment-approval";
-import { isUsableErpSalesInvoiceId } from "@/lib/erpnext-sync";
 
 describe("isUsableErpSalesInvoiceId", () => {
   it("accepts real SI names", () => {
@@ -16,6 +19,12 @@ describe("isUsableErpSalesInvoiceId", () => {
     expect(isUsableErpSalesInvoiceId("   ")).toBe(false);
     expect(isUsableErpSalesInvoiceId("pending")).toBe(false);
     expect(isUsableErpSalesInvoiceId("pending_approval")).toBe(false);
+  });
+});
+
+describe("creditNoteUpdateOutstandingForSelf", () => {
+  it("is 0 so paid originals can become Credit Note Issued", () => {
+    expect(creditNoteUpdateOutstandingForSelf()).toBe(0);
   });
 });
 

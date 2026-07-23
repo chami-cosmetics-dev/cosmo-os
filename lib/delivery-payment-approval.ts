@@ -25,6 +25,10 @@ export function isCcCheckoutGateway(gateway: string): boolean {
   return g === "cc" || g === "cc checkout";
 }
 
+export function isWebxpayGateway(gateway: string): boolean {
+  return normalizePaymentGatewayKey(gateway).includes("webxpay");
+}
+
 export function orderHasCcCheckoutGateway(order: {
   paymentGatewayPrimary?: string | null;
   paymentGatewayNames?: string[];
@@ -33,6 +37,29 @@ export function orderHasCcCheckoutGateway(order: {
     return true;
   }
   return (order.paymentGatewayNames ?? []).some((g) => isCcCheckoutGateway(g));
+}
+
+/**
+ * Paid-at-intake gateways: set OS `invoiceCompleteAt` when PE succeeds at SI sync
+ * so they never need a second manual invoice-complete (KOKO/bank use finance approval instead).
+ */
+export function isEarlyFinancialInvoiceCompleteGateway(gateway: string): boolean {
+  return isCcCheckoutGateway(gateway) || isWebxpayGateway(gateway);
+}
+
+export function orderHasEarlyFinancialInvoiceCompleteGateway(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[];
+}): boolean {
+  if (
+    order.paymentGatewayPrimary &&
+    isEarlyFinancialInvoiceCompleteGateway(order.paymentGatewayPrimary)
+  ) {
+    return true;
+  }
+  return (order.paymentGatewayNames ?? []).some((g) =>
+    isEarlyFinancialInvoiceCompleteGateway(g),
+  );
 }
 
 /** Gateways where payment is collected before / at sale — never as door cash. */

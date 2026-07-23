@@ -29,6 +29,7 @@ import {
   shouldBlockShopifyCancelInOs,
 } from "@/lib/shopify-admin";
 import { prisma } from "@/lib/prisma";
+import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
 import {
   markOrderErpSyncFailed,
@@ -40,6 +41,11 @@ import {
   markOrderErpPeSyncFailed,
 } from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import {
+  finalizeReturnCancelOsState,
+  runReturnCancelExternalCompletion,
+  sanitizeReturnCancelError,
+} from "@/lib/return-cancel-completion";
 import {
   cuidOrUuidSchema,
   orderPaymentRejectionReasonSchema,
@@ -201,6 +207,159 @@ export async function PATCH(
 
   const now = new Date();
   const nextStatus = parsed.data.action === "approve" ? "approved" : "rejected";
+
+  // RETURN_CANCEL approve: ERP credit note (paid) or SI cancel (unpaid) before marking approved.
+  if (
+    parsed.data.action === "approve" &&
+    approval.type === RETURN_CANCEL_APPROVAL &&
+    approval.orderReturnId
+  ) {
+    const orderReturn = await prisma.orderReturn.findUnique({
+      where: { id: approval.orderReturnId },
+      select: {
+        id: true,
+        orderId: true,
+        cancelRemark: true,
+        actionStatus: true,
+        order: {
+          select: {
+            id: true,
+            name: true,
+            orderNumber: true,
+            shopifyOrderId: true,
+            financialStatus: true,
+            erpnextInvoiceId: true,
+            erpReturnSalesInvoiceIds: true,
+            cancelReason: true,
+            companyLocation: { include: { erpnextInstance: true } },
+          },
+        },
+      },
+    });
+
+    const order = orderReturn?.order;
+    if (!orderReturn || !order?.companyLocation) {
+      return NextResponse.json(
+        {
+          error: sanitizeReturnCancelError(
+            "Order or company location not found for return cancel completion.",
+          ),
+        },
+        { status: 422 },
+      );
+    }
+
+    const external = await runReturnCancelExternalCompletion({
+      order: {
+        id: order.id,
+        name: order.name,
+        orderNumber: order.orderNumber,
+        shopifyOrderId: order.shopifyOrderId,
+        financialStatus: order.financialStatus,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        erpReturnSalesInvoiceIds: order.erpReturnSalesInvoiceIds ?? [],
+        cancelReason: order.cancelReason,
+      },
+      location: order.companyLocation,
+    });
+
+    if (!external.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: external.error ?? "Return cancel completion failed",
+          completionMode: external.completionMode,
+          approvalStatus: "pending",
+        },
+        { status: 502 },
+      );
+    }
+
+    const reviewNoteReturn = parsed.data.reviewNote ?? null;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.$executeRaw(
+          Prisma.sql`
+            UPDATE "ApprovalRequest"
+            SET
+              "status" = ${"approved"},
+              "reviewedById" = ${reviewerId},
+              "reviewNote" = ${reviewNoteReturn},
+              "reviewedAt" = ${now},
+              "updatedAt" = ${now}
+            WHERE "id" = ${approval.id}
+              AND "companyId" = ${companyId}
+              AND "status" = 'pending'
+          `,
+        );
+        if (Number(updated) === 0) {
+          throw new ConcurrentApprovalDecisionError();
+        }
+
+        await finalizeReturnCancelOsState(tx, {
+          orderId: order.id,
+          orderReturnId: orderReturn.id,
+          reviewerId,
+          now,
+          cancelRemark: orderReturn.cancelRemark,
+          completion: external,
+          existingReturnSiIds: order.erpReturnSalesInvoiceIds ?? [],
+        });
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentApprovalDecisionError) {
+        return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+      }
+      throw err;
+    }
+
+    const label = invoiceLabel({
+      name: approval.orderName,
+      orderNumber: approval.orderNumber,
+      shopifyOrderId: approval.shopifyOrderId,
+    });
+    const successSummary =
+      external.completionMode === "credit_note"
+        ? `Finance approved return cancel for ${label} — credit note ${external.creditNoteName ?? "created"} (original Credit Note Issued)`
+        : `Finance approved return cancel for ${label} — ERP Sales Invoice cancelled${external.invoiceName ? ` (${external.invoiceName})` : ""}`;
+
+    await writeAuditLog({
+      companyId,
+      actorUserId: reviewerId,
+      module: "orders",
+      action: "returned_order_cancel_approved",
+      entityType: "OrderReturn",
+      entityId: approval.orderReturnId,
+      summary: successSummary,
+      metadata: {
+        approvalId: approval.id,
+        orderId: order.id,
+        completionMode: external.completionMode,
+        creditNoteName: external.creditNoteName ?? null,
+        invoiceName: external.invoiceName ?? null,
+        shopifyOutcome: external.shopifyOutcome,
+      },
+    });
+
+    await notifyApprovalRequester({
+      companyId,
+      approvalId: approval.id,
+      status: "approved",
+      requestedById: approval.requestedById,
+      approvalType: approval.type,
+      invoiceLabel: label,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      status: "approved",
+      completionMode: external.completionMode,
+      ...(external.completionMode === "credit_note"
+        ? { creditNoteName: external.creditNoteName }
+        : { invoiceName: external.invoiceName }),
+      erpSyncFailed: false,
+    });
+  }
 
   let reviewNote: string | null = parsed.data.reviewNote ?? null;
   if (parsed.data.action === "reject" && approval.type === ORDER_PAYMENT_APPROVAL) {
@@ -522,16 +681,6 @@ export async function PATCH(
             actionById: reviewerId,
           },
         });
-      } else if (approval.type === RETURN_CANCEL_APPROVAL) {
-        await tx.orderReturn.update({
-          where: { id: approval.orderReturnId! },
-          data: {
-            actionStatus: "solved",
-            actionType: "cancel",
-            actionDate: now,
-            actionById: reviewerId,
-          },
-        });
       } else if (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) {
         // COD → KOKO or COD → Bank Transfer approved by finance: switch gateway, mark paid.
         const gateway = isBankTransferApproval ? "bank_transfer" : "koko";
@@ -685,7 +834,7 @@ export async function PATCH(
       entityType: "OrderReturn",
       entityId: approval.orderReturnId,
       summary: nextStatus === "approved"
-        ? `Finance acknowledged cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} (process in ERPNext)`
+        ? `Finance approved return cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })}`
         : `Finance rejected cancel for ${invoiceLabel({ name: approval.orderName, orderNumber: approval.orderNumber, shopifyOrderId: approval.shopifyOrderId })} — return reset to pending`,
       metadata: { approvalId: approval.id, orderId: approval.orderId },
     });
@@ -790,7 +939,7 @@ export async function PATCH(
       if (location) {
         try {
           const poNo = (orderForErp.name ?? orderForErp.shopifyOrderId ?? approval.orderId).slice(0, 140);
-          const dateStr = now.toISOString().slice(0, 10);
+          const dateStr = formatAppIsoDate(now);
           await syncBankTransferPaymentToERPNext(poNo, location, dateStr);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
