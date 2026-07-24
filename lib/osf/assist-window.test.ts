@@ -9,17 +9,17 @@ import {
 } from "@/lib/osf/assist-window";
 
 describe("resolveAssistWindow", () => {
-  it("uses purchase date when <= asOf", () => {
+  it("always uses last 30 days ending on asOf", () => {
     const w = resolveAssistWindow({
       asOfDate: "2026-07-24",
       lastPurchaseDate: "2026-07-10",
     });
-    expect(w.windowStart).toBe("2026-07-10");
+    expect(w.windowStart).toBe("2026-06-24");
     expect(w.windowEnd).toBe("2026-07-24");
-    expect(w.usedPurchaseDate).toBe(true);
+    expect(w.usedPurchaseDate).toBe(false);
   });
 
-  it("falls back to last 30 days when no purchase date", () => {
+  it("uses last 30 days when no purchase date", () => {
     const w = resolveAssistWindow({
       asOfDate: "2026-07-24",
       lastPurchaseDate: null,
@@ -29,7 +29,7 @@ describe("resolveAssistWindow", () => {
     expect(w.usedPurchaseDate).toBe(false);
   });
 
-  it("falls back when purchase date is in the future", () => {
+  it("ignores future purchase date (still 30 days)", () => {
     const w = resolveAssistWindow({
       asOfDate: "2026-07-24",
       lastPurchaseDate: "2026-08-01",
@@ -38,7 +38,7 @@ describe("resolveAssistWindow", () => {
     expect(w.usedPurchaseDate).toBe(false);
   });
 
-  it("falls back when purchase date invalid", () => {
+  it("ignores invalid purchase date (still 30 days)", () => {
     const w = resolveAssistWindow({
       asOfDate: "2026-07-24",
       lastPurchaseDate: "not-a-date",
