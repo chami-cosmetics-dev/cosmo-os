@@ -44,6 +44,7 @@ export default async function OsfPage() {
   return (
     <OsfHubPanel
       canManage={canManage}
+      canReadOsf={canRead || canManage}
       canManageThreshold={canManageThreshold}
       canReorderOnly={canToolsRead}
       canAssignColumns={canAssignColumns}
