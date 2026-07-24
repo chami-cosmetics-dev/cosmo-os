@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
+import { aggregateSalesBySkuInRange, osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import {
   matchesPriorityFilter,
   resolveAssistWindow,
@@ -43,7 +43,11 @@ export async function GET(request: NextRequest) {
   }
 
   const asOfDate = parsed.data.asOfDate ?? formatAppIsoDate(new Date());
-  const priorityFilter = (parsed.data.priority ?? "Top Priority").trim() || "Top Priority";
+  const mode = parsed.data.mode;
+  const priorityFilter =
+    mode === "top_sales"
+      ? "all"
+      : (parsed.data.priority ?? "Top Priority").trim() || "Top Priority";
   const page = parsed.data.page;
   const limit = parsed.data.limit;
   const q = parsed.data.q?.trim() || "";
@@ -70,7 +74,6 @@ export async function GET(request: NextRequest) {
       : {}),
   };
 
-  // Load candidates then filter priority in memory (OR on two fields with exact match).
   const allItems = await prisma.productItem.findMany({
     where: whereBase,
     orderBy: [{ updatedAt: "desc" }],
@@ -86,6 +89,7 @@ export async function GET(request: NextRequest) {
   const filtered = allItems.filter((row) => {
     const sku = row.sku?.trim();
     if (!sku) return false;
+    if (mode === "top_sales") return true;
     return matchesPriorityFilter(
       row.erp1ProductPriority,
       row.erp2ProductPriority,
@@ -93,13 +97,34 @@ export async function GET(request: NextRequest) {
     );
   });
 
-  // Dedupe by sku (prefer first = most recently updated)
   const bySku = new Map<string, (typeof filtered)[number]>();
   for (const row of filtered) {
     const sku = row.sku!.trim();
     if (!bySku.has(sku)) bySku.set(sku, row);
   }
-  const unique = [...bySku.values()];
+  let unique = [...bySku.values()];
+
+  // Top sales: rank all catalog SKUs by fixed last-30-days sales before paginating
+  const fixedWindow =
+    mode === "top_sales"
+      ? resolveAssistWindow({ asOfDate, lastPurchaseDate: null })
+      : null;
+  let allSalesForRank: Map<string, number> | null = null;
+
+  if (mode === "top_sales" && fixedWindow && unique.length > 0) {
+    allSalesForRank = await aggregateSalesBySkuInRange(
+      companyId,
+      fixedWindow.rangeStart,
+      fixedWindow.rangeEndExclusive,
+    );
+    unique = [...unique].sort((a, b) => {
+      const sa = allSalesForRank!.get(a.sku!.trim()) ?? 0;
+      const sb = allSalesForRank!.get(b.sku!.trim()) ?? 0;
+      if (sb !== sa) return sb - sa;
+      return (a.sku ?? "").localeCompare(b.sku ?? "");
+    });
+  }
+
   const total = unique.length;
   const pageRows = unique.slice((page - 1) * limit, page * limit);
   const skus = pageRows.map((r) => r.sku!.trim());
@@ -167,9 +192,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Sales: one query spanning earliest window start among page rows through asOf+1
   let salesMap = new Map<string, number>();
-  if (skus.length > 0) {
+  if (mode === "top_sales" && fixedWindow) {
+    for (const sku of skus) {
+      salesMap.set(sku, allSalesForRank?.get(sku) ?? 0);
+    }
+  } else if (skus.length > 0) {
     let earliestStart: Date | null = null;
     let endExclusive: Date | null = null;
     for (const row of pageRows) {
@@ -182,11 +210,6 @@ export async function GET(request: NextRequest) {
       if (!endExclusive) endExclusive = w.rangeEndExclusive;
     }
     if (earliestStart && endExclusive) {
-      // Per-SKU windows differ — fetch lines in union range then attribute per window in loop below
-      // using per-sku resolveAssistWindow + filter in memory via aggregate with sku filter,
-      // then re-sum using dates... Simpler: call aggregateSalesBySkuInRange per unique window,
-      // or fetch all lines once and bucket per sku window.
-
       const lines = await prisma.orderLineItem.findMany({
         where: {
           order: osfCompletedSalesOrderWhere(companyId, earliestStart, endExclusive),
@@ -243,7 +266,10 @@ export async function GET(request: NextRequest) {
   const items = pageRows.map((row) => {
     const sku = row.sku!.trim();
     const lastPurchaseDate = purchaseBySku.get(sku) ?? null;
-    const window = resolveAssistWindow({ asOfDate, lastPurchaseDate });
+    const window =
+      mode === "top_sales" && fixedWindow
+        ? fixedWindow
+        : resolveAssistWindow({ asOfDate, lastPurchaseDate });
     const salesInWindow = salesMap.get(sku) ?? 0;
     const suggestedRop = suggestedRopFromSales(salesInWindow);
     const currentRops = ropsBySku.get(sku) ?? {};
@@ -284,7 +310,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     asOfDate,
-    priorityFilter,
+    mode,
+    priorityFilter: mode === "top_sales" ? "top_sales" : priorityFilter,
     page,
     limit,
     total,
