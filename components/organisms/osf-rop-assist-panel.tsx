@@ -254,9 +254,9 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
         <div>
           <h3 className="font-medium">ROP Assist</h3>
           <p className="text-sm text-muted-foreground">
-            On open, Product Priority syncs from both ERPs. Use priority filters or Top
-            sales (30 days) to rank all SKUs by sales. Accept or edit suggested ROPs, then
-            Save. Generate OSF uses saved ROPs with live stock at download time.
+            On open, Product Priority syncs from both ERPs. Sales and suggested ROP use
+            the last 30 days. Filter by priority or Top sales (ranked). Accept or edit,
+            then Save. Generate OSF uses saved ROPs with live stock at download time.
           </p>
         </div>
         <Button
