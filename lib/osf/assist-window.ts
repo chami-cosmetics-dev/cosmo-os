@@ -42,36 +42,28 @@ export type AssistWindow = {
 };
 
 /**
- * Resolve assist sales window.
- * - Valid lastPurchaseDate <= asOf → purchase → asOf
- * - Missing / invalid / future purchase → last 30 days → asOf
+ * Resolve assist sales window: always last 30 days ending on asOf
+ * (inclusive display dates; exclusive next-day end for queries).
+ * lastPurchaseDate is ignored for the sales window (kept for call-site compat).
  */
 export function resolveAssistWindow(input: {
   asOfDate: string;
-  lastPurchaseDate: string | null | undefined;
+  lastPurchaseDate?: string | null | undefined;
 }): AssistWindow {
   const asOf = parseIsoDate(input.asOfDate);
   if (!asOf) {
     throw new Error(`Invalid asOfDate: ${input.asOfDate}`);
   }
 
-  const purchase = parseIsoDate(input.lastPurchaseDate ?? null);
-  let windowStart: string;
-  let usedPurchaseDate = false;
-
-  if (purchase && purchase <= asOf) {
-    windowStart = purchase;
-    usedPurchaseDate = true;
-  } else {
-    windowStart = addUtcDays(asOf, -30);
-  }
+  void input.lastPurchaseDate;
+  const windowStart = addUtcDays(asOf, -30);
 
   return {
     windowStart,
     windowEnd: asOf,
     rangeStart: colomboDayStartUtc(windowStart),
     rangeEndExclusive: colomboDayStartUtc(addUtcDays(asOf, 1)),
-    usedPurchaseDate,
+    usedPurchaseDate: false,
   };
 }
 
