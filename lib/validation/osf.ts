@@ -107,6 +107,8 @@ const osfAsOfDateSchema = z
 
 export const osfAssistPageDataQuerySchema = z.object({
   asOfDate: osfAsOfDateSchema.optional(),
+  /** `priority` (default): filter by ERP priority. `top_sales`: ignore priority, rank by last-30-days sales. */
+  mode: z.enum(["priority", "top_sales"]).optional().default("priority"),
   priority: trimmedString(0, 80).optional(),
   page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
