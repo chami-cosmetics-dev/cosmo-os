@@ -38,7 +38,10 @@ import {
   normalizeQuantity,
   totalStickerCount,
 } from "@/lib/sticker-print-quantity";
-import { resolveStickerUnitPrice } from "@/lib/sticker-unit-price";
+import {
+  isLwkLocation,
+  resolveStickerUnitPrice,
+} from "@/lib/sticker-unit-price";
 
 const isVault = process.env.NEXT_PUBLIC_APP_NAME === "Vault OS";
 
@@ -143,6 +146,8 @@ interface StickerBatchClientProps {
   suppliers: SupplierOption[];
   locations: LocationOption[];
   itemCatalog: ItemCatalogRow[];
+  /** Cosmo ERP OGF Price List rates keyed by SKU (for LWK location). */
+  lwkPriceBySku: Record<string, string>;
   companyName: string;
   companyAddress: string;
   initialBatches: BatchOption[];
@@ -236,6 +241,7 @@ export function StickerBatchClient({
   suppliers,
   locations,
   itemCatalog,
+  lwkPriceBySku: initialLwkPriceBySku,
   companyName,
   companyAddress,
   initialBatches,
@@ -261,6 +267,7 @@ export function StickerBatchClient({
   const [isPreviewLifted, setIsPreviewLifted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingItems, setSavingItems] = useState(false);
+  const [lwkPriceBySku, setLwkPriceBySku] = useState(initialLwkPriceBySku);
   const [loadedSnapshot, setLoadedSnapshot] = useState<LoadedBatchSnapshot | null>(null);
   const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
     supplierName: "",
@@ -332,6 +339,86 @@ export function StickerBatchClient({
     if (!activeRow?.locationId) return null;
     return locations.find((location) => location.id === activeRow.locationId) ?? null;
   }, [locations, activeRow]);
+
+  const lwkLocationIds = useMemo(
+    () =>
+      new Set(
+        locations
+          .filter((location) => isLwkLocation(location.locationReference))
+          .map((location) => location.id)
+      ),
+    [locations]
+  );
+  const lwkPriceFetchAttemptedRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    setLwkPriceBySku(initialLwkPriceBySku);
+    lwkPriceFetchAttemptedRef.current = new Set();
+  }, [initialLwkPriceBySku]);
+
+  useEffect(() => {
+    const usingLwk =
+      isLwkLocation(selectedLocation?.locationReference) ||
+      rows.some((row) => lwkLocationIds.has(row.locationId));
+    if (!usingLwk) return;
+
+    const missingSkus = [
+      ...new Set(
+        rows
+          .map((row) => row.itemCode.trim())
+          .filter(
+            (sku) =>
+              Boolean(sku) &&
+              !lwkPriceBySku[sku] &&
+              !lwkPriceFetchAttemptedRef.current.has(sku)
+          )
+      ),
+    ].slice(0, 50);
+    if (missingSkus.length === 0) return;
+
+    for (const sku of missingSkus) {
+      lwkPriceFetchAttemptedRef.current.add(sku);
+    }
+
+    const params = new URLSearchParams();
+    for (const sku of missingSkus) params.append("sku", sku);
+    let cancelled = false;
+
+    fetch(`/api/admin/stickers/lwk-prices?${params.toString()}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as { prices?: Record<string, string> };
+      })
+      .then((data) => {
+        if (cancelled || !data?.prices) return;
+        const prices = data.prices;
+        if (Object.keys(prices).length === 0) return;
+        setLwkPriceBySku((prev) => ({ ...prev, ...prices }));
+        setRows((prev) =>
+          prev.map((row) => {
+            const locationId = row.locationId.trim() || selectedLocationId;
+            if (!lwkLocationIds.has(locationId)) return row;
+            const sku = row.itemCode.trim();
+            const nextPrice = prices[sku];
+            if (!nextPrice) return row;
+            return { ...row, unitPrice: nextPrice };
+          })
+        );
+      })
+      .catch(() => {
+        /* leave prices empty — never invent */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    rows,
+    lwkLocationIds,
+    lwkPriceBySku,
+    selectedLocation,
+    selectedLocationId,
+  ]);
 
   function resolveLocationPhone(locationId?: string | null): string {
     const fromRow = locationId
@@ -643,13 +730,16 @@ export function StickerBatchClient({
 
   function resolveUnitPriceForItem(
     item: ItemCatalogRow | null | undefined,
-    _locationId: string
+    locationId: string
   ): string {
     if (!item) return "";
+    const location = locations.find((entry) => entry.id === locationId);
+    const isLwk = isLwkLocation(location?.locationReference);
+    const sku = item.sku?.trim() ?? "";
+
     // Prefer compare-at on this location row; if missing, use any same-SKU row's compare-at
     let compareAt = item.compareAtPrice;
-    if (!compareAt && item.sku?.trim()) {
-      const sku = item.sku.trim();
+    if (!compareAt && sku) {
       const withCompare = itemCatalog.find(
         (entry) =>
           entry.sku?.trim() === sku &&
@@ -658,9 +748,12 @@ export function StickerBatchClient({
       );
       compareAt = withCompare?.compareAtPrice ?? null;
     }
+
     return resolveStickerUnitPrice({
       price: item.price,
       compareAtPrice: compareAt,
+      lwkErpPrice: sku ? lwkPriceBySku[sku] : undefined,
+      isLwk,
     });
   }
 

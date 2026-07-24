@@ -14,21 +14,46 @@ describe("isLwkLocation", () => {
 });
 
 describe("resolveStickerUnitPrice", () => {
-  it("prefers compare-at over sell price for every location", () => {
+  it("uses original/list price for non-LWK locations", () => {
     expect(
       resolveStickerUnitPrice({
         price: "100.00",
         compareAtPrice: "150.00",
+        lwkErpPrice: "120.00",
+        isLwk: false,
       })
     ).toBe("150.00");
   });
 
-  it("falls back to price when no compare-at", () => {
+  it("falls back to sell price when no compare-at on non-LWK", () => {
     expect(
       resolveStickerUnitPrice({
         price: "100.00",
         compareAtPrice: null,
+        isLwk: false,
       })
     ).toBe("100.00");
+  });
+
+  it("uses ERP LWK price for LWK", () => {
+    expect(
+      resolveStickerUnitPrice({
+        price: "100.00",
+        compareAtPrice: "150.00",
+        lwkErpPrice: "120.00",
+        isLwk: true,
+      })
+    ).toBe("120.00");
+  });
+
+  it("does not use Cosmo prices when LWK ERP price is missing", () => {
+    expect(
+      resolveStickerUnitPrice({
+        price: "100.00",
+        compareAtPrice: "150.00",
+        lwkErpPrice: null,
+        isLwk: true,
+      })
+    ).toBe("");
   });
 });
