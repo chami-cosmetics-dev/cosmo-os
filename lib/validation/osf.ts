@@ -100,3 +100,30 @@ export type OsfColumnAccessPutInput = z.infer<typeof osfColumnAccessPutSchema>;
 export const purchasingSkuQuerySchema = z.object({
   sku: trimmedString(1, LIMITS.sku.max),
 });
+
+const osfAsOfDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "asOfDate must be YYYY-MM-DD");
+
+export const osfAssistPageDataQuerySchema = z.object({
+  asOfDate: osfAsOfDateSchema.optional(),
+  priority: trimmedString(0, 80).optional(),
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+  q: trimmedString(0, LIMITS.sku.max).optional(),
+});
+
+export const osfAssistRopsPutSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        sku: trimmedString(1, LIMITS.sku.max),
+        ropQty: z.number().int().min(0).max(1_000_000),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+
+export type OsfAssistPageDataQuery = z.infer<typeof osfAssistPageDataQuerySchema>;
+export type OsfAssistRopsPutInput = z.infer<typeof osfAssistRopsPutSchema>;

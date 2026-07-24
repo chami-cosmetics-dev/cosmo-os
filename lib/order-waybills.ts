@@ -523,6 +523,51 @@ export async function rematchUnmatchedWaybills(
   return { attempted: unmatched.length, matched };
 }
 
+/**
+ * Delete an upload history row and any waybills still linked to that upload.
+ * Waybills later overwritten by a newer file (different uploadId) are left intact.
+ */
+export async function deleteWaybillUpload(input: {
+  companyId: string;
+  uploadId: string;
+}): Promise<{ ok: true; deletedWaybills: number; fileName: string } | { ok: false; error: string }> {
+  const uploads = await prisma.$queryRaw<Array<{ id: string; fileName: string }>>(
+    Prisma.sql`
+      SELECT "id", "fileName"
+      FROM "WaybillUpload"
+      WHERE "id" = ${input.uploadId}
+        AND "companyId" = ${input.companyId}
+      LIMIT 1
+    `
+  );
+  const upload = uploads[0];
+  if (!upload) {
+    return { ok: false, error: "Upload not found." };
+  }
+
+  const deleted = await prisma.$executeRaw(
+    Prisma.sql`
+      DELETE FROM "OrderWaybill"
+      WHERE "companyId" = ${input.companyId}
+        AND "uploadId" = ${input.uploadId}
+    `
+  );
+
+  await prisma.$executeRaw(
+    Prisma.sql`
+      DELETE FROM "WaybillUpload"
+      WHERE "id" = ${input.uploadId}
+        AND "companyId" = ${input.companyId}
+    `
+  );
+
+  return {
+    ok: true,
+    deletedWaybills: Number(deleted),
+    fileName: upload.fileName,
+  };
+}
+
 export async function getWaybillLookupPageData(input: {
   companyId: string;
   page: number;

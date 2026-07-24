@@ -1,5 +1,6 @@
 import "server-only";
 
+import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import { prisma } from "@/lib/prisma";
 
 const COLOMBO = "Asia/Colombo";
@@ -41,22 +42,7 @@ export async function aggregateMonthlySalesBySku(
 
   const lines = await prisma.orderLineItem.findMany({
     where: {
-      order: {
-        companyId,
-        cancelledAt: null,
-        fulfillmentStage: { in: ["delivery_complete", "invoice_complete"] },
-        OR: [
-          {
-            deliveryCompleteAt: { gte: start, lt: end },
-          },
-          {
-            AND: [
-              { deliveryCompleteAt: null },
-              { invoiceCompleteAt: { gte: start, lt: end } },
-            ],
-          },
-        ],
-      },
+      order: osfCompletedSalesOrderWhere(companyId, start, end),
     },
     select: {
       quantity: true,

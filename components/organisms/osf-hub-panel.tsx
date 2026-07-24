@@ -5,12 +5,14 @@ import { OsfColumnAccessPanel } from "@/components/organisms/osf-column-access-p
 import { OsfColumnsSettings } from "@/components/organisms/osf-columns-settings";
 import { OsfGeneratePanel } from "@/components/organisms/osf-generate-panel";
 import { OsfProductEditor } from "@/components/organisms/osf-product-editor";
+import { OsfRopAssistPanel } from "@/components/organisms/osf-rop-assist-panel";
 import { OsfRopImportPanel } from "@/components/organisms/osf-rop-import-panel";
 
 type LocationOption = { id: string; name: string; shortName: string | null };
 
 type Props = {
   canManage: boolean;
+  canReadOsf?: boolean;
   canManageThreshold?: boolean;
   canReorderOnly?: boolean;
   canAssignColumns?: boolean;
@@ -21,6 +23,7 @@ type Props = {
 
 export function OsfHubPanel({
   canManage,
+  canReadOsf = false,
   canManageThreshold = false,
   canReorderOnly = false,
   canAssignColumns = false,
@@ -41,6 +44,12 @@ export function OsfHubPanel({
       <section className="rounded-lg border p-4">
         <OsfGeneratePanel canReorderOnly={canReorderOnly} />
       </section>
+
+      {canReadOsf && (
+        <section className="rounded-lg border p-4">
+          <OsfRopAssistPanel canManageRops={canManage} />
+        </section>
+      )}
 
       {canManage && (
         <section className="rounded-lg border p-4">
