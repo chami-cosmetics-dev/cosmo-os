@@ -56,16 +56,16 @@ type Props = {
 
 /** View selector: priority filters + top-sales ranking mode */
 const VIEW_OPTIONS = [
-  { value: "Top Priority", label: "Top Priority", mode: "priority" as const },
-  { value: "Non Priority", label: "Non Priority", mode: "priority" as const },
-  { value: "Discontinue", label: "Discontinue", mode: "priority" as const },
-  { value: "Newly Added", label: "Newly Added", mode: "priority" as const },
-  { value: "all", label: "All priorities", mode: "priority" as const },
   {
     value: "top_sales",
     label: "Top sales (30 days)",
     mode: "top_sales" as const,
   },
+  { value: "Top Priority", label: "Top Priority", mode: "priority" as const },
+  { value: "Non Priority", label: "Non Priority", mode: "priority" as const },
+  { value: "Discontinue", label: "Discontinue", mode: "priority" as const },
+  { value: "Newly Added", label: "Newly Added", mode: "priority" as const },
+  { value: "all", label: "All priorities", mode: "priority" as const },
 ] as const;
 
 export function OsfRopAssistPanel({ canManageRops }: Props) {
@@ -75,7 +75,7 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
   const [syncBanner, setSyncBanner] = useState<string | null>(null);
   const [syncTone, setSyncTone] = useState<"ok" | "warn" | "err">("ok");
 
-  const [view, setView] = useState<string>("Top Priority");
+  const [view, setView] = useState<string>("top_sales");
   const [q, setQ] = useState("");
   const [qDraft, setQDraft] = useState("");
   const [page, setPage] = useState(1);
@@ -330,9 +330,13 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
             ))}
           </select>
         </label>
-        {isTopSales && (
+        {isTopSales ? (
           <p className="pb-2 text-xs text-muted-foreground">
-            Fixed last-30-days window · sorted by sales (high → low)
+            SKUs with sales in last 30 days · sorted high → low
+          </p>
+        ) : (
+          <p className="pb-2 text-xs text-muted-foreground">
+            Sorted by last-30-days sales (high → low)
           </p>
         )}
         <label className="space-y-1 text-sm">
