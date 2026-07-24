@@ -33,6 +33,7 @@ type AssistItem = {
 
 type PageData = {
   asOfDate: string;
+  mode?: "priority" | "top_sales";
   priorityFilter: string;
   page: number;
   limit: number;
@@ -53,12 +54,18 @@ type Props = {
   canManageRops: boolean;
 };
 
-const PRIORITY_OPTIONS = [
-  "Top Priority",
-  "Non Priority",
-  "Discontinue",
-  "Newly Added",
-  "all",
+/** View selector: priority filters + top-sales ranking mode */
+const VIEW_OPTIONS = [
+  { value: "Top Priority", label: "Top Priority", mode: "priority" as const },
+  { value: "Non Priority", label: "Non Priority", mode: "priority" as const },
+  { value: "Discontinue", label: "Discontinue", mode: "priority" as const },
+  { value: "Newly Added", label: "Newly Added", mode: "priority" as const },
+  { value: "all", label: "All priorities", mode: "priority" as const },
+  {
+    value: "top_sales",
+    label: "Top sales (30 days)",
+    mode: "top_sales" as const,
+  },
 ] as const;
 
 export function OsfRopAssistPanel({ canManageRops }: Props) {
@@ -68,7 +75,7 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
   const [syncBanner, setSyncBanner] = useState<string | null>(null);
   const [syncTone, setSyncTone] = useState<"ok" | "warn" | "err">("ok");
 
-  const [priority, setPriority] = useState<string>("Top Priority");
+  const [view, setView] = useState<string>("Top Priority");
   const [q, setQ] = useState("");
   const [qDraft, setQDraft] = useState("");
   const [page, setPage] = useState(1);
@@ -78,6 +85,7 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
   const [qtyBySku, setQtyBySku] = useState<Record<string, number>>({});
 
   const manage = canManageRops && (data?.canManageRops ?? canManageRops);
+  const isTopSales = view === "top_sales";
 
   async function runRefresh() {
     setBusyKey("refresh");
@@ -117,20 +125,22 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
   }
 
   async function loadPageData(opts?: {
-    priority?: string;
+    view?: string;
     page?: number;
     q?: string;
   }) {
-    const p = opts?.priority ?? priority;
+    const v = opts?.view ?? view;
     const pg = opts?.page ?? page;
     const search = opts?.q ?? q;
+    const topSales = v === "top_sales";
     setBusyKey("load");
     try {
       const params = new URLSearchParams({
-        priority: p,
+        mode: topSales ? "top_sales" : "priority",
         page: String(pg),
         limit: "50",
       });
+      if (!topSales) params.set("priority", v);
       if (search.trim()) params.set("q", search.trim());
       const res = await fetch(`/api/admin/osf/assist/page-data?${params}`);
       const json = await res.json().catch(() => ({}));
@@ -244,9 +254,9 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
         <div>
           <h3 className="font-medium">ROP Assist</h3>
           <p className="text-sm text-muted-foreground">
-            On open, Product Priority syncs from both ERPs. Review Top Priority SKUs,
-            accept or edit suggested ROPs (sales in purchase→today or last 30 days), then
-            Save. Generate OSF uses these saved ROPs with live stock at download time.
+            On open, Product Priority syncs from both ERPs. Use priority filters or Top
+            sales (30 days) to rank all SKUs by sales. Accept or edit suggested ROPs, then
+            Save. Generate OSF uses saved ROPs with live stock at download time.
           </p>
         </div>
         <Button
@@ -301,25 +311,30 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="space-y-1 text-sm">
-          <span className="text-muted-foreground">Priority</span>
+          <span className="text-muted-foreground">View</span>
           <select
-            className="flex h-9 w-full min-w-[10rem] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
-            value={priority}
+            className="flex h-9 w-full min-w-[12rem] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+            value={view}
             disabled={isBusy}
             onChange={(e) => {
               const next = e.target.value;
-              setPriority(next);
+              setView(next);
               setPage(1);
-              void loadPageData({ priority: next, page: 1 });
+              void loadPageData({ view: next, page: 1 });
             }}
           >
-            {PRIORITY_OPTIONS.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt === "all" ? "All priorities" : opt}
+            {VIEW_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
         </label>
+        {isTopSales && (
+          <p className="pb-2 text-xs text-muted-foreground">
+            Fixed last-30-days window · sorted by sales (high → low)
+          </p>
+        )}
         <label className="space-y-1 text-sm">
           <span className="text-muted-foreground">Search</span>
           <Input
