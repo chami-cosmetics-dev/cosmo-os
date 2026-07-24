@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
+import { loadLwkStickerPricesBySku } from "@/lib/sticker-lwk-erp-price";
 import { StickerBatchClient } from "./sticker-batch-client";
 
 function getTodayDate() {
@@ -35,7 +36,7 @@ export default async function StickerBatchPage({
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return <PermissionDeniedCard />;
 
-  const [suppliers, locations, rawItemCatalog, company] =
+  const [suppliers, locations, rawItemCatalog, lwkPriceBySku, company] =
     await Promise.all([
       prisma.supplier.findMany({
         where: { companyId },
@@ -75,6 +76,7 @@ export default async function StickerBatchPage({
           compareAtPrice: true,
         },
       }),
+      loadLwkStickerPricesBySku(companyId),
       prisma.company.findUnique({
         where: { id: companyId },
         select: { name: true, address: true },
@@ -169,6 +171,7 @@ export default async function StickerBatchPage({
       suppliers={suppliers}
       locations={locations}
       itemCatalog={itemCatalog}
+      lwkPriceBySku={lwkPriceBySku}
       companyName={company?.name ?? ""}
       companyAddress={company?.address ?? ""}
       initialBatches={initialBatches}
