@@ -245,6 +245,7 @@ export type OrdersPanelInitialData = {
 
 interface OrdersPanelProps {
   canPrint?: boolean;
+  canViewInvoicePrint?: boolean;
   canResendRiderSms?: boolean;
   revertPermissionKeys?: string[];
   canManageFinanceApprovals?: boolean;
@@ -255,6 +256,7 @@ interface OrdersPanelProps {
 
 export function OrdersPanel({
   canPrint = false,
+  canViewInvoicePrint = false,
   canResendRiderSms = false,
   revertPermissionKeys = [],
   canManageFinanceApprovals = false,
@@ -873,6 +875,7 @@ export function OrdersPanel({
         getCustomerName={getCustomerName}
         getAddressPhone={getAddressPhone}
         canPrint={canPrint}
+        canViewInvoicePrint={canViewInvoicePrint}
         canResendRiderSms={canResendRiderSms}
         canRevertToStage={canRevertToStage}
         canManageFinanceApprovals={canManageFinanceApprovals}

@@ -38,6 +38,7 @@ export default async function OrdersPage() {
     <FulfillmentPermissionsProvider permissions={permissions}>
       <OrdersPanel
         canPrint={permissions.canPrint}
+        canViewInvoicePrint={permissions.canViewInvoicePrint}
         canResendRiderSms={permissions.canResendRiderSms}
         revertPermissionKeys={revertPermissionKeys}
         canManageFinanceApprovals={canManageFinanceApprovals}

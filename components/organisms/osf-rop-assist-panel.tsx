@@ -6,6 +6,13 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -310,26 +317,29 @@ export function OsfRopAssistPanel({ canManageRops }: Props) {
       )}
 
       <div className="flex flex-wrap items-end gap-2">
-        <label className="space-y-1 text-sm">
+        <div className="space-y-1 text-sm">
           <span className="text-muted-foreground">View</span>
-          <select
-            className="flex h-9 w-full min-w-[12rem] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs"
+          <Select
             value={view}
             disabled={isBusy}
-            onChange={(e) => {
-              const next = e.target.value;
+            onValueChange={(next) => {
               setView(next);
               setPage(1);
               void loadPageData({ view: next, page: 1 });
             }}
           >
-            {VIEW_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger className="min-w-[14rem]">
+              <SelectValue placeholder="Select view" />
+            </SelectTrigger>
+            <SelectContent>
+              {VIEW_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {isTopSales ? (
           <p className="pb-2 text-xs text-muted-foreground">
             SKUs with sales in last 30 days · sorted high → low

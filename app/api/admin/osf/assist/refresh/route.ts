@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { syncErpProductPriorities } from "@/lib/product-items/erp-priority-sync";
+import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { getCurrentUserContext, requirePermission } from "@/lib/rbac";
 
 export const maxDuration = 300;
@@ -18,16 +19,23 @@ export async function POST() {
   }
 
   try {
-    const result = await syncErpProductPriorities(companyId);
-    const anyOk = result.sources.some((s) => s.status === "ok");
-    const anyFailed = result.sources.some((s) => s.status === "failed");
-    if (!anyOk && anyFailed) {
+    const [priorityResult, ogfResult] = await Promise.all([
+      syncErpProductPriorities(companyId),
+      syncOgfPricesFromErp(companyId),
+    ]);
+    const anyOk = priorityResult.sources.some((s) => s.status === "ok");
+    const anyFailed = priorityResult.sources.some((s) => s.status === "failed");
+    if (!anyOk && anyFailed && ogfResult.status === "failed") {
       return NextResponse.json(
-        { error: "Both ERP sources failed or are unavailable", ...result },
+        {
+          error: "ERP priority and OGF price sync failed",
+          ...priorityResult,
+          ogfPrices: ogfResult,
+        },
         { status: 502 },
       );
     }
-    return NextResponse.json(result);
+    return NextResponse.json({ ...priorityResult, ogfPrices: ogfResult });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Priority sync failed";
     return NextResponse.json({ error: message.slice(0, 300) }, { status: 502 });

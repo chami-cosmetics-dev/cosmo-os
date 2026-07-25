@@ -17,6 +17,8 @@ function hasPermission(context: UserPermissionContext, permissionKey: string) {
 export type FulfillmentPermissions = {
   canManageSampleFreeIssue: boolean;
   canPrint: boolean;
+  /** View-only invoice print (does not mark order printed). */
+  canViewInvoicePrint: boolean;
   canPutOnHold: boolean;
   canMarkReady: boolean;
   canRevertHold: boolean;
@@ -114,6 +116,7 @@ export function buildFulfillmentPermissions(
     return {
       canManageSampleFreeIssue: false,
       canPrint: false,
+      canViewInvoicePrint: false,
       canPutOnHold: false,
       canMarkReady: false,
       canRevertHold: false,
@@ -129,6 +132,7 @@ export function buildFulfillmentPermissions(
   return {
     canManageSampleFreeIssue: hasPermission(context, "fulfillment.sample_free_issue.manage"),
     canPrint: hasPermission(context, "fulfillment.order_print.print"),
+    canViewInvoicePrint: hasPermission(context, "fulfillment.order_print.read"),
     canPutOnHold: hasPermission(context, "fulfillment.ready_dispatch.put_on_hold"),
     canMarkReady: hasPermission(context, "fulfillment.ready_dispatch.package_ready"),
     canRevertHold: hasPermission(context, "fulfillment.ready_dispatch.revert_hold"),
