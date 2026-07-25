@@ -10,6 +10,7 @@ import { mergeInstanceErpData, type InstanceErpData } from "@/lib/osf/erp-merge"
 import { fetchLastPurchaseByItem } from "@/lib/osf/erp-purchases";
 import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/osf/erp-stock";
 import { aggregateMonthlySalesBySku } from "@/lib/osf/monthly-sales";
+import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { isBelowReorderThreshold } from "@/lib/osf/threshold";
 import { prisma } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
@@ -77,6 +78,9 @@ export async function POST(request: NextRequest) {
       { status: 502 },
     );
   }
+
+  // Refresh OSF ogfPrice from Cosmo ERP OGF Price List before workbook build.
+  await syncOgfPricesFromErp(companyId);
 
   try {
     const [catalogRaw, columns, profiles, ropRows, monthlySales, buyers, allowedSuppliers] =

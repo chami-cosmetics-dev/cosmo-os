@@ -219,6 +219,8 @@ interface OrderInvoiceViewModalProps {
   getCustomerName: (addr: unknown) => string | null;
   getAddressPhone: (addr: unknown) => string | null;
   canPrint?: boolean;
+  /** View-only Print Invoice (does not mark order printed). */
+  canViewInvoicePrint?: boolean;
   canResendRiderSms?: boolean;
   canRevertToStage?: (targetStage: string, currentStage: string) => boolean;
   canManageFinanceApprovals?: boolean;
@@ -533,6 +535,7 @@ export function OrderInvoiceViewModal({
   getCustomerName,
   getAddressPhone,
   canPrint = false,
+  canViewInvoicePrint = false,
   canResendRiderSms = false,
   canRevertToStage,
   canManageFinanceApprovals = false,
@@ -711,8 +714,7 @@ export function OrderInvoiceViewModal({
 
   function handlePrint() {
     if (!orderId) return;
-    window.open(`/api/admin/orders/${orderId}/invoice?print=1`, "_blank", "noopener");
-    window.setTimeout(() => onRefresh?.(), 2000);
+    window.open(`/api/admin/orders/${orderId}/invoice?preview=1`, "_blank", "noopener");
   }
 
   function handleRevertClick(targetStage: string, label: string) {
@@ -993,8 +995,13 @@ export function OrderInvoiceViewModal({
                 <Braces className="size-4" />
                 View JSON
               </Button>
-              {canPrint && (orderDetail.printCount ?? 0) > 0 && (
-                <Button variant="outline" onClick={handlePrint}>
+              {(canViewInvoicePrint || canPrint) && (
+                <Button
+                  variant="outline"
+                  onClick={handlePrint}
+                  title="Print a copy without marking the order as printed"
+                  aria-label="Print invoice without marking as printed"
+                >
                   <Printer className="size-4" />
                   Print Invoice
                 </Button>

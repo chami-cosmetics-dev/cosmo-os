@@ -221,16 +221,19 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
                 </select>
               </label>
               <label className="block text-xs font-medium">
-                OGF Price
+                OGF Price (LWK)
                 <Input
                   type="number"
                   step="0.01"
                   className="mt-1"
                   disabled={!canManage}
                   value={ogfPrice}
-                  placeholder="Independent of LWK"
+                  placeholder="From ERP OGF Price List"
                   onChange={(e) => setOgfPrice(e.target.value)}
                 />
+                <span className="mt-1 block text-[11px] font-normal text-muted-foreground">
+                  Synced from Cosmo ERP OGF Price List. Online Cosmetics.lk price is separate.
+                </span>
               </label>
               <label className="block text-xs font-medium">
                 Reorder threshold % (blank = 70)

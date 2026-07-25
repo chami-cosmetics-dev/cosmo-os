@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
+import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { loadLwkStickerPricesBySku } from "@/lib/sticker-lwk-erp-price";
 import { StickerBatchClient } from "./sticker-batch-client";
 
@@ -36,7 +37,7 @@ export default async function StickerBatchPage({
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return <PermissionDeniedCard />;
 
-  const [suppliers, locations, rawItemCatalog, lwkPriceBySku, company] =
+  const [suppliers, locations, rawItemCatalog, lwkPriceBySku, , company] =
     await Promise.all([
       prisma.supplier.findMany({
         where: { companyId },
@@ -77,11 +78,14 @@ export default async function StickerBatchPage({
         },
       }),
       loadLwkStickerPricesBySku(companyId),
+      syncOgfPricesFromErp(companyId),
       prisma.company.findUnique({
         where: { id: companyId },
         select: { name: true, address: true },
       }),
     ]);
+
+  // Stickers use live ERP map above; syncOgfPricesFromErp writes OSF ogfPrice for workbook/UI.
 
   let initialBatches: Array<{
     id: string;

@@ -11,6 +11,7 @@ import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-displa
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
 import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
+import { resolveInvoicePrintMode } from "@/lib/invoice-print-mode";
 import { renderPrintFormatHtml } from "@/lib/print-format-renderer";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
@@ -159,8 +160,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const printParam = request.nextUrl.searchParams.get("print");
-  const shouldIncrementPrint = printParam === "1" || printParam === "true";
+  const { shouldIncrementPrint, autoPrint } = resolveInvoicePrintMode(
+    request.nextUrl.searchParams
+  );
   const auth = await requireAnyPermission(
     shouldIncrementPrint
       ? ["fulfillment.order_print.print"]
@@ -491,7 +493,7 @@ export async function GET(
     },
     print: {
       isCopy: showWatermark,
-      autoPrint: Boolean(printParam),
+      autoPrint,
       printedDate,
       printedOn,
       formatName: printFormat.name,
