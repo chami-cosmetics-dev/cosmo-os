@@ -40,6 +40,7 @@ import {
 } from "@/lib/sticker-print-quantity";
 import {
   isLwkLocation,
+  lookupLwkErpPrice,
   resolveStickerUnitPrice,
 } from "@/lib/sticker-unit-price";
 
@@ -344,7 +345,9 @@ export function StickerBatchClient({
     () =>
       new Set(
         locations
-          .filter((location) => isLwkLocation(location.locationReference))
+          .filter((location) =>
+            isLwkLocation(location.locationReference, location.name)
+          )
           .map((location) => location.id)
       ),
     [locations]
@@ -358,8 +361,10 @@ export function StickerBatchClient({
 
   useEffect(() => {
     const usingLwk =
-      isLwkLocation(selectedLocation?.locationReference) ||
-      rows.some((row) => lwkLocationIds.has(row.locationId));
+      isLwkLocation(
+        selectedLocation?.locationReference,
+        selectedLocation?.name
+      ) || rows.some((row) => lwkLocationIds.has(row.locationId));
     if (!usingLwk) return;
 
     const missingSkus = [
@@ -369,7 +374,7 @@ export function StickerBatchClient({
           .filter(
             (sku) =>
               Boolean(sku) &&
-              !lwkPriceBySku[sku] &&
+              !lookupLwkErpPrice(lwkPriceBySku, sku) &&
               !lwkPriceFetchAttemptedRef.current.has(sku)
           )
       ),
@@ -399,7 +404,7 @@ export function StickerBatchClient({
             const locationId = row.locationId.trim() || selectedLocationId;
             if (!lwkLocationIds.has(locationId)) return row;
             const sku = row.itemCode.trim();
-            const nextPrice = prices[sku];
+            const nextPrice = lookupLwkErpPrice(prices, sku);
             if (!nextPrice) return row;
             return { ...row, unitPrice: nextPrice };
           })
@@ -734,7 +739,10 @@ export function StickerBatchClient({
   ): string {
     if (!item) return "";
     const location = locations.find((entry) => entry.id === locationId);
-    const isLwk = isLwkLocation(location?.locationReference);
+    const isLwk = isLwkLocation(
+      location?.locationReference,
+      location?.name
+    );
     const sku = item.sku?.trim() ?? "";
 
     // Prefer compare-at on this location row; if missing, use any same-SKU row's compare-at
@@ -752,7 +760,7 @@ export function StickerBatchClient({
     return resolveStickerUnitPrice({
       price: item.price,
       compareAtPrice: compareAt,
-      lwkErpPrice: sku ? lwkPriceBySku[sku] : undefined,
+      lwkErpPrice: lookupLwkErpPrice(lwkPriceBySku, sku),
       isLwk,
     });
   }

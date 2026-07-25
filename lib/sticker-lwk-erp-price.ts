@@ -50,7 +50,10 @@ export async function resolveLwkErpInstance(
   const lwkLocation = await prisma.companyLocation.findFirst({
     where: {
       companyId,
-      locationReference: { equals: "LWK", mode: "insensitive" },
+      OR: [
+        { locationReference: { equals: "LWK", mode: "insensitive" } },
+        { name: { contains: "LWK", mode: "insensitive" } },
+      ],
     },
     select: {
       erpnextInstance: {
