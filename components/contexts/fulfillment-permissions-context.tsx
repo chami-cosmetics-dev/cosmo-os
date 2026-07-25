@@ -6,6 +6,7 @@ import type { FulfillmentPermissions } from "@/lib/fulfillment-permissions";
 const defaultPermissions: FulfillmentPermissions = {
   canManageSampleFreeIssue: false,
   canPrint: false,
+  canViewInvoicePrint: false,
   canPutOnHold: false,
   canMarkReady: false,
   canRevertHold: false,

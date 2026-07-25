@@ -9,7 +9,7 @@ const ROWS: SourceRow[] = [
   { column: "ROP / Common ROP", source: "Cosmo UI", note: "Edited on this page — not ERP" },
   { column: "% / 70% / Order qty", source: "Calc", note: "From stock + ROP" },
   { column: "MRP / Discounted", source: "Cosmo", note: "Compare-at / sell price" },
-  { column: "OGF Price", source: "Cosmo UI", note: "Independent — not LWK" },
+  { column: "OGF Price", source: "ERP", note: "Cosmo ERP OGF Price List (LWK POS) — synced into OS" },
   { column: "Latest Cost / Supplier", source: "ERP", note: "Blank if missing — never invented" },
   { column: "Cosmetics / OGF Margin", source: "Calc", note: "(original sell − cost) / original sell — per-user column access" },
   { column: "Monthly sales units", source: "Cosmo", note: "delivery/invoice complete, Colombo month" },
