@@ -49,6 +49,7 @@ type SampleOrderDetail = {
   paymentGatewayPrimary?: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  customerName?: string | null;
   shippingAddress: unknown;
   lineItems: Array<{
     id: string;
@@ -493,6 +494,12 @@ export function FulfillmentSampleFreeIssuePanel({
               )}
               <div className="space-y-1">
                 <FulfillmentOrderReference order={order} variant="labeled" />
+                <p>
+                  <span className="font-medium">Name:</span>{" "}
+                  {detail?.customerName
+                    ?? (detail?.shippingAddress as Record<string, string> | null)?.name
+                    ?? "-"}
+                </p>
                 <p><span className="font-medium">Email:</span> {detail?.customerEmail ?? order?.customerEmail ?? "-"}</p>
                 <p><span className="font-medium">Phone:</span> {detail?.customerPhone ?? order?.customerPhone ?? (detail?.shippingAddress as Record<string, string> | null)?.phone ?? "-"}</p>
               </div>
