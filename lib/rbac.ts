@@ -221,7 +221,7 @@ const DEFAULT_PERMISSIONS = [
     key: "finance.hod.revert_paid_to_unpaid",
     description: "Revert a paid order to unpaid (requires HOD password)",
   },
-  // Reminder bubbles — explicit reminders.* only (no page-perm default)
+  // Reminder bubbles — auto-granted to admin/super_admin; other roles tick in Roles UI
   ...REMINDER_BUBBLE_PERMISSIONS.map((p) => ({
     key: p.key,
     description: buildReminderBubblePermissionDescription(p.category),
@@ -444,21 +444,19 @@ const DEFAULT_PERMISSIONS = [
   },
 ] as const;
 
-const DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS = DEFAULT_PERMISSIONS.map(
-  (p) => p.key,
-).filter((key) => !key.startsWith("reminders."));
+const ALL_DEFAULT_PERMISSION_KEYS = DEFAULT_PERMISSIONS.map((p) => p.key);
 
 const DEFAULT_ROLES = [
   {
     name: "super_admin",
     description: "Full system access including company setup",
-    // Reminder bubbles must be granted explicitly via reminders.* in Roles UI.
-    permissionKeys: DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS,
+    // All default permissions, including reminder bubbles.
+    permissionKeys: ALL_DEFAULT_PERMISSION_KEYS,
   },
   {
     name: "admin",
     description: "Full access to user and role management",
-    permissionKeys: DEFAULT_ROLE_PERMISSION_KEYS_WITHOUT_REMINDERS,
+    permissionKeys: ALL_DEFAULT_PERMISSION_KEYS,
   },
   {
     name: "manager",
@@ -682,7 +680,6 @@ let rbacSetupPromise: Promise<void> | null = null;
 let hasVerifiedDefaultRbacSetup = false;
 let rbacDatabaseUnavailableUntil = 0;
 
-const EXPECTED_PERMISSION_COUNT = DEFAULT_PERMISSIONS.length;
 const RBAC_DB_RETRY_MS = Number(process.env.RBAC_DB_RETRY_MS ?? "15000");
 
 function isRbacDatabaseTemporarilyUnavailable() {
@@ -694,9 +691,9 @@ function markRbacDatabaseUnavailable() {
 }
 
 /**
- * Ensures RBAC setup runs when needed. Uses a fast DB count check so we skip the
- * full setup when permissions are already populated. This works across Next.js
- * dev workers (each has its own process-level cache).
+ * Ensures RBAC setup runs once per process. Always syncs so new DEFAULT_PERMISSIONS
+ * are created and linked to admin/super_admin (createMany skipDuplicates).
+ * Process-level cache avoids repeating this on every request.
  */
 async function ensureDefaultRbacSetupIfNeeded() {
   if (hasVerifiedDefaultRbacSetup || isRbacDatabaseTemporarilyUnavailable()) {
@@ -706,10 +703,7 @@ async function ensureDefaultRbacSetupIfNeeded() {
   if (!rbacSetupPromise) {
     rbacSetupPromise = (async () => {
       try {
-        const count = await prisma.permission.count();
-        if (count < EXPECTED_PERMISSION_COUNT) {
-          await ensureDefaultRbacSetup();
-        }
+        await ensureDefaultRbacSetup();
         hasVerifiedDefaultRbacSetup = true;
       } catch (error) {
         if (isDatabaseUnavailableError(error)) {

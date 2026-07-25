@@ -23,7 +23,7 @@ describe("task-reminder-access", () => {
     ).toBe(true);
   });
 
-  it("keeps finance → finance bubble only with reminders.* (page perm alone is not enough)", () => {
+  it("keeps finance without reminders.* from seeing finance bubbles", () => {
     const context = {
       roleNames: ["finance"],
       permissionKeys: [
@@ -51,7 +51,7 @@ describe("task-reminder-access", () => {
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
   });
 
-  it("grants invoice complete bubble to finance via reminders.invoice_complete", () => {
+  it("grants any ticked reminders.* to finance including store bubbles", () => {
     const context = {
       roleNames: ["finance"],
       permissionKeys: [
@@ -59,11 +59,13 @@ describe("task-reminder-access", () => {
         "fulfillment.invoice_complete.read",
         "reminders.finance_approval",
         "reminders.invoice_complete",
+        "reminders.delivery_pending",
       ],
     };
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
     expect(canSeeTaskReminderCategory(context, "invoice_complete")).toBe(true);
-    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "print")).toBe(false);
   });
 
   it("grants invoice complete bubble from reminders.* for store/admin audience", () => {
@@ -82,7 +84,7 @@ describe("task-reminder-access", () => {
     ).toBe(true);
   });
 
-  it("does not let finance reminders.* unlock store bubbles", () => {
+  it("lets finance reminders.* unlock store bubbles when granted", () => {
     const context = {
       roleNames: ["finance"],
       permissionKeys: [
@@ -94,9 +96,9 @@ describe("task-reminder-access", () => {
       ],
     };
     expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
-    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(false);
-    expect(canSeeTaskReminderCategory(context, "print")).toBe(false);
-    expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "delivery_pending")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "print")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "ready_dispatch")).toBe(true);
   });
 
   it("shows purchasing ROP threshold bubble with explicit reminders.* only", () => {
@@ -113,7 +115,7 @@ describe("task-reminder-access", () => {
     ).toBe(false);
   });
 
-  it("does not let store reminders.* unlock finance bubbles", () => {
+  it("lets store reminders.* unlock finance bubbles when granted", () => {
     const context = {
       roleNames: ["store"],
       permissionKeys: [
@@ -124,11 +126,11 @@ describe("task-reminder-access", () => {
       ],
     };
     expect(canSeeTaskReminderCategory(context, "print")).toBe(true);
-    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(false);
-    expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(false);
+    expect(canSeeTaskReminderCategory(context, "finance_approval")).toBe(true);
+    expect(canSeeTaskReminderCategory(context, "add_samples")).toBe(true);
   });
 
-  it("limits store users to store pipeline via explicit reminders.*", () => {
+  it("limits store users to ticked reminders.* only", () => {
     const context = {
       roleNames: ["store"],
       permissionKeys: [
@@ -174,7 +176,7 @@ describe("task-reminder-access", () => {
     expect(shouldScopeSampleRemindersToMerchant(context)).toBe(false);
   });
 
-  it("lists categories from reminders.* within audience caps", () => {
+  it("lists all categories granted via reminders.*", () => {
     const financeContext = {
       roleNames: ["finance"],
       permissionKeys: [
@@ -188,6 +190,7 @@ describe("task-reminder-access", () => {
     };
     expect(listVisibleTaskReminderCategories(financeContext)).toEqual([
       "finance_approval",
+      "print",
       "invoice_complete",
     ]);
 
@@ -204,6 +207,7 @@ describe("task-reminder-access", () => {
       ],
     };
     expect(listVisibleTaskReminderCategories(storeContext)).toEqual([
+      "finance_approval",
       "print",
       "ready_dispatch",
       "return_action",
