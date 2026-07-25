@@ -28,24 +28,6 @@ const SAMPLE_PERMISSION_KEYS = [
   "fulfillment.sample_free_issue.manage",
 ] as const;
 
-/** Hard caps for named audiences — reminders.* cannot exceed these. */
-const FINANCE_REMINDER_CATEGORIES = new Set<TaskReminderCategory>([
-  "finance_approval",
-  "invoice_complete",
-]);
-
-const MERCHANT_REMINDER_CATEGORIES = new Set<TaskReminderCategory>(["add_samples"]);
-
-const STORE_REMINDER_CATEGORIES = new Set<TaskReminderCategory>([
-  "print",
-  "ready_dispatch",
-  "rearrange_dispatch",
-  "delivery_pending",
-  "invoice_complete",
-  "return_action",
-  "erp_sync_warning",
-]);
-
 function hasStoreFulfillmentAccess(permissionKeys: string[]) {
   return permissionKeys.some((key) =>
     STORE_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix)),
@@ -79,8 +61,8 @@ function isStoreRoleName(roleNames: string[]) {
 }
 
 /**
- * Audience heuristics for role-type caps and merchant sample scoping.
- * Bubble visibility requires explicit reminders.*; then capped by audience.
+ * Audience heuristics for merchant sample scoping only.
+ * Bubble visibility is driven solely by explicit reminders.* grants.
  */
 export function resolveTaskReminderAudiences(
   context: TaskReminderAccessContext,
@@ -91,7 +73,7 @@ export function resolveTaskReminderAudiences(
     return new Set(["admin"]);
   }
 
-  // Named roles are exclusive — finance must not inherit store reminders from extra perms.
+  // Named roles stay exclusive for sample-scoping audience only.
   if (isFinanceRoleName(roleNames)) {
     return new Set(["finance"]);
   }
@@ -125,21 +107,8 @@ export function resolveTaskReminderAudiences(
   return new Set();
 }
 
-function categoriesAllowedForAudience(
-  audiences: Set<TaskReminderAudience>,
-): Set<TaskReminderCategory> | null {
-  if (audiences.has("admin")) return null; // unrestricted
-  if (audiences.size === 1 && audiences.has("finance")) return FINANCE_REMINDER_CATEGORIES;
-  if (audiences.size === 1 && audiences.has("merchant")) return MERCHANT_REMINDER_CATEGORIES;
-  if (audiences.size === 1 && audiences.has("store")) return STORE_REMINDER_CATEGORIES;
-  return null;
-}
-
 /**
- * Show a bubble only when the user has an explicit reminders.* grant —
- * then apply named-role caps so finance/store/merchant cannot see bubbles
- * outside their role type (even with reminders.* ticked).
- *
+ * Show a bubble whenever the user has an explicit reminders.* grant.
  * Uses permissionKeys directly (not hasReminderPermission) so admin/super_admin
  * also require a manual reminders.* tick.
  */
@@ -150,25 +119,7 @@ export function canSeeTaskReminderCategory(
   const reminderKey = reminderPermissionForCategory(
     category as ReminderBubbleCategory,
   );
-  if (!context.permissionKeys.includes(reminderKey)) {
-    return false;
-  }
-
-  const audiences = resolveTaskReminderAudiences(context);
-  const allowed = categoriesAllowedForAudience(audiences);
-
-  // Admin (or uncapped): any granted reminder key
-  if (allowed === null && audiences.has("admin")) {
-    return true;
-  }
-
-  // Named finance / store / merchant: hard cap to role categories
-  if (allowed) {
-    return allowed.has(category);
-  }
-
-  // Custom roles with no named audience: explicit reminders.* only
-  return true;
+  return context.permissionKeys.includes(reminderKey);
 }
 
 const ALL_TASK_REMINDER_CATEGORIES = [
