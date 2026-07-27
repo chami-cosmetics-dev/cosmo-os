@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { addressFromShopifyRest } from "@/lib/abandoned-checkout-address";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 import type { ShopifyCheckoutWebhookPayload } from "@/lib/validation/shopify-checkout";
@@ -118,6 +119,13 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
     input.data.shipping_address?.phone ??
     null;
 
+  const billingAddressText = addressFromShopifyRest(
+    input.data.billing_address as Record<string, unknown> | null | undefined
+  );
+  const shippingAddressText = addressFromShopifyRest(
+    input.data.shipping_address as Record<string, unknown> | null | undefined
+  );
+
   const lineItems = input.data.line_items ?? [];
   const lineItemsSummary = buildLineItemsSummary(lineItems);
   const totalPrice = input.data.total_price ?? "0";
@@ -132,6 +140,8 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
     customerName,
     customerEmail,
     customerPhone,
+    billingAddressText,
+    shippingAddressText,
     lineItemsSummary: lineItemsSummary || "",
     lineItemsJson: lineItems.length
       ? (lineItems as unknown as Prisma.InputJsonValue)

@@ -61,6 +61,8 @@ function buildWhere({
       { customerName: { contains: search, mode: "insensitive" } },
       { customerPhone: { contains: search, mode: "insensitive" } },
       { customerEmail: { contains: search, mode: "insensitive" } },
+      { billingAddressText: { contains: search, mode: "insensitive" } },
+      { shippingAddressText: { contains: search, mode: "insensitive" } },
       { lineItemsSummary: { contains: search, mode: "insensitive" } },
       // Store numeric Shopify checkout id as string
       { shopifyCheckoutId: { contains: search, mode: "insensitive" } },
@@ -106,6 +108,8 @@ export async function fetchAbandonedOrdersPageData({
     customerName: r.customerName,
     customerPhone: r.customerPhone,
     customerEmail: r.customerEmail,
+    billingAddressText: r.billingAddressText,
+    shippingAddressText: r.shippingAddressText,
     lineItemsSummary: r.lineItemsSummary,
     totalPrice: r.totalPrice.toString(),
     currency: r.currency,

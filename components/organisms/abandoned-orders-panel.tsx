@@ -334,13 +334,15 @@ export function AbandonedOrdersPanel({
             </div>
           ) : (
             <div className="overflow-x-auto rounded-md border border-border/70">
-              <table className="min-w-[1100px] w-full text-sm">
+              <table className="min-w-[1500px] w-full text-sm">
                 <thead className="bg-secondary/30">
                   <tr className="text-left">
                     <th className="px-3 py-2 font-medium">Abandoned</th>
                     <th className="px-3 py-2 font-medium">Customer</th>
                     <th className="px-3 py-2 font-medium">Phone</th>
                     <th className="px-3 py-2 font-medium">Email</th>
+                    <th className="px-3 py-2 font-medium">Billing address</th>
+                    <th className="px-3 py-2 font-medium">Shipping address</th>
                     <th className="px-3 py-2 font-medium">Cart summary</th>
                     <th className="px-3 py-2 font-medium">Total</th>
                     <th className="px-3 py-2 font-medium">Follow-up</th>
@@ -365,6 +367,16 @@ export function AbandonedOrdersPanel({
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {item.customerEmail ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 max-w-[220px]">
+                        <span className="line-clamp-3" title={item.billingAddressText ?? undefined}>
+                          {item.billingAddressText ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 max-w-[220px]">
+                        <span className="line-clamp-3" title={item.shippingAddressText ?? undefined}>
+                          {item.shippingAddressText ?? "—"}
+                        </span>
                       </td>
                       <td className="px-3 py-2">{item.lineItemsSummary || "—"}</td>
                       <td className="px-3 py-2 whitespace-nowrap">
@@ -441,9 +453,19 @@ export function AbandonedOrdersPanel({
 
           {selectedItem ? (
             <div className="space-y-4">
-              <div className="text-sm text-muted-foreground">
-                {selectedItem.customerName ?? "Customer"} • Total: {selectedItem.totalPrice}{" "}
-                {selectedItem.currency}
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <div>
+                  {selectedItem.customerName ?? "Customer"} • Total: {selectedItem.totalPrice}{" "}
+                  {selectedItem.currency}
+                </div>
+                <div>
+                  <span className="font-medium text-foreground">Billing:</span>{" "}
+                  {selectedItem.billingAddressText ?? "—"}
+                </div>
+                <div>
+                  <span className="font-medium text-foreground">Shipping:</span>{" "}
+                  {selectedItem.shippingAddressText ?? "—"}
+                </div>
               </div>
 
               <AbandonedOrderFollowUpForm
