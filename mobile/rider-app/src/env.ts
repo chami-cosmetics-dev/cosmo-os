@@ -25,12 +25,15 @@ function readExtra(): AppExtra {
   return {};
 }
 
-const extra = readExtra();
-
-function normalizeUrl(value: string | null | undefined) {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
+function normalizeUrl(value: unknown) {
+  // Must type-check before calling .trim() — non-strings crash Hermes with
+  // "TypeError: undefined is not a function" (seen on Honor release APK).
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
+
+const extra = readExtra();
 
 /** Baked in at EAS build time via app.config.ts `extra`, with hardcoded production fallbacks. */
 export const COSMETICS_API_URL =
@@ -50,6 +53,9 @@ export function getConfiguredApiSummary() {
   return {
     cosmetics: COSMETICS_API_URL,
     vault: VAULT_API_URL,
-    appEnv: extra.appEnv ?? process.env.EXPO_PUBLIC_APP_ENV ?? "development",
+    appEnv:
+      (typeof extra.appEnv === "string" && extra.appEnv) ||
+      process.env.EXPO_PUBLIC_APP_ENV ||
+      "development",
   };
 }
