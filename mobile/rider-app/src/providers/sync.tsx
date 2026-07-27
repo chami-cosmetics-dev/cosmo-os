@@ -58,12 +58,21 @@ export function SyncProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void refreshPendingQueue();
-    const unsubscribe = NetInfo.addEventListener((state) => {
-      if (state.isConnected) {
-        void flushQueue();
-      }
-    });
-    return unsubscribe;
+
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = NetInfo.addEventListener((state) => {
+        if (state.isConnected) {
+          void flushQueue();
+        }
+      });
+    } catch {
+      // NetInfo can fail on some devices; app should still open.
+    }
+
+    return () => {
+      unsubscribe?.();
+    };
   }, [session]);
 
   const value = useMemo(
