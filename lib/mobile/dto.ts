@@ -68,7 +68,7 @@ export function toMobileDeliveryDto(input: {
     | "failureReason"
     | "latestSyncAt"
   >;
-  payment?: Pick<
+  payment?: (Pick<
     DeliveryPayment,
     | "expectedAmount"
     | "collectedAmount"
@@ -78,7 +78,15 @@ export function toMobileDeliveryDto(input: {
     | "bankReference"
     | "cardReference"
     | "collectedAt"
-  > | null;
+  > & {
+    lines?: Array<{
+      paymentMethod: DeliveryPayment["paymentMethod"];
+      amount: { toString(): string } | string;
+      bankReference?: string | null;
+      cardReference?: string | null;
+      referenceNote?: string | null;
+    }>;
+  }) | null;
   companyLocation?: { id: string; name: string | null } | null;
   specialDelivery?: {
     deliveryKind?: "normal" | "rearranged" | "exchange";
@@ -139,6 +147,13 @@ export function toMobileDeliveryDto(input: {
           bankReference: payment.bankReference,
           cardReference: payment.cardReference,
           collectedAt: payment.collectedAt?.toISOString() ?? null,
+          lines: payment.lines?.map((line) => ({
+            paymentMethod: line.paymentMethod,
+            amount: formatMoney(line.amount),
+            bankReference: line.bankReference ?? null,
+            cardReference: line.cardReference ?? null,
+            referenceNote: line.referenceNote ?? null,
+          })),
         }
       : null,
   };

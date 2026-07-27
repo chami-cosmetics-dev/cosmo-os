@@ -77,6 +77,39 @@ describe("riderPaymentSchema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts split cash + card lines", () => {
+    const result = riderPaymentSchema.safeParse({
+      lines: [
+        { paymentMethod: "cod", amount: 2000 },
+        { paymentMethod: "card", amount: 3000, cardReference: "POS-123" },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects duplicate methods in split payment", () => {
+    const result = riderPaymentSchema.safeParse({
+      lines: [
+        { paymentMethod: "cod", amount: 2000 },
+        { paymentMethod: "cod", amount: 3000 },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects already_paid combined with other methods", () => {
+    const result = riderPaymentSchema.safeParse({
+      lines: [
+        { paymentMethod: "already_paid", amount: 2000 },
+        { paymentMethod: "cod", amount: 3000 },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("riderDeliveryCompleteSchema", () => {

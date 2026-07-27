@@ -861,11 +861,35 @@ export type CreateDeliveryPaymentEntryOptions = {
   mopNameOverride?: string;
   /** When true, throw if no MOP / SI / credentials (invoice complete / explicit retry). */
   requireMop?: boolean;
+  /** Partial PE amount (split payments). Capped to SI outstanding. */
+  paidAmount?: number;
+  /** Payment Entry reference_no for idempotency (defaults to SI name). */
+  referenceNo?: string;
 };
 
 export type CreateDeliveryPaymentEntryResult = {
   outcome: "created" | "already_paid" | "skipped";
+  paymentEntryName?: string;
 };
+
+/** Map rider/OS delivery payment method → ERP Mode of Payment name. */
+export function mapDeliveryPaymentMethodToMop(
+  cfg: ErpConfig,
+  method: "cod" | "bank_transfer" | "card" | "already_paid",
+): string | null {
+  switch (method) {
+    case "cod":
+      return cfg.codMop || cfg.cashMop || null;
+    case "card":
+      return cfg.cardDeliveryMop || null;
+    case "bank_transfer":
+      return cfg.bankTransferMop || null;
+    case "already_paid":
+      return cfg.cashMop || cfg.codMop || null;
+    default:
+      return null;
+  }
+}
 
 function isUsableErpInvoiceId(value: string | null | undefined): value is string {
   const id = value?.trim();
@@ -974,6 +998,15 @@ export async function createDeliveryPaymentEntry(
     return { outcome: "already_paid" };
   }
 
+  const requested =
+    options?.paidAmount != null && Number.isFinite(options.paidAmount) && options.paidAmount > 0
+      ? options.paidAmount
+      : invoice.outstanding_amount;
+  const amount = Math.min(requested, invoice.outstanding_amount);
+  if (amount <= 0) {
+    return { outcome: "already_paid" };
+  }
+
   const mop = await erpnextGet<{
     name: string;
     accounts: Array<{ company: string; default_account: string }>;
@@ -985,6 +1018,7 @@ export async function createDeliveryPaymentEntry(
   if (!paidTo) throw new Error(`No account mapped for "${mopName}" under company "${location.erpnextCompany}"`);
 
   const dateStr = toDateStr(completedAt);
+  const referenceNo = options?.referenceNo?.trim() || invoice.name;
   const pe = await erpnextPost<{ name: string }>(cfg, "/api/resource/Payment Entry", {
     doctype: "Payment Entry",
     payment_type: "Receive",
@@ -995,24 +1029,155 @@ export async function createDeliveryPaymentEntry(
     party: invoice.customer,
     paid_from: invoice.debit_to,
     paid_to: paidTo,
-    reference_no: invoice.name,
+    reference_no: referenceNo,
     reference_date: dateStr,
-    paid_amount: invoice.outstanding_amount,
-    received_amount: invoice.outstanding_amount,
+    paid_amount: amount,
+    received_amount: amount,
     source_exchange_rate: 1,
     target_exchange_rate: 1,
     references: [
       {
         reference_doctype: "Sales Invoice",
         reference_name: invoice.name,
-        allocated_amount: invoice.outstanding_amount,
+        allocated_amount: amount,
       },
     ],
     docstatus: 1,
   });
 
-  console.log(`[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName})`);
-  return { outcome: "created" };
+  console.log(
+    `[ERPNext] Delivery PE ${pe.name} created for Sales Invoice ${invoice.name} (${mopName}, ${amount})`,
+  );
+  return { outcome: "created", paymentEntryName: pe.name };
+}
+
+/**
+ * Create ERP Payment Entry/Entries for a delivery payment.
+ * Split payments → one partial PE per line (cash + card etc against the same SI).
+ * Single-method / no lines → one full PE (existing behaviour).
+ */
+export async function syncOrderDeliveryPaymentEntriesToErp(
+  order: {
+    id: string;
+    name: string | null;
+    shopifyOrderId: string;
+    sourceName: string | null;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+    erpnextInvoiceId?: string | null;
+  },
+  location: LocationWithErpInstance,
+  completedAt: Date,
+  options?: {
+    requireMop?: boolean;
+    /** Force a single full PE with this MOP (finance override / legacy retry). Ignored for split payments. */
+    mopNameOverride?: string;
+  },
+): Promise<CreateDeliveryPaymentEntryResult> {
+  const payment = await prisma.deliveryPayment.findUnique({
+    where: { orderId: order.id },
+    include: { lines: { orderBy: { sortOrder: "asc" } } },
+  });
+
+  const isSplit = Boolean(payment?.lines && payment.lines.length > 1);
+
+  // Explicit finance MOP override posts one PE for remaining outstanding (non-split only).
+  if (!isSplit && options?.mopNameOverride?.trim()) {
+    return createDeliveryPaymentEntry(order, location, completedAt, {
+      mopNameOverride: options.mopNameOverride,
+      requireMop: options?.requireMop,
+    });
+  }
+
+  if (!payment?.lines?.length) {
+    return createDeliveryPaymentEntry(order, location, completedAt, {
+      requireMop: options?.requireMop,
+      mopNameOverride: options?.mopNameOverride,
+    });
+  }
+
+  if (payment.lines.length === 1) {
+    const line = payment.lines[0];
+    if (line.erpPaymentEntryName) {
+      return { outcome: "already_paid", paymentEntryName: line.erpPaymentEntryName };
+    }
+    const cfg = getErpConfig(location.erpnextInstance);
+    const mopName =
+      options?.mopNameOverride?.trim() ||
+      mapDeliveryPaymentMethodToMop(cfg, line.paymentMethod);
+    const result = await createDeliveryPaymentEntry(order, location, completedAt, {
+      mopNameOverride: mopName ?? undefined,
+      requireMop: options?.requireMop,
+      paidAmount: Number(line.amount),
+      referenceNo: `OS-DP-${line.id}`,
+    });
+    if (result.outcome === "created" && result.paymentEntryName) {
+      await prisma.deliveryPaymentLine.update({
+        where: { id: line.id },
+        data: { erpPaymentEntryName: result.paymentEntryName },
+      });
+    }
+    return result;
+  }
+
+  const cfg = getErpConfig(location.erpnextInstance);
+  let createdCount = 0;
+  let alreadyPaidCount = 0;
+  let lastPeName: string | undefined;
+
+  for (const line of payment.lines) {
+    if (line.erpPaymentEntryName) {
+      alreadyPaidCount += 1;
+      lastPeName = line.erpPaymentEntryName;
+      continue;
+    }
+
+    const mopName = mapDeliveryPaymentMethodToMop(cfg, line.paymentMethod);
+    if (!mopName) {
+      if (options?.requireMop) {
+        throw new Error(
+          `No ERP Mode of Payment mapped for delivery method "${line.paymentMethod}"`,
+        );
+      }
+      console.log(
+        `[ERPNext] No MOP for split line ${line.paymentMethod} on order ${order.name} — skipping`,
+      );
+      continue;
+    }
+
+    const result = await createDeliveryPaymentEntry(order, location, completedAt, {
+      mopNameOverride: mopName,
+      requireMop: options?.requireMop,
+      paidAmount: Number(line.amount),
+      referenceNo: `OS-DP-${line.id}`,
+    });
+
+    if (result.outcome === "created") {
+      createdCount += 1;
+      lastPeName = result.paymentEntryName;
+      if (result.paymentEntryName) {
+        await prisma.deliveryPaymentLine.update({
+          where: { id: line.id },
+          data: { erpPaymentEntryName: result.paymentEntryName },
+        });
+      }
+    } else if (result.outcome === "already_paid") {
+      alreadyPaidCount += 1;
+    } else if (options?.requireMop) {
+      throw new Error(`ERP payment entry was skipped for method "${line.paymentMethod}"`);
+    }
+  }
+
+  if (createdCount > 0) {
+    return { outcome: "created", paymentEntryName: lastPeName };
+  }
+  if (alreadyPaidCount > 0) {
+    return { outcome: "already_paid", paymentEntryName: lastPeName };
+  }
+  if (options?.requireMop) {
+    throw new Error("No ERP payment entries were created for split delivery payment");
+  }
+  return { outcome: "skipped" };
 }
 
 /** Exported for unit tests — paid returns must not update outstanding only on the return SI. */

@@ -18,6 +18,13 @@ type ShopifyLineItem = {
   discountedTotalPriceSet: { shopMoney: ShopifyMoney } | null;
 };
 
+type ShopifyMailingAddress = {
+  name: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+};
+
 type ShopifyAbandonedCheckoutNode = {
   id: string;
   abandonedCheckoutUrl: string | null;
@@ -25,11 +32,27 @@ type ShopifyAbandonedCheckoutNode = {
   updatedAt: string | null;
   completedAt: string | null;
   customer: { firstName: string | null; lastName: string | null; email: string | null } | null;
-  billingAddress: { phone: string | null } | null;
-  shippingAddress: { phone: string | null } | null;
+  billingAddress: ShopifyMailingAddress | null;
+  shippingAddress: ShopifyMailingAddress | null;
   totalPriceSet: { shopMoney: ShopifyMoney } | null;
   lineItems: { nodes: ShopifyLineItem[] } | null;
 };
+
+function joinName(parts: Array<string | null | undefined>) {
+  const joined = parts.filter(Boolean).join(" ").trim();
+  return joined || null;
+}
+
+function resolveCustomerName(node: ShopifyAbandonedCheckoutNode) {
+  return (
+    joinName([node.customer?.firstName, node.customer?.lastName]) ||
+    node.billingAddress?.name?.trim() ||
+    joinName([node.billingAddress?.firstName, node.billingAddress?.lastName]) ||
+    node.shippingAddress?.name?.trim() ||
+    joinName([node.shippingAddress?.firstName, node.shippingAddress?.lastName]) ||
+    null
+  );
+}
 
 type ShopifyAbandonedCheckoutsPage = {
   nodes: ShopifyAbandonedCheckoutNode[];
@@ -101,9 +124,15 @@ async function fetchAbandonedCheckoutsPage({
             email
           }
           billingAddress {
+            name
+            firstName
+            lastName
             phone
           }
           shippingAddress {
+            name
+            firstName
+            lastName
             phone
           }
           totalPriceSet {
@@ -324,10 +353,7 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               shopifyAdminStoreHandle: normalizeStoreHandle(storeHandle),
               companyLocationId: loc.id,
 
-              customerName:
-                node.customer?.firstName || node.customer?.lastName
-                  ? [node.customer?.firstName, node.customer?.lastName].filter(Boolean).join(" ").trim()
-                  : null,
+              customerName: resolveCustomerName(node),
               customerEmail: node.customer?.email ?? null,
               customerPhone,
 

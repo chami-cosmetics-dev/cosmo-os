@@ -1035,10 +1035,30 @@ model DeliveryPayment {
   cashHandover     RiderCashHandover?       @relation(fields: [cashHandoverId], references: [id], onDelete: SetNull)
   order            Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   rider            User                     @relation(fields: [riderId], references: [id], onDelete: Cascade)
+  lines            DeliveryPaymentLine[]
 
   @@index([cashHandoverId])
   @@index([riderId, collectedAt(sort: Desc)])
   @@index([paymentMethod, collectionStatus])
+}
+
+/// Split collection lines for one delivery payment (e.g. cash + card on one SI).
+model DeliveryPaymentLine {
+  id                  String                @id @default(cuid())
+  deliveryPaymentId   String
+  paymentMethod       DeliveryPaymentMethod
+  amount              Decimal               @db.Decimal(12, 2)
+  bankReference       String?
+  cardReference       String?
+  referenceNote       String?
+  sortOrder           Int                   @default(0)
+  erpPaymentEntryName String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  deliveryPayment     DeliveryPayment       @relation(fields: [deliveryPaymentId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryPaymentId, sortOrder])
+  @@index([paymentMethod])
 }
 
 model RiderCashHandover {

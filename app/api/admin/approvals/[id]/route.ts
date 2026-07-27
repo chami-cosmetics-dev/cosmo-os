@@ -20,7 +20,7 @@ import {
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   cancelErpnextSalesInvoice,
-  createDeliveryPaymentEntry,
+  syncOrderDeliveryPaymentEntriesToErp,
   syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
 import {
@@ -1000,9 +1000,13 @@ export async function PATCH(
 
     try {
       // Always attempt PE (even if a prior approval exists) — already_paid is idempotent.
-      const peResult = await createDeliveryPaymentEntry(order, order.companyLocation, now, {
-        requireMop: true,
-      });
+      // Split payments create one partial PE per collection line against the same SI.
+      const peResult = await syncOrderDeliveryPaymentEntriesToErp(
+        order,
+        order.companyLocation,
+        now,
+        { requireMop: true },
+      );
       if (peResult.outcome === "skipped") {
         throw new Error("ERP payment entry was skipped unexpectedly");
       }

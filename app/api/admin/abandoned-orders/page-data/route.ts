@@ -66,32 +66,26 @@ export async function GET(request: NextRequest) {
       };
 
   perf.mark("load-sync-meta");
-  const syncRow = await prisma.companyAbandonedCheckoutSync.findUnique({
-    where: { companyId },
+
+  // Always sync from Shopify on page-data load (opening / refreshing Abandoned Orders).
+  let syncedJustNow = false;
+  const syncTimeoutMs = 20_000;
+  const syncPromise = syncAbandonedCheckoutsForCompany(companyId).catch((e) => {
+    throw e instanceof Error ? e : new Error(String(e));
   });
 
-  const lastSyncedAt = syncRow?.lastSyncedAt ?? null;
-  const isStale = !lastSyncedAt || Date.now() - lastSyncedAt.getTime() > 30 * 60 * 1000;
-
-  let syncedJustNow = false;
-  if (isStale) {
-    const syncTimeoutMs = 5000;
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Sync timeout")), syncTimeoutMs)
-    );
-
-    const syncPromise = syncAbandonedCheckoutsForCompany(companyId).catch((e) => {
-      throw e instanceof Error ? e : new Error(String(e));
-    });
-
-    try {
-      await Promise.race([syncPromise, timeout]);
-      syncedJustNow = true;
-    } catch {
-      // Return DB rows even when sync fails or times out.
-    } finally {
-      void syncPromise.catch(() => {});
-    }
+  try {
+    await Promise.race([
+      syncPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Sync timeout")), syncTimeoutMs)
+      ),
+    ]);
+    syncedJustNow = true;
+  } catch {
+    // Return DB rows even when sync fails or times out.
+  } finally {
+    void syncPromise.catch(() => {});
   }
 
   perf.mark("fetch-list");

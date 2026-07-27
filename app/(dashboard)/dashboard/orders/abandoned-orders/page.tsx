@@ -21,26 +21,20 @@ export default async function AbandonedOrdersPage() {
 
   const canManage = hasPermission(auth.context!, "abandoned_orders.manage");
 
-  const syncRow = await prisma.companyAbandonedCheckoutSync.findUnique({
-    where: { companyId },
-  });
-
-  const lastSyncedAt = syncRow?.lastSyncedAt ?? null;
-  const isStale = !lastSyncedAt || Date.now() - lastSyncedAt.getTime() > 30 * 60 * 1000;
-
-  if (isStale) {
-    const syncTimeoutMs = 5000;
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Sync timeout")), syncTimeoutMs)
-    );
-    const syncPromise = syncAbandonedCheckoutsForCompany(companyId);
-    try {
-      await Promise.race([syncPromise, timeout]);
-    } catch {
-      // Return cached DB rows even if sync fails.
-    } finally {
-      void syncPromise.catch(() => {});
-    }
+  // Always pull latest abandoned checkouts from Shopify when this page is opened.
+  const syncTimeoutMs = 20_000;
+  const syncPromise = syncAbandonedCheckoutsForCompany(companyId);
+  try {
+    await Promise.race([
+      syncPromise,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Sync timeout")), syncTimeoutMs)
+      ),
+    ]);
+  } catch {
+    // Return cached DB rows even if sync fails or times out.
+  } finally {
+    void syncPromise.catch(() => {});
   }
 
   const syncRowAfter = await prisma.companyAbandonedCheckoutSync.findUnique({
