@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { formatFailedErpSyncErrorMessage } from "@/lib/failed-erp-sync-classification";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import {
-  createDeliveryPaymentEntry,
+  syncOrderDeliveryPaymentEntriesToErp,
   getErpConfig,
   resolveOrderPaymentMop,
 } from "@/lib/erpnext-sync";
@@ -227,8 +227,9 @@ export async function retryOrderErpPeSync(input: {
     throw new Error("ERP payment mode is required to retry");
   }
 
-  const peResult = await createDeliveryPaymentEntry(
+  const peResult = await syncOrderDeliveryPaymentEntriesToErp(
     {
+      id: order.id,
       name: order.name,
       shopifyOrderId: order.shopifyOrderId,
       sourceName: order.sourceName,

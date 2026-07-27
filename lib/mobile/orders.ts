@@ -12,7 +12,11 @@ export async function findRiderTaskById(taskId: string, riderId: string) {
       order: {
         include: {
           companyLocation: { select: { id: true, name: true } },
-          deliveryPayment: true,
+          deliveryPayment: {
+            include: {
+              lines: { orderBy: { sortOrder: "asc" as const } },
+            },
+          },
           returns: {
             orderBy: { actionDate: "desc" },
             take: 1,

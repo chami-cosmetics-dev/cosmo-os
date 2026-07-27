@@ -42,6 +42,7 @@ type RiderOrdersData = {
     collectedAmount: string | null;
     paymentMethod: string | null;
     collectionStatus: string | null;
+    paymentLines?: Array<{ paymentMethod: string; amount: string }>;
   }>;
   statusSummary: {
     total: number;
@@ -289,7 +290,6 @@ export function RiderOperationsPanel({
 
     for (const row of filteredRows) {
       const locationName = row.locationName ?? "Unknown location";
-      const paymentMethod = (row.paymentMethod ?? "").toLowerCase();
       const amount = toAmount(row.collectedAmount ?? row.expectedAmount);
       const current = totals.get(locationName) ?? {
         locationName,
@@ -303,10 +303,23 @@ export function RiderOperationsPanel({
 
       current.orderCount += 1;
       current.collectedTotal += amount;
-      if (paymentMethod === "cod") current.cashTotal += amount;
-      if (paymentMethod === "bank_transfer") current.bankTransferTotal += amount;
-      if (paymentMethod === "card") current.cardTotal += amount;
-      if (paymentMethod === "already_paid") current.alreadyPaidTotal += amount;
+
+      if (row.paymentLines && row.paymentLines.length > 0) {
+        for (const line of row.paymentLines) {
+          const lineAmount = toAmount(line.amount);
+          const method = line.paymentMethod.toLowerCase();
+          if (method === "cod") current.cashTotal += lineAmount;
+          if (method === "bank_transfer") current.bankTransferTotal += lineAmount;
+          if (method === "card") current.cardTotal += lineAmount;
+          if (method === "already_paid") current.alreadyPaidTotal += lineAmount;
+        }
+      } else {
+        const paymentMethod = (row.paymentMethod ?? "").toLowerCase();
+        if (paymentMethod === "cod") current.cashTotal += amount;
+        if (paymentMethod === "bank_transfer") current.bankTransferTotal += amount;
+        if (paymentMethod === "card") current.cardTotal += amount;
+        if (paymentMethod === "already_paid") current.alreadyPaidTotal += amount;
+      }
 
       totals.set(locationName, current);
     }

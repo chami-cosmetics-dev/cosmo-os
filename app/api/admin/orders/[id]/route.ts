@@ -184,6 +184,53 @@ const orderSelect = {
       },
     },
   },
+  deliveryPayment: {
+    select: {
+      id: true,
+      expectedAmount: true,
+      collectedAmount: true,
+      paymentMethod: true,
+      collectionStatus: true,
+      referenceNote: true,
+      bankReference: true,
+      cardReference: true,
+      collectedAt: true,
+      lines: {
+        orderBy: { sortOrder: "asc" },
+        select: {
+          paymentMethod: true,
+          amount: true,
+          bankReference: true,
+          cardReference: true,
+          referenceNote: true,
+          erpPaymentEntryName: true,
+        },
+      },
+      cashHandover: {
+        select: {
+          id: true,
+          handoverDate: true,
+          status: true,
+          totalHandedOverCash: true,
+        },
+      },
+    },
+  },
+  riderDeliveryTask: {
+    select: {
+      id: true,
+      status: true,
+      assignedAt: true,
+      acceptedAt: true,
+      arrivedAt: true,
+      completedAt: true,
+      failedAt: true,
+      failureReason: true,
+      latestSyncAt: true,
+    },
+  },
+  deliveryOutcome: true,
+  deliveryFailedReason: true,
 } satisfies Prisma.OrderSelect;
 
 type OrderWithDetails = Prisma.OrderGetPayload<{ select: typeof orderSelect }>;
@@ -575,6 +622,50 @@ export async function GET(
         reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
       };
     })(),
+    deliveryPayment: details.deliveryPayment
+      ? {
+          id: details.deliveryPayment.id,
+          expectedAmount: details.deliveryPayment.expectedAmount.toString(),
+          collectedAmount: details.deliveryPayment.collectedAmount.toString(),
+          paymentMethod: details.deliveryPayment.paymentMethod,
+          collectionStatus: details.deliveryPayment.collectionStatus,
+          referenceNote: details.deliveryPayment.referenceNote,
+          bankReference: details.deliveryPayment.bankReference,
+          cardReference: details.deliveryPayment.cardReference,
+          collectedAt: details.deliveryPayment.collectedAt?.toISOString() ?? null,
+          lines: details.deliveryPayment.lines.map((line) => ({
+            paymentMethod: line.paymentMethod,
+            amount: line.amount.toString(),
+            bankReference: line.bankReference,
+            cardReference: line.cardReference,
+            referenceNote: line.referenceNote,
+            erpPaymentEntryName: line.erpPaymentEntryName,
+          })),
+          cashHandover: details.deliveryPayment.cashHandover
+            ? {
+                id: details.deliveryPayment.cashHandover.id,
+                handoverDate: details.deliveryPayment.cashHandover.handoverDate.toISOString(),
+                status: details.deliveryPayment.cashHandover.status,
+                totalHandedOverCash: details.deliveryPayment.cashHandover.totalHandedOverCash.toString(),
+              }
+            : null,
+        }
+      : null,
+    riderDeliveryTask: details.riderDeliveryTask
+      ? {
+          id: details.riderDeliveryTask.id,
+          status: details.riderDeliveryTask.status,
+          assignedAt: details.riderDeliveryTask.assignedAt.toISOString(),
+          acceptedAt: details.riderDeliveryTask.acceptedAt?.toISOString() ?? null,
+          arrivedAt: details.riderDeliveryTask.arrivedAt?.toISOString() ?? null,
+          completedAt: details.riderDeliveryTask.completedAt?.toISOString() ?? null,
+          failedAt: details.riderDeliveryTask.failedAt?.toISOString() ?? null,
+          failureReason: details.riderDeliveryTask.failureReason,
+          latestSyncAt: details.riderDeliveryTask.latestSyncAt?.toISOString() ?? null,
+        }
+      : null,
+    deliveryOutcome: details.deliveryOutcome,
+    deliveryFailedReason: details.deliveryFailedReason,
     methodChangeApproval: (() => {
       const ap = details.approvalRequests.find((row) => row.type === PAYMENT_METHOD_CHANGE_APPROVAL);
       if (!ap) return null;

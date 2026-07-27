@@ -20,8 +20,7 @@
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "staging",
-        "EXPO_PUBLIC_COSMETICS_API_URL": "https://os.cosmetics.lk",
-        "EXPO_PUBLIC_VAULT_API_URL": "https://vault-os-sandy.vercel.app"
+        "EXPO_PUBLIC_COSMETICS_API_URL": "https://os.cosmetics.lk"
       }
     },
     "apk": {
@@ -31,8 +30,7 @@
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "production",
-        "EXPO_PUBLIC_COSMETICS_API_URL": "https://os.cosmetics.lk",
-        "EXPO_PUBLIC_VAULT_API_URL": "https://vault-os-sandy.vercel.app"
+        "EXPO_PUBLIC_COSMETICS_API_URL": "https://os.cosmetics.lk"
       }
     },
     "production": {
