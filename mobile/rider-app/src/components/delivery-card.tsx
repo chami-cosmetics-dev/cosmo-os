@@ -39,7 +39,7 @@ export function DeliveryCard({ delivery, onPress, compact = false }: DeliveryCar
         <View style={styles.main}>
           {!compact ? <CompanyBadge label={delivery.companyLabel} compact /> : null}
           <Text style={styles.code} numberOfLines={1}>
-            {delivery.orderLabel}
+            {delivery.orderNumber?.trim() || delivery.orderLabel}
           </Text>
           <Text style={styles.customer} numberOfLines={compact ? 1 : 2}>
             {delivery.customerName ?? "Unknown customer"}

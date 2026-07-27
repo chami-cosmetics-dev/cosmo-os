@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 
 type OrderRef = {
   id: string;
@@ -9,7 +10,7 @@ type OrderRef = {
 };
 
 export function orderDisplayLabel(order: Pick<OrderRef, "name" | "orderNumber" | "shopifyOrderId">) {
-  return order.name ?? order.orderNumber ?? order.shopifyOrderId;
+  return formatBusinessOrderNumber(order);
 }
 
 export function requiresOldItemCollection(reason: string) {

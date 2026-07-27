@@ -32,12 +32,15 @@ export type DeliveryPayment = {
   bankReference?: string | null;
   cardReference?: string | null;
   collectedAt?: string | null;
+  customerGaveAmount?: string | null;
+  changeAmount?: string | null;
   lines?: DeliveryPaymentLine[];
 };
 
 export type ApiMobileDelivery = {
   id: string;
   orderLabel: string;
+  orderNumber?: string | null;
   amount: string;
   currency?: string | null;
   deliveryStatus: DeliveryStatus | string;

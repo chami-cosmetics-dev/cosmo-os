@@ -19,6 +19,8 @@ export type AbandonedOrdersListItem = {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  billingAddressText: string | null;
+  shippingAddressText: string | null;
 
   lineItemsSummary: string;
   totalPrice: string;

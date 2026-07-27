@@ -55,6 +55,7 @@ describe("riderPaymentSchema", () => {
     const result = riderPaymentSchema.safeParse({
       paymentMethod: "cod",
       collectedAmount: 1500,
+      customerGaveAmount: 1500,
     });
 
     expect(result.success).toBe(true);
@@ -84,9 +85,18 @@ describe("riderPaymentSchema", () => {
         { paymentMethod: "cod", amount: 2000 },
         { paymentMethod: "card", amount: 3000, cardReference: "POS-123" },
       ],
+      customerGaveAmount: 2000,
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("requires customer gave for cash collection", () => {
+    const result = riderPaymentSchema.safeParse({
+      paymentMethod: "cod",
+      collectedAmount: 1500,
+    });
+    expect(result.success).toBe(false);
   });
 
   it("rejects duplicate methods in split payment", () => {

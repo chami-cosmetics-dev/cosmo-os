@@ -265,6 +265,12 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                     label="Riders"
                     isActive={pathname === "/dashboard/riders"}
                   />
+                  <NavItem
+                    href="/dashboard/riders/performance"
+                    icon={Bike}
+                    label="Rider performance"
+                    isActive={pathname.startsWith("/dashboard/riders/performance")}
+                  />
                 </>
               )}
             </SidebarGroupContent>

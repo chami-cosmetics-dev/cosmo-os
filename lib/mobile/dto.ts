@@ -5,6 +5,7 @@ import type {
   RiderCashHandoverItem,
   RiderDeliveryTask,
 } from "@prisma/client";
+import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 
 function formatMoney(value: { toString(): string } | null | undefined) {
   return value?.toString() ?? "0.00";
@@ -79,6 +80,8 @@ export function toMobileDeliveryDto(input: {
     | "cardReference"
     | "collectedAt"
   > & {
+    customerGaveAmount?: { toString(): string } | string | null;
+    changeAmount?: { toString(): string } | string | null;
     lines?: Array<{
       paymentMethod: DeliveryPayment["paymentMethod"];
       amount: { toString(): string } | string;
@@ -105,7 +108,7 @@ export function toMobileDeliveryDto(input: {
   return {
     id: task.id,
     orderId: order.id,
-    orderLabel: order.name ?? order.orderNumber ?? order.shopifyOrderId,
+    orderLabel: formatBusinessOrderNumber(order),
     orderNumber: order.orderNumber,
     customerName: extractCustomerName(order.shippingAddress, order.billingAddress),
     customerPhone: order.customerPhone,
@@ -141,6 +144,10 @@ export function toMobileDeliveryDto(input: {
       ? {
           expectedAmount: formatMoney(payment.expectedAmount),
           collectedAmount: formatMoney(payment.collectedAmount),
+          customerGaveAmount: payment.customerGaveAmount
+            ? formatMoney(payment.customerGaveAmount)
+            : null,
+          changeAmount: payment.changeAmount ? formatMoney(payment.changeAmount) : null,
           paymentMethod: payment.paymentMethod,
           collectionStatus: payment.collectionStatus,
           referenceNote: payment.referenceNote,

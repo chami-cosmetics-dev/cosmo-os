@@ -15,11 +15,13 @@ type PaymentFormProps = {
   expectedAmount: number;
   currency?: string | null;
   lines: PaymentLineDraft[];
+  customerGaveAmount: string;
   paymentNote: string;
   submitting: boolean;
   disabled: boolean;
   requiresReference: (method: PaymentMethod) => boolean;
   onLinesChange: (lines: PaymentLineDraft[]) => void;
+  onCustomerGaveAmountChange: (value: string) => void;
   onPaymentNoteChange: (value: string) => void;
   onSubmit: () => void;
 };
@@ -38,11 +40,13 @@ function nextLineId() {
 export function PaymentForm({
   expectedAmount,
   lines,
+  customerGaveAmount,
   paymentNote,
   submitting,
   disabled,
   requiresReference,
   onLinesChange,
+  onCustomerGaveAmountChange,
   onPaymentNoteChange,
   onSubmit,
 }: PaymentFormProps) {
@@ -50,6 +54,11 @@ export function PaymentForm({
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
   const linesTotal = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const cashDue = lines
+    .filter((line) => line.paymentMethod === "cod")
+    .reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const gave = Number(customerGaveAmount || 0);
+  const change = cashDue > 0 ? Math.max(0, gave - cashDue) : 0;
   const remaining = Math.max(0, expectedAmount - linesTotal);
   const usedMethods = new Set(lines.map((line) => line.paymentMethod));
   const canAddLine =
@@ -167,6 +176,24 @@ export function PaymentForm({
         Entered {linesTotal.toFixed(2)} / {expectedAmount.toFixed(2)}
         {remaining > 0.009 ? ` · remaining ${remaining.toFixed(2)}` : ""}
       </Text>
+
+      {cashDue > 0.009 ? (
+        <View style={styles.lineCard}>
+          <Text style={styles.lineTitle}>Customer gave (cash)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            value={customerGaveAmount}
+            onChangeText={onCustomerGaveAmountChange}
+            placeholder={`Cash due ${cashDue.toFixed(2)}`}
+            placeholderTextColor={colors.textSoft}
+          />
+          <Text style={styles.totalHint}>
+            Balance (change): {change.toFixed(2)}
+            {gave + 0.001 < cashDue ? " · need more cash" : ""}
+          </Text>
+        </View>
+      ) : null}
 
       <TextInput
         style={styles.input}

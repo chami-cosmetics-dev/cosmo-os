@@ -14,6 +14,7 @@ type DeliveryActionInput = {
   deliveryId: string;
   delivery: MobileDeliveryDetail;
   paymentLines: PaymentLineDraft[];
+  customerGaveAmount: string;
   paymentNote: string;
   oldItemCollectionStatus: OldItemCollectionStatus;
   oldItemCollectionRemark: string;
@@ -48,6 +49,7 @@ export function useDeliveryActions() {
       deliveryId,
       delivery,
       paymentLines,
+      customerGaveAmount,
       paymentNote,
       oldItemCollectionStatus,
       oldItemCollectionRemark,
@@ -56,6 +58,10 @@ export function useDeliveryActions() {
     const expectedAmount = Number(delivery.amount);
     const lines = normalizeLines(paymentLines, expectedAmount);
     const collectedTotal = lines.reduce((sum, line) => sum + line.amount, 0);
+    const cashDue = lines
+      .filter((line) => line.paymentMethod === "cod")
+      .reduce((sum, line) => sum + line.amount, 0);
+    const gave = Number(customerGaveAmount || 0);
     const needsOldItemCollection = delivery.requiresOldItemCollection;
 
     if (lines.length === 0) {
@@ -67,6 +73,14 @@ export function useDeliveryActions() {
       Alert.alert(
         "Amount mismatch",
         "Payment parts must add up to the order amount before completing."
+      );
+      return;
+    }
+
+    if (cashDue > 0.009 && !(gave + 0.001 >= cashDue)) {
+      Alert.alert(
+        "Cash tender required",
+        "Enter how much cash the customer gave. It must cover the cash due."
       );
       return;
     }
@@ -100,6 +114,14 @@ export function useDeliveryActions() {
     setSubmitting(true);
 
     try {
+      const tenderFields =
+        cashDue > 0.009
+          ? {
+              customerGaveAmount: gave,
+              changeAmount: Math.max(0, gave - cashDue),
+            }
+          : {};
+
       const paymentBody =
         lines.length === 1
           ? {
@@ -108,6 +130,7 @@ export function useDeliveryActions() {
               bankReference: lines[0].bankReference,
               cardReference: lines[0].cardReference,
               referenceNote: paymentNote.trim() || undefined,
+              ...tenderFields,
               idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
             }
           : {
@@ -118,6 +141,7 @@ export function useDeliveryActions() {
                 cardReference: line.cardReference,
                 referenceNote: paymentNote.trim() || undefined,
               })),
+              ...tenderFields,
               idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
             };
 

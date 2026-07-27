@@ -7,6 +7,15 @@ const shopifyAddressSchema = z
     last_name: z.string().optional().nullable(),
     phone: z.string().optional().nullable(),
     name: z.string().optional().nullable(),
+    company: z.string().optional().nullable(),
+    address1: z.string().optional().nullable(),
+    address2: z.string().optional().nullable(),
+    city: z.string().optional().nullable(),
+    province: z.string().optional().nullable(),
+    province_code: z.string().optional().nullable(),
+    zip: z.string().optional().nullable(),
+    country: z.string().optional().nullable(),
+    country_code: z.string().optional().nullable(),
   })
   .passthrough()
   .optional()
