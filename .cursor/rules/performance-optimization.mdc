@@ -71,7 +71,7 @@ When a client component needs data:
 
 ## 5. RBAC / Auth Optimizations (Already in lib/rbac.ts)
 
-- `ensureDefaultRbacSetupIfNeeded()` – skip setup if Permission count ≥ 11
+- `ensureDefaultRbacSetupIfNeeded()` – runs full sync once per process (idempotent upserts + role links)
 - User context TTL cache (2s) for parallel requests
 - React `cache()` for request deduplication
 - Skip `user.count` when user already has roles

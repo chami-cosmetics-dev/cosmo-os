@@ -42,6 +42,8 @@ The backend must be reachable from the device. For physical devices, use your ma
 | `npm start` | Start Expo dev server |
 | `npm run android` | Run on Android emulator/device |
 | `npm run ios` | Run on iOS simulator (macOS only) |
+| `npm run typecheck` | TypeScript check |
+| `npm test` | Unit tests (vitest) |
 | `npm run build:android:apk` | EAS APK for sideloading on Android devices |
 | `npm run build:android:preview` | EAS staging/internal Android build (APK) |
 | `npm run build:android:staging` | Alias for preview (staging) profile |

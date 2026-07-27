@@ -120,7 +120,7 @@ export function useDeliveryActions() {
         companyLabel: getTenantDefinition(tenant).label,
       });
 
-      router.replace("/(tabs)/completed");
+      router.navigate("/(tabs)/completed");
     } finally {
       setSubmitting(false);
     }

@@ -13,12 +13,12 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { API_BASE_URL } from "@/src/config";
 import { useAuth } from "@/src/providers/auth";
 import { loadLoginPreferences, saveLoginPreferences } from "@/src/storage/login-preferences";
 import { getConfiguredApiSummary } from "@/src/env";
 import { getConfiguredTenants } from "@/src/tenants";
 import { useTheme } from "@/src/providers/theme";
+import { getPasswordResetUrl } from "@/src/utils/password-reset";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -57,8 +57,14 @@ export default function LoginScreen() {
   }, []);
 
   async function handleForgotPassword() {
+    const resetUrl = getPasswordResetUrl();
+    if (!resetUrl) {
+      setError("Password reset link is not configured. Contact your admin.");
+      return;
+    }
+
     try {
-      await Linking.openURL(`${API_BASE_URL}/auth/login`);
+      await Linking.openURL(resetUrl);
     } catch {
       setError("Unable to open the password reset page.");
     }
@@ -78,7 +84,7 @@ export default function LoginScreen() {
         password,
         deviceName: deviceName.trim() || "Rider phone",
       });
-      router.replace("/(tabs)/deliveries");
+      router.navigate("/(tabs)/deliveries");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

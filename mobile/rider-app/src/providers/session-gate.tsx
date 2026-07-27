@@ -1,10 +1,9 @@
 import { useEffect, type PropsWithChildren } from "react";
-import { usePathname, useRouter } from "expo-router";
+import { Redirect, usePathname } from "expo-router";
 import { setUnauthorizedHandler } from "@/src/api/client";
 import { hasActiveSession, useAuth } from "@/src/providers/auth";
 
 export function SessionGate({ children }: PropsWithChildren) {
-  const router = useRouter();
   const pathname = usePathname();
   const { session, bootstrapped, clearSessionLocally } = useAuth();
 
@@ -18,12 +17,11 @@ export function SessionGate({ children }: PropsWithChildren) {
     };
   }, [clearSessionLocally]);
 
-  useEffect(() => {
-    if (!bootstrapped) return;
-    if (!hasActiveSession(session) && pathname !== "/login") {
-      router.replace("/login");
-    }
-  }, [bootstrapped, pathname, router, session]);
+  // Avoid router.replace on Android release builds — it can crash the process on launch
+  // (Expo Router / SDK 54). Prefer declarative Redirect instead.
+  if (bootstrapped && !hasActiveSession(session) && pathname !== "/login") {
+    return <Redirect href="/login" />;
+  }
 
   return children;
 }
