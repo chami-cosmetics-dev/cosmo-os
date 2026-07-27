@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { createCanRevertToStageFromKeys } from "@/lib/fulfillment-permissions";
 import { getOrderListFulfillmentStageBadges } from "@/lib/fulfillment-stage-display";
 import { resolveErpOrderRef } from "@/lib/fulfillment-order-reference";
+import { formatBusinessOrderNumber, formatOrderSecondaryLabel } from "@/lib/order-display-label";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableColumnHeader } from "@/components/ui/sortable-column-header";
@@ -664,25 +665,31 @@ export function OrdersPanel({
                   <tbody>
                     {orders.map((order) => {
                       const erpRef = resolveErpOrderRef(order);
-                      const orderLabel = order.name ?? order.orderNumber ?? "—";
+                      const orderLabel = formatBusinessOrderNumber(order);
+                      const secondaryLabel = formatOrderSecondaryLabel(order);
                       return (
                       <tr
                         key={order.id}
                         className="cursor-pointer border-b border-border/50 transition-colors hover:bg-secondary/10 focus-visible:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 last:border-0"
                         tabIndex={0}
-                        aria-label={`View order ${order.name ?? order.orderNumber ?? order.shopifyOrderId}`}
+                        aria-label={`View order ${orderLabel}`}
                         onClick={() => void handleViewOrder(order.id)}
                         onKeyDown={(event) => handleOrderRowKeyDown(event, order.id)}
                       >
                         <td className="px-4 py-2">
-                          <div className="truncate font-medium" title={order.name ?? order.orderNumber ?? undefined}>
+                          <div className="truncate font-medium" title={orderLabel}>
                             {orderLabel}
                           </div>
-                          {erpRef && erpRef !== orderLabel && (
+                          {secondaryLabel && secondaryLabel !== orderLabel ? (
+                            <div className="truncate text-xs text-muted-foreground" title={secondaryLabel}>
+                              {secondaryLabel}
+                            </div>
+                          ) : null}
+                          {erpRef && erpRef !== orderLabel && erpRef !== secondaryLabel ? (
                             <div className="truncate text-xs text-muted-foreground" title={erpRef}>
                               {erpRef}
                             </div>
-                          )}
+                          ) : null}
                           <div className="mt-1 flex flex-wrap gap-1">
                             <SourceBadge sourceName={order.sourceName} />
                             <PaymentBadge

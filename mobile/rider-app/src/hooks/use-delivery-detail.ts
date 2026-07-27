@@ -14,6 +14,7 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
   const [paymentLines, setPaymentLines] = useState<PaymentLineDraft[]>([
     createDefaultPaymentLine(""),
   ]);
+  const [customerGaveAmount, setCustomerGaveAmount] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [failureReason, setFailureReason] = useState("");
   const [oldItemCollectionStatus, setOldItemCollectionStatus] =
@@ -52,6 +53,7 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
         ]);
       }
       setPaymentNote(data.delivery.payment?.referenceNote ?? "");
+      setCustomerGaveAmount(data.delivery.payment?.customerGaveAmount ?? "");
       setOldItemCollectionStatus(data.delivery.oldItemCollectionStatus ?? "pending");
       setOldItemCollectionRemark(data.delivery.oldItemCollectionRemark ?? "");
     } finally {
@@ -70,6 +72,8 @@ export function useDeliveryDetail(tenantParam: string | undefined, id: string | 
     reload,
     paymentLines,
     setPaymentLines,
+    customerGaveAmount,
+    setCustomerGaveAmount,
     paymentNote,
     setPaymentNote,
     failureReason,

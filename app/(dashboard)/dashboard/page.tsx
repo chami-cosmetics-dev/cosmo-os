@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { DashboardOrderSearch } from "@/components/molecules/dashboard-order-search";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { requirePermission } from "@/lib/rbac";
 
@@ -28,6 +29,7 @@ export default async function DashboardPage() {
           Adjust filters and explore sales by location below. Other tools are in
           the sidebar.
         </p>
+        <DashboardOrderSearch />
       </div>
     </section>
   );

@@ -167,6 +167,8 @@ type OrderDetail = {
     id: string;
     expectedAmount: string;
     collectedAmount: string;
+    customerGaveAmount?: string | null;
+    changeAmount?: string | null;
     paymentMethod: string;
     collectionStatus: string;
     referenceNote?: string | null;
@@ -771,6 +773,21 @@ export function OrderFulfillmentDetail({
                         {formatPrice(orderDetail.deliveryPayment.collectedAmount, orderDetail.currency)}{" "}
                         collected
                       </p>
+                      {orderDetail.deliveryPayment.customerGaveAmount != null && (
+                        <p className="text-muted-foreground mt-1">
+                          Customer gave:{" "}
+                          {formatPrice(
+                            orderDetail.deliveryPayment.customerGaveAmount,
+                            orderDetail.currency
+                          )}
+                          {orderDetail.deliveryPayment.changeAmount != null
+                            ? ` · balance ${formatPrice(
+                                orderDetail.deliveryPayment.changeAmount,
+                                orderDetail.currency
+                              )}`
+                            : ""}
+                        </p>
+                      )}
                       {orderDetail.deliveryPayment.lines &&
                         orderDetail.deliveryPayment.lines.length > 0 && (
                           <ul className="text-muted-foreground mt-1 space-y-0.5">

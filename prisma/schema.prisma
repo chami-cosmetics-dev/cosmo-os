@@ -1025,6 +1025,10 @@ model DeliveryPayment {
   cashHandoverId   String?
   expectedAmount   Decimal                  @db.Decimal(12, 2)
   collectedAmount  Decimal                  @db.Decimal(12, 2)
+  /** Cash bills/coins the customer handed over (tender). */
+  customerGaveAmount Decimal?               @db.Decimal(12, 2)
+  /** Change to return: customerGaveAmount − cash due. */
+  changeAmount     Decimal?                 @db.Decimal(12, 2)
   paymentMethod    DeliveryPaymentMethod
   collectionStatus DeliveryCollectionStatus
   referenceNote    String?

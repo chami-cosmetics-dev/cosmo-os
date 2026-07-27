@@ -7,6 +7,11 @@ import {
   normalizePaymentLines,
   sumPaymentLineAmounts,
 } from "@/lib/mobile/payment-lines";
+import {
+  assertCustomerGaveCoversCashDue,
+  cashDueFromPayment,
+  computeChangeAmount,
+} from "@/lib/mobile/payment-tender";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { mobileRouteIdSchema, riderPaymentSchema } from "@/lib/mobile/validation";
 import { prisma } from "@/lib/prisma";
@@ -78,6 +83,27 @@ export async function POST(
   }
 
   const header = derivePaymentHeaderFromLines(lines);
+  const cashDue = Number(
+    cashDueFromPayment({
+      paymentMethod: header.paymentMethod,
+      collectedAmount: header.collectedAmount,
+      lines,
+    }).toString()
+  );
+  const tenderCheck = assertCustomerGaveCoversCashDue({
+    customerGaveAmount: parsed.data.customerGaveAmount,
+    cashDue,
+  });
+  if (!tenderCheck.ok) {
+    return mobileError(tenderCheck.error, 400);
+  }
+  const customerGaveAmount =
+    cashDue > 0.001 ? tenderCheck.customerGave.toFixed(2) : null;
+  const changeAmount =
+    cashDue > 0.001
+      ? computeChangeAmount(tenderCheck.customerGave, cashDue).toFixed(2)
+      : null;
+
   const collectionStatus = inferCollectionStatus({
     paymentMethod: header.paymentMethod,
     expectedAmount,
@@ -93,6 +119,8 @@ export async function POST(
         riderId: auth.session.userId,
         expectedAmount: expectedAmount.toFixed(2),
         collectedAmount: header.collectedAmount.toFixed(2),
+        customerGaveAmount,
+        changeAmount,
         paymentMethod: header.paymentMethod,
         collectionStatus,
         referenceNote: header.referenceNote,
@@ -105,6 +133,8 @@ export async function POST(
         riderId: auth.session.userId,
         expectedAmount: expectedAmount.toFixed(2),
         collectedAmount: header.collectedAmount.toFixed(2),
+        customerGaveAmount,
+        changeAmount,
         paymentMethod: header.paymentMethod,
         collectionStatus,
         referenceNote: header.referenceNote,
@@ -145,6 +175,8 @@ export async function POST(
       id: payment.id,
       expectedAmount: payment.expectedAmount.toString(),
       collectedAmount: payment.collectedAmount.toString(),
+      customerGaveAmount: payment.customerGaveAmount?.toString() ?? null,
+      changeAmount: payment.changeAmount?.toString() ?? null,
       paymentMethod: payment.paymentMethod,
       collectionStatus: payment.collectionStatus,
       collectedAt: payment.collectedAt?.toISOString() ?? null,
