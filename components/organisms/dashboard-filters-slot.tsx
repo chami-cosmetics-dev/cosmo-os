@@ -18,6 +18,11 @@ function shiftDate(dateValue: string, days: number) {
   return formatAppIsoCalendarDate(date);
 }
 
+function getMonthStart(dateValue: string) {
+  const [year, month] = dateValue.split("-");
+  return `${year}-${month}-01`;
+}
+
 function PresetButton({
   label,
   isActive,
@@ -96,7 +101,7 @@ export function DashboardFiltersSlot() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-4">
+      <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-[0.8fr_0.8fr_1.7fr_1.2fr]">
         <div className="space-y-2">
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             From Date
@@ -123,7 +128,7 @@ export function DashboardFiltersSlot() {
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Date Type
           </p>
-          <div className="bg-muted/20 flex h-10 items-center gap-6 rounded-md border border-border px-3 text-sm">
+          <div className="bg-muted/20 flex h-10 items-center gap-5 rounded-md border border-border px-3 text-sm whitespace-nowrap">
             <label className="flex items-center gap-2">
               <input
                 type="radio"
@@ -139,6 +144,14 @@ export function DashboardFiltersSlot() {
                 onChange={() => setDateType("completed")}
               />
               <span>Invoice completed at</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                checked={dateType === "delivery_completed"}
+                onChange={() => setDateType("delivery_completed")}
+              />
+              <span>Delivery Completed at</span>
             </label>
           </div>
         </div>
@@ -169,7 +182,7 @@ export function DashboardFiltersSlot() {
       <div className="border-t border-border/60 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <PresetButton
-            label="All Dates"
+            label="Today"
             isActive={fromDate === initialRange.fromDate && toDate === initialRange.toDate}
             onClick={() => {
               setFromDate(initialRange.fromDate);
@@ -195,6 +208,17 @@ export function DashboardFiltersSlot() {
             }
             onClick={() => {
               setFromDate(shiftDate(initialRange.toDate, -6));
+              setToDate(initialRange.toDate);
+            }}
+          />
+          <PresetButton
+            label="This Month"
+            isActive={
+              fromDate === getMonthStart(initialRange.toDate) &&
+              toDate === initialRange.toDate
+            }
+            onClick={() => {
+              setFromDate(getMonthStart(initialRange.toDate));
               setToDate(initialRange.toDate);
             }}
           />
