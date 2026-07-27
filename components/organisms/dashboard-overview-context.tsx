@@ -13,6 +13,8 @@ import {
 
 import {
   getDefaultDashboardOverviewRange,
+  getDashboardSalesDateTypeLabel,
+  type DashboardSalesDateType,
   type DashboardOverviewInitialState,
 } from "@/lib/page-data/dashboard-overview-shared";
 
@@ -42,8 +44,8 @@ type DashboardOverviewContextValue = {
   setFromDate: (v: string) => void;
   toDate: string;
   setToDate: (v: string) => void;
-  dateType: "order" | "completed";
-  setDateType: (v: "order" | "completed") => void;
+  dateType: DashboardSalesDateType;
+  setDateType: (v: DashboardSalesDateType) => void;
   analysisType: "merchant" | "gateway";
   setAnalysisType: (v: "merchant" | "gateway") => void;
   initialRange: { fromDate: string; toDate: string };
@@ -75,7 +77,7 @@ export function DashboardOverviewProvider({
 
   const [fromDate, setFromDate] = useState(initialRange.fromDate);
   const [toDate, setToDate] = useState(initialRange.toDate);
-  const [dateType, setDateType] = useState<"order" | "completed">(
+  const [dateType, setDateType] = useState<DashboardSalesDateType>(
     initialState?.dateType ?? "order",
   );
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
@@ -104,8 +106,7 @@ export function DashboardOverviewProvider({
       timeZone: DASHBOARD_TIME_ZONE,
     });
     const range = `${fmt.format(from)} – ${fmt.format(to)}`;
-    const dateSource =
-      dateType === "order" ? "Invoice date" : "Invoice completed at";
+    const dateSource = getDashboardSalesDateTypeLabel(dateType);
     return `${range} · ${dateSource}`;
   }, [fromDate, toDate, dateType]);
 

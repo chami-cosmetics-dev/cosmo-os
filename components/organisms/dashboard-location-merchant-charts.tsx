@@ -23,6 +23,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { DashboardLocationStackedHorizontalChart } from "@/components/organisms/dashboard-location-stacked-horizontal-chart";
+import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
 
 export type LocationMerchantChartRow = {
   merchantName: string;
@@ -36,7 +37,7 @@ interface DashboardLocationMerchantChartsProps {
     name: string;
     merchants: LocationMerchantChartRow[];
   }>;
-  dateType: "order" | "completed";
+  dateType: DashboardSalesDateType;
   /** Active dashboard filters (date range + date source), shown in chart copy. */
   filterInfo: string;
   /** Labels and copy for merchant vs payment gateway breakdown (same data shape). */
@@ -68,11 +69,14 @@ export function DashboardLocationMerchantCharts({
   const isGateway = breakdownVariant === "gateway";
   const segmentNoun = isGateway ? "payment gateway" : "merchant";
 
-  const dateHint = `${filterInfo} · ${
+  const countedByLabel =
     dateType === "order"
-      ? "Orders counted by invoice date in the selected range."
-      : "Orders counted by invoice completed at in the selected range."
-  }`;
+      ? "invoice date"
+      : dateType === "completed"
+        ? "invoice completed at"
+        : "delivery completed at";
+  const countedByCopy = `Orders counted by ${countedByLabel} in the selected range.`;
+  const dateHint = `${filterInfo} - ${countedByCopy}`;
 
   if (locations.length === 0) {
     return (
@@ -84,9 +88,7 @@ export function DashboardLocationMerchantCharts({
           <CardDescription className="space-y-1">
             <span className="text-foreground/90 block text-sm font-medium">{filterInfo}</span>
             <span className="block">
-              {dateType === "order"
-                ? "Orders counted by invoice date in the selected range."
-                : "Orders counted by invoice completed at in the selected range."}
+              {countedByCopy}
             </span>
           </CardDescription>
         </CardHeader>

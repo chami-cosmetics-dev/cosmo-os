@@ -10,6 +10,7 @@ import {
   buildDashboardSalesDateFilter,
   isDashboardSalesOrderEligible,
 } from "@/lib/page-data/dashboard-sales";
+import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
 import { prisma } from "@/lib/prisma";
 
 export type BrandMerchantRow = {
@@ -66,7 +67,7 @@ export async function fetchDashboardBrandSales(
   params: {
     fromYmd: string;
     toYmd: string;
-    dateType: "order" | "completed";
+    dateType: DashboardSalesDateType;
     locationId?: string;
   },
 ): Promise<DashboardBrandSalesResult> {
