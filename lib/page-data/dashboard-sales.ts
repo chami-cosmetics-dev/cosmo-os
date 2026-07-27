@@ -7,6 +7,7 @@ import {
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
 import { prisma } from "@/lib/prisma";
 
 export type DashboardLocationMerchantRow = {
@@ -56,8 +57,6 @@ const DASHBOARD_DELIVERED_STATUSES = new Set([
   "fulfilled",
 ]);
 
-export type DashboardSalesDateType = "order" | "completed";
-
 export type DashboardSalesEligibilityOrder = {
   sourceName: string | null;
   financialStatus: string | null;
@@ -73,15 +72,27 @@ export function buildDashboardSalesDateFilter(params: {
   toDate: Date;
   dateType: DashboardSalesDateType;
 }): Prisma.OrderWhereInput {
-  return params.dateType === "order"
-    ? { createdAt: { gte: params.fromDate, lte: params.toDate } }
-    : {
-        invoiceCompleteAt: {
-          not: null,
-          gte: params.fromDate,
-          lte: params.toDate,
-        },
-      };
+  if (params.dateType === "order") {
+    return { createdAt: { gte: params.fromDate, lte: params.toDate } };
+  }
+
+  if (params.dateType === "delivery_completed") {
+    return {
+      deliveryCompleteAt: {
+        not: null,
+        gte: params.fromDate,
+        lte: params.toDate,
+      },
+    };
+  }
+
+  return {
+    invoiceCompleteAt: {
+      not: null,
+      gte: params.fromDate,
+      lte: params.toDate,
+    },
+  };
 }
 
 function normalizeStatus(value: unknown) {
@@ -131,6 +142,10 @@ export function isDashboardSalesOrderEligible(
     );
   }
 
+  if (dateType === "delivery_completed") {
+    return order.deliveryCompleteAt != null;
+  }
+
   if (isPosOrder(order.sourceName)) {
     return isPosDeliveryComplete(order);
   }
@@ -146,7 +161,7 @@ export async function fetchDashboardSalesByLocationMerchant(
   params: {
     fromYmd: string;
     toYmd: string;
-    dateType: "order" | "completed";
+    dateType: DashboardSalesDateType;
   },
 ): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
   const fromDate = parseDayStartUtc(params.fromYmd);
@@ -156,7 +171,7 @@ export async function fetchDashboardSalesByLocationMerchant(
   }
 
   // "order" = invoice date (same field used on printed invoices: Order.createdAt).
-  // "completed" = invoice completed timestamp (packing/payment workflow).
+  // "completed" = invoice completed timestamp; "delivery_completed" = delivery timestamp.
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
     toDate,
@@ -314,7 +329,7 @@ export async function fetchDashboardSalesByLocationGateway(
   params: {
     fromYmd: string;
     toYmd: string;
-    dateType: "order" | "completed";
+    dateType: DashboardSalesDateType;
   },
 ): Promise<{ locations: DashboardLocationSales[]; invalidRange: boolean }> {
   const gatewayColumns = await getOrderPaymentGatewayColumnState();

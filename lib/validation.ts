@@ -133,14 +133,14 @@ const ymdQuerySchema = z
 export const dashboardSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: z.enum(["order", "completed"]).optional().default("order"),
+  date_type: z.enum(["order", "completed", "delivery_completed"]).optional().default("order"),
   analysis_type: z.enum(["merchant", "gateway"]).optional().default("merchant"),
 });
 
 export const dashboardBrandSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: z.enum(["order", "completed"]).optional().default("order"),
+  date_type: z.enum(["order", "completed", "delivery_completed"]).optional().default("order"),
   location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
 });
 
