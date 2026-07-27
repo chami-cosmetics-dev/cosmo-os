@@ -47,7 +47,11 @@ export async function loadSession() {
 }
 
 export async function clearSession() {
-  await SecureStore.deleteItemAsync(SESSION_KEY);
+  try {
+    await SecureStore.deleteItemAsync(SESSION_KEY);
+  } catch {
+    // Ignore missing-key / SecureStore errors during logout/clear.
+  }
 }
 
 export type { RiderSession, TenantRiderSession };

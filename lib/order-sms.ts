@@ -35,11 +35,31 @@ export async function sendOrderSms(
   const sendToCustomer = config.sendToCustomer ?? true;
   const sendToRider = config.sendToRider ?? true;
 
+  // Rider SMS previously skipped entirely when ERP SI wasn't synced yet — that dropped
+  // messages for Shopify orders (600…) dispatched before erpnextInvoiceId was set.
+  // Fall back to the Cosmo/Shopify order number so the rider still gets the delivery link.
+  const invoiceForTemplate =
+    context.invoiceNumber?.trim() ||
+    (trigger === "rider_dispatched" ? context.orderNumber?.trim() || "" : "");
+  const orderReferenceForTemplate =
+    context.orderReference?.trim() ||
+    [context.orderNumber?.trim(), context.invoiceNumber?.trim()].filter(Boolean).join(" / ");
+
+  if (
+    trigger === "rider_dispatched" &&
+    !context.invoiceNumber?.trim() &&
+    context.orderNumber?.trim()
+  ) {
+    console.warn(
+      `[Order SMS] rider_dispatched order ${orderId}: no ERP invoice — using order number ${context.orderNumber.trim()}`,
+    );
+  }
+
   let message = config.template;
   message = message.replace(/\{orderNumber\}/g, context.orderNumber ?? "");
   message = message.replace(/\{orderName\}/g, context.orderName ?? "");
-  message = message.replace(/\{invoiceNumber\}/g, context.invoiceNumber ?? "");
-  message = message.replace(/\{orderReference\}/g, context.orderReference ?? "");
+  message = message.replace(/\{invoiceNumber\}/g, invoiceForTemplate);
+  message = message.replace(/\{orderReference\}/g, orderReferenceForTemplate);
   message = message.replace(/\{customerName\}/g, context.customerName ?? "");
   message = message.replace(/\{locationName\}/g, context.locationName ?? "");
   message = message.replace(/\{deliveryUrl\}/g, context.deliveryUrl ?? "");
@@ -49,9 +69,9 @@ export async function sendOrderSms(
   const recipients: string[] = [];
 
   if (trigger === "rider_dispatched") {
-    if (!context.invoiceNumber?.trim()) {
+    if (!invoiceForTemplate) {
       console.warn(
-        `[Order SMS] rider_dispatched order ${orderId}: skipped — no ERP invoice number. ` +
+        `[Order SMS] rider_dispatched order ${orderId}: skipped — no ERP invoice number or order number. ` +
           "Ensure the order is synced to ERPNext (erpnextInvoiceId) before assigning a rider.",
       );
       return;

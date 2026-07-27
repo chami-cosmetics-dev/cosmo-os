@@ -1,13 +1,25 @@
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 
+import { BootstrapLoading } from "@/src/components/bootstrap-loading";
 import { TabBarIcon } from "@/src/components/tab-bar-icon";
+import { hasActiveSession, useAuth } from "@/src/providers/auth";
 import { useTheme } from "@/src/providers/theme";
 
 export default function TabsLayout() {
   const { colors } = useTheme();
+  const { session, bootstrapped } = useAuth();
+
+  if (!bootstrapped) {
+    return <BootstrapLoading message="Starting Cosmo Rider…" />;
+  }
+
+  if (!hasActiveSession(session)) {
+    return <Redirect href="/login" />;
+  }
 
   return (
     <Tabs
+      detachInactiveScreens={false}
       screenOptions={{
         headerStyle: {
           backgroundColor: colors.bg,
