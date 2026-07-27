@@ -623,7 +623,7 @@ export async function PATCH(
         },
         include: { companyLocation: true },
       });
-      sendOrderSms(companyId, order.id, "package_ready", {
+      const packageReadySms = sendOrderSms(companyId, order.id, "package_ready", {
         orderNumber: resolveOrderNumber(updated),
         invoiceNumber: resolveOrderInvoiceNumber(updated),
         customerPhone: resolveCustomerPhone(updated),
@@ -638,6 +638,7 @@ export async function PATCH(
         afterStage: "ready_to_dispatch",
         metadata: { action: data.action },
       });
+      await packageReadySms;
       return NextResponse.json({ success: true });
     }
 
@@ -918,33 +919,43 @@ export async function PATCH(
       const customerPhone = resolveCustomerPhone(updated);
       const dispatchDeliveryUrl = riderDeliveryToken ? getDeliveryUrl({ riderDeliveryToken }) : undefined;
 
+      // Await SMS before responding — fire-and-forget is killed by Vercel when the response returns
+      // (same bug previously fixed for bulk-dispatch in cd8dc61).
+      const smsTasks: Promise<void>[] = [];
+
       if (needsMarkReady) {
-        sendOrderSms(companyId, order.id, "package_ready", {
+        smsTasks.push(
+          sendOrderSms(companyId, order.id, "package_ready", {
+            orderNumber: orderNum,
+            invoiceNumber: invoiceNum,
+            customerPhone,
+            locationName: updated.companyLocation.name,
+          }).catch((err) => console.error("[Order SMS] package_ready failed:", err)),
+        );
+      }
+
+      smsTasks.push(
+        sendOrderSms(companyId, order.id, "dispatched", {
           orderNumber: orderNum,
           invoiceNumber: invoiceNum,
           customerPhone,
           locationName: updated.companyLocation.name,
-        }).catch((err) => console.error("[Order SMS] package_ready failed:", err));
-      }
-
-      sendOrderSms(companyId, order.id, "dispatched", {
-        orderNumber: orderNum,
-        invoiceNumber: invoiceNum,
-        customerPhone,
-        locationName: updated.companyLocation.name,
-        deliveryUrl: dispatchDeliveryUrl,
-      }).catch((err) => console.error("[Order SMS] dispatched failed:", err));
+          deliveryUrl: dispatchDeliveryUrl,
+        }).catch((err) => console.error("[Order SMS] dispatched failed:", err)),
+      );
       if (data.riderId && riderDeliveryToken) {
         const rider = updated.dispatchedByRider as { name: string | null; mobile: string | null } | undefined;
         const deliveryUrl = getDeliveryUrl({ riderDeliveryToken });
-        sendOrderSms(companyId, order.id, "rider_dispatched", {
-          orderNumber: orderNum,
-          invoiceNumber: invoiceNum,
-          orderReference: [orderNum, invoiceNum].filter(Boolean).join(" / "),
-          riderName: rider?.name ?? undefined,
-          riderPhone: rider?.mobile ?? undefined,
-          deliveryUrl,
-        }).catch((err) => console.error("[Order SMS] rider_dispatched failed:", err));
+        smsTasks.push(
+          sendOrderSms(companyId, order.id, "rider_dispatched", {
+            orderNumber: orderNum,
+            invoiceNumber: invoiceNum,
+            orderReference: [orderNum, invoiceNum].filter(Boolean).join(" / "),
+            riderName: rider?.name ?? undefined,
+            riderPhone: rider?.mobile ?? undefined,
+            deliveryUrl,
+          }).catch((err) => console.error("[Order SMS] rider_dispatched failed:", err)),
+        );
       }
       await logOrderFulfillmentAudit({
         companyId,
@@ -966,6 +977,7 @@ export async function PATCH(
           dispatchToCustomer,
         },
       });
+      await Promise.allSettled(smsTasks);
       return NextResponse.json({ success: true });
     }
 
