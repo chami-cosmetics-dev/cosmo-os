@@ -37,12 +37,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const isReleaseApk = appEnv === "production" || appEnv === "staging";
   const projectId = appJson.expo.extra?.eas?.projectId;
 
-  // Reanimated 4 (SDK 54) requires New Architecture — do not disable newArchEnabled.
-  const plugins: ExpoConfig["plugins"] = [
-    "expo-router",
-    "expo-secure-store",
-    "expo-font",
-  ];
+  const plugins: ExpoConfig["plugins"] = ["expo-router", "expo-font"];
 
   return {
     ...config,
@@ -72,6 +67,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...appJson.expo.android,
       package: resolveAndroidPackage(appEnv),
+      allowBackup: false,
       ...(appEnv !== "production" ? { usesCleartextTraffic: true } : {}),
     },
     plugins,

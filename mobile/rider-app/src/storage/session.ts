@@ -1,7 +1,12 @@
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { TenantId } from "@/src/tenants/config";
 import type { RiderSession, TenantRiderSession } from "@/src/storage/session-types";
 
+/**
+ * Use AsyncStorage instead of SecureStore for session tokens.
+ * Honor/Huawei Keystore + EncryptedSharedPreferences can native-crash the process
+ * on open (splash shows, then app dies) — JS try/catch cannot catch that.
+ */
 const SESSION_KEY = "cosmo-rider-session";
 
 function isTenantRiderSession(value: unknown): value is TenantRiderSession {
@@ -32,12 +37,12 @@ function normalizeSession(raw: unknown): RiderSession | null {
 }
 
 export async function saveSession(session: RiderSession) {
-  await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+  await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export async function loadSession() {
   try {
-    const raw = await SecureStore.getItemAsync(SESSION_KEY);
+    const raw = await AsyncStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     return normalizeSession(JSON.parse(raw));
   } catch {
@@ -48,9 +53,9 @@ export async function loadSession() {
 
 export async function clearSession() {
   try {
-    await SecureStore.deleteItemAsync(SESSION_KEY);
+    await AsyncStorage.removeItem(SESSION_KEY);
   } catch {
-    // Ignore missing-key / SecureStore errors during logout/clear.
+    // Ignore storage errors during logout/clear.
   }
 }
 
