@@ -9,7 +9,11 @@ import {
   ERP_PE_SYNC_MOP_ORDER_AUTO,
   markOrderErpPeSyncFailed,
 } from "@/lib/failed-erp-pe-sync";
-import { createDeliveryPaymentEntry, getErpConfig, resolveOrderPaymentMop } from "@/lib/erpnext-sync";
+import {
+  getErpConfig,
+  resolveOrderPaymentMop,
+  syncOrderDeliveryPaymentEntriesToErp,
+} from "@/lib/erpnext-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
 
@@ -105,8 +109,9 @@ export async function markOrderInvoiceComplete(input: {
     await markOrderErpPeSyncFailed(order.id, erpPeError, mopForFailure, now);
   } else {
     try {
-      const peResult = await createDeliveryPaymentEntry(
+      const peResult = await syncOrderDeliveryPaymentEntriesToErp(
         {
+          id: order.id,
           name: order.name,
           shopifyOrderId: order.shopifyOrderId,
           sourceName: order.sourceName,

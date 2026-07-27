@@ -1,8 +1,7 @@
 import Constants from "expo-constants";
 
-/** Production backends — safe to embed; used as last-resort fallback in release APKs. */
+/** Cosmetics is the active backend. Vault is opt-in later via EXPO_PUBLIC_VAULT_API_URL. */
 const DEFAULT_COSMETICS_URL = "https://os.cosmetics.lk";
-const DEFAULT_VAULT_URL = "https://vault-os-sandy.vercel.app";
 
 type AppExtra = {
   appEnv?: string;
@@ -41,10 +40,9 @@ export const COSMETICS_API_URL =
   normalizeUrl(process.env.EXPO_PUBLIC_COSMETICS_API_URL) ??
   DEFAULT_COSMETICS_URL;
 
+/** Null unless explicitly configured — Vault stays disabled for now. */
 export const VAULT_API_URL =
-  normalizeUrl(extra.vaultApiUrl) ??
-  normalizeUrl(process.env.EXPO_PUBLIC_VAULT_API_URL) ??
-  DEFAULT_VAULT_URL;
+  normalizeUrl(extra.vaultApiUrl) ?? normalizeUrl(process.env.EXPO_PUBLIC_VAULT_API_URL);
 
 export const API_BASE_URL =
   normalizeUrl(extra.apiBaseUrl) ?? normalizeUrl(process.env.EXPO_PUBLIC_API_BASE_URL);

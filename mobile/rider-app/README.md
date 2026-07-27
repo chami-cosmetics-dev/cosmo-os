@@ -76,17 +76,15 @@ mobile/rider-app/
 │   └── theme.ts              # Design tokens
 ```
 
-### Multi-tenant (one APK)
+### Multi-tenant (optional Vault later)
 
-Riders who deliver for **Cosmetics.lk** and **Supplement Vault** use a single app and one login. On sign-in the app authenticates against both backends in parallel and stores a token per company. Deliveries, cash summaries, and handovers are merged in the UI with company labels.
+By default the app talks to **Cosmetics.lk / Cosmo OS only**. Set `EXPO_PUBLIC_VAULT_API_URL` to also enable Supplement Vault (same login email/password must exist on both, with `employeeProfile.isRider = true`).
 
 | Variable | Description |
 |----------|-------------|
 | `EXPO_PUBLIC_COSMETICS_API_URL` | Cosmo OS backend (e.g. `https://os.cosmetics.lk`) |
-| `EXPO_PUBLIC_VAULT_API_URL` | Vault OS backend (e.g. `https://vault-os-sandy.vercel.app`) |
-| `EXPO_PUBLIC_API_BASE_URL` | Dev fallback when tenant URLs are unset |
-
-The same rider email/password must exist on both deployments with `employeeProfile.isRider = true`.
+| `EXPO_PUBLIC_VAULT_API_URL` | Optional Vault OS backend — omit to disable |
+| `EXPO_PUBLIC_API_BASE_URL` | Dev fallback when Cosmetics URL is unset |
 
 ### Backend integration
 
@@ -138,7 +136,7 @@ Set these in the [Expo dashboard](https://expo.dev) or with `eas env:create` for
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `EXPO_PUBLIC_COSMETICS_API_URL` | Yes (production) | Cosmetics.lk Cosmo OS URL |
-| `EXPO_PUBLIC_VAULT_API_URL` | Yes (production) | Supplement Vault OS URL |
+| `EXPO_PUBLIC_VAULT_API_URL` | Optional | Supplement Vault OS URL (omit to disable) |
 | `EXPO_PUBLIC_API_BASE_URL` | Dev / fallback | Local or single-backend staging |
 | `EXPO_PUBLIC_SENTRY_DSN` | Recommended | Sentry DSN for crash reports |
 | `SENTRY_AUTH_TOKEN` | For source maps | EAS secret — upload debug symbols on build |

@@ -35,7 +35,7 @@ export async function loginToAllTenants(payload: LoginPayload): Promise<RiderSes
 
   if (tenants.length === 0) {
     throw new LoginError({
-      message: "No company APIs are configured. Check EXPO_PUBLIC_COSMETICS_API_URL and EXPO_PUBLIC_VAULT_API_URL in .env.",
+      message: "No company API is configured. Check EXPO_PUBLIC_COSMETICS_API_URL in .env.",
       failures: [],
     });
   }

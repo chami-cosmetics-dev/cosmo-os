@@ -52,12 +52,27 @@ describe("delivery helpers", () => {
   it("maps payment priority labels", () => {
     expect(getPriorityLabel({ expectedPaymentMethod: "cod" })).toBe("Cash on delivery");
     expect(getPriorityLabel({ expectedPaymentMethod: "already_paid" })).toBe("Prepared order");
+    expect(
+      getPriorityLabel({
+        payment: {
+          lines: [{ paymentMethod: "cod" }, { paymentMethod: "card" }],
+        },
+      })
+    ).toBe("Split payment");
     expect(getPaymentMethodLabel("bank_transfer")).toBe("Bank Transfer");
   });
 
   it("checks cash flow and payment reference rules", () => {
     expect(isCashFlowDelivery({ expectedPaymentMethod: "cod" })).toBe(true);
     expect(isCashFlowDelivery({ expectedPaymentMethod: "card" })).toBe(false);
+    expect(
+      isCashFlowDelivery({
+        payment: {
+          paymentMethod: "card",
+          lines: [{ paymentMethod: "cod" }, { paymentMethod: "card" }],
+        },
+      })
+    ).toBe(true);
     expect(requiresPaymentReference("bank_transfer")).toBe(true);
     expect(requiresPaymentReference("card")).toBe(true);
     expect(requiresPaymentReference("cod")).toBe(false);

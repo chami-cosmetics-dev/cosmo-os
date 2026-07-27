@@ -41,7 +41,7 @@ export default function LoginScreen() {
     const summary = getConfiguredApiSummary();
     return [summary.cosmetics ? "Cosmetics.lk" : null, summary.vault ? "Supplement Vault" : null]
       .filter(Boolean)
-      .join(" · ");
+      .join(" · ") || null;
   }, []);
 
   useEffect(() => {

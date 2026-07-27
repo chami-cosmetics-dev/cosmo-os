@@ -15,6 +15,14 @@ export type AddressLike = {
   phone?: string | null;
 };
 
+export type DeliveryPaymentLine = {
+  paymentMethod: PaymentMethod;
+  amount: string;
+  bankReference?: string | null;
+  cardReference?: string | null;
+  referenceNote?: string | null;
+};
+
 export type DeliveryPayment = {
   expectedAmount?: string;
   collectedAmount: string;
@@ -24,6 +32,7 @@ export type DeliveryPayment = {
   bankReference?: string | null;
   cardReference?: string | null;
   collectedAt?: string | null;
+  lines?: DeliveryPaymentLine[];
 };
 
 export type ApiMobileDelivery = {

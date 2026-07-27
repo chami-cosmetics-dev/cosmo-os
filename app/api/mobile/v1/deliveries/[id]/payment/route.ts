@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireRiderMobileSession, mobileError } from "@/lib/mobile/api";
 import { inferCollectionStatus, inferExpectedPaymentMethod } from "@/lib/mobile/payment";
+import {
+  derivePaymentHeaderFromLines,
+  normalizePaymentLines,
+  sumPaymentLineAmounts,
+} from "@/lib/mobile/payment-lines";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { mobileRouteIdSchema, riderPaymentSchema } from "@/lib/mobile/validation";
 import { prisma } from "@/lib/prisma";
@@ -35,58 +40,103 @@ export async function POST(
   if (parsed.data.idempotencyKey) {
     const existing = await prisma.deliveryPayment.findFirst({
       where: { idempotencyKey: parsed.data.idempotencyKey },
+      include: { lines: { orderBy: { sortOrder: "asc" } } },
     });
     if (existing) {
-      return NextResponse.json({ success: true, paymentId: existing.id, deduplicated: true });
+      return NextResponse.json({
+        success: true,
+        paymentId: existing.id,
+        deduplicated: true,
+        lines: existing.lines.map((line) => ({
+          id: line.id,
+          paymentMethod: line.paymentMethod,
+          amount: line.amount.toString(),
+        })),
+      });
     }
   }
 
+  const fallbackMethod =
+    parsed.data.paymentMethod ?? inferExpectedPaymentMethod(task.order);
+  const lines = normalizePaymentLines({
+    paymentMethod: fallbackMethod,
+    collectedAmount: parsed.data.collectedAmount,
+    bankReference: parsed.data.bankReference,
+    cardReference: parsed.data.cardReference,
+    referenceNote: parsed.data.referenceNote,
+    lines: parsed.data.lines,
+  });
+
+  if (lines.length === 0) {
+    return mobileError("Invalid payment payload", 400);
+  }
+
   const expectedAmount = Number(task.order.totalPrice);
-  if (Math.abs(expectedAmount - parsed.data.collectedAmount) >= 0.01) {
+  const collectedTotal = sumPaymentLineAmounts(lines);
+  if (Math.abs(expectedAmount - collectedTotal) >= 0.01) {
     return mobileError("Collected amount must match the order amount", 400);
   }
 
-  const effectiveMethod =
-    parsed.data.paymentMethod ?? inferExpectedPaymentMethod(task.order);
+  const header = derivePaymentHeaderFromLines(lines);
   const collectionStatus = inferCollectionStatus({
-    paymentMethod: effectiveMethod,
+    paymentMethod: header.paymentMethod,
     expectedAmount,
-    collectedAmount: parsed.data.collectedAmount,
+    collectedAmount: header.collectedAmount,
   });
   const now = new Date();
 
-  const payment = await prisma.deliveryPayment.upsert({
-    where: { orderId: task.orderId },
-    create: {
-      orderId: task.orderId,
-      riderId: auth.session.userId,
-      expectedAmount: expectedAmount.toFixed(2),
-      collectedAmount: parsed.data.collectedAmount.toFixed(2),
-      paymentMethod: effectiveMethod,
-      collectionStatus,
-      referenceNote: parsed.data.referenceNote?.trim() || null,
-      bankReference: parsed.data.bankReference?.trim() || null,
-      cardReference: parsed.data.cardReference?.trim() || null,
-      collectedAt: now,
-      idempotencyKey: parsed.data.idempotencyKey,
-    },
-    update: {
-      riderId: auth.session.userId,
-      expectedAmount: expectedAmount.toFixed(2),
-      collectedAmount: parsed.data.collectedAmount.toFixed(2),
-      paymentMethod: effectiveMethod,
-      collectionStatus,
-      referenceNote: parsed.data.referenceNote?.trim() || null,
-      bankReference: parsed.data.bankReference?.trim() || null,
-      cardReference: parsed.data.cardReference?.trim() || null,
-      collectedAt: now,
-      idempotencyKey: parsed.data.idempotencyKey ?? undefined,
-    },
-  });
+  const payment = await prisma.$transaction(async (tx) => {
+    const upserted = await tx.deliveryPayment.upsert({
+      where: { orderId: task.orderId },
+      create: {
+        orderId: task.orderId,
+        riderId: auth.session.userId,
+        expectedAmount: expectedAmount.toFixed(2),
+        collectedAmount: header.collectedAmount.toFixed(2),
+        paymentMethod: header.paymentMethod,
+        collectionStatus,
+        referenceNote: header.referenceNote,
+        bankReference: header.bankReference,
+        cardReference: header.cardReference,
+        collectedAt: now,
+        idempotencyKey: parsed.data.idempotencyKey,
+      },
+      update: {
+        riderId: auth.session.userId,
+        expectedAmount: expectedAmount.toFixed(2),
+        collectedAmount: header.collectedAmount.toFixed(2),
+        paymentMethod: header.paymentMethod,
+        collectionStatus,
+        referenceNote: header.referenceNote,
+        bankReference: header.bankReference,
+        cardReference: header.cardReference,
+        collectedAt: now,
+        idempotencyKey: parsed.data.idempotencyKey ?? undefined,
+      },
+    });
 
-  await prisma.order.update({
-    where: { id: task.orderId },
-    data: { lastRiderUpdateAt: now },
+    await tx.deliveryPaymentLine.deleteMany({ where: { deliveryPaymentId: upserted.id } });
+    await tx.deliveryPaymentLine.createMany({
+      data: lines.map((line, index) => ({
+        deliveryPaymentId: upserted.id,
+        paymentMethod: line.paymentMethod,
+        amount: line.amount.toFixed(2),
+        bankReference: line.bankReference,
+        cardReference: line.cardReference,
+        referenceNote: line.referenceNote,
+        sortOrder: index,
+      })),
+    });
+
+    await tx.order.update({
+      where: { id: task.orderId },
+      data: { lastRiderUpdateAt: now },
+    });
+
+    return tx.deliveryPayment.findUniqueOrThrow({
+      where: { id: upserted.id },
+      include: { lines: { orderBy: { sortOrder: "asc" } } },
+    });
   });
 
   return NextResponse.json({
@@ -98,6 +148,14 @@ export async function POST(
       paymentMethod: payment.paymentMethod,
       collectionStatus: payment.collectionStatus,
       collectedAt: payment.collectedAt?.toISOString() ?? null,
+      lines: payment.lines.map((line) => ({
+        id: line.id,
+        paymentMethod: line.paymentMethod,
+        amount: line.amount.toString(),
+        bankReference: line.bankReference,
+        cardReference: line.cardReference,
+        referenceNote: line.referenceNote,
+      })),
     },
   });
 }

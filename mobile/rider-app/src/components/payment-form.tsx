@@ -2,80 +2,172 @@ import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { PaymentMethod } from "@/src/types";
 import { useTheme } from "@/src/providers/theme";
+import { getPaymentMethodLabel } from "@/src/utils/delivery";
+
+export type PaymentLineDraft = {
+  id: string;
+  paymentMethod: PaymentMethod;
+  amount: string;
+  reference: string;
+};
 
 type PaymentFormProps = {
-  collectedAmount: string;
-  paymentMethod: PaymentMethod;
-  paymentReference: string;
+  expectedAmount: number;
+  currency?: string | null;
+  lines: PaymentLineDraft[];
   paymentNote: string;
   submitting: boolean;
   disabled: boolean;
   requiresReference: (method: PaymentMethod) => boolean;
-  onCollectedAmountChange: (value: string) => void;
-  onPaymentMethodChange: (method: PaymentMethod) => void;
-  onPaymentReferenceChange: (value: string) => void;
+  onLinesChange: (lines: PaymentLineDraft[]) => void;
   onPaymentNoteChange: (value: string) => void;
   onSubmit: () => void;
 };
 
+const METHOD_OPTIONS: Array<[PaymentMethod, string]> = [
+  ["cod", "COD"],
+  ["bank_transfer", "Bank"],
+  ["card", "Card"],
+  ["already_paid", "Online"],
+];
+
+function nextLineId() {
+  return `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export function PaymentForm({
-  collectedAmount,
-  paymentMethod,
-  paymentReference,
+  expectedAmount,
+  lines,
   paymentNote,
   submitting,
   disabled,
   requiresReference,
-  onCollectedAmountChange,
-  onPaymentMethodChange,
-  onPaymentReferenceChange,
+  onLinesChange,
   onPaymentNoteChange,
   onSubmit,
 }: PaymentFormProps) {
   const { colors, radii, shadows } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
+  const linesTotal = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const remaining = Math.max(0, expectedAmount - linesTotal);
+  const usedMethods = new Set(lines.map((line) => line.paymentMethod));
+  const canAddLine =
+    lines.length < 3 &&
+    remaining > 0.009 &&
+    !usedMethods.has("already_paid") &&
+    METHOD_OPTIONS.some(([method]) => !usedMethods.has(method) && method !== "already_paid");
+
+  function updateLine(id: string, patch: Partial<PaymentLineDraft>) {
+    onLinesChange(lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
+
+  function removeLine(id: string) {
+    if (lines.length <= 1) return;
+    onLinesChange(lines.filter((line) => line.id !== id));
+  }
+
+  function addLine() {
+    if (!canAddLine) return;
+    const nextMethod =
+      METHOD_OPTIONS.find(([method]) => !usedMethods.has(method) && method !== "already_paid")?.[0] ??
+      "card";
+    onLinesChange([
+      ...lines,
+      {
+        id: nextLineId(),
+        paymentMethod: nextMethod,
+        amount: remaining > 0 ? remaining.toFixed(2) : "",
+        reference: "",
+      },
+    ]);
+  }
+
   return (
     <View style={styles.panel}>
       <Text style={styles.sectionTitle}>Payment</Text>
-      <Text style={styles.helperText}>Collect money from the customer, then save payment and submit delivery.</Text>
-      <View style={styles.optionRow}>
-        {(
-          [
-            ["cod", "COD"],
-            ["bank_transfer", "Bank"],
-            ["card", "Card"],
-            ["already_paid", "Online"],
-          ] as Array<[PaymentMethod, string]>
-        ).map(([value, label]) => (
-          <Pressable
-            key={value}
-            style={[styles.optionChip, paymentMethod === value ? styles.optionChipActive : null]}
-            onPress={() => onPaymentMethodChange(value)}
-          >
-            <Text style={[styles.optionChipText, paymentMethod === value ? styles.optionChipTextActive : null]}>
-              {label}
+      <Text style={styles.helperText}>
+        Collect the full order amount. Use Add method for split payments (e.g. cash + card).
+      </Text>
+
+      {lines.map((line, index) => (
+        <View key={line.id} style={styles.lineCard}>
+          <View style={styles.lineHeader}>
+            <Text style={styles.lineTitle}>
+              {lines.length > 1 ? `Part ${index + 1}` : "Collection"}
             </Text>
-          </Pressable>
-        ))}
-      </View>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
-        value={collectedAmount}
-        onChangeText={onCollectedAmountChange}
-        placeholder="Collected amount"
-        placeholderTextColor={colors.textSoft}
-      />
-      {requiresReference(paymentMethod) ? (
-        <TextInput
-          style={styles.input}
-          value={paymentReference}
-          onChangeText={onPaymentReferenceChange}
-          placeholder="Payment reference"
-          placeholderTextColor={colors.textSoft}
-        />
+            {lines.length > 1 ? (
+              <Pressable onPress={() => removeLine(line.id)}>
+                <Text style={styles.removeText}>Remove</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <View style={styles.optionRow}>
+            {METHOD_OPTIONS.map(([value, label]) => {
+              const takenByOther = lines.some(
+                (other) => other.id !== line.id && other.paymentMethod === value
+              );
+              const disabledOption =
+                takenByOther ||
+                (lines.length > 1 && value === "already_paid") ||
+                (value === "already_paid" && lines.length > 1);
+              return (
+                <Pressable
+                  key={value}
+                  style={[
+                    styles.optionChip,
+                    line.paymentMethod === value ? styles.optionChipActive : null,
+                    disabledOption ? styles.optionChipDisabled : null,
+                  ]}
+                  disabled={disabledOption}
+                  onPress={() => updateLine(line.id, { paymentMethod: value, reference: "" })}
+                >
+                  <Text
+                    style={[
+                      styles.optionChipText,
+                      line.paymentMethod === value ? styles.optionChipTextActive : null,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            value={line.amount}
+            onChangeText={(value) => updateLine(line.id, { amount: value })}
+            placeholder={`${getPaymentMethodLabel(line.paymentMethod)} amount`}
+            placeholderTextColor={colors.textSoft}
+          />
+
+          {requiresReference(line.paymentMethod) ? (
+            <TextInput
+              style={styles.input}
+              value={line.reference}
+              onChangeText={(value) => updateLine(line.id, { reference: value })}
+              placeholder="Payment reference"
+              placeholderTextColor={colors.textSoft}
+            />
+          ) : null}
+        </View>
+      ))}
+
+      {canAddLine ? (
+        <Pressable style={styles.addButton} onPress={addLine}>
+          <Text style={styles.addButtonText}>+ Add method (split payment)</Text>
+        </Pressable>
       ) : null}
+
+      <Text style={styles.totalHint}>
+        Entered {linesTotal.toFixed(2)} / {expectedAmount.toFixed(2)}
+        {remaining > 0.009 ? ` · remaining ${remaining.toFixed(2)}` : ""}
+      </Text>
+
       <TextInput
         style={styles.input}
         value={paymentNote}
@@ -92,6 +184,15 @@ export function PaymentForm({
       </Pressable>
     </View>
   );
+}
+
+export function createDefaultPaymentLine(amount: string, method: PaymentMethod = "cod"): PaymentLineDraft {
+  return {
+    id: nextLineId(),
+    paymentMethod: method,
+    amount,
+    reference: "",
+  };
 }
 
 function createStyles(
@@ -111,6 +212,17 @@ function createStyles(
     },
     sectionTitle: { fontSize: 17, fontWeight: "800", color: colors.text },
     helperText: { color: colors.textMuted, lineHeight: 20 },
+    lineCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.sm,
+      padding: 12,
+      gap: 8,
+      backgroundColor: colors.surfaceMuted,
+    },
+    lineHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    lineTitle: { fontWeight: "700", color: colors.text },
+    removeText: { color: colors.danger, fontWeight: "700" },
     optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     optionChip: {
       borderWidth: 1,
@@ -118,9 +230,10 @@ function createStyles(
       borderRadius: radii.pill,
       paddingHorizontal: 14,
       paddingVertical: 10,
-      backgroundColor: colors.surfaceMuted,
+      backgroundColor: colors.surface,
     },
     optionChipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+    optionChipDisabled: { opacity: 0.35 },
     optionChipText: { color: colors.textMuted, fontWeight: "700" },
     optionChipTextActive: { color: colors.white },
     input: {
@@ -128,9 +241,18 @@ function createStyles(
       borderColor: colors.border,
       borderRadius: radii.sm,
       padding: 14,
-      backgroundColor: colors.surfaceMuted,
+      backgroundColor: colors.surface,
       color: colors.text,
     },
+    addButton: {
+      borderWidth: 1,
+      borderColor: colors.brand,
+      borderRadius: radii.sm,
+      padding: 12,
+      alignItems: "center",
+    },
+    addButtonText: { color: colors.brand, fontWeight: "700" },
+    totalHint: { color: colors.textMuted, fontWeight: "600" },
     button: { borderRadius: radii.sm, backgroundColor: colors.brand, padding: 16, alignItems: "center" },
     buttonDisabled: { opacity: 0.7 },
     buttonText: { color: colors.white, fontWeight: "800" },

@@ -18,10 +18,8 @@ function resolveTenantApiUrl(tenantId: TenantId) {
     );
   }
 
-  return (
-    VAULT_API_URL ??
-    (APP_ENV === "development" ? API_BASE_URL : null)
-  );
+  // Vault is optional — only enabled when EXPO_PUBLIC_VAULT_API_URL is set.
+  return VAULT_API_URL;
 }
 
 export function getConfiguredTenants(): TenantConfig[] {

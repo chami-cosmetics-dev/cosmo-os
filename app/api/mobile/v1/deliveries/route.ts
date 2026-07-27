@@ -76,6 +76,16 @@ export async function GET(request: NextRequest) {
               bankReference: true,
               cardReference: true,
               collectedAt: true,
+              lines: {
+                orderBy: { sortOrder: "asc" },
+                select: {
+                  paymentMethod: true,
+                  amount: true,
+                  bankReference: true,
+                  cardReference: true,
+                  referenceNote: true,
+                },
+              },
             },
           },
         },
