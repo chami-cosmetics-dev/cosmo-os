@@ -7,10 +7,15 @@
     "scheme": "cosmorider",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "android": {
       "package": "com.cosmo.rider",
       "versionCode": 2,
-      "permissions": []
+      "permissions": [],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0D9488"
+      }
     },
     "plugins": [
       "expo-secure-store"

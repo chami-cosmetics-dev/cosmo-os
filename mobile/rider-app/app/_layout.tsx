@@ -1,4 +1,6 @@
+import "react-native-gesture-handler";
 import { Stack } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { BootstrapLoading } from "@/src/components/bootstrap-loading";
@@ -28,19 +30,21 @@ function RootNavigator() {
 
 function RootLayout() {
   return (
-    <ErrorBoundary>
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <CompletedDeliveriesProvider>
-              <SyncProvider>
-                <RootNavigator />
-              </SyncProvider>
-            </CompletedDeliveriesProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </ErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <CompletedDeliveriesProvider>
+                <SyncProvider>
+                  <RootNavigator />
+                </SyncProvider>
+              </CompletedDeliveriesProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </ErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
 

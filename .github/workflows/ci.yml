@@ -29,3 +29,7 @@ jobs:
       - name: Typecheck mobile app
         working-directory: mobile/rider-app
         run: npm run typecheck
+
+      - name: Test mobile app
+        working-directory: mobile/rider-app
+        run: npm test

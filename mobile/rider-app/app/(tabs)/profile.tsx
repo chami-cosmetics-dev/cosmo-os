@@ -1,7 +1,6 @@
 import Constants from "expo-constants";
 import { useMemo } from "react";
 import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
 import { HeroBanner } from "@/src/components/hero-banner";
 import { APP_ENV, getAppEnvironmentLabel } from "@/src/config";
 import { useAuth } from "@/src/providers/auth";
@@ -24,14 +23,13 @@ const THEME_OPTIONS: Array<{ value: ThemeSetting; label: string }> = [
 ];
 
 export default function ProfileScreen() {
-  const router = useRouter();
   const { primaryRider, activeTenantIds, logout } = useAuth();
   const { colors, radii, shadows, themeSetting, setThemeSetting, resolvedMode } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
   async function handleLogout() {
     await logout();
-    router.replace("/login");
+    // SessionGate redirects to /login; avoid router.replace (Android release crash risk).
   }
 
   function confirmLogout() {

@@ -2,13 +2,15 @@ import type { ComponentType } from "react";
 
 import { SENTRY_DSN } from "@/src/config";
 
+/**
+ * Sentry works fine for sideloaded APKs (no Play Store required).
+ * To enable: install `@sentry/react-native`, set EXPO_PUBLIC_SENTRY_DSN in EAS,
+ * and wire init here. Until then this stays a no-op so builds stay simple.
+ */
 export function initMonitoring() {
   if (!SENTRY_DSN) {
     return;
   }
-
-  // Sentry is optional. Install @sentry/react-native and configure SENTRY_ORG
-  // in EAS before enabling native crash reporting in production builds.
 }
 
 export function wrapRootComponent<T extends ComponentType<Record<string, unknown>>>(Component: T) {
@@ -16,5 +18,5 @@ export function wrapRootComponent<T extends ComponentType<Record<string, unknown
 }
 
 export function captureException(_error: unknown, _context?: Record<string, unknown>) {
-  // No-op until Sentry is configured for release builds.
+  // No-op until @sentry/react-native is installed for release APKs.
 }

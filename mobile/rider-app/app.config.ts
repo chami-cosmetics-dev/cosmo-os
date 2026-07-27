@@ -45,8 +45,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     name: resolveAppName(appEnv),
     orientation: "portrait",
     userInterfaceStyle: "automatic",
+    icon: "./assets/icon.png",
     splash: {
-      backgroundColor: "#f5f7fb",
+      image: "./assets/icon.png",
+      resizeMode: "contain",
+      backgroundColor: "#0D9488",
     },
     ...(isReleaseApk
       ? {}
