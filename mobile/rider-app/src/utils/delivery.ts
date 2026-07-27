@@ -29,8 +29,14 @@ export function getRouteBadgeLabel(status: DeliveryStatus | string) {
 
 export function getPriorityLabel(delivery: {
   expectedPaymentMethod?: PaymentMethod | null;
-  payment?: { paymentMethod?: PaymentMethod | null } | null;
+  payment?: {
+    paymentMethod?: PaymentMethod | null;
+    lines?: Array<{ paymentMethod?: PaymentMethod | null }>;
+  } | null;
 }) {
+  if (delivery.payment?.lines && delivery.payment.lines.length > 1) {
+    return "Split payment";
+  }
   const method = delivery.expectedPaymentMethod ?? delivery.payment?.paymentMethod;
   switch (method) {
     case "cod":
@@ -63,8 +69,14 @@ export function getPaymentMethodLabel(method: PaymentMethod | null | undefined) 
 
 export function isCashFlowDelivery(delivery: {
   expectedPaymentMethod?: PaymentMethod | null;
-  payment?: { paymentMethod?: PaymentMethod | null } | null;
+  payment?: {
+    paymentMethod?: PaymentMethod | null;
+    lines?: Array<{ paymentMethod?: PaymentMethod | null }>;
+  } | null;
 }) {
+  if (delivery.payment?.lines && delivery.payment.lines.length > 0) {
+    return delivery.payment.lines.some((line) => line.paymentMethod === "cod");
+  }
   const method = delivery.payment?.paymentMethod ?? delivery.expectedPaymentMethod;
   return method === "cod";
 }

@@ -173,6 +173,12 @@ type OrderDetail = {
     bankReference?: string | null;
     cardReference?: string | null;
     collectedAt?: string | null;
+    lines?: Array<{
+      paymentMethod: string;
+      amount: string;
+      bankReference?: string | null;
+      cardReference?: string | null;
+    }>;
     cashHandover?: {
       id: string;
       handoverDate: string;
@@ -753,11 +759,31 @@ export function OrderFulfillmentDetail({
                     <div>
                       <p className="text-muted-foreground">Payment</p>
                       <p>
-                        {orderDetail.deliveryPayment.paymentMethod} / {orderDetail.deliveryPayment.collectionStatus}
+                        {orderDetail.deliveryPayment.lines &&
+                        orderDetail.deliveryPayment.lines.length > 1
+                          ? `Split (${orderDetail.deliveryPayment.lines
+                              .map((line) => line.paymentMethod)
+                              .join(" + ")})`
+                          : orderDetail.deliveryPayment.paymentMethod}{" "}
+                        / {orderDetail.deliveryPayment.collectionStatus}
                       </p>
                       <p>
-                        {formatPrice(orderDetail.deliveryPayment.collectedAmount, orderDetail.currency)} collected
+                        {formatPrice(orderDetail.deliveryPayment.collectedAmount, orderDetail.currency)}{" "}
+                        collected
                       </p>
+                      {orderDetail.deliveryPayment.lines &&
+                        orderDetail.deliveryPayment.lines.length > 0 && (
+                          <ul className="text-muted-foreground mt-1 space-y-0.5">
+                            {orderDetail.deliveryPayment.lines.map((line, index) => (
+                              <li key={`${line.paymentMethod}-${index}`}>
+                                {line.paymentMethod}:{" "}
+                                {formatPrice(line.amount, orderDetail.currency)}
+                                {line.cardReference ? ` · ${line.cardReference}` : ""}
+                                {line.bankReference ? ` · ${line.bankReference}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       {orderDetail.deliveryPayment.collectedAt && (
                         <p className="text-muted-foreground mt-1">
                           Collected: {formatDate(orderDetail.deliveryPayment.collectedAt)}

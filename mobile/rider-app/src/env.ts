@@ -1,8 +1,7 @@
 import Constants from "expo-constants";
 
-/** Production backends — safe to embed; used as last-resort fallback in release APKs. */
+/** Cosmetics is the active backend. Vault is opt-in later via EXPO_PUBLIC_VAULT_API_URL. */
 const DEFAULT_COSMETICS_URL = "https://os.cosmetics.lk";
-const DEFAULT_VAULT_URL = "https://vault-os-sandy.vercel.app";
 
 type AppExtra = {
   appEnv?: string;
@@ -25,12 +24,15 @@ function readExtra(): AppExtra {
   return {};
 }
 
-const extra = readExtra();
-
-function normalizeUrl(value: string | null | undefined) {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
+function normalizeUrl(value: unknown) {
+  // Must type-check before calling .trim() — non-strings crash Hermes with
+  // "TypeError: undefined is not a function" (seen on Honor release APK).
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
+
+const extra = readExtra();
 
 /** Baked in at EAS build time via app.config.ts `extra`, with hardcoded production fallbacks. */
 export const COSMETICS_API_URL =
@@ -38,10 +40,9 @@ export const COSMETICS_API_URL =
   normalizeUrl(process.env.EXPO_PUBLIC_COSMETICS_API_URL) ??
   DEFAULT_COSMETICS_URL;
 
+/** Null unless explicitly configured — Vault stays disabled for now. */
 export const VAULT_API_URL =
-  normalizeUrl(extra.vaultApiUrl) ??
-  normalizeUrl(process.env.EXPO_PUBLIC_VAULT_API_URL) ??
-  DEFAULT_VAULT_URL;
+  normalizeUrl(extra.vaultApiUrl) ?? normalizeUrl(process.env.EXPO_PUBLIC_VAULT_API_URL);
 
 export const API_BASE_URL =
   normalizeUrl(extra.apiBaseUrl) ?? normalizeUrl(process.env.EXPO_PUBLIC_API_BASE_URL);
@@ -50,6 +51,9 @@ export function getConfiguredApiSummary() {
   return {
     cosmetics: COSMETICS_API_URL,
     vault: VAULT_API_URL,
-    appEnv: extra.appEnv ?? process.env.EXPO_PUBLIC_APP_ENV ?? "development",
+    appEnv:
+      (typeof extra.appEnv === "string" && extra.appEnv) ||
+      process.env.EXPO_PUBLIC_APP_ENV ||
+      "development",
   };
 }

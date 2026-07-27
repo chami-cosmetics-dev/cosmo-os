@@ -29,6 +29,7 @@ type RiderOrderRow = {
   collectedAmount: string | null;
   paymentMethod: string | null;
   collectionStatus: string | null;
+  paymentLines?: Array<{ paymentMethod: string; amount: string }>;
 };
 
 type RiderLocationSummary = {
@@ -185,6 +186,13 @@ export async function fetchRiderOrdersData(
               collectedAmount: true,
               paymentMethod: true,
               collectionStatus: true,
+              lines: {
+                orderBy: { sortOrder: "asc" },
+                select: {
+                  paymentMethod: true,
+                  amount: true,
+                },
+              },
             },
           },
         },
@@ -193,26 +201,40 @@ export async function fetchRiderOrdersData(
     orderBy: [{ assignedAt: "desc" }],
   });
 
-  const rows: RiderOrderRow[] = tasks.map((task) => ({
-    taskId: task.id,
-    orderId: task.order.id,
-    orderLabel: task.order.name ?? task.order.orderNumber ?? task.order.shopifyOrderId,
-    orderNumber: task.order.orderNumber,
-    shopifyOrderId: task.order.shopifyOrderId,
-    status: task.status,
-    customerName: extractCustomerName(task.order.shippingAddress, task.order.billingAddress),
-    customerPhone: task.order.customerPhone,
-    locationName: task.order.companyLocation?.name ?? null,
-    assignedAt: task.assignedAt.toISOString(),
-    acceptedAt: task.acceptedAt?.toISOString() ?? null,
-    arrivedAt: task.arrivedAt?.toISOString() ?? null,
-    completedAt: task.completedAt?.toISOString() ?? null,
-    failedAt: task.failedAt?.toISOString() ?? null,
-    expectedAmount: toMoney(task.order.deliveryPayment?.expectedAmount),
-    collectedAmount: task.order.deliveryPayment ? toMoney(task.order.deliveryPayment.collectedAmount) : null,
-    paymentMethod: task.order.deliveryPayment?.paymentMethod ?? null,
-    collectionStatus: task.order.deliveryPayment?.collectionStatus ?? null,
-  }));
+  const rows: RiderOrderRow[] = tasks.map((task) => {
+    const lines = task.order.deliveryPayment?.lines ?? [];
+    const paymentMethodLabel =
+      lines.length > 1
+        ? lines.map((line) => line.paymentMethod).join("+")
+        : (task.order.deliveryPayment?.paymentMethod ?? null);
+
+    return {
+      taskId: task.id,
+      orderId: task.order.id,
+      orderLabel: task.order.name ?? task.order.orderNumber ?? task.order.shopifyOrderId,
+      orderNumber: task.order.orderNumber,
+      shopifyOrderId: task.order.shopifyOrderId,
+      status: task.status,
+      customerName: extractCustomerName(task.order.shippingAddress, task.order.billingAddress),
+      customerPhone: task.order.customerPhone,
+      locationName: task.order.companyLocation?.name ?? null,
+      assignedAt: task.assignedAt.toISOString(),
+      acceptedAt: task.acceptedAt?.toISOString() ?? null,
+      arrivedAt: task.arrivedAt?.toISOString() ?? null,
+      completedAt: task.completedAt?.toISOString() ?? null,
+      failedAt: task.failedAt?.toISOString() ?? null,
+      expectedAmount: toMoney(task.order.deliveryPayment?.expectedAmount),
+      collectedAmount: task.order.deliveryPayment
+        ? toMoney(task.order.deliveryPayment.collectedAmount)
+        : null,
+      paymentMethod: paymentMethodLabel,
+      collectionStatus: task.order.deliveryPayment?.collectionStatus ?? null,
+      paymentLines: lines.map((line) => ({
+        paymentMethod: line.paymentMethod,
+        amount: toMoney(line.amount),
+      })),
+    };
+  });
 
   const statusSummary = rows.reduce(
     (acc, row) => {
@@ -242,7 +264,21 @@ export async function fetchRiderOrdersData(
     const collected = Number.parseFloat(row.collectedAmount ?? row.expectedAmount ?? "0");
     current.orderCount += 1;
     current.collectedTotal = (Number.parseFloat(current.collectedTotal) + collected).toFixed(2);
-    if (row.paymentMethod === "cod") {
+
+    if (row.paymentLines && row.paymentLines.length > 0) {
+      for (const line of row.paymentLines) {
+        const amount = Number.parseFloat(line.amount);
+        if (line.paymentMethod === "cod") {
+          current.cashTotal = (Number.parseFloat(current.cashTotal) + amount).toFixed(2);
+        } else if (line.paymentMethod === "bank_transfer") {
+          current.bankTransferTotal = (Number.parseFloat(current.bankTransferTotal) + amount).toFixed(2);
+        } else if (line.paymentMethod === "card") {
+          current.cardTotal = (Number.parseFloat(current.cardTotal) + amount).toFixed(2);
+        } else if (line.paymentMethod === "already_paid") {
+          current.alreadyPaidTotal = (Number.parseFloat(current.alreadyPaidTotal) + amount).toFixed(2);
+        }
+      }
+    } else if (row.paymentMethod === "cod") {
       current.cashTotal = (Number.parseFloat(current.cashTotal) + collected).toFixed(2);
     } else if (row.paymentMethod === "bank_transfer") {
       current.bankTransferTotal = (

@@ -2,17 +2,15 @@ import "react-native-gesture-handler";
 import { Stack } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { StyleSheet } from "react-native";
 
 import { BootstrapLoading } from "@/src/components/bootstrap-loading";
 import { ErrorBoundary } from "@/src/components/error-boundary";
-import { initMonitoring, wrapRootComponent } from "@/src/lib/monitoring";
 import { AuthProvider, useAuth } from "@/src/providers/auth";
 import { CompletedDeliveriesProvider } from "@/src/providers/completed-deliveries";
 import { SessionGate } from "@/src/providers/session-gate";
 import { SyncProvider } from "@/src/providers/sync";
 import { ThemeProvider } from "@/src/providers/theme";
-
-initMonitoring();
 
 function RootNavigator() {
   const { bootstrapped } = useAuth();
@@ -28,9 +26,9 @@ function RootNavigator() {
   );
 }
 
-function RootLayout() {
+export default function RootLayout() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={styles.root}>
       <ErrorBoundary>
         <SafeAreaProvider>
           <ThemeProvider>
@@ -48,4 +46,6 @@ function RootLayout() {
   );
 }
 
-export default wrapRootComponent(RootLayout);
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});

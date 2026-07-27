@@ -23,12 +23,8 @@ export default function DeliveryDetailScreen() {
     tenant,
     detail,
     loading,
-    collectedAmount,
-    setCollectedAmount,
-    paymentMethod,
-    setPaymentMethod,
-    paymentReference,
-    setPaymentReference,
+    paymentLines,
+    setPaymentLines,
     paymentNote,
     setPaymentNote,
     failureReason,
@@ -54,19 +50,24 @@ export default function DeliveryDetailScreen() {
   const companyLabel = getTenantDefinition(tenant).label;
   const statusLabel = getRouteBadgeLabel(delivery.deliveryStatus);
   const expectedAmount = Number(delivery.amount);
-  const enteredAmount = Number(collectedAmount || 0);
-  const effectiveCollectedAmount =
-    paymentMethod === "already_paid" && enteredAmount <= 0 ? expectedAmount : enteredAmount;
+  const linesTotal = paymentLines.reduce((sum, line) => {
+    const amount = Number(line.amount || 0);
+    if (line.paymentMethod === "already_paid" && amount <= 0) return sum + expectedAmount;
+    return sum + amount;
+  }, 0);
   const needsCollectionRemark =
     delivery.requiresOldItemCollection &&
     oldItemCollectionStatus === "not_collected" &&
     !oldItemCollectionRemark.trim();
+  const missingReference = paymentLines.some(
+    (line) => requiresReference(line.paymentMethod) && !line.reference.trim()
+  );
   const isCompleteDisabled =
     submitting ||
-    !amountsMatch(delivery.amount, effectiveCollectedAmount) ||
+    !amountsMatch(delivery.amount, linesTotal) ||
     (delivery.requiresOldItemCollection && oldItemCollectionStatus === "pending") ||
     needsCollectionRemark ||
-    (requiresReference(paymentMethod) && !paymentReference.trim());
+    missingReference;
 
   return (
     <SafeAreaView style={styles.page}>
@@ -159,25 +160,20 @@ export default function DeliveryDetailScreen() {
         </View>
 
         <PaymentForm
-          collectedAmount={collectedAmount}
-          paymentMethod={paymentMethod}
-          paymentReference={paymentReference}
+          expectedAmount={expectedAmount}
+          lines={paymentLines}
           paymentNote={paymentNote}
           submitting={submitting}
           disabled={isCompleteDisabled}
           requiresReference={requiresReference}
-          onCollectedAmountChange={setCollectedAmount}
-          onPaymentMethodChange={setPaymentMethod}
-          onPaymentReferenceChange={setPaymentReference}
+          onLinesChange={setPaymentLines}
           onPaymentNoteChange={setPaymentNote}
           onSubmit={() =>
             void markDelivered({
               tenant,
               deliveryId: id,
               delivery,
-              collectedAmount,
-              paymentMethod,
-              paymentReference,
+              paymentLines,
               paymentNote,
               oldItemCollectionStatus,
               oldItemCollectionRemark,

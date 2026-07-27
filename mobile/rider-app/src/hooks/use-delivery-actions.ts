@@ -1,7 +1,7 @@
 import { Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { apiClient } from "@/src/api/client";
+import type { PaymentLineDraft } from "@/src/components/payment-form";
 import { useCompletedDeliveries } from "@/src/providers/completed-deliveries";
 import { getTenantDefinition } from "@/src/tenants/config";
 import type { TenantId } from "@/src/tenants/config";
@@ -13,13 +13,29 @@ type DeliveryActionInput = {
   tenant: TenantId;
   deliveryId: string;
   delivery: MobileDeliveryDetail;
-  collectedAmount: string;
-  paymentMethod: PaymentMethod;
-  paymentReference: string;
+  paymentLines: PaymentLineDraft[];
   paymentNote: string;
   oldItemCollectionStatus: OldItemCollectionStatus;
   oldItemCollectionRemark: string;
 };
+
+function normalizeLines(lines: PaymentLineDraft[], expectedAmount: number) {
+  return lines
+    .map((line) => {
+      const amount =
+        line.paymentMethod === "already_paid" && !(Number(line.amount) > 0)
+          ? expectedAmount
+          : Number(line.amount || 0);
+      return {
+        paymentMethod: line.paymentMethod,
+        amount,
+        bankReference:
+          line.paymentMethod === "bank_transfer" ? line.reference.trim() || undefined : undefined,
+        cardReference: line.paymentMethod === "card" ? line.reference.trim() || undefined : undefined,
+      };
+    })
+    .filter((line) => line.amount > 0 || line.paymentMethod === "already_paid");
+}
 
 export function useDeliveryActions() {
   const router = useRouter();
@@ -31,27 +47,27 @@ export function useDeliveryActions() {
       tenant,
       deliveryId,
       delivery,
-      collectedAmount,
-      paymentMethod,
-      paymentReference,
+      paymentLines,
       paymentNote,
       oldItemCollectionStatus,
       oldItemCollectionRemark,
     } = input;
 
-    const numericAmount = Number(collectedAmount || 0);
     const expectedAmount = Number(delivery.amount);
-    const effectiveCollectedAmount =
-      paymentMethod === "already_paid" && numericAmount <= 0 ? expectedAmount : numericAmount;
+    const lines = normalizeLines(paymentLines, expectedAmount);
+    const collectedTotal = lines.reduce((sum, line) => sum + line.amount, 0);
     const needsOldItemCollection = delivery.requiresOldItemCollection;
 
-    if (paymentMethod === "cod" && numericAmount <= 0) {
-      Alert.alert("Missing amount", "Enter the amount collected from the customer.");
+    if (lines.length === 0) {
+      Alert.alert("Missing amount", "Enter at least one payment amount.");
       return;
     }
 
-    if (!amountsMatch(delivery.amount, effectiveCollectedAmount)) {
-      Alert.alert("Amount mismatch", "Collected amount must match the order amount before completing.");
+    if (!amountsMatch(delivery.amount, collectedTotal)) {
+      Alert.alert(
+        "Amount mismatch",
+        "Payment parts must add up to the order amount before completing."
+      );
       return;
     }
 
@@ -69,26 +85,46 @@ export function useDeliveryActions() {
       return;
     }
 
-    if (requiresPaymentReference(paymentMethod) && !paymentReference.trim()) {
-      Alert.alert("Missing reference", "Enter the payment reference before submitting.");
-      return;
+    for (const line of lines) {
+      if (requiresPaymentReference(line.paymentMethod)) {
+        const hasRef =
+          (line.paymentMethod === "bank_transfer" && line.bankReference) ||
+          (line.paymentMethod === "card" && line.cardReference);
+        if (!hasRef) {
+          Alert.alert("Missing reference", "Enter the payment reference for bank/card parts.");
+          return;
+        }
+      }
     }
 
     setSubmitting(true);
 
     try {
+      const paymentBody =
+        lines.length === 1
+          ? {
+              paymentMethod: lines[0].paymentMethod,
+              collectedAmount: lines[0].amount,
+              bankReference: lines[0].bankReference,
+              cardReference: lines[0].cardReference,
+              referenceNote: paymentNote.trim() || undefined,
+              idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
+            }
+          : {
+              lines: lines.map((line) => ({
+                paymentMethod: line.paymentMethod,
+                amount: line.amount,
+                bankReference: line.bankReference,
+                cardReference: line.cardReference,
+                referenceNote: paymentNote.trim() || undefined,
+              })),
+              idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
+            };
+
       const paymentResult = await submitOrQueue({
         tenant,
         endpoint: `/api/mobile/v1/deliveries/${deliveryId}/payment`,
-        body: {
-          paymentMethod,
-          collectedAmount:
-            paymentMethod === "already_paid" && numericAmount <= 0 ? Number(delivery.amount) : numericAmount,
-          bankReference: paymentMethod === "bank_transfer" ? paymentReference.trim() : undefined,
-          cardReference: paymentMethod === "card" ? paymentReference.trim() : undefined,
-          referenceNote: paymentNote.trim() || undefined,
-          idempotencyKey: `payment-${tenant}-${deliveryId}-${Date.now()}`,
-        },
+        body: paymentBody,
         queuedMessage: "Payment was added to the sync queue.",
       });
 
@@ -98,7 +134,9 @@ export function useDeliveryActions() {
         body: {
           idempotencyKey: `complete-${tenant}-${deliveryId}-${Date.now()}`,
           oldItemCollectionStatus: needsOldItemCollection ? oldItemCollectionStatus : undefined,
-          oldItemCollectionRemark: needsOldItemCollection ? oldItemCollectionRemark.trim() || undefined : undefined,
+          oldItemCollectionRemark: needsOldItemCollection
+            ? oldItemCollectionRemark.trim() || undefined
+            : undefined,
         },
         queuedMessage: "Delivery completion was added to the sync queue.",
       });
