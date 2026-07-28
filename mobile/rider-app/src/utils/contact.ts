@@ -1,4 +1,3 @@
-import * as Clipboard from "expo-clipboard";
 import { Alert, Linking, Platform } from "react-native";
 
 import type { AddressLike } from "@/src/types/delivery";
@@ -48,7 +47,8 @@ async function tryOpenUrl(url: string): Promise<boolean> {
 
 export async function copyAddressToClipboard(address: string): Promise<boolean> {
   try {
-    await Clipboard.setStringAsync(address);
+    const clipboard = await import("expo-clipboard");
+    await clipboard.setStringAsync(address);
     return true;
   } catch {
     return false;
