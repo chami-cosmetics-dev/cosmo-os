@@ -130,24 +130,44 @@ const ymdQuerySchema = z
   .max(10)
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
 
-export const dashboardSalesDateTypeSchema = z.enum([
+const dashboardSalesDateTypeValues = [
+  "placed_all",
+  "placed_open",
+  "placed_pending_invoice",
+  "placed_invoice_completed",
+  "closed_in_period",
+  "delivered_all",
+  "delivered_pending_invoice",
+  // Legacy aliases (normalized below)
   "order",
   "completed",
   "delivery_completed",
   "pending_invoice_complete",
-]);
+] as const;
+
+export const dashboardSalesDateTypeSchema = z
+  .enum(dashboardSalesDateTypeValues)
+  .transform((value) => {
+    if (value === "order") return "placed_all" as const;
+    if (value === "completed") return "closed_in_period" as const;
+    if (value === "delivery_completed") return "delivered_all" as const;
+    if (value === "pending_invoice_complete") {
+      return "delivered_pending_invoice" as const;
+    }
+    return value;
+  });
 
 export const dashboardSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: dashboardSalesDateTypeSchema.optional().default("order"),
+  date_type: dashboardSalesDateTypeSchema.optional().default("placed_all"),
   analysis_type: z.enum(["merchant", "gateway"]).optional().default("merchant"),
 });
 
 export const dashboardBrandSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: dashboardSalesDateTypeSchema.optional().default("order"),
+  date_type: dashboardSalesDateTypeSchema.optional().default("placed_all"),
   location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
 });
 

@@ -101,7 +101,7 @@ export function DashboardFiltersSlot() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-[0.8fr_0.8fr_1.7fr_1.2fr]">
+      <CardContent className="border-primary/55 grid gap-4 border-t-4 p-4 md:grid-cols-2 xl:grid-cols-[0.7fr_0.7fr_2.2fr_1fr]">
         <div className="space-y-2">
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             From Date
@@ -128,39 +128,80 @@ export function DashboardFiltersSlot() {
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Date Type
           </p>
-          <div className="bg-muted/20 flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border px-3 py-2 text-sm">
-            <label className="flex items-center gap-2 whitespace-nowrap">
-              <input
-                type="radio"
-                checked={dateType === "order"}
-                onChange={() => setDateType("order")}
-              />
-              <span>Invoice date</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                checked={dateType === "completed"}
-                onChange={() => setDateType("completed")}
-              />
-              <span>Invoice completed at</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                checked={dateType === "delivery_completed"}
-                onChange={() => setDateType("delivery_completed")}
-              />
-              <span>Delivery Completed at</span>
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                checked={dateType === "pending_invoice_complete"}
-                onChange={() => setDateType("pending_invoice_complete")}
-              />
-              <span>Pending invoice complete</span>
-            </label>
+          <div className="bg-muted/20 space-y-3 rounded-md border border-border px-3 py-2 text-sm">
+            <div className="space-y-2">
+              <p className="text-muted-foreground text-[11px] font-medium">
+                Orders placed (add up)
+              </p>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "placed_all"}
+                    onChange={() => setDateType("placed_all")}
+                  />
+                  <span>Placed – all</span>
+                </label>
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "placed_open"}
+                    onChange={() => setDateType("placed_open")}
+                  />
+                  <span>Placed – not delivered</span>
+                </label>
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "placed_pending_invoice"}
+                    onChange={() => setDateType("placed_pending_invoice")}
+                  />
+                  <span>Placed – invoice pending</span>
+                </label>
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "placed_invoice_completed"}
+                    onChange={() => setDateType("placed_invoice_completed")}
+                  />
+                  <span>Placed – invoice completed</span>
+                </label>
+              </div>
+              <p className="text-muted-foreground text-[11px]">
+                Not delivered + Invoice pending + Invoice completed ≈ Placed – all
+              </p>
+            </div>
+            <div className="space-y-2 border-t border-border/60 pt-2">
+              <p className="text-muted-foreground text-[11px] font-medium">
+                Other clocks (do not add to Placed)
+              </p>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "closed_in_period"}
+                    onChange={() => setDateType("closed_in_period")}
+                  />
+                  <span>Closed in period</span>
+                </label>
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "delivered_all"}
+                    onChange={() => setDateType("delivered_all")}
+                  />
+                  <span>Delivered in period – all</span>
+                </label>
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  <input
+                    type="radio"
+                    checked={dateType === "delivered_pending_invoice"}
+                    onChange={() => setDateType("delivered_pending_invoice")}
+                  />
+                  <span>Delivered in period – invoice pending</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
         <div className="space-y-2">

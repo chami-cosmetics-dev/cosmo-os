@@ -13,12 +13,12 @@ export async function getDefaultDashboardOverviewInitialState(
   const result = await fetchDashboardSalesByLocationMerchant(companyId, {
     fromYmd: range.fromDate,
     toYmd: range.toDate,
-    dateType: "order",
+    dateType: "placed_all",
   });
 
   return {
     ...range,
-    dateType: "order",
+    dateType: "placed_all",
     analysisType: "merchant",
     lastUpdatedAt: Date.now(),
     salesLocations: result.locations,

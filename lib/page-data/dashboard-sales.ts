@@ -60,30 +60,102 @@ export type DashboardSalesEligibilityOrder = {
   rawPayload?: Prisma.JsonValue | null;
 };
 
+function normalizeStatus(value: unknown) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function isPosOrder(sourceName: string | null | undefined) {
+  return DASHBOARD_POS_SOURCE_NAMES.has(normalizeStatus(sourceName));
+}
+
+function isPaidOrPending(financialStatus: string | null | undefined) {
+  return DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES.has(normalizeStatus(financialStatus));
+}
+
+/** Non-POS order that has been delivery-completed (still may await invoice close). */
+function isNonPosDeliveredPendingCandidate(order: DashboardSalesEligibilityOrder) {
+  if (isPosOrder(order.sourceName)) return false;
+  return (
+    order.deliveryCompleteAt != null ||
+    normalizeStatus(order.fulfillmentStage) === "delivery_complete"
+  );
+}
+
+/**
+ * Mutually exclusive placed-bucket for create-date tallies.
+ * closed → pending → open (POS without close stays in open).
+ */
+export function getPlacedDashboardSalesBucket(
+  order: DashboardSalesEligibilityOrder,
+): "placed_invoice_completed" | "placed_pending_invoice" | "placed_open" {
+  if (order.invoiceCompleteAt != null) return "placed_invoice_completed";
+  if (isNonPosDeliveredPendingCandidate(order)) return "placed_pending_invoice";
+  return "placed_open";
+}
+
 export function buildDashboardSalesDateFilter(params: {
   fromDate: Date;
   toDate: Date;
   dateType: DashboardSalesDateType;
 }): Prisma.OrderWhereInput {
-  if (params.dateType === "order") {
-    return { createdAt: { gte: params.fromDate, lte: params.toDate } };
+  const createdInRange: Prisma.OrderWhereInput = {
+    createdAt: { gte: params.fromDate, lte: params.toDate },
+  };
+
+  if (params.dateType === "placed_all") {
+    return createdInRange;
   }
 
-  if (params.dateType === "delivery_completed") {
+  if (params.dateType === "placed_invoice_completed") {
+    return {
+      ...createdInRange,
+      invoiceCompleteAt: { not: null },
+    };
+  }
+
+  if (params.dateType === "placed_pending_invoice") {
+    return {
+      ...createdInRange,
+      invoiceCompleteAt: null,
+      sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
+      OR: [
+        { deliveryCompleteAt: { not: null } },
+        { fulfillmentStage: "delivery_complete" },
+      ],
+    };
+  }
+
+  if (params.dateType === "placed_open") {
+    // Not closed, and not in the non-POS delivered-pending bucket.
+    return {
+      ...createdInRange,
+      invoiceCompleteAt: null,
+      NOT: {
+        AND: [
+          { sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] } },
+          {
+            OR: [
+              { deliveryCompleteAt: { not: null } },
+              { fulfillmentStage: "delivery_complete" },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  if (params.dateType === "delivered_all") {
     return {
       deliveryCompleteAt: {
         not: null,
         gte: params.fromDate,
         lte: params.toDate,
       },
-      // POS is a counter sale — counted on invoice date / invoice completed, not delivery.
       sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
     };
   }
 
-  // Same date axis as "Delivery Completed at", but only the invoice-complete queue:
-  // delivered, not yet invoice-complete, non-POS, not voided.
-  if (params.dateType === "pending_invoice_complete") {
+  if (params.dateType === "delivered_pending_invoice") {
     return {
       deliveryCompleteAt: {
         not: null,
@@ -97,6 +169,7 @@ export function buildDashboardSalesDateFilter(params: {
     };
   }
 
+  // closed_in_period
   return {
     invoiceCompleteAt: {
       not: null,
@@ -106,30 +179,26 @@ export function buildDashboardSalesDateFilter(params: {
   };
 }
 
-function normalizeStatus(value: unknown) {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-function isPosOrder(sourceName: string | null | undefined) {
-  return DASHBOARD_POS_SOURCE_NAMES.has(normalizeStatus(sourceName));
-}
-
 export function isDashboardSalesOrderEligible(
   order: DashboardSalesEligibilityOrder,
   dateType: DashboardSalesDateType,
 ) {
-  if (dateType === "order") {
-    // Includes POS counter sales (paid/pending created in range).
-    return DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES.has(
-      normalizeStatus(order.financialStatus),
-    );
+  if (
+    dateType === "placed_all" ||
+    dateType === "placed_open" ||
+    dateType === "placed_pending_invoice" ||
+    dateType === "placed_invoice_completed"
+  ) {
+    if (!isPaidOrPending(order.financialStatus)) return false;
+    if (dateType === "placed_all") return true;
+    return getPlacedDashboardSalesBucket(order) === dateType;
   }
 
-  if (dateType === "delivery_completed") {
+  if (dateType === "delivered_all") {
     return !isPosOrder(order.sourceName) && order.deliveryCompleteAt != null;
   }
 
-  if (dateType === "pending_invoice_complete") {
+  if (dateType === "delivered_pending_invoice") {
     return (
       !isPosOrder(order.sourceName) &&
       normalizeStatus(order.financialStatus) !== "voided" &&
@@ -139,14 +208,9 @@ export function isDashboardSalesOrderEligible(
     );
   }
 
-  // "completed" = Invoice completed at. Date filter already requires invoiceCompleteAt.
-  // Include non-voided POS counter sales and non-POS fulfilled closes.
-  if (normalizeStatus(order.financialStatus) === "voided") {
-    return false;
-  }
-  if (isPosOrder(order.sourceName)) {
-    return true;
-  }
+  // closed_in_period — date filter already requires invoiceCompleteAt.
+  if (normalizeStatus(order.financialStatus) === "voided") return false;
+  if (isPosOrder(order.sourceName)) return true;
   return normalizeStatus(order.fulfillmentStatus) === "fulfilled";
 }
 
@@ -167,9 +231,7 @@ export async function fetchDashboardSalesByLocationMerchant(
     return { locations: [], invalidRange: true };
   }
 
-  // "order" = invoice date (Order.createdAt).
-  // "completed" = invoiceCompleteAt; "delivery_completed" = deliveryCompleteAt;
-  // "pending_invoice_complete" = deliveryCompleteAt + still awaiting invoice complete.
+  // placed_* = createdAt buckets that tally; closed/delivered_* = other clocks.
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
     toDate,
@@ -213,6 +275,7 @@ export async function fetchDashboardSalesByLocationMerchant(
         fulfillmentStage: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
         discountCodes: true,
         rawPayload: true,
         assignedMerchant: {
@@ -405,6 +468,7 @@ export async function fetchDashboardSalesByLocationGateway(
         fulfillmentStage: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
         rawPayload: true,
         paymentGatewayPrimary: true,
       },
