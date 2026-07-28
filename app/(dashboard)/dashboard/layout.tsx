@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { DashboardParallelShell } from "./dashboard-parallel-shell";
+import { getDefaultDashboardDateType } from "@/lib/dashboard-date-type-permissions";
 import { getDefaultDashboardOverviewInitialState } from "@/lib/page-data/dashboard-overview";
 import { createPerfLogger } from "@/lib/perf";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -27,11 +28,23 @@ export default async function DashboardSegmentLayout({
     (context?.user as { companyId?: string | null } | null)?.companyId ?? null;
   const isOverviewRoute = filters !== null || main !== null;
   const canViewDashboard = hasPermission(context, "dashboard.view");
+  const permissionKeys = (context?.permissionKeys ?? []) as string[];
+  const roleNames = (context?.roleNames ?? []) as string[];
+  const effectivePermissionKeys =
+    roleNames.includes("super_admin") || roleNames.includes("admin")
+      ? Array.from(new Set([
+          ...permissionKeys,
+          "dashboard.date_type.placed_all",
+          "dashboard.date_type.placed_breakdown",
+          "dashboard.date_type.other_clocks",
+        ]))
+      : permissionKeys;
+  const defaultDateType = getDefaultDashboardDateType(effectivePermissionKeys);
 
   let initialOverviewState = null;
-  if (companyId && isOverviewRoute && canViewDashboard) {
+  if (companyId && isOverviewRoute && canViewDashboard && defaultDateType) {
     try {
-      initialOverviewState = await getDefaultDashboardOverviewInitialState(companyId);
+      initialOverviewState = await getDefaultDashboardOverviewInitialState(companyId, defaultDateType);
       perf.mark("preload-overview");
     } catch (error) {
       console.error("Failed to preload dashboard overview:", error);

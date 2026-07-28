@@ -4,21 +4,23 @@ import {
 import {
   getDefaultDashboardOverviewRange,
   type DashboardOverviewInitialState,
+  type DashboardSalesDateType,
 } from "@/lib/page-data/dashboard-overview-shared";
 
 export async function getDefaultDashboardOverviewInitialState(
   companyId: string,
+  dateType: DashboardSalesDateType = "placed_all",
 ): Promise<DashboardOverviewInitialState> {
   const range = getDefaultDashboardOverviewRange();
   const result = await fetchDashboardSalesByLocationMerchant(companyId, {
     fromYmd: range.fromDate,
     toYmd: range.toDate,
-    dateType: "placed_all",
+    dateType,
   });
 
   return {
     ...range,
-    dateType: "placed_all",
+    dateType,
     analysisType: "merchant",
     lastUpdatedAt: Date.now(),
     salesLocations: result.locations,
