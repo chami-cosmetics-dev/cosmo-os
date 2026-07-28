@@ -7,5 +7,5 @@ export default async function DashboardFiltersParallelPage() {
     return null;
   }
 
-  return <DashboardFiltersSlot />;
+  return <DashboardFiltersSlot permissionKeys={(auth.context.permissionKeys ?? []) as string[]} />;
 }

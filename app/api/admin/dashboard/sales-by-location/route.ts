@@ -4,8 +4,9 @@ import {
   fetchDashboardSalesByLocationGateway,
   fetchDashboardSalesByLocationMerchant,
 } from "@/lib/page-data/dashboard-sales";
+import { getDashboardDateTypePermission } from "@/lib/dashboard-date-type-permissions";
 import { createPerfLogger } from "@/lib/perf";
-import { requirePermission } from "@/lib/rbac";
+import { hasPermission, requirePermission } from "@/lib/rbac";
 import { dashboardSalesQuerySchema } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
@@ -65,6 +66,19 @@ export async function GET(request: NextRequest) {
   }
 
   const { from, to, date_type: dateType, analysis_type: analysisType } = parsed.data;
+  const dateTypePermission = getDashboardDateTypePermission(dateType);
+  if (!hasPermission(auth.context, dateTypePermission)) {
+    perf.end({ status: 403, ok: false, dateType });
+    return NextResponse.json(
+      { error: "Permission denied for this dashboard date type" },
+      {
+        status: 403,
+        headers: {
+          "Server-Timing": perf.toServerTimingHeader(),
+        },
+      },
+    );
+  }
 
   if (analysisType === "gateway") {
     const result = await fetchDashboardSalesByLocationGateway(companyId, {

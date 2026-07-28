@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { fetchDashboardBrandSales } from "@/lib/page-data/dashboard-brand-sales";
+import { getDashboardDateTypePermission } from "@/lib/dashboard-date-type-permissions";
 import { createPerfLogger } from "@/lib/perf";
-import { requirePermission } from "@/lib/rbac";
+import { hasPermission, requirePermission } from "@/lib/rbac";
 import { dashboardBrandSalesQuerySchema } from "@/lib/validation";
 
 export async function GET(request: NextRequest) {
@@ -36,6 +37,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid query", details: parsed.error.flatten() },
       { status: 400 },
+    );
+  }
+
+  const dateTypePermission = getDashboardDateTypePermission(parsed.data.date_type);
+  if (!hasPermission(auth.context, dateTypePermission)) {
+    perf.end({ status: 403, ok: false, dateType: parsed.data.date_type });
+    return NextResponse.json(
+      { error: "Permission denied for this dashboard date type" },
+      { status: 403 },
     );
   }
 
