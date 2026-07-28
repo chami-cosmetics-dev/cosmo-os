@@ -83,7 +83,7 @@ export function DashboardLocationMerchantCharts({
       case "closed_in_period":
         return "Invoice closed in the selected range (finance clock — does not add to Placed).";
       case "delivered_all":
-        return "Delivered in the selected range (non-POS — does not add to Placed).";
+        return "Delivered in the selected range and still at delivery complete (non-POS — same idea as delivery-complete report).";
       case "delivered_pending_invoice":
         return "Delivered in range, invoice still open (non-POS — does not add to Placed).";
     }

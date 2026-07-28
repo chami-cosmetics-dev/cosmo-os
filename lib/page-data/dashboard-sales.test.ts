@@ -168,7 +168,33 @@ describe("isDashboardSalesOrderEligible", () => {
           sourceName: "erpnext-pos",
           financialStatus: "paid",
           fulfillmentStatus: "fulfilled",
+          fulfillmentStage: "delivery_complete",
           deliveryCompleteAt: deliveredAt,
+        },
+        "delivered_all",
+      ),
+    ).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "pending",
+          fulfillmentStatus: null,
+          fulfillmentStage: "delivery_complete",
+          deliveryCompleteAt: deliveredAt,
+        },
+        "delivered_all",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          fulfillmentStage: "invoice_complete",
+          deliveryCompleteAt: deliveredAt,
+          invoiceCompleteAt: closedAt,
         },
         "delivered_all",
       ),
@@ -287,6 +313,8 @@ describe("buildDashboardSalesDateFilter", () => {
         gte: fromDate,
         lte: toDate,
       },
+      fulfillmentStage: "delivery_complete",
+      financialStatus: { not: "voided" },
       sourceName: { notIn: ["pos", "erpnext-pos"] },
     });
   });

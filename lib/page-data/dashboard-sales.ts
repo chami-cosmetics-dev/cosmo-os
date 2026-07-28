@@ -145,12 +145,15 @@ export function buildDashboardSalesDateFilter(params: {
   }
 
   if (params.dateType === "delivered_all") {
+    // Match delivery-complete report rows: delivered in range and still at that stage.
     return {
       deliveryCompleteAt: {
         not: null,
         gte: params.fromDate,
         lte: params.toDate,
       },
+      fulfillmentStage: "delivery_complete",
+      financialStatus: { not: "voided" },
       sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
     };
   }
@@ -195,7 +198,12 @@ export function isDashboardSalesOrderEligible(
   }
 
   if (dateType === "delivered_all") {
-    return !isPosOrder(order.sourceName) && order.deliveryCompleteAt != null;
+    return (
+      !isPosOrder(order.sourceName) &&
+      normalizeStatus(order.financialStatus) !== "voided" &&
+      normalizeStatus(order.fulfillmentStage) === "delivery_complete" &&
+      order.deliveryCompleteAt != null
+    );
   }
 
   if (dateType === "delivered_pending_invoice") {
