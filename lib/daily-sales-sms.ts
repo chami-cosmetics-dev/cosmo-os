@@ -186,7 +186,7 @@ async function aggregateRange(
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
     toDate,
-    dateType: "order",
+    dateType: "placed_all",
   });
 
   const orders = await prisma.order.findMany({
@@ -202,6 +202,7 @@ async function aggregateRange(
       fulfillmentStage: true,
       deliveryOutcome: true,
       deliveryCompleteAt: true,
+      invoiceCompleteAt: true,
       rawPayload: true,
       companyLocationId: true,
     },
@@ -212,7 +213,7 @@ async function aggregateRange(
   const byLocation = new Map<string, number>();
 
   for (const order of orders) {
-    if (!isDashboardSalesOrderEligible(order, "order")) continue;
+    if (!isDashboardSalesOrderEligible(order, "placed_all")) continue;
     const amount = salesAmountExcludingShipping({
       totalPrice: order.totalPrice,
       totalShipping: order.totalShipping,
