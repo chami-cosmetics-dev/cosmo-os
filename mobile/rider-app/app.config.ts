@@ -34,7 +34,6 @@ function resolveAndroidPackage(appEnv: AppEnvironment) {
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = resolveAppEnvironment();
-  const isReleaseApk = appEnv === "production" || appEnv === "staging";
   const projectId = appJson.expo.extra?.eas?.projectId;
 
   const plugins: ExpoConfig["plugins"] = ["expo-router", "expo-font"];
@@ -51,19 +50,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       resizeMode: "contain",
       backgroundColor: "#0D9488",
     },
-    ...(isReleaseApk
-      ? {
-          updates: {
-            enabled: false,
-          },
-        }
-      : {
-          runtimeVersion: { policy: "appVersion" },
-          updates: {
-            fallbackToCacheTimeout: 0,
-            ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
-          },
-        }),
+    // OTA via EAS Update (JS/asset changes). Native changes still need a new APK.
+    runtimeVersion: { policy: "appVersion" },
+    updates: {
+      enabled: true,
+      fallbackToCacheTimeout: 0,
+      checkAutomatically: "ON_LOAD",
+      ...(projectId ? { url: `https://u.expo.dev/${projectId}` } : {}),
+    },
     android: {
       ...appJson.expo.android,
       package: resolveAndroidPackage(appEnv),

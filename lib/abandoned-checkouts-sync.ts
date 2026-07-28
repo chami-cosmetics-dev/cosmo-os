@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 
+import { formatAbandonedCheckoutAddress } from "@/lib/abandoned-checkout-address";
 import { prisma as prismaClient } from "@/lib/prisma";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { LIMITS } from "@/lib/validation";
@@ -22,6 +23,15 @@ type ShopifyMailingAddress = {
   name: string | null;
   firstName: string | null;
   lastName: string | null;
+  company: string | null;
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  province: string | null;
+  provinceCode: string | null;
+  zip: string | null;
+  country: string | null;
+  countryCodeV2: string | null;
   phone: string | null;
 };
 
@@ -127,12 +137,30 @@ async function fetchAbandonedCheckoutsPage({
             name
             firstName
             lastName
+            company
+            address1
+            address2
+            city
+            province
+            provinceCode
+            zip
+            country
+            countryCodeV2
             phone
           }
           shippingAddress {
             name
             firstName
             lastName
+            company
+            address1
+            address2
+            city
+            province
+            provinceCode
+            zip
+            country
+            countryCodeV2
             phone
           }
           totalPriceSet {
@@ -345,6 +373,44 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               : Prisma.JsonNull;
 
             const customerPhone = node.billingAddress?.phone ?? node.shippingAddress?.phone ?? null;
+            const billingAddressText = formatAbandonedCheckoutAddress(
+              node.billingAddress
+                ? {
+                    name: node.billingAddress.name,
+                    firstName: node.billingAddress.firstName,
+                    lastName: node.billingAddress.lastName,
+                    company: node.billingAddress.company,
+                    address1: node.billingAddress.address1,
+                    address2: node.billingAddress.address2,
+                    city: node.billingAddress.city,
+                    province: node.billingAddress.province,
+                    provinceCode: node.billingAddress.provinceCode,
+                    zip: node.billingAddress.zip,
+                    country: node.billingAddress.country,
+                    countryCode: node.billingAddress.countryCodeV2,
+                    phone: node.billingAddress.phone,
+                  }
+                : null
+            );
+            const shippingAddressText = formatAbandonedCheckoutAddress(
+              node.shippingAddress
+                ? {
+                    name: node.shippingAddress.name,
+                    firstName: node.shippingAddress.firstName,
+                    lastName: node.shippingAddress.lastName,
+                    company: node.shippingAddress.company,
+                    address1: node.shippingAddress.address1,
+                    address2: node.shippingAddress.address2,
+                    city: node.shippingAddress.city,
+                    province: node.shippingAddress.province,
+                    provinceCode: node.shippingAddress.provinceCode,
+                    zip: node.shippingAddress.zip,
+                    country: node.shippingAddress.country,
+                    countryCode: node.shippingAddress.countryCodeV2,
+                    phone: node.shippingAddress.phone,
+                  }
+                : null
+            );
 
             const commonFields = {
               companyId,
@@ -356,6 +422,8 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               customerName: resolveCustomerName(node),
               customerEmail: node.customer?.email ?? null,
               customerPhone,
+              billingAddressText,
+              shippingAddressText,
 
               lineItemsSummary: lineItemsSummary || "",
               lineItemsJson,

@@ -367,6 +367,8 @@ model ShopifyAbandonedCheckout {
   customerName             String?
   customerEmail            String?
   customerPhone            String?
+  billingAddressText       String?
+  shippingAddressText      String?
   lineItemsSummary        String
   lineItemsJson           Json?
   totalPrice              Decimal

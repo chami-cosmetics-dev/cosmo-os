@@ -21,12 +21,16 @@ const missing = [];
 
 if (!extra.cosmeticsApiUrl) missing.push("extra.cosmeticsApiUrl");
 
-if (config.runtimeVersion) {
-  missing.push("runtimeVersion should be omitted for release APK");
+if (!config.runtimeVersion) {
+  missing.push("runtimeVersion (required for EAS Update)");
 }
 
-if (config.updates && config.updates.enabled !== false && config.updates.url) {
-  missing.push("expo-updates should be disabled for internal APK");
+if (!config.updates?.enabled) {
+  missing.push("updates.enabled must be true for OTA");
+}
+
+if (!config.updates?.url) {
+  missing.push("updates.url (EAS project update URL)");
 }
 
 if (missing.length > 0) {
@@ -38,3 +42,5 @@ console.log("[verify:release] OK");
 console.log("  cosmetics:", extra.cosmeticsApiUrl);
 console.log("  vault:", extra.vaultApiUrl ?? "(disabled)");
 console.log("  appEnv:", extra.appEnv ?? config.name);
+console.log("  updates:", config.updates.url);
+console.log("  runtimeVersion:", JSON.stringify(config.runtimeVersion));

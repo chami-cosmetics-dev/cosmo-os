@@ -12,6 +12,8 @@ type CheckoutRow = {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  billingAddressText: string | null;
+  shippingAddressText: string | null;
   lineItemsSummary: string;
   totalPrice: { toString(): string };
   currency: string;
@@ -45,6 +47,8 @@ function toListItem(row: CheckoutRow): AbandonedOrdersListItem {
     customerName: row.customerName,
     customerPhone: row.customerPhone,
     customerEmail: row.customerEmail,
+    billingAddressText: row.billingAddressText,
+    shippingAddressText: row.shippingAddressText,
     lineItemsSummary: row.lineItemsSummary,
     totalPrice: row.totalPrice.toString(),
     currency: row.currency,
@@ -88,6 +92,8 @@ export async function updateAbandonedCheckoutFollowUp(input: {
       customerName: true,
       customerPhone: true,
       customerEmail: true,
+      billingAddressText: true,
+      shippingAddressText: true,
       lineItemsSummary: true,
       totalPrice: true,
       currency: true,
