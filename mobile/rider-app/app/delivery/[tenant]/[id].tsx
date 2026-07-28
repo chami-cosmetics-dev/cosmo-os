@@ -25,6 +25,8 @@ export default function DeliveryDetailScreen() {
     loading,
     paymentLines,
     setPaymentLines,
+    customerGaveAmount,
+    setCustomerGaveAmount,
     paymentNote,
     setPaymentNote,
     failureReason,
@@ -55,6 +57,10 @@ export default function DeliveryDetailScreen() {
     if (line.paymentMethod === "already_paid" && amount <= 0) return sum + expectedAmount;
     return sum + amount;
   }, 0);
+  const cashDue = paymentLines
+    .filter((line) => line.paymentMethod === "cod")
+    .reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const gave = Number(customerGaveAmount || 0);
   const needsCollectionRemark =
     delivery.requiresOldItemCollection &&
     oldItemCollectionStatus === "not_collected" &&
@@ -67,7 +73,8 @@ export default function DeliveryDetailScreen() {
     !amountsMatch(delivery.amount, linesTotal) ||
     (delivery.requiresOldItemCollection && oldItemCollectionStatus === "pending") ||
     needsCollectionRemark ||
-    missingReference;
+    missingReference ||
+    (cashDue > 0.009 && gave + 0.001 < cashDue);
 
   return (
     <SafeAreaView style={styles.page}>
@@ -161,12 +168,15 @@ export default function DeliveryDetailScreen() {
 
         <PaymentForm
           expectedAmount={expectedAmount}
+          currency={delivery.currency}
           lines={paymentLines}
+          customerGaveAmount={customerGaveAmount}
           paymentNote={paymentNote}
           submitting={submitting}
           disabled={isCompleteDisabled}
           requiresReference={requiresReference}
           onLinesChange={setPaymentLines}
+          onCustomerGaveAmountChange={setCustomerGaveAmount}
           onPaymentNoteChange={setPaymentNote}
           onSubmit={() =>
             void markDelivered({
@@ -174,6 +184,7 @@ export default function DeliveryDetailScreen() {
               deliveryId: id,
               delivery,
               paymentLines,
+              customerGaveAmount,
               paymentNote,
               oldItemCollectionStatus,
               oldItemCollectionRemark,

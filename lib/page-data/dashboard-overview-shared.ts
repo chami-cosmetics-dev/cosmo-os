@@ -1,9 +1,14 @@
-export type DashboardSalesDateType = "order" | "completed" | "delivery_completed";
+export type DashboardSalesDateType =
+  | "order"
+  | "completed"
+  | "delivery_completed"
+  | "pending_invoice_complete";
 
 export function getDashboardSalesDateTypeLabel(dateType: DashboardSalesDateType) {
   if (dateType === "order") return "Invoice date";
   if (dateType === "completed") return "Invoice completed at";
-  return "Delivery Completed at";
+  if (dateType === "delivery_completed") return "Delivery Completed at";
+  return "Pending invoice complete";
 }
 
 export type DashboardOverviewInitialState = {

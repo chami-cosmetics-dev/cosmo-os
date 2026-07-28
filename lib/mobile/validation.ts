@@ -48,10 +48,33 @@ export const riderPaymentSchema = z
     cardReference: z.string().max(120).optional(),
     /** Split payment: cash + card (etc). Sum of amounts must equal order total. */
     lines: z.array(riderPaymentLineSchema).min(1).max(5).optional(),
+    /** Cash tendered by customer (for COD / cash portion). */
+    customerGaveAmount: z.number().min(0).max(100000000).optional(),
+    changeAmount: z.number().min(0).max(100000000).optional(),
     idempotencyKey: z.string().max(120).optional(),
   })
   .superRefine((value, ctx) => {
     const hasLines = Boolean(value.lines && value.lines.length > 0);
+    const cashDue = hasLines
+      ? value.lines!.filter((line) => line.paymentMethod === "cod").reduce((sum, line) => sum + line.amount, 0)
+      : value.paymentMethod === "cod"
+        ? (value.collectedAmount ?? 0)
+        : 0;
+    if (cashDue > 0.001) {
+      if (value.customerGaveAmount == null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Customer gave amount is required for cash collection",
+          path: ["customerGaveAmount"],
+        });
+      } else if (value.customerGaveAmount + 0.001 < cashDue) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Customer gave amount must cover the cash due",
+          path: ["customerGaveAmount"],
+        });
+      }
+    }
     if (!hasLines) {
       if (!value.paymentMethod) {
         ctx.addIssue({

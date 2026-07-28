@@ -1,23 +1,106 @@
 import { describe, expect, it } from "vitest";
 
-import { isDashboardSalesOrderEligible } from "@/lib/page-data/dashboard-sales";
+import {
+  buildDashboardSalesDateFilter,
+  isDashboardSalesOrderEligible,
+} from "@/lib/page-data/dashboard-sales";
 
 describe("isDashboardSalesOrderEligible", () => {
   it("counts paid and pending for order-date sales", () => {
     expect(
-      isDashboardSalesOrderEligible({ financialStatus: "paid" }, "order"),
+      isDashboardSalesOrderEligible(
+        { sourceName: "web", financialStatus: "paid", fulfillmentStatus: null },
+        "order",
+      ),
     ).toBe(true);
     expect(
-      isDashboardSalesOrderEligible({ financialStatus: "pending" }, "order"),
+      isDashboardSalesOrderEligible(
+        { sourceName: "web", financialStatus: "pending", fulfillmentStatus: null },
+        "order",
+      ),
     ).toBe(true);
   });
 
   it("excludes voided orders from order-date sales (rejected finance orders)", () => {
     expect(
-      isDashboardSalesOrderEligible({ financialStatus: "voided" }, "order"),
+      isDashboardSalesOrderEligible(
+        { sourceName: "web", financialStatus: "voided", fulfillmentStatus: null },
+        "order",
+      ),
     ).toBe(false);
     expect(
-      isDashboardSalesOrderEligible({ financialStatus: "VOIDED" }, "order"),
+      isDashboardSalesOrderEligible(
+        { sourceName: "web", financialStatus: "VOIDED", fulfillmentStatus: null },
+        "order",
+      ),
     ).toBe(false);
+  });
+
+  it("counts pending invoice complete only for delivered non-POS queue orders", () => {
+    const deliveredAt = new Date("2026-07-01T10:00:00.000Z");
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "pending",
+          fulfillmentStatus: "partial",
+          fulfillmentStage: "delivery_complete",
+          deliveryCompleteAt: deliveredAt,
+          invoiceCompleteAt: null,
+        },
+        "pending_invoice_complete",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "pending",
+          fulfillmentStatus: "partial",
+          fulfillmentStage: "delivery_complete",
+          deliveryCompleteAt: deliveredAt,
+          invoiceCompleteAt: new Date("2026-07-02T10:00:00.000Z"),
+        },
+        "pending_invoice_complete",
+      ),
+    ).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "pos",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          fulfillmentStage: "delivery_complete",
+          deliveryCompleteAt: deliveredAt,
+          invoiceCompleteAt: null,
+        },
+        "pending_invoice_complete",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("buildDashboardSalesDateFilter", () => {
+  const fromDate = new Date("2026-07-01T00:00:00.000+05:30");
+  const toDate = new Date("2026-07-28T23:59:59.999+05:30");
+
+  it("filters pending invoice complete by delivery date and open invoice", () => {
+    expect(
+      buildDashboardSalesDateFilter({
+        fromDate,
+        toDate,
+        dateType: "pending_invoice_complete",
+      }),
+    ).toEqual({
+      deliveryCompleteAt: {
+        not: null,
+        gte: fromDate,
+        lte: toDate,
+      },
+      invoiceCompleteAt: null,
+      fulfillmentStage: "delivery_complete",
+      financialStatus: { not: "voided" },
+      sourceName: { notIn: ["pos", "erpnext-pos"] },
+    });
   });
 });

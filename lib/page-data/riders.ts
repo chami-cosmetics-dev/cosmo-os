@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 
 type RiderRosterItem = {
   id: string;
@@ -211,7 +212,7 @@ export async function fetchRiderOrdersData(
     return {
       taskId: task.id,
       orderId: task.order.id,
-      orderLabel: task.order.name ?? task.order.orderNumber ?? task.order.shopifyOrderId,
+      orderLabel: formatBusinessOrderNumber(task.order),
       orderNumber: task.order.orderNumber,
       shopifyOrderId: task.order.shopifyOrderId,
       status: task.status,

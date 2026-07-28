@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RiderOperationsPanel } from "@/components/organisms/rider-operations-panel";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
+import { Button } from "@/components/ui/button";
 import { fetchStaffPageData } from "@/lib/page-data/staff";
 import { fetchRiderOrdersData, fetchRiderRoster } from "@/lib/page-data/riders";
 import { hasPermission, requirePermission } from "@/lib/rbac";
@@ -68,6 +70,11 @@ export default async function RidersPage() {
         <p className="text-muted-foreground mt-2 max-w-3xl text-sm sm:text-base">
           See who can use the rider mobile app, verify rider-ready staff records, and keep dispatch teams current.
         </p>
+        <div className="mt-4">
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/dashboard/riders/performance">View rider performance</Link>
+          </Button>
+        </div>
       </section>
       <RiderOperationsPanel
         canManageStaff={canManageStaff}

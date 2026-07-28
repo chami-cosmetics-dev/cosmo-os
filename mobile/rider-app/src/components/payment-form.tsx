@@ -15,11 +15,13 @@ type PaymentFormProps = {
   expectedAmount: number;
   currency?: string | null;
   lines: PaymentLineDraft[];
+  customerGaveAmount: string;
   paymentNote: string;
   submitting: boolean;
   disabled: boolean;
   requiresReference: (method: PaymentMethod) => boolean;
   onLinesChange: (lines: PaymentLineDraft[]) => void;
+  onCustomerGaveAmountChange: (value: string) => void;
   onPaymentNoteChange: (value: string) => void;
   onSubmit: () => void;
 };
@@ -37,19 +39,31 @@ function nextLineId() {
 
 export function PaymentForm({
   expectedAmount,
+  currency,
   lines,
+  customerGaveAmount,
   paymentNote,
   submitting,
   disabled,
   requiresReference,
   onLinesChange,
+  onCustomerGaveAmountChange,
   onPaymentNoteChange,
   onSubmit,
 }: PaymentFormProps) {
   const { colors, radii, shadows } = useTheme();
   const styles = useMemo(() => createStyles(colors, radii, shadows), [colors, radii, shadows]);
 
+  const currencyLabel = currency?.trim() || "LKR";
   const linesTotal = lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const cashDue = lines
+    .filter((line) => line.paymentMethod === "cod")
+    .reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const gaveRaw = customerGaveAmount.trim();
+  const gave = Number(gaveRaw || 0);
+  const gaveValid = gaveRaw.length > 0 && Number.isFinite(gave);
+  const change = cashDue > 0 && gaveValid ? Math.max(0, gave - cashDue) : null;
+  const tenderShort = cashDue > 0.009 && (!gaveValid || gave + 0.001 < cashDue);
   const remaining = Math.max(0, expectedAmount - linesTotal);
   const usedMethods = new Set(lines.map((line) => line.paymentMethod));
   const canAddLine =
@@ -89,6 +103,13 @@ export function PaymentForm({
       <Text style={styles.helperText}>
         Collect the full order amount. Use Add method for split payments (e.g. cash + card).
       </Text>
+
+      <View style={styles.dueCard}>
+        <Text style={styles.dueLabel}>Order total</Text>
+        <Text style={styles.dueValue}>
+          {expectedAmount.toFixed(2)} {currencyLabel}
+        </Text>
+      </View>
 
       {lines.map((line, index) => (
         <View key={line.id} style={styles.lineCard}>
@@ -168,6 +189,33 @@ export function PaymentForm({
         {remaining > 0.009 ? ` · remaining ${remaining.toFixed(2)}` : ""}
       </Text>
 
+      {cashDue > 0.009 ? (
+        <View style={styles.tenderCard}>
+          <Text style={styles.lineTitle}>Cash change</Text>
+          <Text style={styles.cashDueHint}>
+            Cash due: {cashDue.toFixed(2)} {currencyLabel}
+          </Text>
+          <Text style={styles.tenderLabel}>Customer gave</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            value={customerGaveAmount}
+            onChangeText={onCustomerGaveAmountChange}
+            placeholder={`e.g. ${(cashDue * 2).toFixed(0)}`}
+            placeholderTextColor={colors.textSoft}
+          />
+          <View style={styles.changeRow}>
+            <Text style={styles.changeLabel}>Change to give back</Text>
+            <Text style={[styles.changeValue, tenderShort ? styles.changeValueWarn : null]}>
+              {change == null ? "—" : `${change.toFixed(2)} ${currencyLabel}`}
+            </Text>
+          </View>
+          {tenderShort ? (
+            <Text style={styles.tenderWarn}>Enter cash that covers the cash due before completing.</Text>
+          ) : null}
+        </View>
+      ) : null}
+
       <TextInput
         style={styles.input}
         value={paymentNote}
@@ -222,6 +270,36 @@ function createStyles(
     },
     lineHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     lineTitle: { fontWeight: "700", color: colors.text },
+    dueCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.sm,
+      padding: 14,
+      backgroundColor: colors.brandSoft,
+      gap: 4,
+    },
+    dueLabel: { color: colors.textMuted, fontWeight: "700", fontSize: 12, textTransform: "uppercase" },
+    dueValue: { color: colors.text, fontWeight: "800", fontSize: 22 },
+    tenderCard: {
+      borderWidth: 1,
+      borderColor: colors.brand,
+      borderRadius: radii.sm,
+      padding: 14,
+      gap: 8,
+      backgroundColor: colors.surfaceMuted,
+    },
+    cashDueHint: { color: colors.textMuted, fontWeight: "600" },
+    tenderLabel: { color: colors.text, fontWeight: "700" },
+    changeRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingTop: 4,
+    },
+    changeLabel: { color: colors.textMuted, fontWeight: "700" },
+    changeValue: { color: colors.brand, fontWeight: "800", fontSize: 20 },
+    changeValueWarn: { color: colors.danger },
+    tenderWarn: { color: colors.danger, fontWeight: "600", fontSize: 13 },
     removeText: { color: colors.danger, fontWeight: "700" },
     optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
     optionChip: {

@@ -130,17 +130,24 @@ const ymdQuerySchema = z
   .max(10)
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
 
+export const dashboardSalesDateTypeSchema = z.enum([
+  "order",
+  "completed",
+  "delivery_completed",
+  "pending_invoice_complete",
+]);
+
 export const dashboardSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: z.enum(["order", "completed", "delivery_completed"]).optional().default("order"),
+  date_type: dashboardSalesDateTypeSchema.optional().default("order"),
   analysis_type: z.enum(["merchant", "gateway"]).optional().default("merchant"),
 });
 
 export const dashboardBrandSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: z.enum(["order", "completed", "delivery_completed"]).optional().default("order"),
+  date_type: dashboardSalesDateTypeSchema.optional().default("order"),
   location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
 });
 
