@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -7,7 +8,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import { getAllowedDashboardDateTypes } from "@/lib/dashboard-date-type-permissions";
 import { formatAppIsoCalendarDate } from "@/lib/format-datetime";
+import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
 
 const DASHBOARD_LOCALE = "en-LK";
 const DASHBOARD_TIME_ZONE = "Asia/Colombo";
@@ -46,7 +49,7 @@ function PresetButton({
 }
 
 /** Parallel route `@filters` — date range and analysis controls (client). */
-export function DashboardFiltersSlot() {
+export function DashboardFiltersSlot({ permissionKeys }: { permissionKeys: string[] }) {
   const {
     fromDate,
     setFromDate,
@@ -62,6 +65,27 @@ export function DashboardFiltersSlot() {
     salesLoading,
     lastUpdatedAt,
   } = useDashboardOverview();
+
+  const allowedDateTypes = useMemo(
+    () => getAllowedDashboardDateTypes(permissionKeys),
+    [permissionKeys],
+  );
+  const allowedDateTypeSet = useMemo(
+    () => new Set<DashboardSalesDateType>(allowedDateTypes),
+    [allowedDateTypes],
+  );
+  const hasPlacedBreakdown = (
+    ["placed_open", "placed_pending_invoice", "placed_invoice_completed"] as const
+  ).some((item) => allowedDateTypeSet.has(item));
+  const hasOtherClocks = (
+    ["closed_in_period", "delivered_all", "delivered_pending_invoice"] as const
+  ).some((item) => allowedDateTypeSet.has(item));
+
+  useEffect(() => {
+    if (allowedDateTypes.length > 0 && !allowedDateTypeSet.has(dateType)) {
+      setDateType(allowedDateTypes[0]);
+    }
+  }, [allowedDateTypeSet, allowedDateTypes, dateType, setDateType]);
 
   const lastUpdatedLabel = lastUpdatedAt
     ? new Intl.DateTimeFormat(DASHBOARD_LOCALE, {
@@ -129,79 +153,99 @@ export function DashboardFiltersSlot() {
             Date Type
           </p>
           <div className="bg-muted/20 space-y-3 rounded-md border border-border px-3 py-2 text-sm">
-            <div className="space-y-2">
-              <p className="text-muted-foreground text-[11px] font-medium">
-                Orders placed (add up)
-              </p>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "placed_all"}
-                    onChange={() => setDateType("placed_all")}
-                  />
-                  <span>Placed – all</span>
-                </label>
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "placed_open"}
-                    onChange={() => setDateType("placed_open")}
-                  />
-                  <span>Placed – not delivered</span>
-                </label>
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "placed_pending_invoice"}
-                    onChange={() => setDateType("placed_pending_invoice")}
-                  />
-                  <span>Placed – invoice pending</span>
-                </label>
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "placed_invoice_completed"}
-                    onChange={() => setDateType("placed_invoice_completed")}
-                  />
-                  <span>Placed – invoice completed</span>
-                </label>
+            {(allowedDateTypeSet.has("placed_all") || hasPlacedBreakdown) && (
+              <div className="space-y-2">
+                <p className="text-muted-foreground text-[11px] font-medium">
+                  Orders placed (add up)
+                </p>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                  {allowedDateTypeSet.has("placed_all") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "placed_all"}
+                        onChange={() => setDateType("placed_all")}
+                      />
+                      <span>Placed – all</span>
+                    </label>
+                  )}
+                  {allowedDateTypeSet.has("placed_open") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "placed_open"}
+                        onChange={() => setDateType("placed_open")}
+                      />
+                      <span>Placed – not delivered</span>
+                    </label>
+                  )}
+                  {allowedDateTypeSet.has("placed_pending_invoice") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "placed_pending_invoice"}
+                        onChange={() => setDateType("placed_pending_invoice")}
+                      />
+                      <span>Placed – invoice pending</span>
+                    </label>
+                  )}
+                  {allowedDateTypeSet.has("placed_invoice_completed") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "placed_invoice_completed"}
+                        onChange={() => setDateType("placed_invoice_completed")}
+                      />
+                      <span>Placed – invoice completed</span>
+                    </label>
+                  )}
+                </div>
+                {allowedDateTypeSet.has("placed_all") && hasPlacedBreakdown && (
+                  <p className="text-muted-foreground text-[11px]">
+                    Not delivered + Invoice pending + Invoice completed ≈ Placed – all
+                  </p>
+                )}
               </div>
-              <p className="text-muted-foreground text-[11px]">
-                Not delivered + Invoice pending + Invoice completed ≈ Placed – all
-              </p>
-            </div>
-            <div className="space-y-2 border-t border-border/60 pt-2">
-              <p className="text-muted-foreground text-[11px] font-medium">
-                Other clocks (do not add to Placed)
-              </p>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "closed_in_period"}
-                    onChange={() => setDateType("closed_in_period")}
-                  />
-                  <span>Closed in period</span>
-                </label>
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "delivered_all"}
-                    onChange={() => setDateType("delivered_all")}
-                  />
-                  <span>Delivered in period – all</span>
-                </label>
-                <label className="flex items-center gap-2 whitespace-nowrap">
-                  <input
-                    type="radio"
-                    checked={dateType === "delivered_pending_invoice"}
-                    onChange={() => setDateType("delivered_pending_invoice")}
-                  />
-                  <span>Delivered in period – invoice pending</span>
-                </label>
+            )}
+            {hasOtherClocks && (
+              <div className="space-y-2 border-t border-border/60 pt-2">
+                <p className="text-muted-foreground text-[11px] font-medium">
+                  Other clocks (do not add to Placed)
+                </p>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                  {allowedDateTypeSet.has("closed_in_period") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "closed_in_period"}
+                        onChange={() => setDateType("closed_in_period")}
+                      />
+                      <span>Closed in period</span>
+                    </label>
+                  )}
+                  {allowedDateTypeSet.has("delivered_all") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "delivered_all"}
+                        onChange={() => setDateType("delivered_all")}
+                      />
+                      <span>Delivered in period – all</span>
+                    </label>
+                  )}
+                  {allowedDateTypeSet.has("delivered_pending_invoice") && (
+                    <label className="flex items-center gap-2 whitespace-nowrap">
+                      <input
+                        type="radio"
+                        checked={dateType === "delivered_pending_invoice"}
+                        onChange={() => setDateType("delivered_pending_invoice")}
+                      />
+                      <span>Delivered in period – invoice pending</span>
+                    </label>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
         <div className="space-y-2">
@@ -281,3 +325,6 @@ export function DashboardFiltersSlot() {
     </Card>
   );
 }
+
+
+

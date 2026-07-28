@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { auth0 } from "@/lib/auth0";
 import { isDatabaseUnavailableError } from "@/lib/dbObservability";
+import { DASHBOARD_DATE_TYPE_PERMISSIONS } from "@/lib/dashboard-date-type-permissions";
 import { createPerfLogger } from "@/lib/perf";
 import { prisma } from "@/lib/prisma";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
@@ -300,6 +301,18 @@ const DEFAULT_PERMISSIONS = [
     key: "dashboard.edit",
     description: "Edit dashboard brand configuration (add/remove brands, change selection)",
   },
+  {
+    key: DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
+    description: "Use dashboard Placed - all date view",
+  },
+  {
+    key: DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
+    description: "Use dashboard placed breakdown date views",
+  },
+  {
+    key: DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks,
+    description: "Use dashboard closed and delivered period date views",
+  },
   // Stickers
   {
     key: "stickers.batch.read",
@@ -511,6 +524,9 @@ const DEFAULT_ROLES = [
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
       "dashboard.edit",
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks,
       REPORT_DUMP_PERMISSIONS.contactListPart1,
       REPORT_DUMP_PERMISSIONS.contactListPart1_1,
       REPORT_DUMP_PERMISSIONS.contactListPart2,
@@ -567,6 +583,9 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.approvals.manage",
       "dashboard.view",
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks,
       "fulfillment.invoice_complete.read",
       "fulfillment.delivery_invoice.mark_complete",
       "orders.read",
@@ -581,6 +600,9 @@ const DEFAULT_ROLES = [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks,
       "orders.read",
     ],
   },
@@ -599,6 +621,9 @@ const DEFAULT_ROLES = [
       "academy.learn",
       "products.storage.read",
       "dashboard.view",
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
+      DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks,
       "orders.read",
       "returns.read",
       "exchanges.read",
