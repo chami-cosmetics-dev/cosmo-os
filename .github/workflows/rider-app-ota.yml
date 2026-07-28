@@ -1,0 +1,67 @@
+# Publish JS/asset OTA updates to installed Cosmo Rider APKs (EAS Update).
+# Native changes still require a new EAS build + reinstall.
+name: Rider app OTA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/rider-app/**"
+      - ".github/workflows/rider-app-ota.yml"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "EAS Update channel"
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+        default: production
+
+concurrency:
+  group: rider-app-ota-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eas-update:
+    name: EAS Update
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/rider-app
+    steps:
+      - name: Check for EXPO_TOKEN
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "Add repository secret EXPO_TOKEN from https://expo.dev/settings/access-tokens"
+            exit 1
+          fi
+        working-directory: .
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/rider-app/package-lock.json
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish update
+        env:
+          EXPO_PUBLIC_APP_ENV: ${{ (github.event_name == 'workflow_dispatch' && inputs.channel == 'staging') && 'staging' || 'production' }}
+          EXPO_PUBLIC_COSMETICS_API_URL: https://os.cosmetics.lk
+        run: |
+          CHANNEL="${{ github.event_name == 'workflow_dispatch' && inputs.channel || 'production' }}"
+          MESSAGE="OTA ${GITHUB_SHA::7} — ${GITHUB_EVENT_NAME}"
+          eas update --channel "$CHANNEL" --message "$MESSAGE" --non-interactive
