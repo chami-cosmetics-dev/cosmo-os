@@ -48,14 +48,6 @@ function getUserDisplayName(user: {
 
 const DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES = new Set(["paid", "pending"]);
 const DASHBOARD_POS_SOURCE_NAMES = new Set(["pos", "erpnext-pos"]);
-const DASHBOARD_DELIVERED_STATUSES = new Set([
-  "delivered",
-  "delivery complete",
-  "delivery_complete",
-  "complete",
-  "completed",
-  "fulfilled",
-]);
 
 export type DashboardSalesEligibilityOrder = {
   sourceName: string | null;
@@ -84,6 +76,8 @@ export function buildDashboardSalesDateFilter(params: {
         gte: params.fromDate,
         lte: params.toDate,
       },
+      // POS is a counter sale — counted on invoice date / invoice completed, not delivery.
+      sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
     };
   }
 
@@ -120,47 +114,19 @@ function isPosOrder(sourceName: string | null | undefined) {
   return DASHBOARD_POS_SOURCE_NAMES.has(normalizeStatus(sourceName));
 }
 
-function readPayloadString(rawPayload: Prisma.JsonValue | null | undefined, key: string) {
-  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
-    return "";
-  }
-
-  const value = (rawPayload as Record<string, unknown>)[key];
-  return typeof value === "string" ? value : "";
-}
-
-function isDeliveredStatus(value: unknown) {
-  const normalized = normalizeStatus(value).replace(/\s+/g, " ");
-  if (!normalized) return false;
-  return (
-    DASHBOARD_DELIVERED_STATUSES.has(normalized) ||
-    (normalized.includes("delivered") && !normalized.includes("not delivered"))
-  );
-}
-
-function isPosDeliveryComplete(order: DashboardSalesEligibilityOrder) {
-  return (
-    isDeliveredStatus(order.deliveryOutcome) ||
-    isDeliveredStatus(readPayloadString(order.rawPayload, "delivery_status")) ||
-    isDeliveredStatus(readPayloadString(order.rawPayload, "deliveryStatus")) ||
-    isDeliveredStatus(readPayloadString(order.rawPayload, "status")) ||
-    normalizeStatus(order.fulfillmentStage) === "delivery_complete" ||
-    order.deliveryCompleteAt != null
-  );
-}
-
 export function isDashboardSalesOrderEligible(
   order: DashboardSalesEligibilityOrder,
   dateType: DashboardSalesDateType,
 ) {
   if (dateType === "order") {
+    // Includes POS counter sales (paid/pending created in range).
     return DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES.has(
       normalizeStatus(order.financialStatus),
     );
   }
 
   if (dateType === "delivery_completed") {
-    return order.deliveryCompleteAt != null;
+    return !isPosOrder(order.sourceName) && order.deliveryCompleteAt != null;
   }
 
   if (dateType === "pending_invoice_complete") {
@@ -173,10 +139,14 @@ export function isDashboardSalesOrderEligible(
     );
   }
 
-  if (isPosOrder(order.sourceName)) {
-    return isPosDeliveryComplete(order);
+  // "completed" = Invoice completed at. Date filter already requires invoiceCompleteAt.
+  // Include non-voided POS counter sales and non-POS fulfilled closes.
+  if (normalizeStatus(order.financialStatus) === "voided") {
+    return false;
   }
-
+  if (isPosOrder(order.sourceName)) {
+    return true;
+  }
   return normalizeStatus(order.fulfillmentStatus) === "fulfilled";
 }
 

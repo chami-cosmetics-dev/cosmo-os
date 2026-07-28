@@ -36,6 +36,104 @@ describe("isDashboardSalesOrderEligible", () => {
     ).toBe(false);
   });
 
+  it("includes POS on invoice date when paid or pending", () => {
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "erpnext-pos",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+        },
+        "order",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "pos",
+          financialStatus: "pending",
+          fulfillmentStatus: null,
+        },
+        "order",
+      ),
+    ).toBe(true);
+  });
+
+  it("excludes POS from delivery completed and pending invoice complete", () => {
+    const deliveredAt = new Date("2026-07-01T10:00:00.000Z");
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "erpnext-pos",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          deliveryCompleteAt: deliveredAt,
+        },
+        "delivery_completed",
+      ),
+    ).toBe(false);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "web",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          deliveryCompleteAt: deliveredAt,
+        },
+        "delivery_completed",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "pos",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          fulfillmentStage: "delivery_complete",
+          deliveryCompleteAt: deliveredAt,
+          invoiceCompleteAt: null,
+        },
+        "pending_invoice_complete",
+      ),
+    ).toBe(false);
+  });
+
+  it("includes non-voided POS in invoice-completed sales", () => {
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "erpnext-pos",
+          financialStatus: "paid",
+          fulfillmentStatus: "fulfilled",
+          invoiceCompleteAt: new Date("2026-07-01T10:00:00.000Z"),
+        },
+        "completed",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "pos",
+          financialStatus: "paid",
+          fulfillmentStatus: null,
+          invoiceCompleteAt: new Date("2026-07-01T10:00:00.000Z"),
+        },
+        "completed",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        {
+          sourceName: "erpnext-pos",
+          financialStatus: "voided",
+          fulfillmentStatus: "fulfilled",
+          invoiceCompleteAt: new Date("2026-07-01T10:00:00.000Z"),
+        },
+        "completed",
+      ),
+    ).toBe(false);
+  });
+
   it("counts pending invoice complete only for delivered non-POS queue orders", () => {
     const deliveredAt = new Date("2026-07-01T10:00:00.000Z");
     expect(
@@ -100,6 +198,23 @@ describe("buildDashboardSalesDateFilter", () => {
       invoiceCompleteAt: null,
       fulfillmentStage: "delivery_complete",
       financialStatus: { not: "voided" },
+      sourceName: { notIn: ["pos", "erpnext-pos"] },
+    });
+  });
+
+  it("excludes POS from delivery completed date filter", () => {
+    expect(
+      buildDashboardSalesDateFilter({
+        fromDate,
+        toDate,
+        dateType: "delivery_completed",
+      }),
+    ).toEqual({
+      deliveryCompleteAt: {
+        not: null,
+        gte: fromDate,
+        lte: toDate,
+      },
       sourceName: { notIn: ["pos", "erpnext-pos"] },
     });
   });
