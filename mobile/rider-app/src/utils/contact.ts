@@ -1,6 +1,10 @@
-import { Alert, Linking } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import { Alert, Linking, Platform } from "react-native";
 
 import type { AddressLike } from "@/src/types/delivery";
+import { buildMapUrlCandidates, hasUsableAddress } from "@/src/utils/map-urls";
+
+export { buildMapUrlCandidates, hasUsableAddress } from "@/src/utils/map-urls";
 
 export function getAddressText(input: {
   shippingAddress?: unknown;
@@ -26,24 +30,70 @@ export function getAddressText(input: {
   return parts.length > 0 ? parts.join(", ") : "No address";
 }
 
+async function tryOpenUrl(url: string): Promise<boolean> {
+  try {
+    // HTTPS maps links often report canOpenURL=false on Android even when a browser can open them.
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      await Linking.openURL(url);
+      return true;
+    }
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) return false;
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function copyAddressToClipboard(address: string): Promise<boolean> {
+  try {
+    await Clipboard.setStringAsync(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function showMapsFallback(address: string) {
+  Alert.alert(
+    "Could not open maps",
+    Platform.OS === "android"
+      ? "No maps app opened. You can copy the address and paste it into Maps or your browser."
+      : "Maps could not be opened. You can copy the address and paste it into Maps.",
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Copy address",
+        onPress: () => {
+          void (async () => {
+            const ok = await copyAddressToClipboard(address);
+            Alert.alert(
+              ok ? "Address copied" : "Copy failed",
+              ok
+                ? "Paste the address into any maps app."
+                : "Could not copy. Please note the address on screen."
+            );
+          })();
+        },
+      },
+    ]
+  );
+}
+
 export async function openDirections(address: string) {
-  if (!address || address === "No address") {
+  if (!hasUsableAddress(address)) {
     Alert.alert("No address", "This delivery does not have a valid address for directions.");
     return;
   }
 
-  const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
-
-  try {
-    const supported = await Linking.canOpenURL(url);
-    if (!supported) {
-      Alert.alert("Maps unavailable", "No maps app is available on this phone.");
-      return;
-    }
-    await Linking.openURL(url);
-  } catch {
-    Alert.alert("Unable to open maps", "Please try again.");
+  const candidates = buildMapUrlCandidates(address);
+  for (const url of candidates) {
+    const opened = await tryOpenUrl(url);
+    if (opened) return;
   }
+
+  showMapsFallback(address);
 }
 
 export async function openPhoneCall(phone: string | null | undefined) {

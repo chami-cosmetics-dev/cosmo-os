@@ -128,8 +128,8 @@ export function DashboardFiltersSlot() {
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
             Date Type
           </p>
-          <div className="bg-muted/20 flex h-10 items-center gap-5 rounded-md border border-border px-3 text-sm whitespace-nowrap">
-            <label className="flex items-center gap-2">
+          <div className="bg-muted/20 flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 whitespace-nowrap">
               <input
                 type="radio"
                 checked={dateType === "order"}
@@ -152,6 +152,14 @@ export function DashboardFiltersSlot() {
                 onChange={() => setDateType("delivery_completed")}
               />
               <span>Delivery Completed at</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                checked={dateType === "pending_invoice_complete"}
+                onChange={() => setDateType("pending_invoice_complete")}
+              />
+              <span>Pending invoice complete</span>
             </label>
           </div>
         </div>

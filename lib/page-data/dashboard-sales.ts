@@ -64,6 +64,7 @@ export type DashboardSalesEligibilityOrder = {
   fulfillmentStage?: string | null;
   deliveryOutcome?: string | null;
   deliveryCompleteAt?: Date | null;
+  invoiceCompleteAt?: Date | null;
   rawPayload?: Prisma.JsonValue | null;
 };
 
@@ -83,6 +84,22 @@ export function buildDashboardSalesDateFilter(params: {
         gte: params.fromDate,
         lte: params.toDate,
       },
+    };
+  }
+
+  // Same date axis as "Delivery Completed at", but only the invoice-complete queue:
+  // delivered, not yet invoice-complete, non-POS, not voided.
+  if (params.dateType === "pending_invoice_complete") {
+    return {
+      deliveryCompleteAt: {
+        not: null,
+        gte: params.fromDate,
+        lte: params.toDate,
+      },
+      invoiceCompleteAt: null,
+      fulfillmentStage: "delivery_complete",
+      financialStatus: { not: "voided" },
+      sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
     };
   }
 
@@ -146,6 +163,16 @@ export function isDashboardSalesOrderEligible(
     return order.deliveryCompleteAt != null;
   }
 
+  if (dateType === "pending_invoice_complete") {
+    return (
+      !isPosOrder(order.sourceName) &&
+      normalizeStatus(order.financialStatus) !== "voided" &&
+      normalizeStatus(order.fulfillmentStage) === "delivery_complete" &&
+      order.deliveryCompleteAt != null &&
+      order.invoiceCompleteAt == null
+    );
+  }
+
   if (isPosOrder(order.sourceName)) {
     return isPosDeliveryComplete(order);
   }
@@ -170,8 +197,9 @@ export async function fetchDashboardSalesByLocationMerchant(
     return { locations: [], invalidRange: true };
   }
 
-  // "order" = invoice date (same field used on printed invoices: Order.createdAt).
-  // "completed" = invoice completed timestamp; "delivery_completed" = delivery timestamp.
+  // "order" = invoice date (Order.createdAt).
+  // "completed" = invoiceCompleteAt; "delivery_completed" = deliveryCompleteAt;
+  // "pending_invoice_complete" = deliveryCompleteAt + still awaiting invoice complete.
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
     toDate,

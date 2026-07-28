@@ -168,6 +168,7 @@ export default function DeliveryDetailScreen() {
 
         <PaymentForm
           expectedAmount={expectedAmount}
+          currency={delivery.currency}
           lines={paymentLines}
           customerGaveAmount={customerGaveAmount}
           paymentNote={paymentNote}

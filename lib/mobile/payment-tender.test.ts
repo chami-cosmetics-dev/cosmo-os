@@ -30,6 +30,10 @@ describe("computeChangeAmount", () => {
   it("computes change for overpay", () => {
     expect(computeChangeAmount(5000, 3500).toString()).toBe("1500");
   });
+
+  it("computes change for 2500 due / 5000 gave", () => {
+    expect(computeChangeAmount(5000, 2500).toString()).toBe("2500");
+  });
 });
 
 describe("assertCustomerGaveCoversCashDue", () => {

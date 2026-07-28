@@ -74,8 +74,13 @@ export function DashboardLocationMerchantCharts({
       ? "invoice date"
       : dateType === "completed"
         ? "invoice completed at"
-        : "delivery completed at";
-  const countedByCopy = `Orders counted by ${countedByLabel} in the selected range.`;
+        : dateType === "delivery_completed"
+          ? "delivery completed at"
+          : "delivery completed at (pending invoice complete only)";
+  const countedByCopy =
+    dateType === "pending_invoice_complete"
+      ? "Delivered orders still awaiting invoice complete, counted by delivery completed at in the selected range."
+      : `Orders counted by ${countedByLabel} in the selected range.`;
   const dateHint = `${filterInfo} - ${countedByCopy}`;
 
   if (locations.length === 0) {

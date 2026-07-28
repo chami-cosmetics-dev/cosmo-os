@@ -3,7 +3,13 @@ import { useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/src/providers/theme";
-import { getAddressText, openDirections, openPhoneCall, openSmsMessage } from "@/src/utils/contact";
+import {
+  getAddressText,
+  hasUsableAddress,
+  openDirections,
+  openPhoneCall,
+  openSmsMessage,
+} from "@/src/utils/contact";
 
 type DeliveryContactSectionProps = {
   customerName: string | null;
@@ -16,14 +22,19 @@ export function DeliveryMapCard(props: DeliveryContactSectionProps) {
   const { colors, radii } = useTheme();
   const styles = useMemo(() => createMapStyles(colors, radii), [colors, radii]);
   const address = getAddressText(props);
+  const canNavigate = hasUsableAddress(address);
 
   return (
-    <Pressable style={styles.mapCard} onPress={() => void openDirections(address)}>
+    <Pressable
+      style={[styles.mapCard, !canNavigate ? styles.mapCardDisabled : null]}
+      disabled={!canNavigate}
+      onPress={() => void openDirections(address)}
+    >
       <View style={styles.glowA} />
       <View style={styles.glowB} />
       <View style={styles.destination}>
         <Feather name="navigation" size={12} color={colors.brand} />
-        <Text style={styles.destinationText}>Destination</Text>
+        <Text style={styles.destinationText}>{canNavigate ? "Destination" : "No address"}</Text>
       </View>
     </Pressable>
   );
@@ -40,13 +51,21 @@ export function DeliveryContactSection(props: DeliveryContactSectionProps) {
       <View style={styles.sectionCard}>
         <Text style={styles.addressTitle}>{address}</Text>
         <View style={styles.actionStack}>
-          <Pressable style={styles.actionCard} onPress={() => void openDirections(address)}>
+          <Pressable
+            style={[styles.actionCard, !hasUsableAddress(address) ? styles.actionCardDisabled : null]}
+            disabled={!hasUsableAddress(address)}
+            onPress={() => void openDirections(address)}
+          >
             <View style={styles.actionIcon}>
               <Feather name="map-pin" size={14} color={isDarkMode ? "#dbe6f7" : colors.slate} />
             </View>
             <View style={styles.actionBody}>
               <Text style={styles.actionTitle}>Open map</Text>
-              <Text style={styles.actionText}>Navigate to this delivery address.</Text>
+              <Text style={styles.actionText}>
+                {hasUsableAddress(address)
+                  ? "Navigate to this delivery address."
+                  : "No address available for navigation."}
+              </Text>
             </View>
           </Pressable>
         </View>
@@ -119,6 +138,7 @@ function createMapStyles(colors: ReturnType<typeof useTheme>["colors"], radii: t
       paddingVertical: 6,
     },
     destinationText: { color: colors.white, fontWeight: "700", fontSize: 11 },
+    mapCardDisabled: { opacity: 0.55 },
   });
 }
 
@@ -158,6 +178,7 @@ function createContactStyles(
     actionBody: { flex: 1, gap: 2 },
     actionTitle: { fontWeight: "800", color: colors.text },
     actionText: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+    actionCardDisabled: { opacity: 0.55 },
     sectionLabel: { fontSize: 12, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase", color: colors.textSoft },
     customerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
     customerAvatar: {

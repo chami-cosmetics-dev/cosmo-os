@@ -36,7 +36,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = resolveAppEnvironment();
   const projectId = appJson.expo.extra?.eas?.projectId;
 
-  const plugins: ExpoConfig["plugins"] = ["expo-router", "expo-font"];
+  const plugins: ExpoConfig["plugins"] = ["expo-router", "expo-font", "expo-clipboard"];
 
   return {
     ...config,
