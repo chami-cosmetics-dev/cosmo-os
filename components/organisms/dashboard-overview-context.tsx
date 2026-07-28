@@ -78,7 +78,7 @@ export function DashboardOverviewProvider({
   const [fromDate, setFromDate] = useState(initialRange.fromDate);
   const [toDate, setToDate] = useState(initialRange.toDate);
   const [dateType, setDateType] = useState<DashboardSalesDateType>(
-    initialState?.dateType ?? "order",
+    initialState?.dateType ?? "placed_all",
   );
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
     initialState?.analysisType ?? "merchant",

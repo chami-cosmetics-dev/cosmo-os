@@ -120,6 +120,7 @@ export async function fetchDashboardBrandSales(
         fulfillmentStage: true,
         deliveryOutcome: true,
         deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
         discountCodes: true,
         rawPayload: true,
         assignedMerchantId: true,

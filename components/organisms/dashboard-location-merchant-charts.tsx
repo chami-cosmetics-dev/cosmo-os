@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/chart";
 import { DashboardLocationStackedHorizontalChart } from "@/components/organisms/dashboard-location-stacked-horizontal-chart";
 import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
+import { getDashboardSalesDateTypeLabel } from "@/lib/page-data/dashboard-overview-shared";
 
 export type LocationMerchantChartRow = {
   merchantName: string;
@@ -69,19 +70,25 @@ export function DashboardLocationMerchantCharts({
   const isGateway = breakdownVariant === "gateway";
   const segmentNoun = isGateway ? "payment gateway" : "merchant";
 
-  const countedByLabel =
-    dateType === "order"
-      ? "invoice date"
-      : dateType === "completed"
-        ? "invoice completed at"
-        : dateType === "delivery_completed"
-          ? "delivery completed at"
-          : "delivery completed at (pending invoice complete only)";
-  const countedByCopy =
-    dateType === "pending_invoice_complete"
-      ? "Delivered orders still awaiting invoice complete, counted by delivery completed at in the selected range."
-      : `Orders counted by ${countedByLabel} in the selected range.`;
-  const dateHint = `${filterInfo} - ${countedByCopy}`;
+  const countedByCopy = (() => {
+    switch (dateType) {
+      case "placed_all":
+        return "Orders placed (created) in the selected range — paid and pending.";
+      case "placed_open":
+        return "Placed in range, not yet delivered (and invoice not closed).";
+      case "placed_pending_invoice":
+        return "Placed in range, delivered, still awaiting invoice complete (non-POS).";
+      case "placed_invoice_completed":
+        return "Placed in range and invoice already closed (includes POS).";
+      case "closed_in_period":
+        return "Invoice closed in the selected range (finance clock — does not add to Placed).";
+      case "delivered_all":
+        return "Delivered in the selected range (non-POS — does not add to Placed).";
+      case "delivered_pending_invoice":
+        return "Delivered in range, invoice still open (non-POS — does not add to Placed).";
+    }
+  })();
+  const dateHint = `${filterInfo} - ${getDashboardSalesDateTypeLabel(dateType)}. ${countedByCopy}`;
 
   if (locations.length === 0) {
     return (
