@@ -5,8 +5,6 @@ import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
-import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
-import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { formatPickListBarcode, resolvePickListBarcode } from "@/lib/product-item-barcode";
@@ -14,6 +12,7 @@ import { loadBarcodeLookupBySku } from "@/lib/product-item-barcode.server";
 import { resolveInvoicePrintMode } from "@/lib/invoice-print-mode";
 import { renderPrintFormatHtml } from "@/lib/print-format-renderer";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -79,34 +78,6 @@ function getCity(addr: unknown): string {
   if (!addr || typeof addr !== "object") return "";
   const a = addr as Record<string, unknown>;
   return typeof a.city === "string" ? a.city : "";
-}
-
-function formatPrice(val: string | number, currency?: string | null): string {
-  const n = typeof val === "string" ? parseFloat(val) : val;
-  if (Number.isNaN(n)) return String(val);
-  const formatted = n.toLocaleString("en-LK", { minimumFractionDigits: 2 });
-  return currency ? `${formatted} ${currency}` : formatted;
-}
-
-function getPaymentMethod(financialStatus: string | null, paymentGatewayPrimary?: string | null): string {
-  const gateway = paymentGatewayPrimary?.trim().toLowerCase() ?? "";
-  if (gateway.includes("bank")) return "Bank Transfer";
-  if (!financialStatus) return "—";
-  const s = financialStatus.toLowerCase();
-  if (s.includes("pending") || s.includes("cod")) return "Cash on Delivery (COD)";
-  if (s.includes("paid")) return "Paid";
-  if (s.includes("refund")) return "Refunded";
-  return financialStatus;
-}
-
-function getPaymentDescription(financialStatus: string | null, paymentGatewayPrimary?: string | null): string {
-  const gateway = paymentGatewayPrimary?.trim().toLowerCase() ?? "";
-  if (gateway.includes("bank")) return "BANK TRANSFER";
-  if (!financialStatus) return "—";
-  const s = financialStatus.toLowerCase();
-  if (s.includes("pending") || s.includes("cod")) return "CASH PAYMENT ON DELIVERY";
-  if (s.includes("paid")) return "PAID";
-  return financialStatus.toUpperCase();
 }
 
 function addUniquePhoneForInvoice(phones: string[], seenVariants: Set<string>, value?: string | null) {
@@ -182,6 +153,71 @@ export async function GET(
   if (!idResult.success) {
     return new NextResponse("Invalid ID", { status: 400 });
   }
+
+  const detailUrl = new URL(`/api/admin/orders/${encodeURIComponent(idResult.data)}`, request.url);
+  const detailResponse = await fetch(detailUrl, {
+    headers: request.headers,
+    cache: "no-store",
+  });
+  if (!detailResponse.ok) {
+    return new NextResponse("Failed to load order details for invoice print.", {
+      status: detailResponse.status,
+    });
+  }
+  const orderDetail = (await detailResponse.json()) as {
+    id: string;
+    shopifyOrderId: string;
+    orderNumber: string | null;
+    name: string | null;
+    sourceName: string;
+    totalPrice: string;
+    subtotalPrice: string | null;
+    subtotalOriginal?: string | null;
+    subtotalSale?: string | null;
+    discountTotal?: string | null;
+    totalDiscounts: string | null;
+    totalShipping: string | null;
+    shippingRuleLabel?: string | null;
+    currency: string | null;
+    financialStatus: string | null;
+    fulfillmentStatus: string | null;
+    paymentGatewayNames?: string[];
+    paymentGatewayPrimary?: string | null;
+    customerEmail: string | null;
+    customerPhone: string | null;
+    customerName?: string | null;
+    resolvedCustomerPhone?: string | null;
+    shippingAddress: unknown;
+    billingAddress: unknown;
+    discountCodes: unknown;
+    merchantCouponCode?: string | null;
+    discountCouponCode?: string | null;
+    erpSpecialRemarks?: string | null;
+    createdAt: string;
+    companyLocation: {
+      id: string;
+      name: string;
+      erpnextInstance?: { baseUrl: string; apiKey: string; apiSecret: string } | null;
+    };
+    assignedMerchant?: { couponCodes?: string[] | null } | null;
+    lineItems: Array<{
+      id: string;
+      productTitle: string;
+      variantTitle: string | null;
+      sku: string | null;
+      quantity: number;
+      price: string;
+      total: string;
+      originalPrice: string | null;
+      originalTotal: string | null;
+      lineDiscount: string | null;
+    }>;
+    sampleFreeIssues: Array<{
+      id: string;
+      sampleFreeIssueItem: { id: string; name: string; type: string };
+      quantity: number;
+    }>;
+  };
 
   const [gatewayColumns, order] = await Promise.all([
     getOrderPaymentGatewayColumnState(),
@@ -283,7 +319,7 @@ export async function GET(
     pickAddrName(order.billingAddress) ||
     order.customerEmail?.trim() ||
     "";
-  const customerName = stripManualInvoiceNumberAsName(order, customerNameRaw);
+  const customerName = orderDetail.customerName ?? stripManualInvoiceNumberAsName(order, customerNameRaw);
   const billingAddr = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
   const shippingCity = getCity(order.shippingAddress);
@@ -313,38 +349,9 @@ export async function GET(
     .filter((r) => r.type === "internal" && r.showOnInvoice)
     .map((r) => r.content);
 
-  const merchantCouponCode = await resolveOrderMerchantCouponForOrder({
-    sourceName: order.sourceName,
-    discountCodes: order.discountCodes,
-    rawPayload: order.rawPayload,
-    assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes,
-    erpnextInvoiceId: order.erpnextInvoiceId,
-    erpnextInstance: order.companyLocation.erpnextInstance,
-  });
-  const discountCouponCode = await resolveOrderDiscountCouponForOrder({
-    sourceName: order.sourceName,
-    discountCodes: order.discountCodes,
-    rawPayload: order.rawPayload,
-    name: order.name,
-    erpnextInvoiceId: order.erpnextInvoiceId,
-    erpnextInstance: order.companyLocation.erpnextInstance,
-  });
-  const erpSpecialRemarks = await resolveOrderErpSpecialRemarksForOrder({
-    sourceName: order.sourceName,
-    rawPayload: order.rawPayload,
-    name: order.name,
-    erpnextInvoiceId: order.erpnextInvoiceId,
-    erpnextInstance: order.companyLocation.erpnextInstance,
-  });
-
-  function escapeHtml(s: string): string {
-    return s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
+  const merchantCouponCode = orderDetail.merchantCouponCode ?? null;
+  const discountCouponCode = orderDetail.discountCouponCode ?? null;
+  const erpSpecialRemarks = orderDetail.erpSpecialRemarks ?? null;
 
   const invoiceRefs = formatInvoiceOrderReference({
     id: order.id,
@@ -370,6 +377,11 @@ export async function GET(
   const brandLogoUrl = company?.logoUrl ?? null;
   const locationLogoUrl = loc.logoUrl ?? null;
   const locationDisplayName = loc.invoiceHeader ?? loc.name ?? "";
+  const paymentInfo = getPaymentMethodInfo({
+    paymentGatewayPrimary,
+    paymentGatewayNames,
+    financialStatus: order.financialStatus,
+  });
 
   function formatInvoiceMoney(val: string | number): string {
     const n = typeof val === "string" ? parseFloat(val) : val;
@@ -393,14 +405,16 @@ export async function GET(
     );
   }
 
+  const discountTotal = orderDetail.discountTotal ?? orderDetail.totalDiscounts ?? null;
+  const subtotalOriginal = orderDetail.subtotalOriginal ?? null;
+  const subtotalSale = orderDetail.subtotalSale ?? orderDetail.subtotalPrice ?? "";
+
   const renderedLineItems = order.lineItems.map((li, index) => {
-    const regularPrice = Number(li.productItem.compareAtPrice ?? li.productItem.price);
-    const linePrice = Number(li.price);
-    const lineTotal = linePrice * li.quantity;
-    const lineDiscount =
-      li.discountPercent != null && Number(li.discountPercent) !== 0
-        ? (regularPrice * li.quantity * Number(li.discountPercent)) / 100
-        : Math.max(0, (regularPrice - linePrice) * li.quantity);
+    const detailLineItem = orderDetail.lineItems[index];
+    const regularPrice = detailLineItem?.originalPrice ?? detailLineItem?.price ?? li.price.toString();
+    const linePrice = detailLineItem?.price ?? li.price.toString();
+    const lineTotal = detailLineItem?.total ?? (Number(li.price) * li.quantity).toFixed(2);
+    const lineDiscount = detailLineItem?.lineDiscount ?? null;
     const productName = [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ");
     const barcode = formatPickListBarcode(
       resolvePickListBarcode(li.productItem.barcode, li.productItem.sku, barcodeBySku),
@@ -416,12 +430,18 @@ export async function GET(
       quantity: li.quantity,
       regularPrice,
       unitPrice: linePrice,
-      discount: lineDiscount,
+      discount: lineDiscount ?? "0.00",
       lineTotal,
       regularPriceFormatted: formatInvoiceMoney(regularPrice),
       unitPriceFormatted: formatInvoiceMoney(linePrice),
-      discountFormatted: formatInvoiceMoney(lineDiscount),
+      discountFormatted: lineDiscount ? formatInvoiceMoney(lineDiscount) : formatInvoiceMoney(0),
       lineTotalFormatted: formatInvoiceMoney(lineTotal),
+      originalPrice: detailLineItem?.originalPrice ?? null,
+      originalTotal: detailLineItem?.originalTotal ?? null,
+      lineDiscount: detailLineItem?.lineDiscount ?? null,
+      originalPriceFormatted: detailLineItem?.originalPrice ? formatInvoiceMoney(detailLineItem.originalPrice) : "",
+      originalTotalFormatted: detailLineItem?.originalTotal ? formatInvoiceMoney(detailLineItem.originalTotal) : "",
+      lineDiscountFormatted: detailLineItem?.lineDiscount ? formatInvoiceMoney(detailLineItem.lineDiscount) : "",
     };
   });
 
@@ -456,8 +476,8 @@ export async function GET(
       invoiceDate,
       printedOn,
       financialStatus: order.financialStatus ?? "",
-      paymentMethod: getPaymentMethod(order.financialStatus, paymentGatewayPrimary),
-      paymentDescription: getPaymentDescription(order.financialStatus, paymentGatewayPrimary),
+      paymentMethod: paymentInfo.label,
+      paymentDescription: paymentInfo.label.toUpperCase(),
       currency,
       couponCode: discountCouponCode ?? "",
       merchantCouponCode: merchantCouponCode ?? "",
@@ -482,6 +502,12 @@ export async function GET(
       productTotalFormatted: formatInvoiceMoney(productTotal),
       shippingTotalFormatted: formatInvoiceMoney(shippingTotal),
       grandTotalFormatted: formatInvoiceMoney(grandTotal),
+      subtotalOriginal: subtotalOriginal ?? "",
+      subtotalSale,
+      discountTotal: discountTotal ?? "",
+      subtotalOriginalFormatted: subtotalOriginal ? formatInvoiceMoney(subtotalOriginal) : "",
+      subtotalSaleFormatted: formatInvoiceMoney(subtotalSale),
+      discountTotalFormatted: discountTotal ? formatInvoiceMoney(discountTotal) : "",
     },
     remarks: {
       external: externalRemarks,
@@ -499,6 +525,7 @@ export async function GET(
       formatName: printFormat.name,
     },
     lineItems: renderedLineItems,
+    detail: orderDetail,
     sampleFreeIssues: renderedSampleFreeIssues,
     files: files.map((file) => ({
       id: file.id,
