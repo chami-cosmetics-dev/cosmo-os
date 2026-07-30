@@ -401,3 +401,15 @@ export const smsPortalConfigUpdateSchema = z.object({
   smsMask: trimmedString(1, LIMITS.smsPortalMask.max),
   campaignName: trimmedString(1, LIMITS.smsPortalCampaign.max),
 });
+
+/** Rider payday day-of-month (1–28) or null to clear — one value for all companies. */
+export const riderPaydayDayOfMonthSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(28)
+  .nullable();
+
+export const riderPaydayUpdateSchema = z.object({
+  paydayDayOfMonth: riderPaydayDayOfMonthSchema,
+});

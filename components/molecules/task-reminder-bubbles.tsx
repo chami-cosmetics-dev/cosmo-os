@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Eye, X } from "lucide-react";
+import { ChevronDown, Download, Eye, Loader2, X } from "lucide-react";
 import Link from "next/link";
 
 import { TaskReminderBubbleIcon } from "@/components/molecules/task-reminder-bubble-icon";
 import { Button } from "@/components/ui/button";
 import { useIdleScreenBounce } from "@/hooks/use-idle-screen-bounce";
 import { useVerticalDragPosition } from "@/hooks/use-vertical-drag-position";
+import { formatAppIsoDate } from "@/lib/format-datetime";
+import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import { TASK_REMINDER_SLA_HOURS } from "@/lib/task-reminder-sla";
 import type { TaskReminderCategory } from "@/lib/task-reminders";
@@ -79,6 +81,158 @@ function groupReminders(reminders: TaskReminder[]) {
   return groups;
 }
 
+function ReminderPanelShell({
+  title,
+  subtitle,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string;
+  subtitle: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "pointer-events-auto w-[min(100vw-2.5rem,22rem)] overflow-hidden rounded-lg border border-cyan-400/30",
+        "bg-[linear-gradient(165deg,rgba(2,8,23,0.96),rgba(8,47,73,0.92))]",
+        "shadow-[0_0_32px_rgba(34,211,238,0.2),0_22px_50px_-28px_rgba(0,0,0,0.65)]",
+        "backdrop-blur-xl",
+        "animate-in fade-in-0 slide-in-from-bottom-4 duration-300",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2 border-b border-cyan-500/25 px-4 py-3">
+        <div>
+          <p className="font-mono text-[10px] tracking-[0.2em] text-cyan-400/80 uppercase">System alert</p>
+          <p className="text-sm font-semibold text-cyan-50">{title}</p>
+          <p className="text-xs text-cyan-200/60">{subtitle}</p>
+        </div>
+        <button
+          type="button"
+          className="rounded border border-cyan-500/30 p-1.5 text-cyan-300/80 transition-colors hover:border-cyan-400/60 hover:bg-cyan-500/10 hover:text-cyan-100"
+          onClick={onClose}
+          aria-label="Close reminders"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      {children}
+      <div className="border-t border-cyan-500/25 px-3 py-2">{footer}</div>
+    </div>
+  );
+}
+
+function PurchasingRopDownloadPanel({
+  overdueCount,
+  onClose,
+}: {
+  overdueCount: number;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function downloadReorderOnly() {
+    setBusy(true);
+    try {
+      const asOfDate = formatAppIsoDate(new Date());
+      const salesMonth = asOfDate.slice(0, 7);
+      const res = await fetch("/api/admin/osf/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          salesMonth,
+          asOfDate,
+          includeInactive: false,
+          belowThresholdOnly: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? `Generate failed (${res.status})`);
+      }
+
+      const rowCount = Number(res.headers.get("X-OSF-Row-Count") ?? "0");
+      if (rowCount === 0) {
+        notify.error(
+          "No SKUs below reorder threshold — set warehouse ROPs first; only SKUs with stock/ROP under the threshold % are included.",
+        );
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `OSF-reorder-${asOfDate}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (rowCount > 0) {
+        notify.success("Reorder-only OSF downloaded");
+      }
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Generate failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ReminderPanelShell
+      title="Purchasing ROP threshold"
+      subtitle={
+        <>
+          <span className="text-red-400">{overdueCount}</span> SKUs below threshold · download
+          reorder-only OSF
+        </>
+      }
+      onClose={onClose}
+      footer={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full font-mono text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-100"
+          onClick={onClose}
+        >
+          <ChevronDown className="mr-1 size-4" />
+          MINIMIZE_HUD
+        </Button>
+      }
+    >
+      <div className="space-y-3 px-3 py-4">
+        <p className="text-xs leading-relaxed text-cyan-100/65">
+          Download the reorder-only OSF for SKUs under ROP threshold. Individual SKU rows are not
+          listed here.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full border-cyan-500/35 bg-slate-950/60 text-cyan-200 hover:border-cyan-400/60 hover:bg-cyan-950/50 hover:text-cyan-50"
+          onClick={() => void downloadReorderOnly()}
+          disabled={busy}
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Download className="size-4" />
+          )}
+          {busy ? "Generating…" : "Download reorder-only OSF"}
+        </Button>
+        <Link
+          href="/dashboard/purchasing/osf"
+          className="block text-center text-xs text-cyan-300/80 underline-offset-2 hover:text-cyan-100 hover:underline"
+          onClick={onClose}
+        >
+          Open Order Support File page
+        </Link>
+      </div>
+    </ReminderPanelShell>
+  );
+}
+
 function ReminderListPanel({
   title,
   items,
@@ -97,40 +251,41 @@ function ReminderListPanel({
   const listCapped = totalCount != null && totalCount > items.length;
 
   return (
-    <div
-      className={cn(
-        "pointer-events-auto w-[min(100vw-2.5rem,22rem)] overflow-hidden rounded-lg border border-cyan-400/30",
-        "bg-[linear-gradient(165deg,rgba(2,8,23,0.96),rgba(8,47,73,0.92))]",
-        "shadow-[0_0_32px_rgba(34,211,238,0.2),0_22px_50px_-28px_rgba(0,0,0,0.65)]",
-        "backdrop-blur-xl",
-        "animate-in fade-in-0 slide-in-from-bottom-4 duration-300",
-      )}
+    <ReminderPanelShell
+      title={title}
+      subtitle={
+        <>
+          <span className="text-red-400">{overdueCount}</span> overdue
+          {listCapped ? <> · showing {items.length}</> : null} · SLA {TASK_REMINDER_SLA_HOURS}h+
+        </>
+      }
+      onClose={onClose}
+      footer={
+        onDismissAll ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full font-mono text-amber-400 hover:bg-amber-500/10 hover:text-amber-200"
+            onClick={onDismissAll}
+          >
+            <ChevronDown className="mr-1 size-4" />
+            DISMISS ALL WARNINGS
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full font-mono text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-100"
+            onClick={onClose}
+          >
+            <ChevronDown className="mr-1 size-4" />
+            MINIMIZE_HUD
+          </Button>
+        )
+      }
     >
-      <div className="flex items-start justify-between gap-2 border-b border-cyan-500/25 px-4 py-3">
-        <div>
-          <p className="font-mono text-[10px] tracking-[0.2em] text-cyan-400/80 uppercase">System alert</p>
-          <p className="text-sm font-semibold text-cyan-50">{title}</p>
-          <p className="text-xs text-cyan-200/60">
-            <span className="text-red-400">{overdueCount}</span> overdue
-            {listCapped ? (
-              <>
-                {" "}
-                · showing {items.length}
-              </>
-            ) : null}{" "}
-            · SLA {TASK_REMINDER_SLA_HOURS}h+
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded border border-cyan-500/30 p-1.5 text-cyan-300/80 transition-colors hover:border-cyan-400/60 hover:bg-cyan-500/10 hover:text-cyan-100"
-          onClick={onClose}
-          aria-label="Close reminders"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-
       <ul className="max-h-[min(24rem,55vh)] space-y-2 overflow-y-auto px-3 py-3">
         {items.length === 0 ? (
           <li className="rounded-md border border-dashed border-cyan-500/25 bg-slate-950/30 px-4 py-8 text-center text-sm text-cyan-200/70">
@@ -156,33 +311,7 @@ function ReminderListPanel({
           ))
         )}
       </ul>
-
-      <div className="border-t border-cyan-500/25 px-3 py-2">
-        {onDismissAll ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full font-mono text-amber-400 hover:bg-amber-500/10 hover:text-amber-200"
-            onClick={onDismissAll}
-          >
-            <ChevronDown className="mr-1 size-4" />
-            DISMISS ALL WARNINGS
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full font-mono text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-100"
-            onClick={onClose}
-          >
-            <ChevronDown className="mr-1 size-4" />
-            MINIMIZE_HUD
-          </Button>
-        )}
-      </div>
-    </div>
+    </ReminderPanelShell>
   );
 }
 
@@ -462,25 +591,32 @@ export function TaskReminderBubbles() {
 
         {activeCategory && !showAllPanel && (
           <div className="mr-3">
-            <ReminderListPanel
-              title={panelTitle}
-              items={activeItems}
-              totalCount={activeTotalCount}
-              onClose={() => setActiveCategory(null)}
-              onDismissAll={
-                activeCategory === "erp_sync_warning"
-                  ? async () => {
-                      await fetch("/api/admin/notifications", {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ type: "erp_sync_failure" }),
-                      }).catch(() => null);
-                      setActiveCategory(null);
-                      await loadReminders();
-                    }
-                  : undefined
-              }
-            />
+            {activeCategory === "purchasing_rop_threshold" ? (
+              <PurchasingRopDownloadPanel
+                overdueCount={activeTotalCount}
+                onClose={() => setActiveCategory(null)}
+              />
+            ) : (
+              <ReminderListPanel
+                title={panelTitle}
+                items={activeItems}
+                totalCount={activeTotalCount}
+                onClose={() => setActiveCategory(null)}
+                onDismissAll={
+                  activeCategory === "erp_sync_warning"
+                    ? async () => {
+                        await fetch("/api/admin/notifications", {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ type: "erp_sync_failure" }),
+                        }).catch(() => null);
+                        setActiveCategory(null);
+                        await loadReminders();
+                      }
+                    : undefined
+                }
+              />
+            )}
           </div>
         )}
 

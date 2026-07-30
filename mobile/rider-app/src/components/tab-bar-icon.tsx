@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 
-type TabIconName = "navigation" | "check-circle" | "dollar-sign" | "user";
+type TabIconName = "navigation" | "check-circle" | "dollar-sign" | "user" | "trending-up";
 
 type TabBarIconProps = {
   name: TabIconName;

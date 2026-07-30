@@ -53,6 +53,7 @@ export type ApiMobileDelivery = {
   shippingAddress?: unknown;
   billingAddress?: unknown;
   expectedPaymentMethod?: PaymentMethod | null;
+  incentiveAmount?: string | null;
   companyLocation?: { name: string } | null;
   payment: DeliveryPayment | null;
   completedAt?: string | null;
