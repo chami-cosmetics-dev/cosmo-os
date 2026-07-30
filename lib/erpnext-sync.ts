@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import type { Order, CompanyLocation, ErpnextInstance } from "@prisma/client";
 import type { ShopifyOrderWebhookPayload } from "@/lib/validation/shopify-order";
 import { prisma } from "@/lib/prisma";
@@ -22,6 +23,17 @@ import {
 } from "@/lib/delivery-payment-approval";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+
+/**
+ * Pre-fill ERP custom field used by the Hutch Auto-SMS Server Script.
+ * That script calls frappe.generate_hash() when sms_ebill_token is empty, which
+ * crashes in the Server Script sandbox and blocks Sales Invoice insert/submit.
+ */
+function generateSmsEbillToken(length = 24): string {
+  return randomBytes(Math.ceil(length / 2))
+    .toString("hex")
+    .slice(0, length);
+}
 
 function resolveOrderShippingAmountForErp(input: {
   discountCodes?: unknown;
@@ -1970,12 +1982,15 @@ export async function syncOrderToERPNext(
     update_stock: 1,
     set_warehouse: location.erpnextWarehouse,
     docstatus: 1,
+    // Avoid ERP Hutch SMS Server Script calling frappe.generate_hash (not in safe_exec).
+    sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
     ...erpCouponFields,
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     // Payment type mapped from Shopify gateway names
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
+
     // Address: prefer linked Address documents (ERPNext-native); fall back to raw HTML text
     ...(billingAddressName
       ? { customer_address: billingAddressName }
@@ -2194,6 +2209,8 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     update_stock: 1,
     set_warehouse: erpnextWarehouse,
     docstatus: 1,
+    // Avoid ERP Hutch SMS Server Script calling frappe.generate_hash (not in safe_exec).
+    sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
     ...erpCouponFields,
     ...(customerEmail ? { contact_email: customerEmail } : {}),
