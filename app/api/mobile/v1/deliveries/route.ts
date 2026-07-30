@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
           name: true,
           shopifyOrderId: true,
           totalPrice: true,
+          totalShipping: true,
           currency: true,
           customerPhone: true,
           customerEmail: true,

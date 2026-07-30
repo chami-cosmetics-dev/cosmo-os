@@ -17,21 +17,30 @@ export async function GET() {
     );
   }
 
-  const company = await prisma.company.findUnique({
-    where: { id: companyId },
-    select: {
-      id: true,
-      name: true,
-      logoUrl: true,
-      faviconUrl: true,
-      employeeSize: true,
-      address: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const [company, riderPayday] = await Promise.all([
+    prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        name: true,
+        logoUrl: true,
+        faviconUrl: true,
+        employeeSize: true,
+        address: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.riderPayPeriodConfig.findUnique({
+      where: { singletonKey: "default" },
+      select: { paydayDayOfMonth: true },
+    }),
+  ]);
 
   return NextResponse.json({
     company: company ?? null,
+    riderPayday: {
+      paydayDayOfMonth: riderPayday?.paydayDayOfMonth ?? null,
+    },
   });
 }

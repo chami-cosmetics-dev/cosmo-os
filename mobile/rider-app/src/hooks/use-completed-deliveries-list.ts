@@ -17,6 +17,7 @@ export type CompletedListItem = {
   completedAt?: string | null;
   customerName: string | null;
   expectedPaymentMethod?: PaymentMethod | null;
+  incentiveAmount?: string | null;
   shippingAddress?: unknown;
   billingAddress?: unknown;
   companyLocation?: { name: string } | null;
@@ -48,6 +49,7 @@ export function useCompletedDeliveriesList() {
                 completedAt: delivery.completedAt ?? null,
                 customerName: delivery.customerName,
                 expectedPaymentMethod: delivery.expectedPaymentMethod,
+                incentiveAmount: delivery.incentiveAmount ?? null,
                 shippingAddress: delivery.shippingAddress,
                 billingAddress: delivery.billingAddress,
                 companyLocation: delivery.companyLocation ?? null,
@@ -69,6 +71,7 @@ export function useCompletedDeliveriesList() {
           completedAt: delivery.completedAt,
           customerName: delivery.customerName,
           expectedPaymentMethod: null,
+          incentiveAmount: null,
           shippingAddress: undefined,
           billingAddress: undefined,
           companyLocation: delivery.companyLocation ?? null,

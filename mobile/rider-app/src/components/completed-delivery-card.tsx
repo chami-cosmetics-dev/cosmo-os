@@ -42,6 +42,9 @@ export function CompletedDeliveryCard({ delivery }: CompletedDeliveryCardProps) 
           <Text style={styles.customer}>{delivery.customerName ?? "Unknown customer"}</Text>
           <Text style={styles.amount}>{formatMoney(delivery.amount, delivery.currency)}</Text>
         </View>
+        <Text style={styles.incentive}>
+          Incentive {formatMoney(delivery.incentiveAmount ?? "0.00")}
+        </Text>
         <Text style={styles.location} numberOfLines={1}>
           {getAddressText(delivery)}
         </Text>
@@ -88,6 +91,7 @@ function createStyles(
     top: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
     customer: { flex: 1, fontSize: 16, fontWeight: "800", color: colors.text },
     amount: { fontSize: 16, fontWeight: "800", color: colors.emphasis },
+    incentive: { color: colors.brand, fontSize: 13, fontWeight: "700" },
     location: { color: colors.textMuted, fontSize: 13 },
     metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
     time: { color: colors.textSoft, fontSize: 12, fontWeight: "600" },

@@ -65,6 +65,14 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="performance"
+        options={{
+          title: "Performance",
+          tabBarLabel: "Pay",
+          tabBarIcon: ({ color, size }) => <TabBarIcon name="trending-up" color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="cash"
         options={{
           title: "Cash Handover",

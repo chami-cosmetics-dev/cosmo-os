@@ -1866,3 +1866,13 @@ model OsfUserColumnAccess {
   @@index([companyId])
   @@index([userId])
 }
+
+/// Singleton: one payday day-of-month for all companies in this database.
+model RiderPayPeriodConfig {
+  id                String   @id @default(cuid())
+  singletonKey      String   @unique @default("default")
+  paydayDayOfMonth  Int?
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedById       String?
+}
