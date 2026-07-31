@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 
 import { logReportDownload } from "@/lib/report-download-log";
-import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import {
+  buildContactPhoneSearchOrFilters,
+  buildPhoneLookupVariants,
+  isPhoneLikeSearch,
+} from "@/lib/phone-lookup";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -123,16 +127,19 @@ export async function GET(request: NextRequest) {
   }
 
   if (search) {
-    where.AND = [
-      {
-        OR: [
-          { name: { contains: search, mode: "insensitive" } },
-          { email: { contains: search, mode: "insensitive" } },
-          { phoneNumber: { contains: search, mode: "insensitive" } },
-          { recentMerchant: { contains: search, mode: "insensitive" } },
-        ],
-      },
+    const or: Prisma.ContactMasterWhereInput[] = [
+      { name: { contains: search, mode: "insensitive" } },
+      { email: { contains: search, mode: "insensitive" } },
+      { recentMerchant: { contains: search, mode: "insensitive" } },
     ];
+    if (isPhoneLikeSearch(search)) {
+      or.push(
+        ...(buildContactPhoneSearchOrFilters(search) as Prisma.ContactMasterWhereInput[]),
+      );
+    } else {
+      or.push({ phoneNumber: { contains: search, mode: "insensitive" } });
+    }
+    where.AND = [{ OR: or }];
   }
 
   const contacts = await prisma.contactMaster.findMany({

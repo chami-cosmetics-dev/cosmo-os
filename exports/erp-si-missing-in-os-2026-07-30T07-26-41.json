@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-07-30T07:26:38.677Z",
+  "since": null,
+  "companyFilter": null,
+  "instances": [
+    {
+      "slot": "erp1",
+      "label": "ERP_1 - Main",
+      "baseUrl": "https://cosmetics-lk-01.m.frappe.cloud",
+      "erpCompany": "Cosmetics.lk",
+      "erpTotal": 1694,
+      "alreadyInOs": 1693,
+      "missingInOs": 1
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "baseUrl": "https://cosmetics-lk-02.m.frappe.cloud",
+      "erpCompany": "AJS Trading Lanka (Pvt) Ltd",
+      "erpTotal": 101,
+      "alreadyInOs": 101,
+      "missingInOs": 0
+    }
+  ],
+  "totals": {
+    "erpTotal": 1795,
+    "alreadyInOs": 1794,
+    "missingInOs": 1
+  },
+  "missing": [
+    {
+      "slot": "erp1",
+      "invoice": "600-001483",
+      "customer": "0777126854",
+      "customerName": "Pranella Fernando",
+      "company": "Cosmetics.lk",
+      "postingDate": "2026-07-23",
+      "grandTotal": 25365,
+      "status": "Overdue",
+      "isPos": 0,
+      "phone": "0777126854",
+      "email": "pranella17@gmail.com"
+    }
+  ]
+}

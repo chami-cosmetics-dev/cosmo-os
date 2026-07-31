@@ -24,6 +24,8 @@ import { buildErpOrderDiscountCodes } from "@/lib/order-discount-coupon";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { isLegacyAccSinvRef } from "@/lib/legacy-acc-sinv";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { syncContactMasterSafely } from "@/lib/contact-master-sync";
+import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -48,7 +50,13 @@ async function findLinkedVaultOrderForErpInvoice(data: {
       ],
       sourceName: { notIn: ["erpnext", "erpnext-pos"] },
     },
-    select: { id: true, name: true, orderNumber: true },
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      companyId: true,
+      assignedMerchant: { select: { name: true } },
+    },
   });
 }
 
@@ -106,6 +114,7 @@ async function resolveInstanceSecret(company: string): Promise<{
   baseUrl: string;
   apiKey: string;
   apiSecret: string;
+  label: string | null;
 } | null> {
   // Try to find a location with an erpnextInstance linked to this company
   const location = await prisma.companyLocation.findFirst({
@@ -117,6 +126,7 @@ async function resolveInstanceSecret(company: string): Promise<{
           baseUrl: true,
           apiKey: true,
           apiSecret: true,
+          label: true,
         },
       },
     },
@@ -132,6 +142,7 @@ async function resolveInstanceSecret(company: string): Promise<{
       baseUrl: instance.baseUrl.replace(/\/$/, ""),
       apiKey: instance.apiKey,
       apiSecret: instance.apiSecret,
+      label: instance.label,
     };
   }
 
@@ -144,7 +155,50 @@ async function resolveInstanceSecret(company: string): Promise<{
     baseUrl: envBaseUrl,
     apiKey: process.env.ERPNEXT_API_KEY ?? "",
     apiSecret: process.env.ERPNEXT_API_SECRET ?? "",
+    label: null,
   };
+}
+
+function parseOccurredAt(postingDate: string | null | undefined): Date {
+  const raw = postingDate?.trim();
+  if (!raw) return new Date();
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+async function syncContactFromErpInvoice(input: {
+  companyId: string;
+  invoiceName: string;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  customerName: string | null;
+  postingDate: string | null | undefined;
+  instanceLabel: string | null;
+  recentMerchant?: string | null;
+}) {
+  if (!input.customerEmail && !input.customerPhone) return;
+  try {
+    const result = await syncContactMasterSafely({
+      companyId: input.companyId,
+      sourceLabel: input.instanceLabel?.trim() || "ERPNext sales invoice",
+      sourceType: "erpnext_si",
+      source: erpSlotSourceFromLabel(input.instanceLabel),
+      sourceId: input.invoiceName,
+      orderNumber: input.invoiceName,
+      occurredAt: parseOccurredAt(input.postingDate),
+      email: input.customerEmail,
+      phoneNumber: input.customerPhone,
+      name: input.customerName,
+      recentMerchant: input.recentMerchant ?? null,
+      auditBehavior: "summary_only",
+    });
+    console.log(
+      `[ERPNext webhook] Contact sync for ${input.invoiceName}: ${result.status}` +
+        ("contactId" in result ? ` (${result.contactId})` : ""),
+    );
+  } catch (error) {
+    console.error(`[ERPNext webhook] Contact sync failed for ${input.invoiceName}:`, error);
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -287,6 +341,48 @@ export async function POST(request: NextRequest) {
         orderId: linkedVaultOrder.id,
       });
     }
+
+    const linkedEmail =
+      typeof data.contact_email === "string" &&
+      data.contact_email.trim() &&
+      data.contact_email.trim().toLowerCase() !== "none"
+        ? data.contact_email.trim()
+        : null;
+    const linkedPhone =
+      typeof data.contact_mobile === "string" &&
+      data.contact_mobile.trim() &&
+      data.contact_mobile.trim().toLowerCase() !== "none"
+        ? data.contact_mobile.trim()
+        : null;
+
+    if (data.customer?.trim()) {
+      await prisma.order.update({
+        where: { id: linkedVaultOrder.id },
+        data: {
+          erpnextInvoiceId: data.name,
+          erpnextCustomerId: data.customer.trim(),
+        },
+      });
+    }
+
+    if (linkedEmail || linkedPhone) {
+      const linkedNameResolution = await resolveErpWebhookCustomerName(data, {
+        baseUrl: instanceCreds.baseUrl,
+        apiKey: instanceCreds.apiKey,
+        apiSecret: instanceCreds.apiSecret,
+      });
+      await syncContactFromErpInvoice({
+        companyId: linkedVaultOrder.companyId,
+        invoiceName: data.name,
+        customerEmail: linkedEmail,
+        customerPhone: linkedPhone,
+        customerName: linkedNameResolution.name,
+        postingDate: data.posting_date,
+        instanceLabel: instanceCreds.label,
+        recentMerchant: linkedVaultOrder.assignedMerchant?.name ?? null,
+      });
+    }
+
     console.log(
       `[ERPNext webhook] Invoice ${data.name} matches Vault order (po_no=${data.po_no ?? "—"}) — skipping ERP upsert`,
     );
@@ -360,6 +456,7 @@ export async function POST(request: NextRequest) {
   };
   const customerEmail = nullIfNone(data.contact_email);
   const customerPhone = nullIfNone(data.contact_mobile);
+  const erpnextCustomerId = data.customer?.trim() || null;
 
   function parseErpAddress(
     html: string | null | undefined,
@@ -551,6 +648,7 @@ export async function POST(request: NextRequest) {
       sourceName: isPOS ? "erpnext-pos" : "erpnext",
       name: data.name,
       erpnextInvoiceId: data.name,
+      erpnextCustomerId,
       erpnextWarehouse: resolvedPosWarehouse ?? data.set_warehouse ?? null,
       posProfile: resolvedPosProfile,
       totalPrice: grandTotal,
@@ -588,6 +686,7 @@ export async function POST(request: NextRequest) {
       ...(erpShipping.shippingLines ? { shippingLines: erpShipping.shippingLines } : {}),
       financialStatus: isCreditNoted ? "voided" : financialStatus,
       erpnextInvoiceId: data.name,
+      erpnextCustomerId,
       erpnextWarehouse: resolvedPosWarehouse ?? data.set_warehouse ?? null,
       posProfile: resolvedPosProfile,
       erpnextSyncError: null,
@@ -606,7 +705,14 @@ export async function POST(request: NextRequest) {
         : {}),
       ...(assignedMerchantId ? { assignedMerchantId } : {}),
     },
-    select: { id: true, name: true, paymentGatewayPrimary: true, paymentGatewayNames: true, financialStatus: true },
+    select: {
+      id: true,
+      name: true,
+      paymentGatewayPrimary: true,
+      paymentGatewayNames: true,
+      financialStatus: true,
+      assignedMerchant: { select: { name: true } },
+    },
   });
 
   // Backfill counter-sale completion for existing ERP POS rows that landed at
@@ -617,6 +723,17 @@ export async function POST(request: NextRequest) {
       data: posCounterSaleCompletion,
     });
   }
+
+  await syncContactFromErpInvoice({
+    companyId: location.companyId,
+    invoiceName: data.name,
+    customerEmail,
+    customerPhone,
+    customerName: erpCustomerName,
+    postingDate: data.posting_date,
+    instanceLabel: instanceCreds.label,
+    recentMerchant: order.assignedMerchant?.name ?? null,
+  });
 
   if (financialStatus === "voided" || isCreditNoted) {
     await cancelPendingApprovalsForOrder(order.id);

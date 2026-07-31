@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { endOfDay, startOfDay } from "@/lib/mobile/dates";
+import { incentiveForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { aggregateRiderIncentives } from "@/lib/rider-incentive";
@@ -39,26 +40,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
   }
 
-  const tasks = await prisma.riderDeliveryTask.findMany({
-    where: {
-      status: "completed",
-      completedAt: { gte: from, lte: to },
-      ...(parsed.data.riderId ? { riderId: parsed.data.riderId } : {}),
-      order: { companyId },
-    },
-    select: {
-      riderId: true,
-      rider: { select: { name: true, knownName: true } },
-      order: { select: { totalShipping: true, financialStatus: true } },
-    },
-  });
+  const [tasks, chargeByLabelKey] = await Promise.all([
+    prisma.riderDeliveryTask.findMany({
+      where: {
+        status: "completed",
+        completedAt: { gte: from, lte: to },
+        ...(parsed.data.riderId ? { riderId: parsed.data.riderId } : {}),
+        order: { companyId },
+      },
+      select: {
+        riderId: true,
+        rider: { select: { name: true, knownName: true } },
+        order: {
+          select: {
+            totalShipping: true,
+            shippingLines: true,
+            rawPayload: true,
+            sourceName: true,
+            discountCodes: true,
+            financialStatus: true,
+          },
+        },
+      },
+    }),
+    loadRiderDeliveryChargeMap(),
+  ]);
 
   const riders = aggregateRiderIncentives(
     tasks.map((task) => ({
       riderId: task.riderId,
       riderName: task.rider.name,
       knownName: task.rider.knownName,
-      totalShipping: task.order.totalShipping,
+      incentiveAmount: incentiveForOrder(task.order, chargeByLabelKey),
       financialStatus: task.order.financialStatus,
     }))
   );

@@ -23,12 +23,13 @@
 |-------|------|--------|
 | `id` | String (cuid) | Primary key; at most one logical row (enforce via app upsert + optional unique `singletonKey`) |
 | `singletonKey` | String | Fixed value `"default"` with `@@unique` so only one config row exists |
-| `paydayDayOfMonth` | Int? | `null` = not configured; when set MUST be 1–28 inclusive |
+| `paydayDayOfMonth` | Int? | `null` = not configured; when set MUST be 1–31 inclusive |
 | `updatedAt` | DateTime | Auto |
 | `updatedById` | String? | Optional audit of last ops editor |
 
 **Validation:**
-- Zod: `z.number().int().min(1).max(28).nullable()`
+- Zod: `z.number().int().min(1).max(31).nullable()`
+- Period math clamps D to each month’s last day when that month is shorter (e.g. D=31 in February → 28/29)
 - PUT without permission → 403
 - Riders never write this model
 

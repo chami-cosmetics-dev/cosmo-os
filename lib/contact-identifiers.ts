@@ -11,6 +11,7 @@ type ContactIdentifierContact = {
   phoneNumber: string | null;
   recentMerchant: string | null;
   lastPurchaseAt: Date | null;
+  source: string | null;
 };
 
 type ContactEmailModel = {
@@ -72,6 +73,7 @@ export async function findMatchingContacts(
       phoneNumber: true,
       recentMerchant: true,
       lastPurchaseAt: true,
+      source: true,
     },
   });
 
@@ -94,6 +96,7 @@ export async function findMatchingContacts(
               phoneNumber: true,
               recentMerchant: true,
               lastPurchaseAt: true,
+              source: true,
             },
           },
         },
@@ -116,6 +119,7 @@ export async function findMatchingContacts(
               phoneNumber: true,
               recentMerchant: true,
               lastPurchaseAt: true,
+              source: true,
             },
           },
         },

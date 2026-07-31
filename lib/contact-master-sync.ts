@@ -10,10 +10,19 @@ import {
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 
+export type ContactMasterSyncSourceType =
+  | "shopify_order"
+  | "order_backfill"
+  | "manual_order"
+  | "erpnext_si"
+  | "erp_customer_backfill";
+
 type SyncContactMasterInput = {
   companyId: string;
   sourceLabel: string;
-  sourceType?: "shopify_order" | "order_backfill" | "manual_order";
+  sourceType?: ContactMasterSyncSourceType;
+  /** ContactMaster.source value on create (e.g. erp1 / erp2). Only set when blank. */
+  source?: string | null;
   sourceId: string;
   orderNumber?: string | null;
   occurredAt: Date;
@@ -134,6 +143,17 @@ function buildContactSyncLockKey(companyId: string, email: string | null, phoneN
   return `contact-sync:${companyId}:${email ?? ""}:${phoneNumber ?? ""}`;
 }
 
+function defaultContactName(input: SyncContactMasterInput) {
+  const isErp =
+    input.sourceType === "erpnext_si" || input.sourceType === "erp_customer_backfill";
+  return isErp ? "ERP Contact" : "Shopify Contact";
+}
+
+function normalizeSource(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed.slice(0, LIMITS.name.max) : null;
+}
+
 async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Promise<SyncContactMasterResult> {
   const email = normalizeEmail(input.email ?? null);
   const phoneNumber = normalizePhone(input.phoneNumber ?? null);
@@ -144,6 +164,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
 
   const name = normalizeName(input.name ?? null);
   const recentMerchant = normalizeMerchant(input.recentMerchant);
+  const source = normalizeSource(input.source);
 
   const candidates = await prisma.contactMaster.findMany({
     where: {
@@ -160,6 +181,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
       phoneNumber: true,
       recentMerchant: true,
       lastPurchaseAt: true,
+      source: true,
     },
   });
 
@@ -203,11 +225,12 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
       const created = await tx.contactMaster.create({
         data: {
           companyId: input.companyId,
-          name: name ?? email ?? phoneNumber ?? "Shopify Contact",
+          name: name ?? email ?? phoneNumber ?? defaultContactName(input),
           email,
           phoneNumber,
           recentMerchant,
           lastPurchaseAt: input.occurredAt,
+          ...(source ? { source } : {}),
         },
         select: { id: true },
       });
@@ -222,12 +245,14 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
     phoneNumber?: string;
     recentMerchant?: string;
     lastPurchaseAt?: Date;
+    source?: string;
   } = {};
 
   if (isBlank(matchedContact.name) && name) updateData.name = name;
   if (isBlank(matchedContact.email) && email) updateData.email = email;
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
   if (isBlank(matchedContact.recentMerchant) && recentMerchant) updateData.recentMerchant = recentMerchant;
+  if (isBlank(matchedContact.source) && source) updateData.source = source;
   if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
     updateData.lastPurchaseAt = input.occurredAt;
   }
@@ -255,6 +280,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
   const name = normalizeName(input.name ?? null);
   const recentMerchant = normalizeMerchant(input.recentMerchant);
+  const source = normalizeSource(input.source);
   const orderLabel = buildSourceLabel(input.sourceId, input.orderNumber);
   const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
 
@@ -345,11 +371,12 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
       const created = await tx.contactMaster.create({
         data: {
           companyId: input.companyId,
-          name: name ?? email ?? phoneNumber ?? "Shopify Contact",
+          name: name ?? email ?? phoneNumber ?? defaultContactName(input),
           email,
           phoneNumber,
           recentMerchant,
           lastPurchaseAt: input.occurredAt,
+          ...(source ? { source } : {}),
         },
         select: {
           id: true,
@@ -411,6 +438,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     phoneNumber?: string;
     recentMerchant?: string;
     lastPurchaseAt?: Date;
+    source?: string;
   } = {};
 
   if (isBlank(matchedContact.name) && name) {
@@ -424,6 +452,9 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   }
   if (isBlank(matchedContact.recentMerchant) && recentMerchant) {
     updateData.recentMerchant = recentMerchant;
+  }
+  if (isBlank(matchedContact.source) && source) {
+    updateData.source = source;
   }
   if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
     updateData.lastPurchaseAt = input.occurredAt;
@@ -510,3 +541,5 @@ export async function syncContactMasterSafely(input: SyncContactMasterInput) {
     return syncContactMasterPrimaryOnly(input);
   }
 }
+
+export type { SyncContactMasterInput, SyncContactMasterResult };

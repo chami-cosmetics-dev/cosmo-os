@@ -6,10 +6,8 @@ import { requireRiderMobileSession } from "@/lib/mobile/api";
 import { endOfDay, startOfDay } from "@/lib/mobile/dates";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 import { prisma } from "@/lib/prisma";
-import {
-  isIncentiveEligibleOrder,
-  shippingIncentiveAmount,
-} from "@/lib/rider-incentive";
+import { isIncentiveEligibleOrder } from "@/lib/rider-incentive";
+import { incentiveForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
 import { resolvePayPeriodWindow, type PayPeriodKind } from "@/lib/rider-pay-period";
 
 const querySchema = z.object({
@@ -19,6 +17,15 @@ const querySchema = z.object({
 function decimalToFixed(value: Prisma.Decimal) {
   return value.toFixed(2);
 }
+
+const orderIncentiveSelect = {
+  totalShipping: true,
+  shippingLines: true,
+  rawPayload: true,
+  sourceName: true,
+  discountCodes: true,
+  financialStatus: true,
+} as const;
 
 export async function GET(request: NextRequest) {
   const auth = await requireRiderMobileSession(request);
@@ -36,10 +43,13 @@ export async function GET(request: NextRequest) {
   const periodKind = parsed.data.period as PayPeriodKind;
   const riderId = auth.session.userId;
 
-  const config = await prisma.riderPayPeriodConfig.findUnique({
-    where: { singletonKey: "default" },
-    select: { paydayDayOfMonth: true },
-  });
+  const [config, chargeByLabelKey] = await Promise.all([
+    prisma.riderPayPeriodConfig.findUnique({
+      where: { singletonKey: "default" },
+      select: { paydayDayOfMonth: true },
+    }),
+    loadRiderDeliveryChargeMap(),
+  ]);
   const paydayDayOfMonth = config?.paydayDayOfMonth ?? null;
 
   const todayFrom = startOfDay(new Date());
@@ -52,7 +62,7 @@ export async function GET(request: NextRequest) {
       completedAt: { gte: todayFrom, lte: todayTo },
     },
     select: {
-      order: { select: { totalShipping: true, financialStatus: true } },
+      order: { select: orderIncentiveSelect },
     },
   });
 
@@ -61,7 +71,7 @@ export async function GET(request: NextRequest) {
   for (const task of todayTasks) {
     if (!isIncentiveEligibleOrder(task.order.financialStatus)) continue;
     todayCompletedCount += 1;
-    todayIncentive = todayIncentive.add(shippingIncentiveAmount(task.order.totalShipping));
+    todayIncentive = todayIncentive.add(incentiveForOrder(task.order, chargeByLabelKey));
   }
 
   const periodWindow = resolvePayPeriodWindow(paydayDayOfMonth, periodKind);
@@ -95,8 +105,7 @@ export async function GET(request: NextRequest) {
             orderNumber: true,
             name: true,
             shopifyOrderId: true,
-            totalShipping: true,
-            financialStatus: true,
+            ...orderIncentiveSelect,
           },
         },
       },
@@ -123,7 +132,7 @@ export async function GET(request: NextRequest) {
 
   for (const task of completedTasks) {
     if (!isIncentiveEligibleOrder(task.order.financialStatus)) continue;
-    const amount = shippingIncentiveAmount(task.order.totalShipping);
+    const amount = incentiveForOrder(task.order, chargeByLabelKey);
     completedCount += 1;
     incentiveTotal = incentiveTotal.add(amount);
     lines.push({
