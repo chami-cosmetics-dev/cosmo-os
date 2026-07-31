@@ -66,6 +66,22 @@ type ContactPurchaseOrder = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   createdAt: string;
+  source?: "cosmo" | "adapt";
+  locationLabel?: string | null;
+  paymentMethod?: string | null;
+};
+
+type AdaptPurchaseRow = {
+  id: string;
+  source: "adapt";
+  salesInvoiceNo: string;
+  invoiceDate: string;
+  ttlAmount: string;
+  currency: string | null;
+  locationName: string | null;
+  companyLocationName: string | null;
+  paymentMethod: string | null;
+  merchantKnownName: string | null;
 };
 
 type ContactUpdatesPanelInitialData = {
@@ -265,6 +281,7 @@ export function ContactUpdatesPanel({
         const data = (await res.json()) as {
           error?: string;
           orders?: ContactPurchaseOrder[];
+          adaptPurchases?: AdaptPurchaseRow[];
         };
 
         if (!res.ok) {
@@ -272,7 +289,32 @@ export function ContactUpdatesPanel({
         }
 
         if (!cancelled) {
-          setOrders(data.orders ?? []);
+          const cosmoOrders = (data.orders ?? []).map((order) => ({
+            ...order,
+            source: "cosmo" as const,
+          }));
+          const adaptOrders: ContactPurchaseOrder[] = (data.adaptPurchases ?? []).map(
+            (row) => ({
+              id: row.id,
+              shopifyOrderId: row.salesInvoiceNo,
+              orderNumber: row.salesInvoiceNo,
+              name: row.salesInvoiceNo,
+              totalPrice: row.ttlAmount,
+              currency: row.currency,
+              financialStatus: null,
+              fulfillmentStatus: null,
+              createdAt: row.invoiceDate,
+              source: "adapt",
+              locationLabel: row.companyLocationName ?? row.locationName,
+              paymentMethod: row.paymentMethod ?? row.merchantKnownName,
+            })
+          );
+          setOrders(
+            [...cosmoOrders, ...adaptOrders].sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+          );
         }
       })
       .catch((error) => {
@@ -693,7 +735,9 @@ export function ContactUpdatesPanel({
                     <tbody>
                       {orders.map((order) => (
                         <tr key={order.id} className="border-b last:border-0">
-                          <td className="px-4 py-3">Online</td>
+                          <td className="px-4 py-3">
+                            {order.source === "adapt" ? "Adapt" : "Online"}
+                          </td>
                           <td className="px-4 py-3">
                             {order.orderNumber ?? order.shopifyOrderId}
                           </td>
@@ -704,7 +748,13 @@ export function ContactUpdatesPanel({
                           <td className="px-4 py-3">
                             {formatDateTime(order.createdAt)}
                           </td>
-                          <td className="px-4 py-3">No Detail</td>
+                          <td className="px-4 py-3">
+                            {order.source === "adapt"
+                              ? order.paymentMethod ??
+                                order.locationLabel ??
+                                "Adapt history"
+                              : "No Detail"}
+                          </td>
                           <td className="px-4 py-3">
                             {formatAmount(order.totalPrice, order.currency)}
                           </td>

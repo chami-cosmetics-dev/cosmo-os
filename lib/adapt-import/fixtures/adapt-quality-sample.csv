@@ -1,0 +1,5 @@
+sales_invoice_master_id,sales_invoice_no,sales_location_id,location_name,invoice_date,merchent_id,KnownName,customer_master_id,customer_tp,customer_tp_raw,customer_email,attention_name,ttl_amount,payment_methode,in_payment_type_name,active_flag,deleted_on,cancel_coment,district,zone,customer_shipping_address,post_code
+1001,SI-GOOD-1,1,Head Office- Pepiliyana,15/6/2024,10,Nimal,500,0717106114,0717106114,good@example.com,Good Customer,1500,Cash on delivery,Cash,1,,,,Colombo,Zone-A,123 Main St,COLOMBO
+1002,SI-CANCEL-1,1,Head Office- Pepiliyana,16/6/2024,10,Nimal,501,0717106115,0717106115,cancel@example.com,Cancelled Customer,900,Cash on delivery,Cash,0,17/6/2024,cancelled,Colombo,Zone-A,456 Side St,COLOMBO
+1003,SI-NOID-1,1,Head Office- Pepiliyana,17/6/2024,10,Nimal,502,,,,,No Id Customer,800,Cash on delivery,Cash,1,,,,Colombo,Zone-A,,
+1004,SI-BADAMT-1,1,Head Office- Pepiliyana,18/6/2024,10,Nimal,503,0717106116,0717106116,badamt@example.com,Bad Amount,not-a-number,Cash on delivery,Cash,1,,,,Colombo,Zone-A,,
