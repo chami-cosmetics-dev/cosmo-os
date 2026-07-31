@@ -50,6 +50,7 @@ type ContactPurchaseOrder = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   createdAt: string;
+  source?: "cosmo" | "adapt";
   lineItems: Array<{
     id: string;
     quantity: number;
@@ -58,6 +59,20 @@ type ContactPurchaseOrder = {
     variantTitle: string | null;
     sku: string | null;
   }>;
+};
+
+type AdaptPurchaseRow = {
+  id: string;
+  source: "adapt";
+  salesInvoiceNo: string;
+  invoiceDate: string;
+  ttlAmount: string;
+  currency: string | null;
+  locationName: string | null;
+  companyLocationName: string | null;
+  paymentMethod: string | null;
+  merchantKnownName: string | null;
+  lineItems: [];
 };
 
 type ContactPurchaseDetails = {
@@ -325,13 +340,35 @@ export function ContactsPanel({
         error?: string;
         contact?: ContactPurchaseDetails;
         orders?: ContactPurchaseOrder[];
+        adaptPurchases?: AdaptPurchaseRow[];
       };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to fetch purchases");
         return;
       }
       setPurchaseContactDetails(data.contact ?? null);
-      setContactPurchases(data.orders ?? []);
+      const cosmoOrders = (data.orders ?? []).map((order) => ({
+        ...order,
+        source: "cosmo" as const,
+      }));
+      const adaptOrders: ContactPurchaseOrder[] = (data.adaptPurchases ?? []).map((row) => ({
+        id: row.id,
+        shopifyOrderId: row.salesInvoiceNo,
+        orderNumber: row.salesInvoiceNo,
+        name: row.salesInvoiceNo,
+        totalPrice: row.ttlAmount,
+        currency: row.currency,
+        financialStatus: row.paymentMethod ?? "Adapt",
+        fulfillmentStatus: row.companyLocationName ?? row.locationName ?? "Adapt",
+        createdAt: row.invoiceDate,
+        source: "adapt",
+        lineItems: [],
+      }));
+      setContactPurchases(
+        [...cosmoOrders, ...adaptOrders].sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )
+      );
     } catch {
       notify.error("Failed to fetch purchases");
     } finally {
@@ -902,7 +939,9 @@ export function ContactsPanel({
                       <tr key={order.id} className="border-b last:border-0 hover:bg-secondary/10">
                         <td className="px-4 py-2">
                           <p className="font-medium">{order.name ?? order.orderNumber ?? order.shopifyOrderId}</p>
-                          <p className="text-muted-foreground text-xs">{order.orderNumber ?? "N/A"}</p>
+                          <p className="text-muted-foreground text-xs">
+                            {order.source === "adapt" ? "Adapt" : order.orderNumber ?? "N/A"}
+                          </p>
                         </td>
                         <td className="px-4 py-2">
                           {order.lineItems.length > 0 ? (
@@ -923,23 +962,31 @@ export function ContactsPanel({
                               ))}
                             </div>
                           ) : (
-                            <span className="text-muted-foreground text-xs">No items</span>
+                            <span className="text-muted-foreground text-xs">
+                              {order.source === "adapt" ? "Adapt history (no line items)" : "No items"}
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{toDateTimeLabel(order.createdAt)}</td>
                         <td className="px-4 py-2 text-right">{formatAmount(order.totalPrice, order.currency)}</td>
                         <td className="px-4 py-2 text-xs text-muted-foreground">
-                          {order.financialStatus ?? "N/A"} / {order.fulfillmentStatus ?? "N/A"}
+                          {order.source === "adapt"
+                            ? `${order.financialStatus ?? "Adapt"} / ${order.fulfillmentStatus ?? "—"}`
+                            : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`}
                         </td>
                         <td className="px-4 py-2">
-                          <a
-                            href={`/api/admin/orders/${order.id}/invoice`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline-offset-4 hover:underline"
-                          >
-                            View Invoice
-                          </a>
+                          {order.source === "adapt" ? (
+                            <span className="text-muted-foreground text-xs">Adapt (view only)</span>
+                          ) : (
+                            <a
+                              href={`/api/admin/orders/${order.id}/invoice`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary underline-offset-4 hover:underline"
+                            >
+                              View Invoice
+                            </a>
+                          )}
                         </td>
                       </tr>
                     ))}

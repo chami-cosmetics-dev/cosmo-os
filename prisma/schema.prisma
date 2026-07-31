@@ -80,6 +80,7 @@ model Company {
   osfUserColumnAccess           OsfUserColumnAccess[]
   shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
+  adaptPurchaseHistories        AdaptPurchaseHistory[]
 }
 
 model PrintFormat {
@@ -567,6 +568,7 @@ model CompanyLocation {
   financeScopes             UserFinanceScope[]
   osfColumnConfigs          OsfColumnConfig[]
   shopifyAbandonedCheckouts ShopifyAbandonedCheckout[]
+  adaptPurchaseHistories    AdaptPurchaseHistory[]
 
   @@index([shopifyLocationId])
   @@index([companyId, shadowParentLocationId])
@@ -1604,6 +1606,7 @@ model ContactMaster {
   phones            ContactPhone[]
   // Call center performance tracking: records each allocation update event for this contact
   allocationUpdates ContactAllocationUpdate[]
+  adaptPurchases    AdaptPurchaseHistory[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1614,6 +1617,36 @@ model ContactMaster {
   @@index([companyId, country])
   @@index([companyId, zone])
   @@index([companyId, area])
+}
+
+model AdaptPurchaseHistory {
+  id                    String           @id @default(cuid())
+  companyId             String
+  contactId             String
+  companyLocationId     String?
+  adaptInvoiceKey       String
+  salesInvoiceMasterId  String?
+  salesInvoiceNo        String
+  invoiceDate           DateTime
+  ttlAmount             Decimal          @db.Decimal(12, 2)
+  currency              String?
+  locationName          String?
+  salesLocationId       String?
+  paymentMethod         String?
+  merchantKnownName     String?
+  adaptMerchantId       String?
+  adaptCustomerMasterId String?
+  rawPaymentContext     Json?
+  importBatchId         String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  company               Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact               ContactMaster    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  companyLocation       CompanyLocation? @relation(fields: [companyLocationId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, adaptInvoiceKey])
+  @@index([contactId, invoiceDate(sort: Desc)])
+  @@index([companyId, invoiceDate])
 }
 
 model ContactEmail {
