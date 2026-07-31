@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-07-30T07:28:39.773Z",
+  "note": "Missing = SI not found as Order.shopifyOrderId=erp-{name} AND not as Order.erpnextInvoiceId",
+  "byCompany": [
+    {
+      "slot": "erp1",
+      "label": "ERP_1 - Main",
+      "company": "Cosmetics.lk",
+      "erpTotal": 1695,
+      "alreadyInOs": 1694,
+      "missingInOs": 1
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "AJS Trading Lanka (Pvt) Ltd",
+      "erpTotal": 101,
+      "alreadyInOs": 101,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "KAD Trading (Pvt) Ltd",
+      "erpTotal": 0,
+      "alreadyInOs": 0,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "USP Trading (Pvt) Ltd",
+      "erpTotal": 0,
+      "alreadyInOs": 0,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "LWK Enterprises (Pvt) Ltd",
+      "erpTotal": 312,
+      "alreadyInOs": 312,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "MNK Trading Lanka (Pvt) Ltd",
+      "erpTotal": 379,
+      "alreadyInOs": 379,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "LMJ International Lanka (Pvt) Ltd",
+      "erpTotal": 111,
+      "alreadyInOs": 111,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "Chami Trading Lanka (Pvt) Ltd",
+      "erpTotal": 131,
+      "alreadyInOs": 131,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "DRO Trading (Pvt) Ltd",
+      "erpTotal": 337,
+      "alreadyInOs": 337,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "Pevi Trading Lanka (Pvt) Ltd",
+      "erpTotal": 300,
+      "alreadyInOs": 300,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "SPK Trading (Pvt) Ltd",
+      "erpTotal": 325,
+      "alreadyInOs": 325,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "DTD Trading (Pvt) Ltd",
+      "erpTotal": 123,
+      "alreadyInOs": 123,
+      "missingInOs": 0
+    },
+    {
+      "slot": "erp2",
+      "label": "ERP_2 - Main",
+      "company": "Udara Trading Lanka (Pvt) Ltd",
+      "erpTotal": 0,
+      "alreadyInOs": 0,
+      "missingInOs": 0
+    }
+  ],
+  "totals": {
+    "erpTotal": 3814,
+    "alreadyInOs": 3813,
+    "missingInOs": 1
+  },
+  "missing": [
+    {
+      "slot": "erp1",
+      "company": "Cosmetics.lk",
+      "invoice": "600-001483",
+      "customer": "0777126854",
+      "customerName": "Pranella Fernando",
+      "postingDate": "2026-07-23",
+      "grandTotal": 25365,
+      "status": "Overdue",
+      "isPos": 0,
+      "phone": "0777126854",
+      "email": "pranella17@gmail.com"
+    }
+  ]
+}

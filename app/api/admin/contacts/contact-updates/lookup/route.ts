@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { buildContactPhoneSearchOrFilters } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { LIMITS, trimmedString } from "@/lib/validation";
@@ -43,16 +44,15 @@ export async function GET(request: NextRequest) {
   }
 
   const phone = parsed.data.phone;
-  const variants = buildPhoneLookupVariants(phone);
-  if (variants.length === 0) {
+  const phoneOr = buildContactPhoneSearchOrFilters(phone);
+  if (phoneOr.length === 0) {
     return NextResponse.json({ found: false });
   }
 
-  // Search by primary phone on ContactMaster first
-  let contact = await prisma.contactMaster.findFirst({
+  const contact = await prisma.contactMaster.findFirst({
     where: {
       companyId,
-      phoneNumber: { in: variants },
+      OR: phoneOr as Prisma.ContactMasterWhereInput[],
     },
     select: {
       id: true,
@@ -83,49 +83,6 @@ export async function GET(request: NextRequest) {
       remindTime: true,
     },
   });
-
-  // Fallback: search secondary phones via ContactPhone
-  if (!contact) {
-    const phoneRecord = await prisma.contactPhone.findFirst({
-      where: {
-        phoneNumber: { in: variants },
-        contact: { is: { companyId } },
-      },
-      select: {
-        contact: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            phoneNumber: true,
-            lastPurchaseAt: true,
-            recentMerchant: true,
-            updatedAt: true,
-            createdAt: true,
-            remarks: true,
-            gender: true,
-            workPlace: true,
-            occupation: true,
-            address: true,
-            birthYear: true,
-            birthMonth: true,
-            birthDay: true,
-            serviceProvider: true,
-            district: true,
-            town: true,
-            origin: true,
-            customerType: true,
-            category: true,
-            contactSaved: true,
-            whatsappAllowed: true,
-            remindAt: true,
-            remindTime: true,
-          },
-        },
-      },
-    });
-    contact = phoneRecord?.contact ?? null;
-  }
 
   if (!contact) {
     return NextResponse.json({ found: false });

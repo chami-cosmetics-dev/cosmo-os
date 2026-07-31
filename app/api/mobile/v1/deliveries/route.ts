@@ -4,6 +4,7 @@ import { requireRiderMobileSession } from "@/lib/mobile/api";
 import { toMobileDeliveryDto } from "@/lib/mobile/dto";
 import { resolveMobileSpecialDelivery } from "@/lib/mobile/special-delivery";
 import { mobileDeliveryStatusFilterSchema } from "@/lib/mobile/validation";
+import { incentiveForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -16,84 +17,91 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("status") ?? undefined
   );
 
-  const tasks = await prisma.riderDeliveryTask.findMany({
-    where: {
-      riderId: auth.session.userId,
-      ...(statusResult.success && statusResult.data ? { status: statusResult.data } : {}),
-    },
-    include: {
-      order: {
-        select: {
-          id: true,
-          orderNumber: true,
-          name: true,
-          shopifyOrderId: true,
-          totalPrice: true,
-          totalShipping: true,
-          currency: true,
-          customerPhone: true,
-          customerEmail: true,
-          shippingAddress: true,
-          billingAddress: true,
-          paymentGatewayPrimary: true,
-          paymentGatewayNames: true,
-          financialStatus: true,
-          deliveryOutcome: true,
-          deliveryFailedReason: true,
-          dispatchedAt: true,
-          returns: {
-            orderBy: { actionDate: "desc" },
-            take: 1,
-            select: {
-              actionType: true,
+  const [tasks, chargeByLabelKey] = await Promise.all([
+    prisma.riderDeliveryTask.findMany({
+      where: {
+        riderId: auth.session.userId,
+        ...(statusResult.success && statusResult.data ? { status: statusResult.data } : {}),
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            name: true,
+            shopifyOrderId: true,
+            totalPrice: true,
+            totalShipping: true,
+            shippingLines: true,
+            rawPayload: true,
+            sourceName: true,
+            discountCodes: true,
+            currency: true,
+            customerPhone: true,
+            customerEmail: true,
+            shippingAddress: true,
+            billingAddress: true,
+            paymentGatewayPrimary: true,
+            paymentGatewayNames: true,
+            financialStatus: true,
+            deliveryOutcome: true,
+            deliveryFailedReason: true,
+            dispatchedAt: true,
+            returns: {
+              orderBy: { actionDate: "desc" },
+              take: 1,
+              select: {
+                actionType: true,
+              },
             },
-          },
-          exchangesAsReplacement: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-            select: {
-              id: true,
-              reason: true,
-              originalReference: true,
-              originalOrder: {
-                select: {
-                  id: true,
-                  name: true,
-                  orderNumber: true,
-                  shopifyOrderId: true,
-                  totalPrice: true,
+            exchangesAsReplacement: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                id: true,
+                reason: true,
+                originalReference: true,
+                originalOrder: {
+                  select: {
+                    id: true,
+                    name: true,
+                    orderNumber: true,
+                    shopifyOrderId: true,
+                    totalPrice: true,
+                  },
                 },
               },
             },
-          },
-          companyLocation: { select: { id: true, name: true } },
-          deliveryPayment: {
-            select: {
-              expectedAmount: true,
-              collectedAmount: true,
-              paymentMethod: true,
-              collectionStatus: true,
-              referenceNote: true,
-              bankReference: true,
-              cardReference: true,
-              collectedAt: true,
-              lines: {
-                orderBy: { sortOrder: "asc" },
-                select: {
-                  paymentMethod: true,
-                  amount: true,
-                  bankReference: true,
-                  cardReference: true,
-                  referenceNote: true,
+            companyLocation: { select: { id: true, name: true } },
+            deliveryPayment: {
+              select: {
+                expectedAmount: true,
+                collectedAmount: true,
+                paymentMethod: true,
+                collectionStatus: true,
+                referenceNote: true,
+                bankReference: true,
+                cardReference: true,
+                collectedAt: true,
+                lines: {
+                  orderBy: { sortOrder: "asc" },
+                  select: {
+                    paymentMethod: true,
+                    amount: true,
+                    bankReference: true,
+                    cardReference: true,
+                    referenceNote: true,
+                  },
                 },
               },
             },
           },
         },
       },
-    },
-    orderBy: [{ status: "asc" }, { assignedAt: "desc" }],
-  });
+      orderBy: [{ status: "asc" }, { assignedAt: "desc" }],
+    }),
+    loadRiderDeliveryChargeMap(),
+  ]);
 
   return NextResponse.json({
     deliveries: tasks.map((task) =>
@@ -106,6 +114,7 @@ export async function GET(request: NextRequest) {
           order: task.order,
           task,
         }),
+        incentiveAmount: incentiveForOrder(task.order, chargeByLabelKey).toFixed(2),
       })
     ),
   });

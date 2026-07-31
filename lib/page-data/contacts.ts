@@ -1,5 +1,9 @@
 import type { Prisma } from "@prisma/client";
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
+import {
+  buildContactPhoneSearchOrFilters,
+  isPhoneLikeSearch,
+} from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
@@ -24,6 +28,24 @@ export type ContactsPageParams = {
   status?: "active" | "inactive" | "never_purchased" | null;
   search?: string | null;
 };
+
+function buildContactsSearchWhere(search: string): Prisma.ContactMasterWhereInput {
+  const or: Prisma.ContactMasterWhereInput[] = [
+    { name: { contains: search, mode: "insensitive" } },
+    { email: { contains: search, mode: "insensitive" } },
+    { recentMerchant: { contains: search, mode: "insensitive" } },
+  ];
+
+  if (isPhoneLikeSearch(search)) {
+    or.push(
+      ...(buildContactPhoneSearchOrFilters(search) as Prisma.ContactMasterWhereInput[]),
+    );
+  } else {
+    or.push({ phoneNumber: { contains: search, mode: "insensitive" } });
+  }
+
+  return { OR: or };
+}
 
 export async function fetchContactsPageData(companyId: string, params: ContactsPageParams = {}) {
   const startedAt = Date.now();
@@ -51,15 +73,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
   }
 
   if (params.search?.trim()) {
-    const search = params.search.trim();
-    const searchWhere: Prisma.ContactMasterWhereInput = {
-      OR: [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { phoneNumber: { contains: search, mode: "insensitive" } },
-        { recentMerchant: { contains: search, mode: "insensitive" } },
-      ],
-    };
+    const searchWhere = buildContactsSearchWhere(params.search.trim());
     if (Array.isArray(where.AND)) {
       where.AND = [...where.AND, searchWhere];
     } else if (where.AND) {

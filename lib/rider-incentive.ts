@@ -4,7 +4,8 @@ export type RiderIncentiveInputRow = {
   riderId: string;
   riderName: string | null;
   knownName: string | null;
-  totalShipping: Prisma.Decimal | number | string | null;
+  /** Pre-resolved rider pay for this delivery (from delivery-charge rules). */
+  incentiveAmount: Prisma.Decimal | number | string | null;
   financialStatus: string | null;
 };
 
@@ -16,11 +17,20 @@ export function isIncentiveEligibleOrder(financialStatus: string | null | undefi
   return !VOID_STATUSES.has(status);
 }
 
+/** @deprecated Prefer riderDeliveryChargeAmount / resolveRiderIncentiveFromRules */
 export function shippingIncentiveAmount(
   totalShipping: Prisma.Decimal | number | string | null | undefined
 ): Prisma.Decimal {
   if (totalShipping == null) return new Prisma.Decimal(0);
   const value = new Prisma.Decimal(totalShipping.toString());
+  return value.gt(0) ? value : new Prisma.Decimal(0);
+}
+
+export function normalizeIncentiveAmount(
+  amount: Prisma.Decimal | number | string | null | undefined
+): Prisma.Decimal {
+  if (amount == null) return new Prisma.Decimal(0);
+  const value = new Prisma.Decimal(amount.toString());
   return value.gt(0) ? value : new Prisma.Decimal(0);
 }
 
@@ -55,7 +65,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
         incentiveTotal: new Prisma.Decimal(0),
       };
     existing.completedCount += 1;
-    existing.incentiveTotal = existing.incentiveTotal.add(shippingIncentiveAmount(row.totalShipping));
+    existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
     map.set(row.riderId, existing);
   }
 

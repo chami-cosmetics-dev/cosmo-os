@@ -26,8 +26,9 @@ or
   "paydayDayOfMonth": 25
 }
 ```
-- `paydayDayOfMonth`: integer 1–28, or `null` to clear configuration
-- Reject 29–31 (month-length safety)
+- `paydayDayOfMonth`: integer 1–31, or `null` to clear configuration
+- Reject outside 1–31
+- Months shorter than D use that month’s last day when computing pay windows
 
 ### Behavior
 - Upsert singleton `RiderPayPeriodConfig` (`singletonKey = "default"`)

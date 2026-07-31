@@ -100,7 +100,7 @@ From the rider’s main daily workflow screens, a concise cue (e.g. today’s co
 ### Functional Requirements
 
 - **FR-001**: The rider mobile app MUST provide a dedicated performance tab/screen (distinct from Deliveries, Completed, Cash, and Profile) that shows the signed-in rider their own incentive total for the current pay period by default.
-- **FR-002**: Incentive for a completed delivery MUST equal that order’s shipping cost at completion (same business rule as the existing ops rider performance view).
+- **FR-002**: Incentive for a completed delivery MUST equal the **Delivery Charges for riders** value from the uploaded shipping-rules table for that order’s shipping rule label (matched case-insensitively). Customer Shipping Amount MUST NOT be used when a rule exists with a different rider charge. Unmatched labels MUST add 0 incentive.
 - **FR-003**: Failed, incomplete, voided, cancelled, or returned deliveries MUST NOT contribute incentive to the rider’s totals.
 - **FR-004**: The dedicated performance tab/screen MUST show completed-delivery count, failed-attempt count, and incentive total for the same selected pay period, and MUST display the pay period’s start and end dates.
 - **FR-005**: Each completed delivery in the rider’s history for the period MUST display the incentive amount for that delivery (on Completed history and/or within the performance screen’s detail list).
@@ -122,7 +122,7 @@ From the rider’s main daily workflow screens, a concise cue (e.g. today’s co
 - **Delivery incentive line**: Per completed delivery amount equal to that order’s shipping cost, shown on history rows.
 - **Rider performance summary (personal)**: Aggregated completed count, failed-attempt count, and incentive total for a rider over a selected pay period, shown on the dedicated performance tab/screen.
 - **Pay period**: Rolling month from payday day-of-month D through the day before the next D; performance tab defaults to the current pay period and allows switching to the immediately previous pay period only.
-- **Payday day-of-month**: Single shared configurable calendar day number (1–28 recommended for safety across months) set by ops/admin in Cosmo OS; applies to **all companies**; anchors all rider pay periods.
+- **Payday day-of-month**: Single shared configurable calendar day number (1–31) set by ops/admin in Cosmo OS; applies to **all companies**; anchors all rider pay periods. When a month has fewer days than D, that month’s payday is the last day of the month.
 - **Performance tab/screen**: Dedicated rider-app navigation destination for personal incentive and performance (not merged into Completed or Profile).
 
 ## Success Criteria *(mandatory)*
@@ -140,7 +140,7 @@ From the rider’s main daily workflow screens, a concise cue (e.g. today’s co
 
 ## Assumptions
 
-- Incentive rule stays aligned with the existing Cosmo OS ops definition: **100% of the order’s shipping cost** on successful completion by the completing rider (no new tiered rates or percentage tables in this feature).
+- Incentive rule stays aligned with Cosmo OS ops: rider pay = **Delivery Charges for riders** from the uploaded shipping-rules Excel, matched by order shipping rule / shipping line label (not customer Shipping Amount when they differ). Unmatched labels count as 0 incentive.
 - This feature is **rider-facing visibility and motivation** in the mobile app; it does not replace payroll, cash handover, or settlement workflows already handled elsewhere (e.g. cash tab).
 - No public leaderboard or cross-rider ranking in v1 (personal progress only), to keep the experience supportive rather than competitive.
 - Full summary lives on a **new dedicated tab/screen**; Completed remains the delivery history list (with per-row incentive) and is not the primary performance home.

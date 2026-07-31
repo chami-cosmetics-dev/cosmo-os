@@ -6,7 +6,6 @@ import type {
   RiderDeliveryTask,
 } from "@prisma/client";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
-import { shippingIncentiveAmount } from "@/lib/rider-incentive";
 
 function formatMoney(value: { toString(): string } | null | undefined) {
   return value?.toString() ?? "0.00";
@@ -102,8 +101,10 @@ export function toMobileDeliveryDto(input: {
     oldItemCollectionRemark?: string | null;
     exchangePaymentDifference?: { toString(): string } | string | null;
   } | null;
+  /** Pre-resolved rider delivery charge from shipping-rule Excel table */
+  incentiveAmount?: string | null;
 }) {
-  const { order, task, payment, companyLocation, specialDelivery } = input;
+  const { order, task, payment, companyLocation, specialDelivery, incentiveAmount } = input;
   const deliveryKind = specialDelivery?.deliveryKind ?? task.deliveryKind;
   const exchangePaymentDifference =
     specialDelivery?.exchangePaymentDifference ?? task.exchangePaymentDifference;
@@ -118,7 +119,7 @@ export function toMobileDeliveryDto(input: {
     shippingAddress: order.shippingAddress,
     billingAddress: order.billingAddress,
     amount: formatMoney(order.totalPrice),
-    incentiveAmount: shippingIncentiveAmount(order.totalShipping).toFixed(2),
+    incentiveAmount: incentiveAmount ?? "0.00",
     currency: order.currency,
     expectedPaymentMethod: order.paymentGatewayPrimary,
     financialStatus: order.financialStatus,
