@@ -17,7 +17,7 @@ export async function loadRiderDeliveryChargeMap(): Promise<
 
 export function incentiveForOrder(
   order: {
-    totalShipping?: string | number | null;
+    totalShipping?: string | number | { toString(): string } | null;
     shippingLines?: unknown;
     rawPayload?: unknown;
     sourceName?: string | null;
@@ -25,7 +25,11 @@ export function incentiveForOrder(
   },
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>
 ): Prisma.Decimal {
-  const label = resolveOrderShippingRuleLabel(order);
+  const label = resolveOrderShippingRuleLabel({
+    ...order,
+    totalShipping:
+      order.totalShipping == null ? null : order.totalShipping.toString(),
+  });
   return resolveRiderIncentiveFromRules({
     shippingRuleLabel: label,
     chargeByLabelKey,
