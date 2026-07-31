@@ -29,12 +29,10 @@ npm test -- adapt-import
 
 ## Dry-run
 
+Put all arguments on **one line** (PowerShell does not continue with `\`):
+
 ```bash
-node scripts/with-env.mjs cosmo-dev npx --yes tsx scripts/import-adapt-sales-invoices.ts \
-  --company-id <COMPANY_ID> \
-  --file ./lib/adapt-import/fixtures/adapt-quality-sample.csv \
-  --dry-run \
-  --report ./data/adapt-dry-run-report.json
+node scripts/with-env.mjs cosmo-dev npx --yes tsx scripts/import-adapt-sales-invoices.ts --company-id <COMPANY_ID> --file ./lib/adapt-import/fixtures/adapt-quality-sample.csv --dry-run --report ./data/adapt-dry-run-report.json
 ```
 
 **Expect**: would-counts only; skips for cancelled / no-id / bad amount; no DB writes.

@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 
 import { mapAdaptHeaders, rowFromValues } from "@/lib/adapt-import/columns";
 import { resolveAdaptContact } from "@/lib/adapt-import/contact-resolve";
+import type { AdaptImportDb } from "@/lib/adapt-import/db";
 import {
   loadAdaptLocationMapFile,
   resolveAdaptCompanyLocationId,
@@ -15,7 +16,6 @@ import {
   type AdaptImportReport,
   type AdaptLocationMapEntry,
 } from "@/lib/adapt-import/types";
-import { prisma } from "@/lib/prisma";
 
 function parseCsvLine(line: string): string[] {
   const values: string[] = [];
@@ -54,6 +54,7 @@ function parseCsvLine(line: string): string[] {
 export type RunAdaptImportInput = {
   companyId: string;
   filePath: string;
+  db: AdaptImportDb;
   dryRun?: boolean;
   mapPath?: string | null;
   resumeKeys?: Set<string>;
@@ -61,13 +62,12 @@ export type RunAdaptImportInput = {
   batchSize?: number;
   importBatchId?: string | null;
   limit?: number | null;
-  db?: typeof prisma;
 };
 
 export async function runAdaptImport(
   input: RunAdaptImportInput
 ): Promise<AdaptImportReport> {
-  const db = input.db ?? prisma;
+  const db = input.db;
   const dryRun = Boolean(input.dryRun);
   const report = emptyAdaptImportReport(input.companyId, dryRun);
   const resume = input.resumeKeys ?? new Set<string>();
@@ -125,10 +125,7 @@ export async function runAdaptImport(
         report.skipReasons.bad_amount_or_date += 1;
       }
 
-      const invoiceKeyHint = classified.enrichOnly
-        ? null
-        : `mid:${classified.salesInvoiceMasterId ?? ""}|${classified.salesInvoiceNo}`;
-      if (invoiceKeyHint && classified.salesInvoiceMasterId) {
+      if (classified.salesInvoiceMasterId) {
         const midKey = `mid:${classified.salesInvoiceMasterId}`;
         if (resume.has(midKey)) continue;
       }

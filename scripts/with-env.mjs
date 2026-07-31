@@ -47,7 +47,14 @@ if (!existsSync(envPath)) {
 config({ path: envPath, override: true });
 console.error(`[env] ${entry.label} ← ${entry.file}`);
 
-const result = spawnSync(cmdArgs[0], cmdArgs.slice(1), {
+/** Re-quote args for Windows `shell: true` so paths with spaces survive. */
+function shellQuote(arg) {
+  const s = String(arg);
+  if (!/[\s"&<>|^()%]/.test(s)) return s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+const result = spawnSync(cmdArgs[0], cmdArgs.slice(1).map(shellQuote), {
   stdio: "inherit",
   env: process.env,
   shell: true,
