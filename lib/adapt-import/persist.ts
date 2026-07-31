@@ -1,0 +1,296 @@
+import { Prisma } from "@prisma/client";
+
+import type { AdaptImportDb } from "@/lib/adapt-import/db";
+import {
+  buildContactFillBlanksPatch,
+  hasFillBlanksChanges,
+} from "@/lib/adapt-import/fill-blanks";
+import { buildAdaptInvoiceKey } from "@/lib/adapt-import/invoice-identity";
+import {
+  normalizeAdaptEmail,
+  normalizeAdaptPhone,
+} from "@/lib/adapt-import/contact-resolve";
+import type { AdaptClassifyResult } from "@/lib/adapt-import/types";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { LIMITS } from "@/lib/validation";
+
+type OkClassify = Extract<AdaptClassifyResult, { status: "ok" }>;
+
+export type PersistAdaptRowResult =
+  | { status: "skipped_purchase"; contactId: string | null; contactAction: "none" | "created" | "enriched" }
+  | {
+      status: "upserted";
+      contactId: string;
+      contactAction: "none" | "created" | "enriched";
+      purchaseId: string;
+    };
+
+async function updatePurchaseSnapshot(input: {
+  contactId: string;
+  occurredAt: Date;
+  recentMerchant: string | null;
+  db: AdaptImportDb;
+}) {
+  const merchant = input.recentMerchant?.trim().slice(0, LIMITS.knownName.max) || null;
+  await input.db.contactMaster.updateMany({
+    where: {
+      id: input.contactId,
+      OR: [{ lastPurchaseAt: null }, { lastPurchaseAt: { lt: input.occurredAt } }],
+    },
+    data: {
+      lastPurchaseAt: input.occurredAt,
+      ...(merchant ? { recentMerchant: merchant } : {}),
+    },
+  });
+}
+
+async function ensureSecondaryIdentifiers(
+  db: AdaptImportDb,
+  input: {
+    contactId: string;
+    primaryEmail?: string | null;
+    primaryPhoneNumber?: string | null;
+    email?: string | null;
+    phoneNumber?: string | null;
+  }
+) {
+  const email = normalizeAdaptEmail(input.email);
+  const phoneNumber = normalizeAdaptPhone(input.phoneNumber);
+  const primaryEmail = normalizeAdaptEmail(input.primaryEmail);
+  const primaryPhoneNumber = normalizeAdaptPhone(input.primaryPhoneNumber);
+
+  if (email && email !== primaryEmail) {
+    const exists = await db.contactEmail.findFirst({
+      where: {
+        contactId: input.contactId,
+        email: { equals: email, mode: "insensitive" },
+      },
+      select: { id: true },
+    });
+    if (!exists) {
+      await db.contactEmail.create({
+        data: { contactId: input.contactId, email, isPrimary: false },
+      });
+    }
+  }
+
+  const primaryPhoneVariants = primaryPhoneNumber
+    ? buildPhoneLookupVariants(primaryPhoneNumber)
+    : [];
+  const phoneVariants = phoneNumber ? buildPhoneLookupVariants(phoneNumber) : [];
+  const matchesPrimaryPhone = phoneVariants.some((variant) =>
+    primaryPhoneVariants.includes(variant)
+  );
+  if (phoneNumber && !matchesPrimaryPhone) {
+    const exists = await db.contactPhone.findFirst({
+      where: {
+        contactId: input.contactId,
+        OR: phoneVariants.map((variant) => ({ phoneNumber: variant })),
+      },
+      select: { id: true },
+    });
+    if (!exists) {
+      await db.contactPhone.create({
+        data: { contactId: input.contactId, phoneNumber, isPrimary: false },
+      });
+    }
+  }
+}
+
+/** Upsert Adapt purchase history + fill-blanks contact. Never creates Order. Never sets assignedMerchant. */
+export async function persistAdaptPurchaseRow(input: {
+  companyId: string;
+  classified: OkClassify;
+  companyLocationId: string | null;
+  contactId?: string | null;
+  dryRun?: boolean;
+  importBatchId?: string | null;
+  db: AdaptImportDb;
+}): Promise<PersistAdaptRowResult> {
+  const db = input.db;
+  const classified = input.classified;
+  const email = normalizeAdaptEmail(classified.email);
+  const phone = normalizeAdaptPhone(classified.phone);
+
+  let contactId = input.contactId ?? null;
+  let contactAction: "none" | "created" | "enriched" = "none";
+
+  if (!contactId) {
+    const createPatch = buildContactFillBlanksPatch(null, {
+      name: classified.name,
+      email,
+      phone,
+      address: classified.address,
+      district: classified.district,
+      zone: classified.zone,
+      nearestOutlet: classified.nearestOutlet,
+      remarks: classified.remarks,
+    });
+    if (input.dryRun) {
+      if (classified.enrichOnly) {
+        return { status: "skipped_purchase", contactId: null, contactAction: "created" };
+      }
+      return {
+        status: "upserted",
+        contactId: "dry-run-contact",
+        contactAction: "created",
+        purchaseId: "dry-run",
+      };
+    }
+    const created = await db.contactMaster.create({
+      data: {
+        companyId: input.companyId,
+        name: createPatch.name ?? "Adapt Customer",
+        email: createPatch.email ?? null,
+        phoneNumber: createPatch.phoneNumber ?? null,
+        address: createPatch.address ?? null,
+        district: createPatch.district ?? null,
+        zone: createPatch.zone ?? null,
+        town: createPatch.town ?? null,
+        remarks: createPatch.remarks ?? null,
+        source: "adapt",
+      },
+      select: { id: true },
+    });
+    contactId = created.id;
+    contactAction = "created";
+    await ensureSecondaryIdentifiers(db, {
+      contactId,
+      primaryEmail: createPatch.email,
+      primaryPhoneNumber: createPatch.phoneNumber,
+      email,
+      phoneNumber: phone,
+    });
+  } else {
+    const existing = await db.contactMaster.findFirst({
+      where: { id: contactId, companyId: input.companyId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phoneNumber: true,
+        address: true,
+        district: true,
+        zone: true,
+        town: true,
+        remarks: true,
+        source: true,
+      },
+    });
+    if (!existing) {
+      throw new Error(`Contact ${contactId} not found for company`);
+    }
+    const patch = buildContactFillBlanksPatch(existing, {
+      name: classified.name,
+      email,
+      phone,
+      address: classified.address,
+      district: classified.district,
+      zone: classified.zone,
+      nearestOutlet: classified.nearestOutlet,
+      remarks: classified.remarks,
+    });
+    if (hasFillBlanksChanges(patch) && !input.dryRun) {
+      await db.contactMaster.update({
+        where: { id: contactId },
+        data: patch,
+      });
+      contactAction = "enriched";
+    } else if (hasFillBlanksChanges(patch) && input.dryRun) {
+      contactAction = "enriched";
+    }
+    if (!input.dryRun) {
+      await ensureSecondaryIdentifiers(db, {
+        contactId,
+        primaryEmail: existing.email,
+        primaryPhoneNumber: existing.phoneNumber,
+        email,
+        phoneNumber: phone,
+      });
+    }
+  }
+
+  if (classified.enrichOnly) {
+    return { status: "skipped_purchase", contactId, contactAction };
+  }
+
+  const adaptInvoiceKey = buildAdaptInvoiceKey({
+    salesInvoiceMasterId: classified.salesInvoiceMasterId,
+    salesInvoiceNo: classified.salesInvoiceNo,
+    salesLocationId: classified.salesLocationId,
+    invoiceDate: classified.invoiceDate,
+  });
+  if (!adaptInvoiceKey) {
+    return { status: "skipped_purchase", contactId, contactAction };
+  }
+
+  if (input.dryRun) {
+    return { status: "upserted", contactId: contactId!, contactAction, purchaseId: "dry-run" };
+  }
+
+  const rawPaymentContext =
+    classified.cashAmount || classified.cardAmount
+      ? {
+          cash: classified.cashAmount,
+          card: classified.cardAmount,
+        }
+      : Prisma.JsonNull;
+
+  const upserted = await db.adaptPurchaseHistory.upsert({
+    where: {
+      companyId_adaptInvoiceKey: {
+        companyId: input.companyId,
+        adaptInvoiceKey,
+      },
+    },
+    create: {
+      companyId: input.companyId,
+      contactId: contactId!,
+      companyLocationId: input.companyLocationId,
+      adaptInvoiceKey,
+      salesInvoiceMasterId: classified.salesInvoiceMasterId,
+      salesInvoiceNo: classified.salesInvoiceNo,
+      invoiceDate: classified.invoiceDate,
+      ttlAmount: new Prisma.Decimal(classified.ttlAmount),
+      locationName: classified.locationName,
+      salesLocationId: classified.salesLocationId,
+      paymentMethod: classified.paymentMethod,
+      merchantKnownName: classified.merchantKnownName,
+      adaptMerchantId: classified.adaptMerchantId,
+      adaptCustomerMasterId: classified.adaptCustomerMasterId,
+      rawPaymentContext,
+      importBatchId: input.importBatchId ?? null,
+    },
+    update: {
+      contactId: contactId!,
+      companyLocationId: input.companyLocationId,
+      salesInvoiceMasterId: classified.salesInvoiceMasterId,
+      salesInvoiceNo: classified.salesInvoiceNo,
+      invoiceDate: classified.invoiceDate,
+      ttlAmount: new Prisma.Decimal(classified.ttlAmount),
+      locationName: classified.locationName,
+      salesLocationId: classified.salesLocationId,
+      paymentMethod: classified.paymentMethod,
+      merchantKnownName: classified.merchantKnownName,
+      adaptMerchantId: classified.adaptMerchantId,
+      adaptCustomerMasterId: classified.adaptCustomerMasterId,
+      rawPaymentContext,
+      importBatchId: input.importBatchId ?? null,
+    },
+    select: { id: true },
+  });
+
+  await updatePurchaseSnapshot({
+    contactId: contactId!,
+    occurredAt: classified.invoiceDate,
+    recentMerchant: classified.merchantKnownName,
+    db,
+  });
+
+  return {
+    status: "upserted",
+    contactId: contactId!,
+    contactAction,
+    purchaseId: upserted.id,
+  };
+}

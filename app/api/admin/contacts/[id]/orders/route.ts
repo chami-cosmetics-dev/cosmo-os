@@ -71,10 +71,6 @@ export async function GET(_request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  if (!contact.email && !contact.phoneNumber) {
-    return NextResponse.json({ contact, orders: [] });
-  }
-
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
   const displayEmails = [
@@ -89,54 +85,81 @@ export async function GET(_request: NextRequest, { params }: Params) {
     ...contact.phones.map((row) => row.phoneNumber),
   ]);
 
-  const orders = await prisma.order.findMany({
-    where: {
-      companyId,
-      OR: [
-        ...(emails.length > 0
-          ? emails.map((email) => ({ customerEmail: { equals: email, mode: "insensitive" as const } }))
-          : []),
-        ...(phones.length > 0 ? [{ customerPhone: { in: phones } }] : []),
-      ],
-    },
-    orderBy: { createdAt: "desc" },
+  const contactPayload = {
+    id: contact.id,
+    name: contact.name,
+    email: contact.email,
+    phoneNumber: contact.phoneNumber,
+    emails: displayEmails,
+    phoneNumbers: displayPhones,
+  };
+
+  const adaptPurchasesPromise = prisma.adaptPurchaseHistory.findMany({
+    where: { contactId: contact.id, companyId },
+    orderBy: { invoiceDate: "desc" },
     take: 200,
     select: {
       id: true,
-      shopifyOrderId: true,
-      orderNumber: true,
-      name: true,
-      totalPrice: true,
+      salesInvoiceNo: true,
+      invoiceDate: true,
+      ttlAmount: true,
       currency: true,
-      financialStatus: true,
-      fulfillmentStatus: true,
-      createdAt: true,
-      lineItems: {
-        select: {
-          id: true,
-          quantity: true,
-          price: true,
-          productItem: {
-            select: {
-              productTitle: true,
-              variantTitle: true,
-              sku: true,
-            },
-          },
-        },
-      },
+      locationName: true,
+      companyLocationId: true,
+      paymentMethod: true,
+      merchantKnownName: true,
+      companyLocation: { select: { name: true } },
     },
   });
 
+  const hasOrderLookup = emails.length > 0 || phones.length > 0;
+  const ordersPromise = hasOrderLookup
+    ? prisma.order.findMany({
+        where: {
+          companyId,
+          OR: [
+            ...(emails.length > 0
+              ? emails.map((email) => ({
+                  customerEmail: { equals: email, mode: "insensitive" as const },
+                }))
+              : []),
+            ...(phones.length > 0 ? [{ customerPhone: { in: phones } }] : []),
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          shopifyOrderId: true,
+          orderNumber: true,
+          name: true,
+          totalPrice: true,
+          currency: true,
+          financialStatus: true,
+          fulfillmentStatus: true,
+          createdAt: true,
+          lineItems: {
+            select: {
+              id: true,
+              quantity: true,
+              price: true,
+              productItem: {
+                select: {
+                  productTitle: true,
+                  variantTitle: true,
+                  sku: true,
+                },
+              },
+            },
+          },
+        },
+      })
+    : Promise.resolve([]);
+
+  const [orders, adaptRows] = await Promise.all([ordersPromise, adaptPurchasesPromise]);
+
   return NextResponse.json({
-    contact: {
-      id: contact.id,
-      name: contact.name,
-      email: contact.email,
-      phoneNumber: contact.phoneNumber,
-      emails: displayEmails,
-      phoneNumbers: displayPhones,
-    },
+    contact: contactPayload,
     orders: orders.map((order) => ({
       totalPrice: order.totalPrice.toString(),
       createdAt: order.createdAt.toISOString(),
@@ -155,6 +178,20 @@ export async function GET(_request: NextRequest, { params }: Params) {
         variantTitle: item.productItem.variantTitle,
         sku: item.productItem.sku,
       })),
+    })),
+    adaptPurchases: adaptRows.map((row) => ({
+      id: row.id,
+      source: "adapt" as const,
+      salesInvoiceNo: row.salesInvoiceNo,
+      invoiceDate: row.invoiceDate.toISOString(),
+      ttlAmount: row.ttlAmount.toString(),
+      currency: row.currency,
+      locationName: row.locationName,
+      companyLocationId: row.companyLocationId,
+      companyLocationName: row.companyLocation?.name ?? null,
+      paymentMethod: row.paymentMethod,
+      merchantKnownName: row.merchantKnownName,
+      lineItems: [] as [],
     })),
   });
 }
