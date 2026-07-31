@@ -38,8 +38,8 @@ export function RiderPaydaySettingsForm({
   async function handleSave() {
     if (!canEdit) return;
 
-    if (parsedInput !== null && (Number.isNaN(parsedInput) || parsedInput < 1 || parsedInput > 28)) {
-      notify.error("Payday must be a day from 1 to 28, or empty to clear.");
+    if (parsedInput !== null && (Number.isNaN(parsedInput) || parsedInput < 1 || parsedInput > 31)) {
+      notify.error("Payday must be a day from 1 to 31, or empty to clear.");
       return;
     }
 
@@ -79,7 +79,8 @@ export function RiderPaydaySettingsForm({
         </CardTitle>
         <CardDescription>
           One day of the month for all companies. Pay periods run from that day through the day
-          before the next payday. Use 1–28 only.
+          before the next payday. Use 1–31; shorter months use that month’s last day (e.g. 31 in
+          February → 28/29).
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -91,7 +92,7 @@ export function RiderPaydaySettingsForm({
             id="rider-payday-day"
             type="number"
             min={1}
-            max={28}
+            max={31}
             placeholder="e.g. 25"
             value={paydayDayOfMonth}
             disabled={!canEdit || isBusy}

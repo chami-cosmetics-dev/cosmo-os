@@ -1,7 +1,10 @@
 /**
  * Backfill all submitted Chami Trading Lanka Sales Invoices from ERP2 into Cosmo OS.
  *
- * Usage:
+ * Prefer the generalized ERP1+ERP2 script:
+ *   node scripts/with-env.mjs cosmo-prod node scripts/backfill-erp-si-orders.mjs --slot=erp2 --company="Chami Trading Lanka (Pvt) Ltd"
+ *
+ * Usage (legacy):
  *   node scripts/with-env.mjs cosmo-prod node scripts/backfill-chami-erp-orders.mjs
  *   node scripts/with-env.mjs cosmo-prod node scripts/backfill-chami-erp-orders.mjs --dry-run
  *   node scripts/with-env.mjs cosmo-prod node scripts/backfill-chami-erp-orders.mjs --since=2026-01-01
@@ -11,6 +14,7 @@
  * field mapping, payment approval logic, and POS detection runs automatically.
  *
  * Requires APP_BASE_URL in the env file (e.g. https://cosmo-os.vercel.app).
+ * See scripts/README-erp-contact-si-sync.md for the full Cosmetics contact+SI runbook.
  */
 
 import { config } from "dotenv";

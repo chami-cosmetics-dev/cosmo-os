@@ -138,15 +138,18 @@ function phoneMatchesQuery(phoneNumber: string | null, query: string) {
   const normalizedQuery = query.trim();
   if (!phoneNumber || !normalizedQuery) return false;
 
+  const queryVariants = new Set(buildPhoneLookupVariants(normalizedQuery));
+  const phoneVariants = buildPhoneLookupVariants(phoneNumber);
+  if (phoneVariants.some((variant) => queryVariants.has(variant))) return true;
+
   const queryDigits = phoneDigits(normalizedQuery);
-  const phoneVariantSet = new Set(buildPhoneLookupVariants(phoneNumber));
-  if (phoneVariantSet.has(normalizedQuery)) return true;
-  if (queryDigits && phoneVariantSet.has(queryDigits)) return true;
-
-  if ([3, 4, 6].includes(queryDigits.length)) {
-    return [...phoneVariantSet].some((variant) => phoneDigits(variant).endsWith(queryDigits));
+  const phoneDigitsValue = phoneDigits(phoneNumber);
+  if (!queryDigits || !phoneDigitsValue) return false;
+  if (queryDigits.length >= 4 && phoneDigitsValue.endsWith(queryDigits)) return true;
+  if (queryDigits.length === 10 && queryDigits.startsWith("0")) {
+    const without0 = queryDigits.slice(1);
+    if (phoneDigitsValue.endsWith(without0)) return true;
   }
-
   return false;
 }
 

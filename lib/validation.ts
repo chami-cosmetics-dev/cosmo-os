@@ -402,12 +402,13 @@ export const smsPortalConfigUpdateSchema = z.object({
   campaignName: trimmedString(1, LIMITS.smsPortalCampaign.max),
 });
 
-/** Rider payday day-of-month (1–28) or null to clear — one value for all companies. */
+/** Rider payday day-of-month (1–31) or null to clear — one value for all companies.
+ * Months with fewer days clamp to that month’s last day when computing periods. */
 export const riderPaydayDayOfMonthSchema = z
   .number()
   .int()
   .min(1)
-  .max(28)
+  .max(31)
   .nullable();
 
 export const riderPaydayUpdateSchema = z.object({

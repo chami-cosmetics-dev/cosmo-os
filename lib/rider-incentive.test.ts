@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateRiderIncentives,
   isIncentiveEligibleOrder,
+  normalizeIncentiveAmount,
   shippingIncentiveAmount,
 } from "@/lib/rider-incentive";
 
@@ -10,6 +11,13 @@ describe("shippingIncentiveAmount", () => {
   it("treats null/negative as zero", () => {
     expect(shippingIncentiveAmount(null).toString()).toBe("0");
     expect(shippingIncentiveAmount(400).toString()).toBe("400");
+  });
+});
+
+describe("normalizeIncentiveAmount", () => {
+  it("treats null/negative as zero", () => {
+    expect(normalizeIncentiveAmount(null).toString()).toBe("0");
+    expect(normalizeIncentiveAmount(300).toString()).toBe("300");
   });
 });
 
@@ -21,27 +29,27 @@ describe("isIncentiveEligibleOrder", () => {
 });
 
 describe("aggregateRiderIncentives", () => {
-  it("sums shipping for completed eligible rows", () => {
+  it("sums resolved rider incentive amounts for eligible rows", () => {
     const rows = aggregateRiderIncentives([
       {
         riderId: "r1",
         riderName: "A",
         knownName: null,
-        totalShipping: 200,
+        incentiveAmount: 300,
         financialStatus: "paid",
       },
       {
         riderId: "r1",
         riderName: "A",
         knownName: null,
-        totalShipping: 350,
+        incentiveAmount: 400,
         financialStatus: "paid",
       },
       {
         riderId: "r1",
         riderName: "A",
         knownName: null,
-        totalShipping: 100,
+        incentiveAmount: 100,
         financialStatus: "voided",
       },
     ]);
@@ -51,7 +59,7 @@ describe("aggregateRiderIncentives", () => {
         name: "A",
         knownName: null,
         completedCount: 2,
-        incentiveTotal: "550.00",
+        incentiveTotal: "700.00",
       },
     ]);
   });

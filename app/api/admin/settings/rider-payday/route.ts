@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest) {
 
   const parsed = riderPaydayUpdateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "paydayDayOfMonth must be 1–28 or null" }, { status: 400 });
+    return NextResponse.json({ error: "paydayDayOfMonth must be 1–31 or null" }, { status: 400 });
   }
 
   const userId = auth.context!.user?.id ?? null;
