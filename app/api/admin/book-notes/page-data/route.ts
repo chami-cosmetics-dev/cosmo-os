@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   loadBookNoteDayDto,
+  loadBookNoteHistory,
 } from "@/lib/book-notes/load";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
@@ -47,18 +48,28 @@ export async function GET(request: NextRequest) {
 
   const today = formatAppIsoDate(new Date());
   let day = null;
+  let history: Awaited<ReturnType<typeof loadBookNoteHistory>> = [];
 
-  if (parsed.data.companyLocationId && parsed.data.postingDate) {
-    const location = locations.find((l) => l.id === parsed.data.companyLocationId);
+  const locationId = parsed.data.companyLocationId;
+  if (locationId) {
+    const location = locations.find((l) => l.id === locationId);
     if (!location) {
       return NextResponse.json({ error: "Location not found" }, { status: 404 });
     }
-    day = await loadBookNoteDayDto({
+
+    history = await loadBookNoteHistory({
       companyId,
-      companyLocationId: parsed.data.companyLocationId,
-      postingDateYmd: parsed.data.postingDate,
+      companyLocationId: locationId,
     });
+
+    if (parsed.data.postingDate) {
+      day = await loadBookNoteDayDto({
+        companyId,
+        companyLocationId: locationId,
+        postingDateYmd: parsed.data.postingDate,
+      });
+    }
   }
 
-  return NextResponse.json({ locations, today, day });
+  return NextResponse.json({ locations, today, day, history });
 }

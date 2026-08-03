@@ -71,5 +71,11 @@ export const bookNoteRetrieveQuerySchema = z
     }
   });
 
+/** Send saved (or inline) book note day to ERP verify Server Script. */
+export const bookNoteSendToErpBodySchema = z.object({
+  companyLocationId: cuidSchema,
+  postingDate: ymdSchema,
+});
+
 export type BookNotePutBody = z.infer<typeof bookNotePutBodySchema>;
 export type BookNotePutRow = z.infer<typeof bookNotePutRowSchema>;
