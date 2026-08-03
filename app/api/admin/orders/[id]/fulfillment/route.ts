@@ -447,6 +447,7 @@ export async function PATCH(
           ...orderStageUpdate("print", now),
           sampleFreeIssueCompleteAt: now,
           sampleFreeIssueCompleteById: auth.context!.user!.id,
+          sampleFreeIssueSendLaterDate: null,
         },
       });
       await logOrderFulfillmentAudit({
