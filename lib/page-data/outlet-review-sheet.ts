@@ -126,7 +126,6 @@ export async function fetchOutletReviewSheetData(input: {
         : {}),
     },
     orderBy: { createdAt: "desc" },
-    take: 2000,
     select: {
       id: true,
       name: true,
