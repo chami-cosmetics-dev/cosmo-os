@@ -189,7 +189,7 @@ export function formatAppIsoDateTime(
   return `${get("year")}-${get("month")}-${get("day")} ${hour}:${get("minute")}:${get("second")}`;
 }
 
-/** HH:mm:ss.SSS in Asia/Colombo (order-dump time columns). */
+/** HH:mm:ss in Asia/Colombo (order-dump time columns). */
 export function formatAppIsoTime(
   value: string | Date | null | undefined,
   fallback = "",
@@ -206,6 +206,5 @@ export function formatAppIsoTime(
   const get = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? "00";
   const hour = get("hour") === "24" ? "00" : get("hour");
-  const ms = String(date.getUTCMilliseconds()).padStart(3, "0");
-  return `${hour}:${get("minute")}:${get("second")}.${ms}`;
+  return `${hour}:${get("minute")}:${get("second")}`;
 }
