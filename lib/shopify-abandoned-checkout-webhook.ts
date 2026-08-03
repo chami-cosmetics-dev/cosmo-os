@@ -196,20 +196,46 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
   return { shopifyCheckoutGid, recovered };
 }
 
+async function closeAbandonedCheckoutAsRecovered(row: {
+  id: string;
+  followUpStatus: string;
+  customerResponse: string | null;
+}) {
+  const keepManualClosed =
+    row.followUpStatus === "closed" &&
+    Boolean(row.customerResponse) &&
+    row.customerResponse !== "recovered_sale";
+
+  if (!keepManualClosed) {
+    await prisma.shopifyAbandonedCheckout.update({
+      where: { id: row.id },
+      data: {
+        followUpStatus: "closed",
+        customerResponse: "recovered_sale",
+        shopifyCompletedAt: new Date(),
+        shopifyRecoveredAt: new Date(),
+      },
+    });
+  }
+}
+
 /**
  * Mark matching abandoned checkout as recovered when an order is created.
- * Matches Shopify order `checkout_id` → our `shopifyCheckoutId`.
+ * Prefers Shopify order `checkout_token` (2026-04+), then `checkout_id`.
  */
 export async function markAbandonedCheckoutRecoveredFromOrder(input: {
   companyId: string;
   checkoutId?: string | number | null;
+  checkoutToken?: string | null;
   customerEmail?: string | null;
 }) {
-  const checkoutId =
-    input.checkoutId != null ? String(input.checkoutId).trim() : "";
+  const candidates = [
+    input.checkoutToken != null ? String(input.checkoutToken).trim() : "",
+    input.checkoutId != null ? String(input.checkoutId).trim() : "",
+  ].filter(Boolean);
 
-  if (checkoutId) {
-    const gid = checkoutGidFromId(checkoutId);
+  for (const checkoutKey of candidates) {
+    const gid = checkoutGidFromId(checkoutKey);
     const row = await prisma.shopifyAbandonedCheckout.findUnique({
       where: {
         companyId_shopifyCheckoutGid: {
@@ -225,27 +251,18 @@ export async function markAbandonedCheckoutRecoveredFromOrder(input: {
     });
 
     if (row) {
-      const keepManualClosed =
-        row.followUpStatus === "closed" &&
-        Boolean(row.customerResponse) &&
-        row.customerResponse !== "recovered_sale";
-
-      if (!keepManualClosed) {
-        await prisma.shopifyAbandonedCheckout.update({
-          where: { id: row.id },
-          data: {
-            followUpStatus: "closed",
-            customerResponse: "recovered_sale",
-            shopifyCompletedAt: new Date(),
-            shopifyRecoveredAt: new Date(),
-          },
-        });
-      }
-      return { matched: true as const, by: "checkout_id" as const };
+      await closeAbandonedCheckoutAsRecovered(row);
+      return {
+        matched: true as const,
+        by:
+          checkoutKey === String(input.checkoutToken ?? "").trim()
+            ? ("checkout_token" as const)
+            : ("checkout_id" as const),
+      };
     }
   }
 
-  // Soft fallback: recent open checkout with same email (Vault may lack checkout_id on some orders)
+  // Soft fallback: recent open checkout with same email (Vault may lack checkout ids on some orders)
   const email = input.customerEmail?.trim().toLowerCase();
   if (email) {
     const recent = await prisma.shopifyAbandonedCheckout.findFirst({
@@ -256,18 +273,10 @@ export async function markAbandonedCheckoutRecoveredFromOrder(input: {
         abandonedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
       },
       orderBy: { abandonedAt: "desc" },
-      select: { id: true },
+      select: { id: true, followUpStatus: true, customerResponse: true },
     });
     if (recent) {
-      await prisma.shopifyAbandonedCheckout.update({
-        where: { id: recent.id },
-        data: {
-          followUpStatus: "closed",
-          customerResponse: "recovered_sale",
-          shopifyCompletedAt: new Date(),
-          shopifyRecoveredAt: new Date(),
-        },
-      });
+      await closeAbandonedCheckoutAsRecovered(recent);
       return { matched: true as const, by: "email" as const };
     }
   }

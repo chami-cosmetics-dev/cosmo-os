@@ -43,13 +43,23 @@ const shopifyCheckoutLineItemSchema = z
   })
   .passthrough();
 
+function normalizeCheckoutKey(value: string | number | null | undefined): string | null {
+  if (value == null) return null;
+  const key = String(value).trim();
+  if (!key) return null;
+  return key.slice(0, LIMITS.shopifyLocationId.max);
+}
+
 /**
  * Shopify REST checkout webhook payload (checkouts/create|update|delete).
  * Uses passthrough so Shopify can add fields without breaking ingest.
+ *
+ * As of API 2026-04, Shopify removed `id` from checkout webhooks — use `token`.
+ * Older payloads may still send `id` (and sometimes both).
  */
 export const shopifyCheckoutWebhookSchema = z
   .object({
-    id: z.union([z.number(), z.string()]),
+    id: z.union([z.number(), z.string()]).optional().nullable(),
     token: z.string().optional().nullable(),
     cart_token: z.string().optional().nullable(),
     email: z.string().optional().nullable(),
@@ -66,11 +76,30 @@ export const shopifyCheckoutWebhookSchema = z
     line_items: z.array(shopifyCheckoutLineItemSchema).optional().default([]),
   })
   .passthrough()
-  .transform((row) => ({
-    ...row,
-    id: String(row.id).slice(0, LIMITS.shopifyLocationId.max),
-    email: row.email?.trim().slice(0, LIMITS.email.max) || null,
-    phone: row.phone?.trim().slice(0, LIMITS.mobile.max) || null,
-  }));
+  .superRefine((row, ctx) => {
+    const id = normalizeCheckoutKey(row.id);
+    const token = normalizeCheckoutKey(row.token);
+    if (!id && !token) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Either id or token is required",
+        path: ["id"],
+      });
+    }
+  })
+  .transform((row) => {
+    const id = normalizeCheckoutKey(row.id);
+    const token = normalizeCheckoutKey(row.token);
+    // Prefer token (Shopify 2026-04+); fall back to numeric id for older payloads.
+    const checkoutKey = (token ?? id)!;
+
+    return {
+      ...row,
+      id: checkoutKey,
+      token,
+      email: row.email?.trim().slice(0, LIMITS.email.max) || null,
+      phone: row.phone?.trim().slice(0, LIMITS.mobile.max) || null,
+    };
+  });
 
 export type ShopifyCheckoutWebhookPayload = z.infer<typeof shopifyCheckoutWebhookSchema>;

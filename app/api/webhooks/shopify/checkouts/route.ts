@@ -95,9 +95,15 @@ export async function POST(request: NextRequest) {
 
   const parsed = shopifyCheckoutWebhookSchema.safeParse(rawPayload);
   if (!parsed.success) {
+    const payload = rawPayload as { id?: unknown; token?: unknown };
     console.error("[Checkout webhook] Invalid payload", {
       ...webhookMeta,
       companyId: location.companyId,
+      idPresent: payload?.id != null,
+      idType: payload?.id == null ? null : typeof payload.id,
+      tokenPresent: Boolean(
+        typeof payload?.token === "string" ? payload.token.trim() : payload?.token
+      ),
       details: parsed.error.flatten(),
     });
     return NextResponse.json(
