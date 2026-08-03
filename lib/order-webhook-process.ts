@@ -357,6 +357,7 @@ export async function processOrderWebhook(
     await markAbandonedCheckoutRecoveredFromOrder({
       companyId,
       checkoutId: data.checkout_id,
+      checkoutToken: data.checkout_token,
       customerEmail: data.email ?? data.contact_email ?? data.customer?.email ?? null,
     });
   } catch (err) {
