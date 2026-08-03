@@ -7,7 +7,8 @@
  *   node scripts/with-env.mjs cosmo-dev npx --yes tsx scripts/import-adapt-sales-invoices.ts --company-id <id> --file <csv> --dry-run --limit 1000
  */
 
-import { writeFileSync, readFileSync, existsSync, statSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, statSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 
 import { PrismaClient } from "@prisma/client";
 
@@ -101,11 +102,13 @@ async function main() {
     console.log(JSON.stringify(report, null, 2));
 
     if (reportPath) {
+      mkdirSync(dirname(reportPath), { recursive: true });
       writeFileSync(reportPath, JSON.stringify(report, null, 2), "utf8");
       console.log(`[adapt-import] wrote report ${reportPath}`);
     }
 
     if (!dryRun && resumePath) {
+      mkdirSync(dirname(resumePath), { recursive: true });
       writeFileSync(
         resumePath,
         JSON.stringify({ completedKeys: [...checkpointKeys] }, null, 2),
