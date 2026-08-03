@@ -5,7 +5,6 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -277,7 +276,7 @@ export function BookNotesPanel({
 
       <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label>Outlet</Label>
+          <label className="text-xs font-medium text-muted-foreground">Outlet</label>
           <Select
             value={companyLocationId}
             disabled={isBusy}
@@ -299,7 +298,7 @@ export function BookNotesPanel({
           </Select>
         </div>
         <div className="space-y-2">
-          <Label>Date</Label>
+          <label className="text-xs font-medium text-muted-foreground">Date</label>
           <Input
             type="date"
             value={postingDate}
