@@ -439,27 +439,32 @@ async function postErpSalesInvoiceCreate(
   siBody: Record<string, unknown>,
   opts?: CreateErpSalesInvoiceOpts,
 ): Promise<ErpSalesInvoiceCreateResult> {
+  // Keep cents on SI total/outstanding so PE matches grand_total (not rounded whole LKR).
+  const body: Record<string, unknown> = {
+    ...siBody,
+    disable_rounded_total: siBody.disable_rounded_total ?? 1,
+  };
   try {
-    return await erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", siBody);
+    return await erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", body);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("417") && msg.includes("shipping_rule") && cfg.shippingRule) {
       console.warn("[ERPNext] SI creation failed — mandatory shipping_rule, retrying with rule:", msg.slice(0, 200));
       return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", {
-        ...siBody,
+        ...body,
         shipping_rule: cfg.shippingRule,
       });
     }
-    if (!opts?.skipPaymentTypeRetry && msg.includes("417") && msg.includes("custom_payment_type") && !siBody.custom_payment_type) {
+    if (!opts?.skipPaymentTypeRetry && msg.includes("417") && msg.includes("custom_payment_type") && !body.custom_payment_type) {
       console.warn(`[ERPNext] SI creation failed — custom_payment_type mandatory but unresolved, retrying with codMop fallback: ${msg.slice(0, 200)}`);
-      return postErpSalesInvoiceCreate(cfg, { ...siBody, custom_payment_type: cfg.codMop }, { ...opts, skipPaymentTypeRetry: true });
+      return postErpSalesInvoiceCreate(cfg, { ...body, custom_payment_type: cfg.codMop }, { ...opts, skipPaymentTypeRetry: true });
     }
     if (!opts?.skipMerchantRetry && msg.includes("417") && (msg.includes("Merchant Coupon Code") || msg.includes("custom_merchant_coupon_code"))) {
-      const originalMerchant = typeof siBody.custom_merchant_coupon_code === "string" && siBody.custom_merchant_coupon_code !== "SHOPIFY"
-        ? siBody.custom_merchant_coupon_code
+      const originalMerchant = typeof body.custom_merchant_coupon_code === "string" && body.custom_merchant_coupon_code !== "SHOPIFY"
+        ? body.custom_merchant_coupon_code
         : null;
       console.warn("[ERPNext] SI creation failed — Merchant Coupon Code invalid, retrying without it:", msg.slice(0, 200));
-      const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = siBody;
+      const { custom_merchant_coupon_code: _merchant, ...withoutMerchant } = body;
       const retryOpts = { ...opts, skipMerchantRetry: true };
       try {
         return await postErpSalesInvoiceCreate(cfg, withoutMerchant, retryOpts);
@@ -476,22 +481,22 @@ async function postErpSalesInvoiceCreate(
         }, retryOpts);
       }
     }
-    if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in siBody) {
+    if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in body) {
       const couponLabel =
-        (typeof siBody.coupon_code === "string" && siBody.coupon_code) ||
+        (typeof body.coupon_code === "string" && body.coupon_code) ||
         opts?.couponLabel ||
         null;
       console.warn("[ERPNext] SI creation failed — coupon_code invalid, retrying with discount fallback:", msg.slice(0, 200));
-      const { coupon_code: _coupon, ...withoutCoupon } = siBody;
+      const { coupon_code: _coupon, ...withoutCoupon } = body;
       const retryBody = withCouponDiscountFallback(withoutCoupon, opts, couponLabel);
       if (opts?.netRateItems?.length) {
         retryBody.items = opts.netRateItems;
       }
       return postErpSalesInvoiceCreate(cfg, retryBody, opts);
     }
-    if (msg.includes("417") && /coupon/i.test(msg) && "custom_coupon_code" in siBody) {
+    if (msg.includes("417") && /coupon/i.test(msg) && "custom_coupon_code" in body) {
       console.warn("[ERPNext] SI creation failed — custom_coupon_code invalid, retrying without it:", msg.slice(0, 200));
-      const { custom_coupon_code: _custom, ...withoutCustom } = siBody;
+      const { custom_coupon_code: _custom, ...withoutCustom } = body;
       return postErpSalesInvoiceCreate(
         cfg,
         withCouponDiscountFallback(withoutCustom, opts, opts?.couponLabel ?? null),
@@ -500,12 +505,12 @@ async function postErpSalesInvoiceCreate(
     }
     if (cfg.taxesAndCharges && msg.includes("417")) {
       console.warn("[ERPNext] SI creation failed — retrying without taxes_and_charges:", msg.slice(0, 200));
-      const { taxes_and_charges: _t, ...siBodyClean } = siBody;
+      const { taxes_and_charges: _t, ...siBodyClean } = body;
       return erpnextPost<ErpSalesInvoiceCreateResult>(cfg, "/api/resource/Sales Invoice", siBodyClean);
     }
-    if (msg.includes("payment_terms") && !("payment_terms_template" in siBody)) {
+    if (msg.includes("payment_terms") && !("payment_terms_template" in body)) {
       console.warn("[ERPNext] SI creation failed — payment_terms error (customer has broken template), retrying with cleared payment_terms_template:", msg.slice(0, 200));
-      return postErpSalesInvoiceCreate(cfg, { ...siBody, payment_terms_template: "" }, opts);
+      return postErpSalesInvoiceCreate(cfg, { ...body, payment_terms_template: "" }, opts);
     }
     throw err;
   }
@@ -1479,6 +1484,7 @@ export async function ensureErpnextCreditNote(
       po_no: orderName,
       items: returnItems,
       docstatus: 1,
+      disable_rounded_total: 1,
       ...(originalSi.custom_payment_type ? { custom_payment_type: originalSi.custom_payment_type } : {}),
       ...(originalSi.custom_merchant_coupon_code
         ? { custom_merchant_coupon_code: originalSi.custom_merchant_coupon_code }
