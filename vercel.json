@@ -32,6 +32,10 @@
     {
       "path": "/api/cron/abandoned-checkouts-sync",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/advance-sample-send-later",
+      "schedule": "5 * * * *"
     }
   ],
   "ignoreCommand": "node scripts/vercel-should-build.mjs",
