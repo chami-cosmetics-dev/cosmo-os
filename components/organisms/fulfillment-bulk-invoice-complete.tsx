@@ -35,6 +35,7 @@ type AwaitingInvoiceOrder = {
   customerEmail: string | null;
   shippingAddress: { phone?: string | null } | null;
   totalPrice: string;
+  totalShipping?: string | null;
   currency: string | null;
   fulfillmentStage: string;
   paymentGatewayPrimary?: string | null;
@@ -43,6 +44,11 @@ type AwaitingInvoiceOrder = {
   companyLocation: { id: string; name: string } | null;
   createdAt: string;
 };
+
+function formatBulkMoney(amount: number, currency?: string | null) {
+  const formatted = amount.toLocaleString("en-LK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currency ? `${formatted} ${currency}` : formatted;
+}
 
 type InvoiceResult = {
   orderId: string;
@@ -86,6 +92,12 @@ type OrderDetail = {
     total: string;
   }>;
 };
+
+function resolveOrderShipping(order: AwaitingInvoiceOrder, detail?: OrderDetail | null): number {
+  const raw = detail?.totalShipping ?? order.totalShipping ?? 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
 
 interface FulfillmentBulkInvoiceCompleteProps {
   onRefresh: () => void;
@@ -182,6 +194,20 @@ export function FulfillmentBulkInvoiceComplete({
   }
 
   const readyToComplete = selectedOrders.filter((o) => o.fulfillmentStage === "delivery_complete");
+
+  const bulkTotals = (() => {
+    if (selectedOrders.length === 0) return null;
+    let bulkTotal = 0;
+    let shippingTotal = 0;
+    for (const order of selectedOrders) {
+      const total = Number(order.totalPrice);
+      if (Number.isFinite(total)) bulkTotal += total;
+      shippingTotal += resolveOrderShipping(order, orderDetails[order.id]);
+    }
+    const siTotal = Math.max(0, bulkTotal - shippingTotal);
+    const currency = selectedOrders.find((o) => o.currency)?.currency ?? null;
+    return { count: selectedOrders.length, bulkTotal, siTotal, shippingTotal, currency };
+  })();
 
   useEffect(() => {
     if (!initialOrderId || selectedOrders.some((o) => o.id === initialOrderId)) return;
@@ -464,6 +490,33 @@ export function FulfillmentBulkInvoiceComplete({
               </span>
             );
           })}
+        </div>
+      )}
+
+      {bulkTotals && (
+        <div className="grid gap-2 rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm sm:grid-cols-4">
+          <p>
+            <span className="text-muted-foreground">Orders</span>
+            <span className="mt-0.5 block font-medium tabular-nums">{bulkTotals.count}</span>
+          </p>
+          <p>
+            <span className="text-muted-foreground">Bulk total</span>
+            <span className="mt-0.5 block font-medium tabular-nums">
+              {formatBulkMoney(bulkTotals.bulkTotal, bulkTotals.currency)}
+            </span>
+          </p>
+          <p>
+            <span className="text-muted-foreground">SI total (excl. shipping)</span>
+            <span className="mt-0.5 block font-medium tabular-nums">
+              {formatBulkMoney(bulkTotals.siTotal, bulkTotals.currency)}
+            </span>
+          </p>
+          <p>
+            <span className="text-muted-foreground">Shipping total</span>
+            <span className="mt-0.5 block font-medium tabular-nums">
+              {formatBulkMoney(bulkTotals.shippingTotal, bulkTotals.currency)}
+            </span>
+          </p>
         </div>
       )}
 
