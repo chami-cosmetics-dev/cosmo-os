@@ -79,6 +79,11 @@ export const LIMITS = {
   merchantReviewBulkMark: { maxOrderIds: 500 },
   /** Order-payment finance rejection reason (server-enforced) */
   orderPaymentRejectionReason: { min: 5, max: 500 },
+  /** Merchant book note invoice number */
+  bookNoteSalesInvoice: { min: 1, max: 120 },
+  bookNoteIdxNo: { max: 32 },
+  bookNoteRowsMax: 500,
+  bookNoteRetrieveMaxDays: 31,
 } as const;
 
 /** Parse and validate page number from query string */

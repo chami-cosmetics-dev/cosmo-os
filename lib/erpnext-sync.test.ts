@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   creditNoteUpdateOutstandingForSelf,
   isUsableErpSalesInvoiceId,
+  mapDeliveryPaymentMethodToMop,
+  resolveOrderPaymentMop,
 } from "@/lib/erpnext-sync";
 import { isCcCheckoutGateway } from "@/lib/delivery-payment-approval";
 
@@ -68,5 +70,58 @@ describe("CC Checkout → WebXPay MOP mapping", () => {
     expect(
       resolvePrepaidMopForTest({ ...cfg, webxpayMop: "" }, ["cc_checkout"]),
     ).toBeNull();
+  });
+});
+
+describe("Citypak courier → City Pak MOP mapping", () => {
+  const cfg = {
+    cashMop: "Cash",
+    codMop: "Cash On Delivery",
+    cardDeliveryMop: "Credit Card",
+    bankTransferMop: "Wire Transfer",
+    kokoMop: "Koko",
+    webxpayMop: "WebXPay",
+    citypakMop: "City Pak",
+    taxesAndCharges: "",
+    shippingRule: "",
+    shippingItem: "",
+    shippingChargeAccount: "",
+    baseUrl: "",
+    apiKey: "",
+    apiSecret: "",
+  };
+
+  it("remaps COD/cash collections for Citypak courier", () => {
+    expect(
+      resolveOrderPaymentMop(cfg, "Cash on Delivery (COD)", [], {
+        courierServiceName: "City Pack",
+      }),
+    ).toBe("City Pak");
+  });
+
+  it("keeps prepaid mappings for Citypak courier", () => {
+    expect(
+      resolveOrderPaymentMop(cfg, "KOKO", [], { courierServiceName: "Citypak" }),
+    ).toBe("Koko");
+  });
+
+  it("does not remap when citypakMop is empty", () => {
+    expect(
+      resolveOrderPaymentMop(
+        { ...cfg, citypakMop: "" },
+        "Cash on Delivery (COD)",
+        [],
+        { courierServiceName: "City Pack" },
+      ),
+    ).toBe("Cash On Delivery");
+  });
+
+  it("maps COD delivery lines to City Pak for Citypak courier", () => {
+    expect(
+      mapDeliveryPaymentMethodToMop(cfg, "cod", { courierServiceName: "City Pak" }),
+    ).toBe("City Pak");
+    expect(mapDeliveryPaymentMethodToMop(cfg, "cod", { courierServiceName: "Domex" })).toBe(
+      "Cash On Delivery",
+    );
   });
 });

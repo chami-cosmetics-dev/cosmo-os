@@ -41,7 +41,10 @@ export async function markOrderInvoiceComplete(input: {
 
   const order = await prisma.order.findFirst({
     where: { id: input.orderId, companyId: input.companyId },
-    include: { companyLocation: { include: { erpnextInstance: true } } },
+    include: {
+      companyLocation: { include: { erpnextInstance: true } },
+      dispatchedByCourierService: { select: { name: true } },
+    },
   });
 
   const ref = order?.name ?? order?.orderNumber ?? input.orderId;
@@ -64,13 +67,16 @@ export async function markOrderInvoiceComplete(input: {
       error: "Can only mark invoice complete when delivery is complete",
     };
   }
+  const courierServiceName = order.dispatchedByCourierService?.name ?? null;
   const erpCfg = order.companyLocation?.erpnextInstance
     ? getErpConfig(order.companyLocation.erpnextInstance)
     : null;
   const resolvedMop =
     mopOverride ??
     (erpCfg
-      ? resolveOrderPaymentMop(erpCfg, order.paymentGatewayPrimary, order.paymentGatewayNames)
+      ? resolveOrderPaymentMop(erpCfg, order.paymentGatewayPrimary, order.paymentGatewayNames, {
+          courierServiceName,
+        })
       : null) ??
     undefined;
 
@@ -118,6 +124,7 @@ export async function markOrderInvoiceComplete(input: {
           paymentGatewayPrimary: order.paymentGatewayPrimary,
           paymentGatewayNames: order.paymentGatewayNames,
           erpnextInvoiceId: order.erpnextInvoiceId,
+          courierServiceName,
         },
         order.companyLocation,
         now,

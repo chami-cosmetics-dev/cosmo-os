@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Validated 2026-08-03: all checklist items pass. Retrieve access is specified as a business capability (authorized consumers pull saved days); tech stack left to planning. ERP verify/recon remain out of scope per Assumptions.
-- Ready for `/speckit-clarify` or `/speckit-plan`.
+- Validated 2026-08-03: all checklist items pass. Clarification session 2026-08-03 resolved roles, same-day lock, invoice typeahead + editable autofill amounts, and outlet dropdown.
+- Ready for `/speckit-plan`.
