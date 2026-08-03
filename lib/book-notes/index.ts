@@ -1,5 +1,6 @@
 export type {
   BookNoteDayDto,
+  BookNoteHistoryItem,
   BookNoteLocationOption,
   BookNoteOrderSuggestion,
   BookNotePaymentColumns,
@@ -31,4 +32,10 @@ export { searchBookNoteOrderSuggestions } from "@/lib/book-notes/order-suggestio
 export {
   loadBookNoteDayDto,
   loadBookNoteDaysInRange,
+  loadBookNoteHistory,
 } from "@/lib/book-notes/load";
+
+export {
+  getBookNoteVerifyMethod,
+  sendBookNoteRowsToErp,
+} from "@/lib/book-notes/erp-verify";

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import type {
   BookNoteDayDto,
+  BookNoteHistoryItem,
   BookNoteLocationOption,
   BookNoteOrderSuggestion,
 } from "@/lib/book-notes/types";
@@ -29,6 +30,8 @@ type LedgerRow = {
   bankTransfer: string;
   orderId: string | null;
 };
+
+const MAX_CREATE_ROWS = 200;
 
 function toNum(v: string): number {
   const n = parseFloat(v);
@@ -48,9 +51,14 @@ function emptyRow(idx: number): LedgerRow {
   };
 }
 
+function makeBlankRows(count: number): LedgerRow[] {
+  const n = Math.min(Math.max(Math.floor(count), 1), MAX_CREATE_ROWS);
+  return Array.from({ length: n }, (_, i) => emptyRow(i + 1));
+}
+
 function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
   if (!day?.rows?.length) {
-    return [1, 2, 3, 4].map((i) => emptyRow(i));
+    return makeBlankRows(4);
   }
   return day.rows.map((r, i) => ({
     key: `saved-${day.id}-${i}`,
@@ -79,12 +87,12 @@ export function BookNotesPanel({
   );
   const [postingDate, setPostingDate] = useState(initialToday);
   const [today] = useState(initialToday);
-  const [rows, setRows] = useState<LedgerRow[]>(() =>
-    [1, 2, 3, 4].map((i) => emptyRow(i)),
-  );
+  const [rows, setRows] = useState<LedgerRow[]>(() => makeBlankRows(4));
+  const [rowCountInput, setRowCountInput] = useState("4");
   const [locked, setLocked] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState("");
+  const [history, setHistory] = useState<BookNoteHistoryItem[]>([]);
   const [suggestForKey, setSuggestForKey] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<BookNoteOrderSuggestion[]>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,8 +116,11 @@ export function BookNotesPanel({
         return;
       }
       const day = data.day as BookNoteDayDto | null;
-      setRows(dayToRows(day));
+      const nextRows = dayToRows(day);
+      setRows(nextRows);
+      setRowCountInput(String(nextRows.length));
       setLocked(Boolean(day?.locked) || date !== (data.today as string));
+      setHistory((data.history as BookNoteHistoryItem[]) ?? []);
       setStatusLine(day ? `Loaded ${day.rows.length} row(s)` : "No saved rows for this day");
     } catch {
       notify.error("Failed to load book note");
@@ -130,12 +141,43 @@ export function BookNotesPanel({
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
+  function createRowsFromCount() {
+    if (readOnly) return;
+    const n = parseInt(rowCountInput, 10);
+    if (!Number.isFinite(n) || n < 1) {
+      notify.error("Enter a row count of at least 1");
+      return;
+    }
+    if (n > MAX_CREATE_ROWS) {
+      notify.error(`Maximum ${MAX_CREATE_ROWS} rows`);
+      return;
+    }
+    setRows(makeBlankRows(n));
+    setRowCountInput(String(n));
+    setStatusLine(`Created ${n} blank row(s)`);
+  }
+
   function addRow() {
-    setRows((prev) => [...prev, emptyRow(prev.length + 1)]);
+    setRows((prev) => {
+      const next = [...prev, emptyRow(prev.length + 1)];
+      setRowCountInput(String(next.length));
+      return next;
+    });
   }
 
   function removeRow(key: string) {
-    setRows((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.key !== key)));
+    setRows((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((r) => r.key !== key);
+      setRowCountInput(String(next.length));
+      return next;
+    });
+  }
+
+  function openHistoryDay(item: BookNoteHistoryItem) {
+    setPostingDate(item.posting_date);
+    setLocked(item.locked || item.posting_date !== today);
+    void loadDay(companyLocationId, item.posting_date);
   }
 
   function fetchSuggestions(rowKey: string, q: string) {
@@ -209,9 +251,23 @@ export function BookNotesPanel({
       }
       const day = data as BookNoteDayDto;
       setRows(dayToRows(day));
+      setRowCountInput(String(day.rows.length || 1));
       setLocked(day.locked);
       setStatusLine(`Saved ${day.rows.length} row(s)`);
       notify.success("Book note saved");
+      try {
+        const histParams = new URLSearchParams({
+          companyLocationId,
+          postingDate,
+        });
+        const histRes = await fetch(`/api/admin/book-notes/page-data?${histParams}`);
+        const histData = await histRes.json();
+        if (histRes.ok) {
+          setHistory((histData.history as BookNoteHistoryItem[]) ?? []);
+        }
+      } catch {
+        // history refresh is best-effort
+      }
     } catch {
       notify.error("Save failed");
       setStatusLine("Save failed");
@@ -220,36 +276,42 @@ export function BookNotesPanel({
     }
   }
 
-  function handleExport() {
-    const location = locations.find((l) => l.id === companyLocationId);
-    const company = location?.erpnextCompany?.trim() || location?.name || "";
-    const payload = {
-      company,
-      posting_date: postingDate,
-      rows: rows
-        .map((r) => ({
-          idx_no: r.idxNo,
-          sales_invoice: r.salesInvoice.trim(),
-          cash: toNum(r.cash),
-          card: toNum(r.card),
-          koko: toNum(r.koko),
-          bank_transfer: toNum(r.bankTransfer),
-        }))
-        .filter(
-          (r) =>
-            r.sales_invoice ||
-            r.cash + r.card + r.koko + r.bank_transfer > 0,
-        ),
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `book_note_${postingDate || "export"}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleSendToErp(dateYmd: string = postingDate) {
+    if (!companyLocationId || !dateYmd) return;
+    setBusyKey(`erp:${dateYmd}`);
+    setStatusLine(`Sending ${dateYmd} to ERP...`);
+    try {
+      const res = await fetch("/api/admin/book-notes/send-to-erp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyLocationId,
+          postingDate: dateYmd,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify.error(data.error ?? "ERP send failed");
+        setStatusLine(data.error ?? "ERP send failed");
+        return;
+      }
+      const s = data.summary as {
+        verified_count?: number;
+        mismatch_count?: number;
+        not_found_count?: number;
+        total_rows?: number;
+      } | null;
+      const line = s
+        ? `ERP ${dateYmd}: ${s.verified_count ?? 0} verified, ${s.mismatch_count ?? 0} mismatch, ${s.not_found_count ?? 0} not found (of ${s.total_rows ?? 0})`
+        : `Sent ${dateYmd} to ERP`;
+      setStatusLine(line);
+      notify.success(line);
+    } catch {
+      notify.error("ERP send failed");
+      setStatusLine("ERP send failed");
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   const totals = rows.reduce(
@@ -274,7 +336,7 @@ export function BookNotesPanel({
         </p>
       </div>
 
-      <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-2">
+      <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-3">
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">Outlet</label>
           <Select
@@ -317,6 +379,37 @@ export function BookNotesPanel({
               ({today}).
             </p>
           )}
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-muted-foreground">
+            Rows
+          </label>
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              min={1}
+              max={MAX_CREATE_ROWS}
+              inputMode="numeric"
+              value={rowCountInput}
+              disabled={isBusy || readOnly}
+              className="w-24"
+              onChange={(e) => setRowCountInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  createRowsFromCount();
+                }
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy || readOnly}
+              onClick={createRowsFromCount}
+            >
+              Create rows
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -374,7 +467,6 @@ export function BookNotesPanel({
                         fetchSuggestions(row.key, e.target.value);
                       }}
                       onBlur={() => {
-                        // delay so click on suggestion registers
                         setTimeout(() => {
                           setSuggestForKey((k) => (k === row.key ? null : k));
                         }, 150);
@@ -473,27 +565,32 @@ export function BookNotesPanel({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={isBusy || readOnly}
-            onClick={addRow}
-          >
-            <Plus className="h-4 w-4" />
-            Add row
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={isBusy}
-            onClick={handleExport}
-          >
-            Export JSON
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={isBusy || readOnly}
+          onClick={addRow}
+        >
+          <Plus className="h-4 w-4" />
+          Add row
+        </Button>
         <div className="flex items-center gap-3">
           <span className="text-muted-foreground text-sm">{statusLine}</span>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isBusy || !companyLocationId}
+            onClick={() => void handleSendToErp(postingDate)}
+          >
+            {busyKey === `erp:${postingDate}` ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden />
+                Sending...
+              </>
+            ) : (
+              "Send to ERP"
+            )}
+          </Button>
           <Button
             type="button"
             disabled={isBusy || readOnly || !companyLocationId}
@@ -509,6 +606,85 @@ export function BookNotesPanel({
             )}
           </Button>
         </div>
+      </div>
+
+      <div className="bg-card rounded-lg border p-4">
+        <h2 className="mb-3 text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+          Save history
+        </h2>
+        {history.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No saved book notes for this outlet yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="p-2">Date</th>
+                  <th className="p-2 text-right">Rows</th>
+                  <th className="p-2 text-right">Total</th>
+                  <th className="p-2">Status</th>
+                  <th className="p-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((item) => {
+                  const active = item.posting_date === postingDate;
+                  const resending = busyKey === `erp:${item.posting_date}`;
+                  return (
+                    <tr
+                      key={item.id}
+                      className={
+                        active
+                          ? "border-b bg-accent/40"
+                          : "border-b hover:bg-muted/40"
+                      }
+                    >
+                      <td className="p-2 font-mono">{item.posting_date}</td>
+                      <td className="p-2 text-right font-mono">{item.rowCount}</td>
+                      <td className="p-2 text-right font-mono">
+                        {item.grandTotal.toFixed(2)}
+                      </td>
+                      <td className="p-2 text-xs text-muted-foreground">
+                        {item.locked ? "Locked" : "Editable"}
+                      </td>
+                      <td className="p-2">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={isBusy || active}
+                            onClick={() => openHistoryDay(item)}
+                          >
+                            Open
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={isBusy || item.rowCount === 0 || !companyLocationId}
+                            onClick={() => void handleSendToErp(item.posting_date)}
+                          >
+                            {resending ? (
+                              <>
+                                <Loader2 className="animate-spin" aria-hidden />
+                                Sending...
+                              </>
+                            ) : (
+                              "Resend to ERP"
+                            )}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
