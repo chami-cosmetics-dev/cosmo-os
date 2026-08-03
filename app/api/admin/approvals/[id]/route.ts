@@ -959,7 +959,10 @@ export async function PATCH(
   ) {
     const order = await prisma.order.findUnique({
       where: { id: approval.orderId },
-      include: { companyLocation: { include: { erpnextInstance: true } } },
+      include: {
+        companyLocation: { include: { erpnextInstance: true } },
+        dispatchedByCourierService: { select: { name: true } },
+      },
     });
 
     const revertDeliveryApprovalToPending = async () => {
@@ -1002,7 +1005,16 @@ export async function PATCH(
       // Always attempt PE (even if a prior approval exists) — already_paid is idempotent.
       // Split payments create one partial PE per collection line against the same SI.
       const peResult = await syncOrderDeliveryPaymentEntriesToErp(
-        order,
+        {
+          id: order.id,
+          name: order.name,
+          shopifyOrderId: order.shopifyOrderId,
+          sourceName: order.sourceName,
+          paymentGatewayPrimary: order.paymentGatewayPrimary,
+          paymentGatewayNames: order.paymentGatewayNames,
+          erpnextInvoiceId: order.erpnextInvoiceId,
+          courierServiceName: order.dispatchedByCourierService?.name ?? null,
+        },
         order.companyLocation,
         now,
         { requireMop: true },

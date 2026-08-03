@@ -23,6 +23,7 @@ import {
 } from "@/lib/delivery-payment-approval";
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import { isCitypakCourier } from "@/lib/courier";
 
 /**
  * Pre-fill ERP custom field used by the Hutch Auto-SMS Server Script.
@@ -61,6 +62,7 @@ type ErpConfig = {
   bankTransferMop: string;
   kokoMop: string;
   webxpayMop: string;
+  citypakMop: string;
   taxesAndCharges: string;
   shippingRule: string;
   shippingItem: string;
@@ -78,6 +80,7 @@ export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     bankTransferMop: instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer",
     kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
+    citypakMop: instance?.citypakMop ?? process.env.ERPNEXT_CITYPAK_MOP ?? "",
     taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
     shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
     shippingItem: instance?.shippingItem ?? process.env.ERPNEXT_SHIPPING_ITEM ?? "",
@@ -864,13 +867,26 @@ export function resolveOrderPaymentMop(
   cfg: ErpConfig,
   paymentGatewayPrimary: string | null,
   paymentGatewayNames: string[],
+  options?: { courierServiceName?: string | null },
 ): string | null {
   const gateways = [paymentGatewayPrimary, ...paymentGatewayNames].filter(Boolean) as string[];
-  return (
+  const resolved =
     detectDeliveryMop(cfg, paymentGatewayPrimary, paymentGatewayNames) ??
     resolvePrepaidMop(cfg, gateways) ??
-    resolveErpPaymentType(cfg, gateways)
-  );
+    resolveErpPaymentType(cfg, gateways);
+
+  // Citypak courier collections clear through the City Pak MOP when configured.
+  // Keep prepaid / card / bank mappings; only remap COD/cash (or unresolved COD-like) collections.
+  const citypakMop = cfg.citypakMop?.trim();
+  if (
+    citypakMop &&
+    isCitypakCourier(options?.courierServiceName) &&
+    (!resolved || resolved === cfg.codMop || resolved === cfg.cashMop)
+  ) {
+    return citypakMop;
+  }
+
+  return resolved;
 }
 
 export type CreateDeliveryPaymentEntryOptions = {
@@ -893,9 +909,15 @@ export type CreateDeliveryPaymentEntryResult = {
 export function mapDeliveryPaymentMethodToMop(
   cfg: ErpConfig,
   method: "cod" | "bank_transfer" | "card" | "already_paid",
+  options?: { courierServiceName?: string | null },
 ): string | null {
+  const citypakMop = cfg.citypakMop?.trim() || null;
+  const useCitypak =
+    Boolean(citypakMop) && isCitypakCourier(options?.courierServiceName);
+
   switch (method) {
     case "cod":
+      if (useCitypak) return citypakMop;
       return cfg.codMop || cfg.cashMop || null;
     case "card":
       return cfg.cardDeliveryMop || null;
@@ -926,6 +948,7 @@ export async function createDeliveryPaymentEntry(
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
     erpnextInvoiceId?: string | null;
+    courierServiceName?: string | null;
   },
   location: LocationWithErpInstance,
   completedAt: Date,
@@ -950,9 +973,13 @@ export async function createDeliveryPaymentEntry(
 
   let mopName: string | null = options?.mopNameOverride?.trim() || null;
   if (!mopName) {
-    mopName = resolveOrderPaymentMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames);
+    mopName = resolveOrderPaymentMop(cfg, order.paymentGatewayPrimary, order.paymentGatewayNames, {
+      courierServiceName: order.courierServiceName,
+    });
     if (!mopName && isErpOrder) {
-      mopName = cfg.codMop || null;
+      mopName = isCitypakCourier(order.courierServiceName) && cfg.citypakMop.trim()
+        ? cfg.citypakMop.trim()
+        : cfg.codMop || null;
     }
   }
   if (!mopName) {
@@ -1082,6 +1109,7 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     paymentGatewayPrimary: string | null;
     paymentGatewayNames: string[];
     erpnextInvoiceId?: string | null;
+    courierServiceName?: string | null;
   },
   location: LocationWithErpInstance,
   completedAt: Date,
@@ -1121,7 +1149,9 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     const cfg = getErpConfig(location.erpnextInstance);
     const mopName =
       options?.mopNameOverride?.trim() ||
-      mapDeliveryPaymentMethodToMop(cfg, line.paymentMethod);
+      mapDeliveryPaymentMethodToMop(cfg, line.paymentMethod, {
+        courierServiceName: order.courierServiceName,
+      });
     const result = await createDeliveryPaymentEntry(order, location, completedAt, {
       mopNameOverride: mopName ?? undefined,
       requireMop: options?.requireMop,
@@ -1149,7 +1179,9 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
       continue;
     }
 
-    const mopName = mapDeliveryPaymentMethodToMop(cfg, line.paymentMethod);
+    const mopName = mapDeliveryPaymentMethodToMop(cfg, line.paymentMethod, {
+      courierServiceName: order.courierServiceName,
+    });
     if (!mopName) {
       if (options?.requireMop) {
         throw new Error(

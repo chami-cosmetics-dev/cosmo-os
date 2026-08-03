@@ -29,6 +29,7 @@ import {
   GraduationCap,
   SendHorizonal,
   ClipboardList,
+  NotebookPen,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -123,6 +124,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("outlets.read.all") ||
     hasSidebarPermission("outlets.read.assigned");
   const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
+  const canManageBookNotes = hasSidebarPermission("book_notes.manage");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -293,6 +295,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               )}
               {canViewOrders && (
                 <NavItem href="/dashboard/orders/pos-orders" icon={ShoppingBag} label="POS Orders" isActive={pathname === "/dashboard/orders/pos-orders"} />
+              )}
+              {canManageBookNotes && (
+                <NavItem
+                  href="/dashboard/book-notes"
+                  icon={NotebookPen}
+                  label="Book Notes"
+                  isActive={pathname === "/dashboard/book-notes"}
+                />
               )}
               {canViewReturns && (
                 <NavItem href="/dashboard/returns" icon={PackageCheck} label="Returned Orders" isActive={pathname === "/dashboard/returns"} />
