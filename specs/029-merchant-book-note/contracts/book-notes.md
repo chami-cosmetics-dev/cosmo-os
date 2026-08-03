@@ -181,6 +181,31 @@ type BookNoteDayDto = {
 
 ## 7. Non-goals
 
-- ERP verify / clearance endpoints
 - Public unauthenticated access
 - Finance PUT/edit
+
+## 8. Send to ERP (ss9 verify)
+
+**OS → ERP push** after merchants save:
+
+```http
+POST /api/admin/book-notes/send-to-erp
+Permission: book_notes.manage
+Body: { "companyLocationId": "cl_...", "postingDate": "YYYY-MM-DD" }
+```
+
+Cosmo loads the saved day and calls ERP:
+
+```http
+POST {ErpnextInstance.baseUrl}/api/method/verify_book_note
+Authorization: token {apiKey}:{apiSecret}
+Content-Type: application/x-www-form-urlencoded
+
+rows_json=<json array>&company=<erpnextCompany or location name>
+```
+
+`rows_json` items: `idx_no`, `sales_invoice`, `cash`, `card`, `koko`, `bank_transfer` (matches `ss9_verify_book_note.py`).
+
+Override method name with env `ERPNEXT_BOOK_NOTE_VERIFY_METHOD` (default `verify_book_note`).
+
+**Intern must register** Server Script (API) with `api_method = verify_book_note` and paste ss9 script body.

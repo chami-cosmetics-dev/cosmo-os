@@ -46,3 +46,13 @@ export type BookNoteLocationOption = {
   shortName: string | null;
   erpnextCompany: string | null;
 };
+
+/** Summary row for merchant save-history list. */
+export type BookNoteHistoryItem = {
+  id: string;
+  posting_date: string;
+  rowCount: number;
+  grandTotal: number;
+  updatedAt: string;
+  locked: boolean;
+};
