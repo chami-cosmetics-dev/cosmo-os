@@ -339,7 +339,7 @@ export function FulfillmentSampleFreeIssuePanel({
       if (!saved) return;
       setSendLaterDate("");
       if (savedDate > todayDateInputValue()) {
-        notify.success("Send later date saved.");
+        notify.success("Send later date saved. Order will move to Print on that morning.");
         onRefresh(true);
         return;
       }
