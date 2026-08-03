@@ -52,13 +52,14 @@ function emptyRow(idx: number): LedgerRow {
 }
 
 function makeBlankRows(count: number): LedgerRow[] {
-  const n = Math.min(Math.max(Math.floor(count), 1), MAX_CREATE_ROWS);
+  const n = Math.min(Math.max(Math.floor(count), 0), MAX_CREATE_ROWS);
+  if (n === 0) return [];
   return Array.from({ length: n }, (_, i) => emptyRow(i + 1));
 }
 
 function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
   if (!day?.rows?.length) {
-    return makeBlankRows(4);
+    return [];
   }
   return day.rows.map((r, i) => ({
     key: `saved-${day.id}-${i}`,
@@ -87,8 +88,8 @@ export function BookNotesPanel({
   );
   const [postingDate, setPostingDate] = useState(initialToday);
   const [today] = useState(initialToday);
-  const [rows, setRows] = useState<LedgerRow[]>(() => makeBlankRows(4));
-  const [rowCountInput, setRowCountInput] = useState("4");
+  const [rows, setRows] = useState<LedgerRow[]>(() => []);
+  const [rowCountInput, setRowCountInput] = useState("0");
   const [locked, setLocked] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState("");
@@ -144,8 +145,8 @@ export function BookNotesPanel({
   function createRowsFromCount() {
     if (readOnly) return;
     const n = parseInt(rowCountInput, 10);
-    if (!Number.isFinite(n) || n < 1) {
-      notify.error("Enter a row count of at least 1");
+    if (!Number.isFinite(n) || n < 0) {
+      notify.error("Enter a row count of 0 or more");
       return;
     }
     if (n > MAX_CREATE_ROWS) {
@@ -154,7 +155,7 @@ export function BookNotesPanel({
     }
     setRows(makeBlankRows(n));
     setRowCountInput(String(n));
-    setStatusLine(`Created ${n} blank row(s)`);
+    setStatusLine(n === 0 ? "Cleared rows" : `Created ${n} blank row(s)`);
   }
 
   function addRow() {
@@ -167,7 +168,6 @@ export function BookNotesPanel({
 
   function removeRow(key: string) {
     setRows((prev) => {
-      if (prev.length <= 1) return prev;
       const next = prev.filter((r) => r.key !== key);
       setRowCountInput(String(next.length));
       return next;
@@ -218,94 +218,141 @@ export function BookNotesPanel({
     setSuggestForKey(null);
   }
 
-  async function handleSave() {
-    if (readOnly || !companyLocationId) return;
-    setBusyKey("save");
-    setStatusLine("Saving...");
+  async function refreshHistory() {
     try {
-      const payload = {
+      const histParams = new URLSearchParams({
         companyLocationId,
         postingDate,
-        rows: rows.map((r) => ({
-          idxNo: r.idxNo,
-          salesInvoice: r.salesInvoice.trim(),
-          cash: toNum(r.cash),
-          card: toNum(r.card),
-          koko: toNum(r.koko),
-          bankTransfer: toNum(r.bankTransfer),
-          orderId: r.orderId,
-        })),
-      };
-      const res = await fetch("/api/admin/book-notes", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        const msg = data.error ?? "Save failed";
-        notify.error(msg);
-        setStatusLine(data.code === "DAY_LOCKED" ? "Day locked" : msg);
-        if (data.code === "DAY_LOCKED") setLocked(true);
-        return;
-      }
-      const day = data as BookNoteDayDto;
-      setRows(dayToRows(day));
-      setRowCountInput(String(day.rows.length || 1));
-      setLocked(day.locked);
-      setStatusLine(`Saved ${day.rows.length} row(s)`);
-      notify.success("Book note saved");
-      try {
-        const histParams = new URLSearchParams({
-          companyLocationId,
-          postingDate,
-        });
-        const histRes = await fetch(`/api/admin/book-notes/page-data?${histParams}`);
-        const histData = await histRes.json();
-        if (histRes.ok) {
-          setHistory((histData.history as BookNoteHistoryItem[]) ?? []);
-        }
-      } catch {
-        // history refresh is best-effort
+      const histRes = await fetch(`/api/admin/book-notes/page-data?${histParams}`);
+      const histData = await histRes.json();
+      if (histRes.ok) {
+        setHistory((histData.history as BookNoteHistoryItem[]) ?? []);
       }
     } catch {
-      notify.error("Save failed");
-      setStatusLine("Save failed");
+      // history refresh is best-effort
+    }
+  }
+
+  /** Persist current ledger to Cosmo OS. Returns saved day or null on failure. */
+  async function saveCurrentDay(): Promise<BookNoteDayDto | null> {
+    const payload = {
+      companyLocationId,
+      postingDate,
+      rows: rows.map((r) => ({
+        idxNo: r.idxNo,
+        salesInvoice: r.salesInvoice.trim(),
+        cash: toNum(r.cash),
+        card: toNum(r.card),
+        koko: toNum(r.koko),
+        bankTransfer: toNum(r.bankTransfer),
+        orderId: r.orderId,
+      })),
+    };
+    const res = await fetch("/api/admin/book-notes", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error ?? "Save failed";
+      notify.error(msg);
+      setStatusLine(data.code === "DAY_LOCKED" ? "Day locked" : msg);
+      if (data.code === "DAY_LOCKED") setLocked(true);
+      return null;
+    }
+    const day = data as BookNoteDayDto;
+    setRows(dayToRows(day));
+    setRowCountInput(String(day.rows.length));
+    setLocked(day.locked);
+    await refreshHistory();
+    return day;
+  }
+
+  async function sendDayToErp(dateYmd: string): Promise<boolean> {
+    const res = await fetch("/api/admin/book-notes/send-to-erp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        companyLocationId,
+        postingDate: dateYmd,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      notify.error(data.error ?? "ERP send failed");
+      setStatusLine(data.error ?? "ERP send failed");
+      return false;
+    }
+    const s = data.summary as {
+      verified_count?: number;
+      mismatch_count?: number;
+      not_found_count?: number;
+      total_rows?: number;
+    } | null;
+    const line = s
+      ? `ERP ${dateYmd}: ${s.verified_count ?? 0} verified, ${s.mismatch_count ?? 0} mismatch, ${s.not_found_count ?? 0} not found (of ${s.total_rows ?? 0})`
+      : `Sent ${dateYmd} to ERP`;
+    setStatusLine(line);
+    notify.success(line);
+    return true;
+  }
+
+  /** Save (if editable today) then push to ERP. */
+  async function handleSaveAndSendToErp() {
+    if (!companyLocationId) return;
+    if (readOnly) {
+      // Viewing a locked/past day — resend saved data only
+      setBusyKey(`erp:${postingDate}`);
+      setStatusLine(`Sending ${postingDate} to ERP...`);
+      try {
+        await sendDayToErp(postingDate);
+      } catch {
+        notify.error("ERP send failed");
+        setStatusLine("ERP send failed");
+      } finally {
+        setBusyKey(null);
+      }
+      return;
+    }
+
+    const filled = rows.some(
+      (r) =>
+        r.salesInvoice.trim() ||
+        toNum(r.cash) + toNum(r.card) + toNum(r.koko) + toNum(r.bankTransfer) > 0,
+    );
+    if (!filled) {
+      notify.error("Add at least one invoice row before sending to ERP");
+      return;
+    }
+
+    setBusyKey(`erp:${postingDate}`);
+    setStatusLine("Saving and sending to ERP...");
+    try {
+      const day = await saveCurrentDay();
+      if (!day) return;
+      if (day.rows.length === 0) {
+        notify.error("Nothing to send — add invoice rows first");
+        setStatusLine("Nothing to send");
+        return;
+      }
+      await sendDayToErp(postingDate);
+    } catch {
+      notify.error("Save / ERP send failed");
+      setStatusLine("Save / ERP send failed");
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function handleSendToErp(dateYmd: string = postingDate) {
+  /** Resend an already-saved history day (no edit). */
+  async function handleResendHistoryToErp(dateYmd: string) {
     if (!companyLocationId || !dateYmd) return;
     setBusyKey(`erp:${dateYmd}`);
     setStatusLine(`Sending ${dateYmd} to ERP...`);
     try {
-      const res = await fetch("/api/admin/book-notes/send-to-erp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyLocationId,
-          postingDate: dateYmd,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        notify.error(data.error ?? "ERP send failed");
-        setStatusLine(data.error ?? "ERP send failed");
-        return;
-      }
-      const s = data.summary as {
-        verified_count?: number;
-        mismatch_count?: number;
-        not_found_count?: number;
-        total_rows?: number;
-      } | null;
-      const line = s
-        ? `ERP ${dateYmd}: ${s.verified_count ?? 0} verified, ${s.mismatch_count ?? 0} mismatch, ${s.not_found_count ?? 0} not found (of ${s.total_rows ?? 0})`
-        : `Sent ${dateYmd} to ERP`;
-      setStatusLine(line);
-      notify.success(line);
+      await sendDayToErp(dateYmd);
     } catch {
       notify.error("ERP send failed");
       setStatusLine("ERP send failed");
@@ -387,7 +434,7 @@ export function BookNotesPanel({
           <div className="flex gap-2">
             <Input
               type="number"
-              min={1}
+              min={0}
               max={MAX_CREATE_ROWS}
               inputMode="numeric"
               value={rowCountInput}
@@ -428,7 +475,18 @@ export function BookNotesPanel({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={8}
+                  className="text-muted-foreground p-6 text-center text-sm"
+                >
+                  No rows yet. Enter a row count above and click Create rows, or
+                  use Add row.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => {
               const cash = toNum(row.cash);
               const card = toNum(row.card);
               const koko = toNum(row.koko);
@@ -521,7 +579,7 @@ export function BookNotesPanel({
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      disabled={isBusy || readOnly || rows.length <= 1}
+                      disabled={isBusy || readOnly}
                       onClick={() => removeRow(row.key)}
                       aria-label="Remove row"
                     >
@@ -530,7 +588,8 @@ export function BookNotesPanel({
                   </td>
                 </tr>
               );
-            })}
+            })
+            )}
           </tbody>
           <tfoot>
             <tr className="border-t text-xs">
@@ -578,31 +637,16 @@ export function BookNotesPanel({
           <span className="text-muted-foreground text-sm">{statusLine}</span>
           <Button
             type="button"
-            variant="secondary"
             disabled={isBusy || !companyLocationId}
-            onClick={() => void handleSendToErp(postingDate)}
+            onClick={() => void handleSaveAndSendToErp()}
           >
             {busyKey === `erp:${postingDate}` ? (
               <>
                 <Loader2 className="animate-spin" aria-hidden />
-                Sending...
+                {readOnly ? "Sending..." : "Saving & sending..."}
               </>
             ) : (
               "Send to ERP"
-            )}
-          </Button>
-          <Button
-            type="button"
-            disabled={isBusy || readOnly || !companyLocationId}
-            onClick={() => void handleSave()}
-          >
-            {busyKey === "save" ? (
-              <>
-                <Loader2 className="animate-spin" aria-hidden />
-                Saving...
-              </>
-            ) : (
-              "Save"
             )}
           </Button>
         </div>
@@ -665,7 +709,7 @@ export function BookNotesPanel({
                             variant="secondary"
                             size="sm"
                             disabled={isBusy || item.rowCount === 0 || !companyLocationId}
-                            onClick={() => void handleSendToErp(item.posting_date)}
+                            onClick={() => void handleResendHistoryToErp(item.posting_date)}
                           >
                             {resending ? (
                               <>
