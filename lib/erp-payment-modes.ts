@@ -15,6 +15,7 @@ const MOP_FIELD_DEFS = [
   { key: "bank_transfer", label: "Bank transfer", field: "bankTransferMop" as const },
   { key: "koko", label: "KOKO", field: "kokoMop" as const },
   { key: "webxpay", label: "WebXPay", field: "webxpayMop" as const },
+  { key: "citypak", label: "City Pak", field: "citypakMop" as const },
 ] as const;
 
 type ErpInstanceMops = {
@@ -24,6 +25,7 @@ type ErpInstanceMops = {
   bankTransferMop: string | null;
   kokoMop: string | null;
   webxpayMop: string | null;
+  citypakMop: string | null;
 };
 
 export function listErpPaymentModesFromInstance(
@@ -56,6 +58,7 @@ export async function listCompanyErpPaymentModes(companyId: string): Promise<Erp
       bankTransferMop: true,
       kokoMop: true,
       webxpayMop: true,
+      citypakMop: true,
     },
   });
 

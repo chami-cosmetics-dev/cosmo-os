@@ -455,6 +455,14 @@ const DEFAULT_PERMISSIONS = [
     key: "outlets.read.assigned",
     description: "View and edit outlet reviews for assigned outlets only",
   },
+  {
+    key: "book_notes.manage",
+    description: "Enter and save daily merchant book notes for company locations",
+  },
+  {
+    key: "book_notes.read",
+    description: "Retrieve merchant book notes for any location (finance / intern)",
+  },
 ] as const;
 
 const ALL_DEFAULT_PERMISSION_KEYS = DEFAULT_PERMISSIONS.map((p) => p.key);
@@ -519,6 +527,8 @@ const DEFAULT_ROLES = [
       "complaints.manage",
       "merchant_reviews.read",
       "merchant_reviews.manage",
+      "book_notes.manage",
+      "book_notes.read",
       "finance.approvals.read",
       "finance.approvals.manage",
       "finance.hod.revert_paid_to_unpaid",
@@ -582,6 +592,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.approvals.manage",
+      "book_notes.read",
       "dashboard.view",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
@@ -599,6 +610,7 @@ const DEFAULT_ROLES = [
     permissionKeys: [
       "finance.approvals.read",
       "finance.hod.revert_paid_to_unpaid",
+      "book_notes.read",
       "dashboard.view",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,
