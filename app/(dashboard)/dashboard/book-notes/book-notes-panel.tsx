@@ -363,12 +363,12 @@ export function BookNotesPanel({
     return true;
   }
 
-  /** Save then push to ERP (any date ≤ today). */
+  /** Save then push to ERP (today or a history day). */
   async function handleSaveAndSendToErp() {
     if (!companyLocationId) return;
     if (readOnly) {
       showError(
-        "This sales date is locked. Pick today or a past date to save and send.",
+        "This sales date is locked. Only today and past history days can be saved.",
       );
       return;
     }
@@ -442,8 +442,8 @@ export function BookNotesPanel({
         <h1 className="text-xl font-semibold tracking-tight">Daily Book Note</h1>
         <p className="text-muted-foreground text-sm">
           Enter shop invoices and payment splits as recorded in the physical
-          book. Pick any sales date up to today, then send to ERP. Matching
-          against ERP happens later on the finance side.
+          book. New entry uses today&apos;s date; open a history day to edit or
+          resend. Matching against ERP happens later on the finance side.
         </p>
       </div>
 
@@ -455,8 +455,10 @@ export function BookNotesPanel({
             disabled={isBusy}
             onValueChange={(id) => {
               setCompanyLocationId(id);
+              setPostingDate(today);
+              setLocked(false);
               clearError();
-              void loadDay(id, postingDate);
+              void loadDay(id, today);
             }}
           >
             <SelectTrigger>
@@ -473,24 +475,35 @@ export function BookNotesPanel({
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">Date</label>
-          <Input
-            type="date"
-            value={postingDate}
-            disabled={isBusy}
-            max={today}
-            onChange={(e) => {
-              const next = e.target.value;
-              setPostingDate(next);
-              setLocked(isBookNoteDayLocked(next));
-              void loadDay(companyLocationId, next);
-            }}
-          />
-          {readOnly && (
-            <p className="text-amber-700 dark:text-amber-400 text-xs">
-              Future dates are locked. Choose today or a past date ({today} or
-              earlier).
-            </p>
-          )}
+          <div className="bg-muted/40 flex h-9 items-center rounded-md border px-3 text-sm font-medium tabular-nums">
+            {postingDate}
+            {postingDate === today ? (
+              <span className="text-muted-foreground ml-2 text-xs font-normal">
+                (today)
+              </span>
+            ) : null}
+          </div>
+          {postingDate !== today ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-muted-foreground text-xs">
+                Editing a history day — save &amp; send updates that date.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isBusy}
+                onClick={() => {
+                  setPostingDate(today);
+                  setLocked(false);
+                  clearError();
+                  void loadDay(companyLocationId, today);
+                }}
+              >
+                Back to today
+              </Button>
+            </div>
+          ) : null}
         </div>
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
