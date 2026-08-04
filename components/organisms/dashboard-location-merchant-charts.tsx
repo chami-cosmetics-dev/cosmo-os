@@ -72,20 +72,28 @@ export function DashboardLocationMerchantCharts({
 
   const countedByCopy = (() => {
     switch (dateType) {
-      case "placed_all":
-        return "Orders placed (created) in the selected range — paid and pending.";
-      case "placed_open":
-        return "Placed in range, not yet delivered (and invoice not closed).";
-      case "placed_pending_invoice":
-        return "Placed in range, delivered, still awaiting invoice complete (non-POS).";
-      case "placed_invoice_completed":
-        return "Placed in range and invoice already closed (includes POS).";
-      case "closed_in_period":
-        return "Invoice closed in the selected range (finance clock — does not add to Placed).";
-      case "delivered_all":
-        return "Delivered in the selected range and still at delivery complete (non-POS — same idea as delivery-complete report).";
-      case "delivered_pending_invoice":
-        return "Delivered in range, invoice still open (non-POS — does not add to Placed).";
+      case "all_orders":
+        return "Orders created in the selected range — paid and pending.";
+      case "not_delivered":
+        return "Created in range, not delivered yet (excludes bill done early).";
+      case "bill_done_early":
+        return "Created in range, invoice complete, not yet delivered.";
+      case "bill_open":
+        return "Created in range, delivered, invoice still open.";
+      case "done_after_delivery":
+        return "Created in range, delivered and invoice complete.";
+      case "bill_done_in_dates":
+        return "Created in range and invoice completed in range (separate scoreboard).";
+      case "delivered_in_dates":
+        return "Created in range and delivery completed in range (non-POS, still at delivery complete).";
+      case "bill_done_old":
+        return "Invoice completed in range for orders placed before the range.";
+      case "delivered_old":
+        return "Delivery completed in range for orders placed before the range (non-POS).";
+      case "still_bill_open":
+        return "Any place date: delivered, invoice still open (non-POS). Independent of From–To.";
+      case "still_not_delivered":
+        return "Any place date: not delivered yet (non-POS). Independent of From–To.";
     }
   })();
   const dateHint = `${filterInfo} - ${getDashboardSalesDateTypeLabel(dateType)}. ${countedByCopy}`;
