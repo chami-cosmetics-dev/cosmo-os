@@ -5,6 +5,7 @@ import { OsfColumnsSettings } from "@/components/organisms/osf-columns-settings"
 import { OsfGeneratePanel } from "@/components/organisms/osf-generate-panel";
 import { OsfProductEditor } from "@/components/organisms/osf-product-editor";
 import { OsfRopImportPanel } from "@/components/organisms/osf-rop-import-panel";
+import { OsfSupplierOrdersPanel } from "@/components/organisms/osf-supplier-orders-panel";
 
 type LocationOption = { id: string; name: string; shortName: string | null };
 
@@ -35,6 +36,10 @@ export function OsfHubPanel({
 
       <section className="rounded-lg border p-4">
         <OsfGeneratePanel canReorderOnly={canReorderOnly} />
+      </section>
+
+      <section className="rounded-lg border p-4">
+        <OsfSupplierOrdersPanel />
       </section>
 
       {canManage && (
