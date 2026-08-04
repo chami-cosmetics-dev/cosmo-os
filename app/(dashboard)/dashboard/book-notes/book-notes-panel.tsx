@@ -18,6 +18,7 @@ import type {
   BookNoteLocationOption,
   BookNoteOrderSuggestion,
 } from "@/lib/book-notes/types";
+import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
 import { notify } from "@/lib/notify";
 
 type LedgerRow = {
@@ -101,7 +102,7 @@ export function BookNotesPanel({
   const hydrated = useRef(false);
 
   const isBusy = busyKey !== null;
-  const readOnly = locked || postingDate !== today;
+  const readOnly = locked || isBookNoteDayLocked(postingDate);
 
   const loadDay = useCallback(async (locationId: string, date: string) => {
     if (!locationId || !date) return;
@@ -121,7 +122,7 @@ export function BookNotesPanel({
       const nextRows = dayToRows(day);
       setRows(nextRows);
       setRowCountInput(String(nextRows.length));
-      setLocked(Boolean(day?.locked) || date !== (data.today as string));
+      setLocked(Boolean(day?.locked) || isBookNoteDayLocked(date));
       setHistory((data.history as BookNoteHistoryItem[]) ?? []);
       setStatusLine(day ? `Loaded ${day.rows.length} row(s)` : "No saved rows for this day");
     } catch {
@@ -177,7 +178,7 @@ export function BookNotesPanel({
 
   function openHistoryDay(item: BookNoteHistoryItem) {
     setPostingDate(item.posting_date);
-    setLocked(item.locked || item.posting_date !== today);
+    setLocked(item.locked || isBookNoteDayLocked(item.posting_date));
     void loadDay(companyLocationId, item.posting_date);
   }
 
@@ -362,25 +363,13 @@ export function BookNotesPanel({
     return true;
   }
 
-  /** Save (if editable today) then push to ERP. */
+  /** Save then push to ERP (any date ≤ today). */
   async function handleSaveAndSendToErp() {
     if (!companyLocationId) return;
     if (readOnly) {
-      // Viewing a locked/past day — resend saved data only
-      setBusyKey(`erp:${postingDate}`);
-      clearError();
-      setStatusLine(`Sending ${postingDate} to ERP...`);
-      try {
-        await sendDayToErp(postingDate);
-      } catch (err) {
-        showError(
-          err instanceof Error
-            ? `Network/client error: ${err.message}`
-            : "ERP send failed (network/client error)",
-        );
-      } finally {
-        setBusyKey(null);
-      }
+      showError(
+        "This sales date is locked. Pick today or a past date to save and send.",
+      );
       return;
     }
 
@@ -452,24 +441,26 @@ export function BookNotesPanel({
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Daily Book Note</h1>
         <p className="text-muted-foreground text-sm">
-          Enter today&apos;s outlet invoices and payment splits as recorded in the
-          physical book. Matching against ERP happens later on the finance side.
+          Enter shop invoices and payment splits as recorded in the physical
+          book. Pick any sales date up to today, then send to ERP. Matching
+          against ERP happens later on the finance side.
         </p>
       </div>
 
       <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-3">
         <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">Outlet</label>
+          <label className="text-xs font-medium text-muted-foreground">Shop</label>
           <Select
             value={companyLocationId}
             disabled={isBusy}
             onValueChange={(id) => {
               setCompanyLocationId(id);
+              clearError();
               void loadDay(id, postingDate);
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Select outlet" />
+              <SelectValue placeholder="Select shop" />
             </SelectTrigger>
             <SelectContent>
               {locations.map((loc) => (
@@ -490,14 +481,14 @@ export function BookNotesPanel({
             onChange={(e) => {
               const next = e.target.value;
               setPostingDate(next);
-              setLocked(next !== today);
+              setLocked(isBookNoteDayLocked(next));
               void loadDay(companyLocationId, next);
             }}
           />
           {readOnly && (
             <p className="text-amber-700 dark:text-amber-400 text-xs">
-              This day is read-only. Merchants can only save today&apos;s book note
-              ({today}).
+              Future dates are locked. Choose today or a past date ({today} or
+              earlier).
             </p>
           )}
         </div>
@@ -753,7 +744,7 @@ export function BookNotesPanel({
         </h2>
         {history.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No saved book notes for this outlet yet.
+            No saved book notes for this shop yet.
           </p>
         ) : (
           <div className="overflow-x-auto">

@@ -22,6 +22,7 @@ export {
 
 export {
   companyLabelForLocation,
+  shopLabelForLocation,
   postingDateToUtcMidnight,
   serializeBookNoteDay,
   serializeBookNoteRow,

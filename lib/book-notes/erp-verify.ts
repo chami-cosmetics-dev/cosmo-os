@@ -37,6 +37,7 @@ export type BookNoteErpVerifyResult = {
   ok: boolean;
   method: string;
   company: string;
+  postingDate?: string;
   erpUrl?: string;
   summary: BookNoteErpVerifySummary | null;
   rows: unknown[];
@@ -140,30 +141,39 @@ function classifyErpFailure(
 
 /**
  * Push merchant book-note rows to ERP ss9 verify Server Script.
- * Script expects form_dict: rows_json (JSON string) + optional company.
+ * Script expects form_dict:
+ *   - rows_json (required JSON string)
+ *   - company (optional soft cross-check / fallback)
+ *   - posting_date (YYYY-MM-DD — stored on Book Note Entry)
+ * Outlet on ERP is derived from the API user's full_name by the script
+ * (not sent from Cosmo).
  */
 export async function sendBookNoteRowsToErp(input: {
   erpnextInstance: ErpnextInstance | null;
   company: string;
+  /** Colombo sales date YYYY-MM-DD. */
+  postingDate: string;
   rows: BookNoteErpVerifyRowInput[];
 }): Promise<BookNoteErpVerifyResult> {
   const cfg = getErpConfig(input.erpnextInstance);
   const method = getBookNoteVerifyMethod();
   const base = cfg.baseUrl.replace(/\/$/, "");
   const erpUrl = base ? `${base}/api/method/${method}` : undefined;
+  const postingDate = input.postingDate.trim();
 
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
     return {
       ok: false,
       method,
       company: input.company,
+      postingDate,
       erpUrl,
       summary: null,
       rows: [],
       rawMessage: null,
       code: "ERP_CREDENTIALS_MISSING",
       error:
-        "ERP credentials missing for this outlet. Link an ErpnextInstance (base URL, API key, API secret) to the location in Cosmo settings.",
+        "ERP credentials missing for this shop. Link an ErpnextInstance (base URL, API key, API secret) to the shop location in Cosmo settings.",
     };
   }
 
@@ -172,6 +182,7 @@ export async function sendBookNoteRowsToErp(input: {
       ok: false,
       method,
       company: input.company,
+      postingDate,
       erpUrl,
       summary: null,
       rows: [],
@@ -195,6 +206,7 @@ export async function sendBookNoteRowsToErp(input: {
   const body = new URLSearchParams({
     rows_json,
     company: input.company,
+    posting_date: postingDate,
   });
 
   let res: Response;
@@ -213,6 +225,7 @@ export async function sendBookNoteRowsToErp(input: {
       ok: false,
       method,
       company: input.company,
+      postingDate,
       erpUrl,
       summary: null,
       rows: [],
@@ -241,6 +254,7 @@ export async function sendBookNoteRowsToErp(input: {
       ok: false,
       method,
       company: input.company,
+      postingDate,
       erpUrl,
       summary: null,
       rows: [],
@@ -279,6 +293,7 @@ export async function sendBookNoteRowsToErp(input: {
       ok: false,
       method,
       company: input.company,
+      postingDate,
       erpUrl,
       summary: null,
       rows: [],
@@ -294,6 +309,7 @@ export async function sendBookNoteRowsToErp(input: {
     ok: true,
     method,
     company: input.company,
+    postingDate,
     erpUrl,
     summary,
     rows,
