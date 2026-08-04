@@ -40,7 +40,7 @@ import {
 } from "@/lib/sticker-print-quantity";
 import {
   isLwkLocation,
-  lookupLwkErpPrice,
+  lookupErpPriceBySku,
   resolveStickerUnitPrice,
 } from "@/lib/sticker-unit-price";
 
@@ -149,6 +149,8 @@ interface StickerBatchClientProps {
   itemCatalog: ItemCatalogRow[];
   /** Cosmo ERP OGF Price List rates keyed by SKU (for LWK location). */
   lwkPriceBySku: Record<string, string>;
+  /** Cosmo ERP Standard Selling rates keyed by SKU (non-LWK stickers). */
+  standardSellingBySku: Record<string, string>;
   companyName: string;
   companyAddress: string;
   initialBatches: BatchOption[];
@@ -243,6 +245,7 @@ export function StickerBatchClient({
   locations,
   itemCatalog,
   lwkPriceBySku: initialLwkPriceBySku,
+  standardSellingBySku: initialStandardSellingBySku,
   companyName,
   companyAddress,
   initialBatches,
@@ -269,6 +272,9 @@ export function StickerBatchClient({
   const [saving, setSaving] = useState(false);
   const [savingItems, setSavingItems] = useState(false);
   const [lwkPriceBySku, setLwkPriceBySku] = useState(initialLwkPriceBySku);
+  const [standardSellingBySku, setStandardSellingBySku] = useState(
+    initialStandardSellingBySku
+  );
   const [loadedSnapshot, setLoadedSnapshot] = useState<LoadedBatchSnapshot | null>(null);
   const [previewMeta, setPreviewMeta] = useState<BatchPreviewMeta>({
     supplierName: "",
@@ -356,8 +362,9 @@ export function StickerBatchClient({
 
   useEffect(() => {
     setLwkPriceBySku(initialLwkPriceBySku);
+    setStandardSellingBySku(initialStandardSellingBySku);
     lwkPriceFetchAttemptedRef.current = new Set();
-  }, [initialLwkPriceBySku]);
+  }, [initialLwkPriceBySku, initialStandardSellingBySku]);
 
   useEffect(() => {
     const usingLwk =
@@ -374,7 +381,7 @@ export function StickerBatchClient({
           .filter(
             (sku) =>
               Boolean(sku) &&
-              !lookupLwkErpPrice(lwkPriceBySku, sku) &&
+              !lookupErpPriceBySku(lwkPriceBySku, sku) &&
               !lwkPriceFetchAttemptedRef.current.has(sku)
           )
       ),
@@ -404,7 +411,7 @@ export function StickerBatchClient({
             const locationId = row.locationId.trim() || selectedLocationId;
             if (!lwkLocationIds.has(locationId)) return row;
             const sku = row.itemCode.trim();
-            const nextPrice = lookupLwkErpPrice(prices, sku);
+            const nextPrice = lookupErpPriceBySku(prices, sku);
             if (!nextPrice) return row;
             return { ...row, unitPrice: nextPrice };
           })
@@ -760,7 +767,8 @@ export function StickerBatchClient({
     return resolveStickerUnitPrice({
       price: item.price,
       compareAtPrice: compareAt,
-      lwkErpPrice: lookupLwkErpPrice(lwkPriceBySku, sku),
+      lwkErpPrice: lookupErpPriceBySku(lwkPriceBySku, sku),
+      standardSellingErpPrice: lookupErpPriceBySku(standardSellingBySku, sku),
       isLwk,
     });
   }

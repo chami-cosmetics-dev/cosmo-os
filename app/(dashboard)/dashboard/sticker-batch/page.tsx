@@ -3,8 +3,12 @@ import { redirect } from "next/navigation";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
+import {
+  loadLwkStickerPricesBySku,
+  loadStandardSellingPricesBySku,
+  syncStandardSellingToProductItems,
+} from "@/lib/sticker-lwk-erp-price";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
-import { loadLwkStickerPricesBySku } from "@/lib/sticker-lwk-erp-price";
 import { StickerBatchClient } from "./sticker-batch-client";
 
 function getTodayDate() {
@@ -37,8 +41,16 @@ export default async function StickerBatchPage({
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return <PermissionDeniedCard />;
 
-  const [suppliers, locations, rawItemCatalog, lwkPriceBySku, , company] =
-    await Promise.all([
+  const [
+    suppliers,
+    locations,
+    rawItemCatalog,
+    lwkPriceBySku,
+    standardSellingBySku,
+    ,
+    ,
+    company,
+  ] = await Promise.all([
       prisma.supplier.findMany({
         where: { companyId },
         orderBy: { name: "asc" },
@@ -78,14 +90,16 @@ export default async function StickerBatchPage({
         },
       }),
       loadLwkStickerPricesBySku(companyId),
+      loadStandardSellingPricesBySku(companyId),
       syncOgfPricesFromErp(companyId),
+      syncStandardSellingToProductItems(companyId),
       prisma.company.findUnique({
         where: { id: companyId },
         select: { name: true, address: true },
       }),
     ]);
 
-  // Stickers use live ERP map above; syncOgfPricesFromErp writes OSF ogfPrice for workbook/UI.
+  // Stickers use live ERP maps; sync helpers write OS ProductItem / OSF ogfPrice.
 
   let initialBatches: Array<{
     id: string;
@@ -164,11 +178,21 @@ export default async function StickerBatchPage({
     initialHistoryRows = [];
   }
 
-  const itemCatalog = rawItemCatalog.map((item) => ({
-    ...item,
-    price: item.price.toString(),
-    compareAtPrice: item.compareAtPrice?.toString() ?? null,
-  }));
+  const itemCatalog = rawItemCatalog.map((item) => {
+    const sku = item.sku?.trim() ?? "";
+    const erpStandard =
+      (sku && standardSellingBySku[sku]) ||
+      (sku &&
+        Object.entries(standardSellingBySku).find(
+          ([k]) => k.toUpperCase() === sku.toUpperCase()
+        )?.[1]) ||
+      null;
+    return {
+      ...item,
+      price: erpStandard ?? item.price.toString(),
+      compareAtPrice: item.compareAtPrice?.toString() ?? null,
+    };
+  });
 
   return (
     <StickerBatchClient
@@ -176,6 +200,7 @@ export default async function StickerBatchPage({
       locations={locations}
       itemCatalog={itemCatalog}
       lwkPriceBySku={lwkPriceBySku}
+      standardSellingBySku={standardSellingBySku}
       companyName={company?.name ?? ""}
       companyAddress={company?.address ?? ""}
       initialBatches={initialBatches}
