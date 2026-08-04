@@ -288,14 +288,14 @@ describe("buildOsfWorkbookBuffer", () => {
   }
 
   it(
-    "writes a 3-row header band (totals / sections / headers) on Main",
+    "writes a 2-row header band (sections / headers) on Main — no totals row",
     async () => {
       const wb = parse(await buildOsfWorkbookBuffer({ ...baseInput }));
       const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
         header: 1,
         defval: "",
       });
-      const [totals, sections, headers] = aoa as (string | number)[][];
+      const [sections, headers] = aoa as (string | number)[][];
       // Header row carries the real column names
       expect(headers).toContain("LMJ");
       expect(headers).toContain("Total Stock");
@@ -305,9 +305,9 @@ describe("buildOsfWorkbookBuffer", () => {
       // Section row carries the date banner + section labels
       expect(sections).toContain("18.06.2026");
       expect(sections).toContain("ROP");
-      // Totals row sums the stock column (2 + 3)
-      const lmjIdx = headers.indexOf("LMJ");
-      expect(totals[lmjIdx]).toBe(5);
+      // Data starts immediately after headers (row index 2)
+      const skuIdx = headers.indexOf("Variant SKU (_)");
+      expect(aoa[2]![skuIdx]).toBe("CAN07_1");
     },
     20_000,
   );
@@ -322,7 +322,7 @@ describe("buildOsfWorkbookBuffer", () => {
     const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
       header: 1,
       defval: "",
-    })[2] as string[];
+    })[1] as string[];
     expect(headers).toContain("Variant SKU (_)");
     expect(headers).not.toContain("LMJ");
     expect(headers).not.toContain("Cosmetics MRP");
@@ -340,7 +340,7 @@ describe("buildOsfWorkbookBuffer", () => {
     const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
       header: 1,
       defval: "",
-    })[2] as string[];
+    })[1] as string[];
     expect(headers).toContain("Cosmetics MRP");
     expect(headers).toContain("Latest Cost");
     expect(headers).toContain("Cosmetics Margin %");
@@ -358,7 +358,7 @@ describe("buildOsfWorkbookBuffer", () => {
     const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
       header: 1,
       defval: "",
-    })[2] as string[];
+    })[1] as string[];
     expect(headers).toContain("Cosmetics MRP");
     expect(headers).toContain("Latest Cost");
     expect(headers).toContain("Cosmetics Margin %");
@@ -378,14 +378,14 @@ describe("buildOsfWorkbookBuffer", () => {
       header: 1,
       defval: "",
     });
-    const headers = aoa[2] as string[];
+    const headers = aoa[1] as string[];
     // Pricing columns are excluded from buyer sheets
     expect(headers).not.toContain("Latest Cost");
     expect(headers).not.toContain("Cosmetics MRP");
     expect(headers).not.toContain("Cosmetics Margin %");
     expect(headers).not.toContain("OGF Margin %");
     // Only BrandA rows remain (CAN07_1), not BrandB (MAU01_1)
-    const dataRows = aoa.slice(3);
+    const dataRows = aoa.slice(2);
     const skuIdx = headers.indexOf("Variant SKU (_)");
     const skus = dataRows.map((r) => r[skuIdx]);
     expect(skus).toContain("CAN07_1");
@@ -418,7 +418,7 @@ describe("buildOsfWorkbookBuffer", () => {
       XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
         header: 1,
         defval: "",
-      })[2] as string[]
+      })[1] as string[]
     );
     expect(mainHeaders).toContain("Cosmetics Margin %");
 
@@ -426,7 +426,7 @@ describe("buildOsfWorkbookBuffer", () => {
       const headers = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets[name]!, {
         header: 1,
         defval: "",
-      })[2] as string[];
+      })[1] as string[];
       expect(headers).not.toContain("Cosmetics Margin %");
       expect(headers).not.toContain("OGF Margin %");
       expect(headers).not.toContain("Latest Cost");
@@ -444,6 +444,6 @@ describe("buildOsfWorkbookBuffer", () => {
       header: 1,
       defval: "",
     });
-    expect(aoa.slice(3)).toHaveLength(2);
+    expect(aoa.slice(2)).toHaveLength(2);
   });
 });
