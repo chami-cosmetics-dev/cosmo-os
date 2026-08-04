@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
   const { companyLocationId, postingDate } = parsed.data;
 
   const location = await prisma.companyLocation.findFirst({
-    where: { id: companyLocationId, companyId, isMainCompany: false },
+    where: { id: companyLocationId, companyId },
     select: {
       id: true,
       name: true,
