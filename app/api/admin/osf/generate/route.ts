@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
       ? await resolveEffectiveOsfColumnKeys(context, companyId)
       : new Set<string>();
 
-    const buffer = buildOsfWorkbookBuffer({
+    const buffer = await buildOsfWorkbookBuffer({
       catalog,
       columns,
       profiles: profileMap,

@@ -27,6 +27,15 @@ export function companyLabelForLocation(location: {
   return erp || location.name;
 }
 
+/** Shop label stored on ERP Book Note Entry.outlet (prefer shortName). */
+export function shopLabelForLocation(location: {
+  name: string;
+  shortName?: string | null;
+}): string {
+  const short = location.shortName?.trim();
+  return short || location.name;
+}
+
 export function serializeBookNoteRow(row: {
   idxNo: string;
   salesInvoice: string;

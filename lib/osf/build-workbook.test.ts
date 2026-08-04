@@ -63,7 +63,7 @@ const columns: OsfResolvedColumn[] = [
 ];
 
 describe("buildMainSheetRows", () => {
-  it("emits identity and pricing headers and Common SKU aggregation", () => {
+  it("emits identity and pricing headers without Common SKU columns", () => {
     const binMap = new Map<string, number>([
       ["LMJ - WH::CAN07_1", 2],
       ["LMJ - WH::CAN07_2", 3],
@@ -101,8 +101,12 @@ describe("buildMainSheetRows", () => {
     for (const h of pricingHeaders()) {
       expect(first).toHaveProperty(h);
     }
-    expect(first["Common SKU Stock"]).toBe(5);
-    expect(first["Common ROP"]).toBe(15);
+    expect(first).not.toHaveProperty("Common SKU Stock");
+    expect(first).not.toHaveProperty("Common ROP");
+    expect(first).not.toHaveProperty("Common SKU Reorder");
+    expect(first).not.toHaveProperty("Variant SKU");
+    expect(first).not.toHaveProperty("Variant SKU (-)");
+    expect(first["Total Stock"]).toBe(2);
     expect(first["OGF Price"]).toBe(90);
     expect(first["Sales Units (2026-06)"]).toBe(7);
     expect(first["Shop Availability"]).toBe("Allowed");
@@ -283,27 +287,34 @@ describe("buildOsfWorkbookBuffer", () => {
     return XLSX.read(buf, { type: "buffer" });
   }
 
-  it("writes a 3-row header band (totals / sections / headers) on Main", () => {
-    const wb = parse(buildOsfWorkbookBuffer({ ...baseInput }));
-    const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
-      header: 1,
-      defval: "",
-    });
-    const [totals, sections, headers] = aoa as (string | number)[][];
-    // Header row carries the real column names
-    expect(headers).toContain("LMJ");
-    expect(headers).toContain("Total Stock");
-    // Section row carries the date banner + section labels
-    expect(sections).toContain("18.06.2026");
-    expect(sections).toContain("ROP");
-    // Totals row sums the stock column (2 + 3)
-    const lmjIdx = headers.indexOf("LMJ");
-    expect(totals[lmjIdx]).toBe(5);
-  });
+  it(
+    "writes a 3-row header band (totals / sections / headers) on Main",
+    async () => {
+      const wb = parse(await buildOsfWorkbookBuffer({ ...baseInput }));
+      const aoa = XLSX.utils.sheet_to_json<(string | number)[]>(wb.Sheets["Main"]!, {
+        header: 1,
+        defval: "",
+      });
+      const [totals, sections, headers] = aoa as (string | number)[][];
+      // Header row carries the real column names
+      expect(headers).toContain("LMJ");
+      expect(headers).toContain("Total Stock");
+      expect(headers).not.toContain("Common SKU Stock");
+      expect(headers).not.toContain("Common ROP");
+      expect(headers).not.toContain("Common SKU Reorder");
+      // Section row carries the date banner + section labels
+      expect(sections).toContain("18.06.2026");
+      expect(sections).toContain("ROP");
+      // Totals row sums the stock column (2 + 3)
+      const lmjIdx = headers.indexOf("LMJ");
+      expect(totals[lmjIdx]).toBe(5);
+    },
+    20_000,
+  );
 
-  it("filters Main columns when effectiveColumnKeys is empty (identity only)", () => {
+  it("filters Main columns when effectiveColumnKeys is empty (identity only)", async () => {
     const wb = parse(
-      buildOsfWorkbookBuffer({
+      await buildOsfWorkbookBuffer({
         ...baseInput,
         effectiveColumnKeys: new Set(),
       }),
@@ -312,16 +323,16 @@ describe("buildOsfWorkbookBuffer", () => {
       header: 1,
       defval: "",
     })[2] as string[];
-    expect(headers).toContain("Variant SKU");
+    expect(headers).toContain("Variant SKU (_)");
     expect(headers).not.toContain("LMJ");
     expect(headers).not.toContain("Cosmetics MRP");
     expect(headers).not.toContain("Latest Cost");
     expect(headers).not.toContain("Cosmetics Margin %");
   });
 
-  it("includes marked keys and omits unmarked on Main", () => {
+  it("includes marked keys and omits unmarked on Main", async () => {
     const wb = parse(
-      buildOsfWorkbookBuffer({
+      await buildOsfWorkbookBuffer({
         ...baseInput,
         effectiveColumnKeys: new Set(["Cosmetics MRP", "Latest Cost", "Cosmetics Margin %"]),
       }),
@@ -337,9 +348,9 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).not.toContain("LMJ");
   });
 
-  it("includes all columns when effectiveColumnKeys is all", () => {
+  it("includes all columns when effectiveColumnKeys is all", async () => {
     const wb = parse(
-      buildOsfWorkbookBuffer({
+      await buildOsfWorkbookBuffer({
         ...baseInput,
         effectiveColumnKeys: "all",
       }),
@@ -355,9 +366,9 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).toContain("LMJ");
   });
 
-  it("adds a per-buyer sheet filtered by brand and without pricing columns", () => {
+  it("adds a per-buyer sheet filtered by brand and without pricing columns", async () => {
     const wb = parse(
-      buildOsfWorkbookBuffer({
+      await buildOsfWorkbookBuffer({
         ...baseInput,
         buyers: [{ name: "Randil", brands: ["BrandA"] }],
       }),
@@ -375,17 +386,28 @@ describe("buildOsfWorkbookBuffer", () => {
     expect(headers).not.toContain("OGF Margin %");
     // Only BrandA rows remain (CAN07_1), not BrandB (MAU01_1)
     const dataRows = aoa.slice(3);
-    const skuIdx = headers.indexOf("Variant SKU");
+    const skuIdx = headers.indexOf("Variant SKU (_)");
     const skus = dataRows.map((r) => r[skuIdx]);
     expect(skus).toContain("CAN07_1");
     expect(skus).not.toContain("MAU01_1");
   });
 
-  it("buyer sheets never include pricing or margin columns", () => {
+  it("buyer sheets never include pricing or margin columns", async () => {
     const wb = parse(
-      buildOsfWorkbookBuffer({
+      await buildOsfWorkbookBuffer({
         ...baseInput,
-        effectiveColumnKeys: new Set(["Cosmetics Margin %", "OGF Margin %", "stock:lmj", "rop:lmj", "order:lmj", "Total Stock", "Common SKU Stock", "Common ROP", "% of ROP", "70% OF TOTAL ROP", "70% OF TOTAL ROP AVAILABILITY", "TOTAL ORDER QTY", "Common SKU Reorder"]),
+        effectiveColumnKeys: new Set([
+          "Cosmetics Margin %",
+          "OGF Margin %",
+          "stock:lmj",
+          "rop:lmj",
+          "order:lmj",
+          "Total Stock",
+          "% of ROP",
+          "70% OF TOTAL ROP",
+          "70% OF TOTAL ROP AVAILABILITY",
+          "TOTAL ORDER QTY",
+        ]),
         buyers: [
           { name: "Inoka", brands: [] },
           { name: "Randil", brands: [] },
@@ -411,9 +433,9 @@ describe("buildOsfWorkbookBuffer", () => {
     }
   });
 
-  it("includes the full catalog when a buyer has no brands", () => {
+  it("includes the full catalog when a buyer has no brands", async () => {
     const wb = parse(
-      buildOsfWorkbookBuffer({
+      await buildOsfWorkbookBuffer({
         ...baseInput,
         buyers: [{ name: "All", brands: [] }],
       }),

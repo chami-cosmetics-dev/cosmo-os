@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { companyLabelForLocation } from "@/lib/book-notes/serialize";
+import {
+  companyLabelForLocation,
+  shopLabelForLocation,
+} from "@/lib/book-notes/serialize";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +15,8 @@ import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
  * (api_method default: verify_book_note).
  *
  * POST body: { companyLocationId, postingDate }
+ * Sends form_dict: rows_json, company, posting_date
+ * (ERP script derives outlet from API user full_name).
  * Permission: book_notes.manage
  */
 export async function POST(request: NextRequest) {
@@ -61,10 +66,11 @@ export async function POST(request: NextRequest) {
   const { companyLocationId, postingDate } = parsed.data;
 
   const location = await prisma.companyLocation.findFirst({
-    where: { id: companyLocationId, companyId },
+    where: { id: companyLocationId, companyId, isMainCompany: false },
     select: {
       id: true,
       name: true,
+      shortName: true,
       erpnextCompany: true,
       erpnextInstance: true,
     },
@@ -72,7 +78,7 @@ export async function POST(request: NextRequest) {
   if (!location) {
     return NextResponse.json(
       {
-        error: `Location not found for id ${companyLocationId}`,
+        error: `Shop not found for id ${companyLocationId}`,
         code: "LOCATION_NOT_FOUND",
         step: "load_location",
       },
@@ -80,13 +86,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const shopLabel = shopLabelForLocation(location);
+
   if (!location.erpnextInstance) {
     return NextResponse.json(
       {
-        error: `Outlet "${location.name}" has no ErpnextInstance linked. Link ERP credentials on this location before Send to ERP.`,
+        error: `Shop "${shopLabel}" has no ErpnextInstance linked. Link ERP credentials on this shop before Send to ERP.`,
         code: "ERP_INSTANCE_MISSING",
         step: "load_location",
-        locationName: location.name,
+        locationName: shopLabel,
       },
       { status: 400 },
     );
@@ -100,10 +108,10 @@ export async function POST(request: NextRequest) {
   if (!day || day.rows.length === 0) {
     return NextResponse.json(
       {
-        error: `No saved rows for ${location.name} on ${postingDate}. Save/send from an editable day with invoice lines first.`,
+        error: `No saved rows for shop "${shopLabel}" on ${postingDate}. Save/send from an editable day with invoice lines first.`,
         code: "NO_SAVED_ROWS",
         step: "load_day",
-        locationName: location.name,
+        locationName: shopLabel,
         postingDate,
       },
       { status: 400 },
@@ -114,6 +122,7 @@ export async function POST(request: NextRequest) {
   const result = await sendBookNoteRowsToErp({
     erpnextInstance: location.erpnextInstance,
     company,
+    postingDate,
     rows: day.rows.map((r) => ({
       idx_no: r.idx_no,
       sales_invoice: r.sales_invoice,
@@ -134,7 +143,7 @@ export async function POST(request: NextRequest) {
         company: result.company,
         erpUrl: result.erpUrl,
         httpStatus: result.httpStatus,
-        locationName: location.name,
+        locationName: shopLabel,
         postingDate,
         rowCount: day.rows.length,
         raw: result.rawMessage,
@@ -149,7 +158,7 @@ export async function POST(request: NextRequest) {
     company: result.company,
     erpUrl: result.erpUrl,
     posting_date: postingDate,
-    locationName: location.name,
+    locationName: shopLabel,
     summary: result.summary,
     rows: result.rows,
   });

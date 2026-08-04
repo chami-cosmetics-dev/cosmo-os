@@ -1,6 +1,3 @@
-import * as XLSX from "xlsx";
-
-import { baseSku } from "@/lib/osf/base-sku";
 import type { OsfCatalogRow } from "@/lib/osf/catalog-rows";
 import {
   OSF_ACCESS_SALES_UNITS,
@@ -23,6 +20,7 @@ import {
   seventyPercentOfRop,
   sumSignedOrderQtysFlooredAtZero,
 } from "@/lib/osf/formulas";
+import { baseSku } from "@/lib/osf/base-sku";
 
 export type OsfProfileData = {
   shopAvailability: string | null;
@@ -73,6 +71,16 @@ type OsfColumnDef = {
    * Stable access id for per-user visibility. `null`/undefined = identity (always on).
    */
   accessKey?: string | null;
+  /** Color band for styled Excel output. */
+  band?:
+    | "identity"
+    | "stock"
+    | "rop"
+    | "calc"
+    | "order"
+    | "price"
+    | "cost"
+    | "sales";
 };
 
 /** ISO date (YYYY-MM-DD) → dd.mm.yyyy banner label used in the header band. */
@@ -107,12 +115,10 @@ function availabilityLabel(value: string | null | undefined): string {
   return "";
 }
 
-/** Identity + fixed calc/pricing headers (Excel Main order). Stock/ROP inserted dynamically. */
+/** Identity headers (Excel Main order — matches current OSF download). */
 export function identityHeaders(): string[] {
   return [
-    "Variant SKU",
     "Variant SKU (_)",
-    "Variant SKU (-)",
     "Base SKU",
     "ERP1 Priority",
     "ERP2 Priority",
@@ -148,7 +154,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
   const stockCols = active.filter((c) => c.includeInStock);
   const ropCols = active.filter((c) => c.includeInRop);
 
-  // Precompute group totals for Common SKU
+  // Precompute per-SKU stock / ROP totals
   const stockBySku = new Map<string, Record<string, number | null>>();
   const ropBySku = new Map<string, Record<string, number | null>>();
   const totalStockBySku = new Map<string, number>();
@@ -178,15 +184,9 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     totalRopBySku.set(row.sku, totalRop);
   }
 
-  const commonStock = new Map<string, number>();
-  const commonRop = new Map<string, number>();
   const buyTotalBySku = new Map<string, number>();
 
   for (const row of input.catalog) {
-    const base = baseSku(row.sku);
-    commonStock.set(base, (commonStock.get(base) ?? 0) + (totalStockBySku.get(row.sku) ?? 0));
-    commonRop.set(base, (commonRop.get(base) ?? 0) + (totalRopBySku.get(row.sku) ?? 0));
-
     const stocks = stockBySku.get(row.sku) ?? {};
     const rops = ropBySku.get(row.sku) ?? {};
     const orderVals: Array<number | null> = [];
@@ -198,12 +198,6 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     buyTotalBySku.set(row.sku, sumSignedOrderQtysFlooredAtZero(orderVals));
   }
 
-  const commonBuy = new Map<string, number>();
-  for (const row of input.catalog) {
-    const base = baseSku(row.sku);
-    commonBuy.set(base, (commonBuy.get(base) ?? 0) + (buyTotalBySku.get(row.sku) ?? 0));
-  }
-
   const out: Record<string, string | number | null>[] = [];
 
   for (const row of input.catalog) {
@@ -213,7 +207,6 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     const rops = ropBySku.get(row.sku) ?? {};
     const totalStock = totalStockBySku.get(row.sku) ?? 0;
     const totalRop = totalRopBySku.get(row.sku) ?? 0;
-    const common = forms.baseSku;
     const costInfo = input.costMap.get(row.sku);
     const purchase = input.purchaseMap.get(row.sku);
     // Latest Cost: prefer the ERP Item last_purchase_rate, else fall back to the
@@ -222,9 +215,7 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     const ogf = profile?.ogfPrice ?? null;
 
     const record: Record<string, string | number | null> = {
-      "Variant SKU": forms.variantSku,
       "Variant SKU (_)": forms.skuUnderscore,
-      "Variant SKU (-)": forms.skuHyphen,
       "Base SKU": forms.baseSku,
       "ERP1 Priority": row.erp1ProductPriority ?? "",
       "ERP2 Priority": row.erp2ProductPriority ?? "",
@@ -242,13 +233,11 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
       record[col.label] = stocks[col.key];
     }
     record["Total Stock"] = totalStock;
-    record["Common SKU Stock"] = commonStock.get(common) ?? 0;
 
     for (const col of ropCols) {
       const label = `${col.label} ROP`;
       record[label] = rops[col.key];
     }
-    record["Common ROP"] = commonRop.get(common) ?? 0;
     const pct = percentOfRop(totalStock, totalRop > 0 ? totalRop : null);
     record["% of ROP"] = pct == null ? null : Math.round(pct * 10000) / 100;
     record["70% OF TOTAL ROP"] = seventyPercentOfRop(totalRop > 0 ? totalRop : null);
@@ -267,7 +256,6 @@ export function buildMainSheetRows(input: BuildWorkbookInput): Record<string, st
     }
     record["TOTAL ORDER QTY"] =
       buyTotalBySku.get(row.sku) ?? sumSignedOrderQtysFlooredAtZero(orderVals);
-    record["Common SKU Reorder"] = commonBuy.get(common) ?? 0;
 
     const listPrice = originalSellingPrice(row.mrp, row.discountedPrice);
     record["Cosmetics MRP"] = listPrice;
@@ -300,7 +288,7 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
   const dateLabel = formatDdMmYyyy(input.asOfDate);
 
   const defs: OsfColumnDef[] = [];
-  for (const h of identityHeaders()) defs.push({ header: h, accessKey: null });
+  for (const h of identityHeaders()) defs.push({ header: h, accessKey: null, band: "identity" });
 
   stockCols.forEach((c, i) =>
     defs.push({
@@ -308,10 +296,10 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
       section: i === 0 ? dateLabel : undefined,
       sum: true,
       accessKey: stockAccessKey(c.key),
+      band: "stock",
     }),
   );
-  defs.push({ header: "Total Stock", sum: true, accessKey: "Total Stock" });
-  defs.push({ header: "Common SKU Stock", sum: true, accessKey: "Common SKU Stock" });
+  defs.push({ header: "Total Stock", sum: true, accessKey: "Total Stock", band: "stock" });
 
   ropCols.forEach((c, i) =>
     defs.push({
@@ -319,15 +307,16 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
       section: i === 0 ? "ROP" : undefined,
       sum: true,
       accessKey: ropAccessKey(c.key),
+      band: "rop",
     }),
   );
-  defs.push({ header: "Common ROP", sum: true, accessKey: "Common ROP" });
 
-  defs.push({ header: "% of ROP", accessKey: "% of ROP" });
-  defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP" });
+  defs.push({ header: "% of ROP", accessKey: "% of ROP", band: "calc" });
+  defs.push({ header: "70% OF TOTAL ROP", sum: true, accessKey: "70% OF TOTAL ROP", band: "calc" });
   defs.push({
     header: "70% OF TOTAL ROP AVAILABILITY",
     accessKey: "70% OF TOTAL ROP AVAILABILITY",
+    band: "calc",
   });
 
   stockCols.forEach((c, i) =>
@@ -336,48 +325,79 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
       section: i === 0 ? "REORDER Amount" : undefined,
       sum: true,
       accessKey: orderAccessKey(c.key),
+      band: "order",
     }),
   );
-  defs.push({ header: "TOTAL ORDER QTY", sum: true, accessKey: "TOTAL ORDER QTY" });
-  defs.push({ header: "Common SKU Reorder", sum: true, accessKey: "Common SKU Reorder" });
+  defs.push({ header: "TOTAL ORDER QTY", sum: true, accessKey: "TOTAL ORDER QTY", band: "order" });
 
   defs.push({
     header: "Cosmetics MRP",
     section: "price",
     pricing: true,
     accessKey: "Cosmetics MRP",
+    band: "price",
   });
-  defs.push({ header: "Discounted Price", pricing: true, accessKey: "Discounted Price" });
-  defs.push({ header: "OGF Price", pricing: true, accessKey: "OGF Price" });
+  defs.push({
+    header: "Discounted Price",
+    pricing: true,
+    accessKey: "Discounted Price",
+    band: "price",
+  });
+  defs.push({ header: "OGF Price", pricing: true, accessKey: "OGF Price", band: "price" });
   defs.push({
     header: "Latest Cost",
     section: "Purchasing Cost",
     pricing: true,
     accessKey: "Latest Cost",
+    band: "cost",
   });
-  defs.push({ header: "Latest supplier", pricing: true, accessKey: "Latest supplier" });
-  defs.push({ header: "Last Purchase Qty", pricing: true, accessKey: "Last Purchase Qty" });
-  defs.push({ header: "Last Purchase Date", pricing: true, accessKey: "Last Purchase Date" });
+  defs.push({
+    header: "Latest supplier",
+    pricing: true,
+    accessKey: "Latest supplier",
+    band: "cost",
+  });
+  defs.push({
+    header: "Last Purchase Qty",
+    pricing: true,
+    accessKey: "Last Purchase Qty",
+    band: "cost",
+  });
+  defs.push({
+    header: "Last Purchase Date",
+    pricing: true,
+    accessKey: "Last Purchase Date",
+    band: "cost",
+  });
   defs.push({
     header: "Days Since Last Purchase",
     pricing: true,
     accessKey: "Days Since Last Purchase",
+    band: "cost",
   });
   defs.push({
     header: "Purchased (last 30d)",
     pricing: true,
     accessKey: "Purchased (last 30d)",
+    band: "cost",
   });
   defs.push({
     header: "Cosmetics Margin %",
     pricing: true,
     accessKey: "Cosmetics Margin %",
+    band: "cost",
   });
-  defs.push({ header: "OGF Margin %", pricing: true, accessKey: "OGF Margin %" });
+  defs.push({
+    header: "OGF Margin %",
+    pricing: true,
+    accessKey: "OGF Margin %",
+    band: "cost",
+  });
   defs.push({
     header: `Sales Units (${input.salesMonth})`,
     pricing: true,
     accessKey: OSF_ACCESS_SALES_UNITS,
+    band: "sales",
   });
 
   return defs;
@@ -385,34 +405,25 @@ export function mainColumnDescriptors(input: BuildWorkbookInput): OsfColumnDef[]
 
 type SheetCell = string | number | null;
 
-/** Build an .xlsx worksheet with the 3-row header band (totals / sections / headers). */
-function renderSheet(
-  defs: OsfColumnDef[],
-  rows: Record<string, string | number | null>[],
-): XLSX.WorkSheet {
-  const totalsRow: SheetCell[] = defs.map((c) => {
-    if (!c.sum) return "";
-    let total = 0;
-    let seen = false;
-    for (const r of rows) {
-      const v = r[c.header];
-      if (typeof v === "number" && Number.isFinite(v)) {
-        total += v;
-        seen = true;
-      }
-    }
-    return seen ? total : "";
-  });
-  const sectionRow: SheetCell[] = defs.map((c) => c.section ?? "");
-  const headerRow: SheetCell[] = defs.map((c) => c.header);
-  const dataRows: SheetCell[][] = rows.map((r) =>
-    defs.map((c) => {
-      const v = r[c.header];
-      return v == null ? "" : v;
-    }),
-  );
+type BandKey = NonNullable<OsfColumnDef["band"]>;
 
-  return XLSX.utils.aoa_to_sheet([totalsRow, sectionRow, headerRow, ...dataRows]);
+/** Header-band fills (ARGB hex without #) for ExcelJS. */
+const BAND_COLORS: Record<
+  BandKey,
+  { header: string; section: string; totals: string; font: string }
+> = {
+  identity: { header: "5B6B7A", section: "D6DCE4", totals: "EEF1F4", font: "FFFFFF" },
+  stock: { header: "2F75B5", section: "BDD7EE", totals: "DEEBF7", font: "FFFFFF" },
+  rop: { header: "548235", section: "C6E0B4", totals: "E2EFDA", font: "FFFFFF" },
+  calc: { header: "C65911", section: "F8CBAD", totals: "FCE4D6", font: "FFFFFF" },
+  order: { header: "833C0C", section: "F4B183", totals: "F8CBAD", font: "FFFFFF" },
+  price: { header: "7030A0", section: "D5A6E6", totals: "E2D5F1", font: "FFFFFF" },
+  cost: { header: "0070C0", section: "9DC3E6", totals: "DDEBF7", font: "FFFFFF" },
+  sales: { header: "BF8F00", section: "FFE699", totals: "FFF2CC", font: "000000" },
+};
+
+function cellValue(v: SheetCell): string | number {
+  return v == null ? "" : v;
 }
 
 /** Excel-safe, unique sheet name (≤31 chars, no []:*?/\\). */
@@ -445,16 +456,76 @@ export function filterColumnDefsByGroups(
   return defs;
 }
 
-export function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Buffer {
+export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise<Buffer> {
+  const ExcelJS = await import("exceljs");
   const rows = buildMainSheetRows(input);
   const defs = mainColumnDescriptors(input);
   const mainDefs = filterColumnDefsByAccessKeys(defs, input.effectiveColumnKeys ?? "all");
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
   const used = new Set<string>();
 
-  XLSX.utils.book_append_sheet(wb, renderSheet(mainDefs, rows), sanitizeSheetName("Main", used));
+  const attachSheet = (
+    sheetName: string,
+    sheetDefs: OsfColumnDef[],
+    sheetRows: Record<string, string | number | null>[],
+  ) => {
+    const name = sanitizeSheetName(sheetName, used);
+    const ws = wb.addWorksheet(name, {
+      views: [{ state: "frozen", ySplit: 3 }],
+    });
 
-  // Buyer sheets: stock/ROP/order only (no pricing columns), still honor access keys.
+    const totalsRow: SheetCell[] = sheetDefs.map((c) => {
+      if (!c.sum) return "";
+      let total = 0;
+      let seen = false;
+      for (const r of sheetRows) {
+        const v = r[c.header];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          total += v;
+          seen = true;
+        }
+      }
+      return seen ? total : "";
+    });
+    const sectionRow: SheetCell[] = sheetDefs.map((c) => c.section ?? "");
+    const headerRow: SheetCell[] = sheetDefs.map((c) => c.header);
+
+    ws.addRow(totalsRow.map(cellValue));
+    ws.addRow(sectionRow.map(cellValue));
+    ws.addRow(headerRow.map(cellValue));
+    for (const r of sheetRows) {
+      ws.addRow(
+        sheetDefs.map((c) => cellValue(r[c.header] == null ? "" : (r[c.header] as SheetCell))),
+      );
+    }
+
+    for (let colIdx = 0; colIdx < sheetDefs.length; colIdx++) {
+      const band = sheetDefs[colIdx]!.band ?? "identity";
+      const colors = BAND_COLORS[band];
+      const excelCol = colIdx + 1;
+      const styleRow = (rowNum: number, fillArgb: string, fontArgb: string, bold: boolean) => {
+        const cell = ws.getRow(rowNum).getCell(excelCol);
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: `FF${fillArgb}` },
+        };
+        cell.font = { bold, color: { argb: `FF${fontArgb}` }, size: 10 };
+        cell.alignment = { vertical: "middle", wrapText: true };
+      };
+      styleRow(1, colors.totals, "000000", false);
+      styleRow(2, colors.section, "000000", true);
+      styleRow(3, colors.header, colors.font, true);
+      const len = Math.max(10, Math.min(28, sheetDefs[colIdx]!.header.length + 2));
+      ws.getColumn(excelCol).width = len;
+    }
+    ws.getRow(1).height = 18;
+    ws.getRow(2).height = 18;
+    ws.getRow(3).height = 28;
+  };
+
+  attachSheet("Main", mainDefs, rows);
+
   const buyerDefs = filterColumnDefsByAccessKeys(
     defs.filter((d) => !d.pricing),
     input.effectiveColumnKeys ?? "all",
@@ -470,31 +541,23 @@ export function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Buffer {
         : rows.filter((r) =>
             brandSet.has(String(r["Brand"] ?? "").trim().toLowerCase()),
           );
-    XLSX.utils.book_append_sheet(
-      wb,
-      renderSheet(buyerDefs, buyerRows),
-      sanitizeSheetName(buyer.name, used),
-    );
+    attachSheet(buyer.name, buyerDefs, buyerRows);
   }
 
-  // Stamp metadata on a tiny Info sheet.
-  const infoRows: (string | number)[][] = [
-    ["asOfDate", input.asOfDate],
-    ["salesMonth", input.salesMonth],
-    ["rows", rows.length],
-  ];
+  const info = wb.addWorksheet(sanitizeSheetName("Info", used));
+  info.addRow(["asOfDate", input.asOfDate]);
+  info.addRow(["salesMonth", input.salesMonth]);
+  info.addRow(["rows", rows.length]);
   if (input.belowThresholdOnly) {
-    infoRows.push(["mode", "reorder-only (below threshold %)"]);
+    info.addRow(["mode", "reorder-only (below threshold %)"]);
     if (rows.length === 0) {
-      infoRows.push([
+      info.addRow([
         "notice",
         "No SKUs met the filter. A SKU is included only when total ROP > 0 and (total stock / total ROP) × 100 is below its reorder threshold % (default 70). SKUs without warehouse ROP are excluded.",
       ]);
     }
   }
-  const info = XLSX.utils.aoa_to_sheet(infoRows);
-  XLSX.utils.book_append_sheet(wb, info, sanitizeSheetName("Info", used));
 
-  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  return buf;
+  const arrayBuffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(arrayBuffer);
 }

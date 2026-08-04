@@ -121,7 +121,8 @@ export async function PUT(request: NextRequest) {
   if (!isBookNoteWritable(postingDate)) {
     return NextResponse.json(
       {
-        error: "This sales date is locked. Merchants can only save today's book note.",
+        error:
+          "This sales date is locked. Merchants can only save book notes for today or past dates.",
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },
@@ -129,11 +130,11 @@ export async function PUT(request: NextRequest) {
   }
 
   const location = await prisma.companyLocation.findFirst({
-    where: { id: companyLocationId, companyId },
-    select: { id: true, name: true, erpnextCompany: true },
+    where: { id: companyLocationId, companyId, isMainCompany: false },
+    select: { id: true, name: true, shortName: true, erpnextCompany: true },
   });
   if (!location) {
-    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+    return NextResponse.json({ error: "Shop not found" }, { status: 404 });
   }
 
   const cleaned = rows
