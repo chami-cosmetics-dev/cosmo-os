@@ -7,11 +7,10 @@ import {
 } from "@/lib/adapt-import/fill-blanks";
 import { buildAdaptInvoiceKey } from "@/lib/adapt-import/invoice-identity";
 import {
-  normalizeAdaptEmail,
+  adaptEmailForContactUse,
   normalizeAdaptPhone,
 } from "@/lib/adapt-import/contact-resolve";
 import type { AdaptClassifyResult } from "@/lib/adapt-import/types";
-import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { LIMITS } from "@/lib/validation";
 
 type OkClassify = Extract<AdaptClassifyResult, { status: "ok" }>;
@@ -31,6 +30,8 @@ async function updatePurchaseSnapshot(input: {
   recentMerchant: string | null;
   db: AdaptImportDb;
 }) {
+  // Only moves lastPurchaseAt forward. Cosmo-newer dates are preserved.
+  // After import, Adapt-only customers get Adapt invoiceDate as last purchase.
   const merchant = input.recentMerchant?.trim().slice(0, LIMITS.knownName.max) || null;
   await input.db.contactMaster.updateMany({
     where: {
@@ -44,60 +45,8 @@ async function updatePurchaseSnapshot(input: {
   });
 }
 
-async function ensureSecondaryIdentifiers(
-  db: AdaptImportDb,
-  input: {
-    contactId: string;
-    primaryEmail?: string | null;
-    primaryPhoneNumber?: string | null;
-    email?: string | null;
-    phoneNumber?: string | null;
-  }
-) {
-  const email = normalizeAdaptEmail(input.email);
-  const phoneNumber = normalizeAdaptPhone(input.phoneNumber);
-  const primaryEmail = normalizeAdaptEmail(input.primaryEmail);
-  const primaryPhoneNumber = normalizeAdaptPhone(input.primaryPhoneNumber);
-
-  if (email && email !== primaryEmail) {
-    const exists = await db.contactEmail.findFirst({
-      where: {
-        contactId: input.contactId,
-        email: { equals: email, mode: "insensitive" },
-      },
-      select: { id: true },
-    });
-    if (!exists) {
-      await db.contactEmail.create({
-        data: { contactId: input.contactId, email, isPrimary: false },
-      });
-    }
-  }
-
-  const primaryPhoneVariants = primaryPhoneNumber
-    ? buildPhoneLookupVariants(primaryPhoneNumber)
-    : [];
-  const phoneVariants = phoneNumber ? buildPhoneLookupVariants(phoneNumber) : [];
-  const matchesPrimaryPhone = phoneVariants.some((variant) =>
-    primaryPhoneVariants.includes(variant)
-  );
-  if (phoneNumber && !matchesPrimaryPhone) {
-    const exists = await db.contactPhone.findFirst({
-      where: {
-        contactId: input.contactId,
-        OR: phoneVariants.map((variant) => ({ phoneNumber: variant })),
-      },
-      select: { id: true },
-    });
-    if (!exists) {
-      await db.contactPhone.create({
-        data: { contactId: input.contactId, phoneNumber, isPrimary: false },
-      });
-    }
-  }
-}
-
-/** Upsert Adapt purchase history + fill-blanks contact. Never creates Order. Never sets assignedMerchant. */
+/** Upsert Adapt purchase history + fill-blanks contact. Never creates Order. Never sets assignedMerchant.
+ * Never attaches secondary phones/emails — merchants reuse emails and that snowballed wrong history. */
 export async function persistAdaptPurchaseRow(input: {
   companyId: string;
   classified: OkClassify;
@@ -109,7 +58,8 @@ export async function persistAdaptPurchaseRow(input: {
 }): Promise<PersistAdaptRowResult> {
   const db = input.db;
   const classified = input.classified;
-  const email = normalizeAdaptEmail(classified.email);
+  // Phone is the identity key; merchant/shared emails are ignored for contact fields.
+  const email = adaptEmailForContactUse(classified.email);
   const phone = normalizeAdaptPhone(classified.phone);
 
   let contactId = input.contactId ?? null;
@@ -154,13 +104,6 @@ export async function persistAdaptPurchaseRow(input: {
     });
     contactId = created.id;
     contactAction = "created";
-    await ensureSecondaryIdentifiers(db, {
-      contactId,
-      primaryEmail: createPatch.email,
-      primaryPhoneNumber: createPatch.phoneNumber,
-      email,
-      phoneNumber: phone,
-    });
   } else {
     const existing = await db.contactMaster.findFirst({
       where: { id: contactId, companyId: input.companyId },
@@ -198,15 +141,6 @@ export async function persistAdaptPurchaseRow(input: {
       contactAction = "enriched";
     } else if (hasFillBlanksChanges(patch) && input.dryRun) {
       contactAction = "enriched";
-    }
-    if (!input.dryRun) {
-      await ensureSecondaryIdentifiers(db, {
-        contactId,
-        primaryEmail: existing.email,
-        primaryPhoneNumber: existing.phoneNumber,
-        email,
-        phoneNumber: phone,
-      });
     }
   }
 
