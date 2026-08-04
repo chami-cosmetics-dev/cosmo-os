@@ -205,27 +205,6 @@ export function OsfColumnAccessPanel() {
         </Button>
       </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">
-          All assignable columns ({sortedColumns.length})
-        </p>
-        {sortedColumns.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No assignable columns yet.</p>
-        ) : (
-          <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-            {sortedColumns.map((col) => (
-              <span
-                key={col.id}
-                className="rounded-md border border-border/70 bg-muted/40 px-2 py-0.5 text-xs"
-                title={col.id}
-              >
-                {col.label}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
       <button
         type="button"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
