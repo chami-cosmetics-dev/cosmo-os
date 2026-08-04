@@ -129,3 +129,36 @@ export const osfAssistRopsPutSchema = z.object({
 
 export type OsfAssistPageDataQuery = z.infer<typeof osfAssistPageDataQuerySchema>;
 export type OsfAssistRopsPutInput = z.infer<typeof osfAssistRopsPutSchema>;
+
+const osfSupplierOrdersAllocationSchema = z.object({
+  supplierId: cuidSchema.optional(),
+  supplierName: trimmedString(1, LIMITS.supplierName.max),
+  qty: z.number().finite().min(0).max(1_000_000),
+});
+
+const osfSupplierOrdersRowSchema = z.object({
+  sku: trimmedString(1, LIMITS.sku.max),
+  description: trimmedString(0, LIMITS.productTitle.max),
+  reorderQty: z.number().finite().min(0).max(1_000_000),
+  allocations: z.array(osfSupplierOrdersAllocationSchema).max(100),
+});
+
+export const osfSupplierOrdersItemsQuerySchema = z.object({
+  q: trimmedString(0, LIMITS.sku.max).optional(),
+  vendorId: cuidSchema.optional(),
+  priority: trimmedString(0, 80).optional(),
+  page: z.coerce.number().int().min(1).max(10_000).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).optional().default(50),
+});
+
+export const osfSupplierOrdersSuppliersQuerySchema = z.object({
+  sku: trimmedString(1, LIMITS.sku.max),
+});
+
+export const osfSupplierOrdersGenerateBodySchema = z.object({
+  rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
+});
+
+export type OsfSupplierOrdersItemsQuery = z.infer<typeof osfSupplierOrdersItemsQuerySchema>;
+export type OsfSupplierOrdersSuppliersQuery = z.infer<typeof osfSupplierOrdersSuppliersQuerySchema>;
+export type OsfSupplierOrdersGenerateBodyInput = z.infer<typeof osfSupplierOrdersGenerateBodySchema>;
