@@ -17,13 +17,20 @@ import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
 export async function POST(request: NextRequest) {
   const auth = await requirePermission("book_notes.manage");
   if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+    return NextResponse.json(
+      { error: auth.error, code: "AUTH", step: "auth" },
+      { status: auth.status },
+    );
   }
 
   const companyId = auth.context!.user?.companyId ?? null;
   if (!companyId) {
     return NextResponse.json(
-      { error: "No company associated with your account" },
+      {
+        error: "No company associated with your account",
+        code: "NO_COMPANY",
+        step: "auth",
+      },
       { status: 404 },
     );
   }
@@ -32,13 +39,21 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid JSON body", code: "BAD_JSON", step: "validate" },
+      { status: 400 },
+    );
   }
 
   const parsed = bookNoteSendToErpBodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid body", details: parsed.error.flatten() },
+      {
+        error: "Invalid body — need companyLocationId and postingDate (YYYY-MM-DD)",
+        code: "VALIDATION",
+        step: "validate",
+        details: parsed.error.flatten(),
+      },
       { status: 400 },
     );
   }
@@ -55,7 +70,26 @@ export async function POST(request: NextRequest) {
     },
   });
   if (!location) {
-    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+    return NextResponse.json(
+      {
+        error: `Location not found for id ${companyLocationId}`,
+        code: "LOCATION_NOT_FOUND",
+        step: "load_location",
+      },
+      { status: 404 },
+    );
+  }
+
+  if (!location.erpnextInstance) {
+    return NextResponse.json(
+      {
+        error: `Outlet "${location.name}" has no ErpnextInstance linked. Link ERP credentials on this location before Send to ERP.`,
+        code: "ERP_INSTANCE_MISSING",
+        step: "load_location",
+        locationName: location.name,
+      },
+      { status: 400 },
+    );
   }
 
   const day = await loadBookNoteDayDto({
@@ -65,7 +99,13 @@ export async function POST(request: NextRequest) {
   });
   if (!day || day.rows.length === 0) {
     return NextResponse.json(
-      { error: "Save the book note first, then send to ERP" },
+      {
+        error: `No saved rows for ${location.name} on ${postingDate}. Save/send from an editable day with invoice lines first.`,
+        code: "NO_SAVED_ROWS",
+        step: "load_day",
+        locationName: location.name,
+        postingDate,
+      },
       { status: 400 },
     );
   }
@@ -88,8 +128,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: result.error ?? "ERP verify failed",
+        code: result.code ?? "ERP_UNKNOWN",
+        step: "erp_call",
         method: result.method,
         company: result.company,
+        erpUrl: result.erpUrl,
+        httpStatus: result.httpStatus,
+        locationName: location.name,
+        postingDate,
+        rowCount: day.rows.length,
         raw: result.rawMessage,
       },
       { status: 502 },
@@ -100,7 +147,9 @@ export async function POST(request: NextRequest) {
     success: true,
     method: result.method,
     company: result.company,
+    erpUrl: result.erpUrl,
     posting_date: postingDate,
+    locationName: location.name,
     summary: result.summary,
     rows: result.rows,
   });

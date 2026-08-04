@@ -24,15 +24,119 @@ export type BookNoteErpVerifySummary = {
   total_rows: number;
 };
 
+export type BookNoteErpFailCode =
+  | "ERP_CREDENTIALS_MISSING"
+  | "NO_ROWS"
+  | "NETWORK"
+  | "ERP_HTTP"
+  | "ERP_METHOD_MISSING"
+  | "ERP_SCRIPT_ERROR"
+  | "ERP_UNKNOWN";
+
 export type BookNoteErpVerifyResult = {
   ok: boolean;
   method: string;
   company: string;
+  erpUrl?: string;
   summary: BookNoteErpVerifySummary | null;
   rows: unknown[];
   rawMessage: unknown;
   error?: string;
+  code?: BookNoteErpFailCode;
+  httpStatus?: number;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/** Pull the most useful human message out of a Frappe/ERPNext error body. */
+export function extractErpErrorMessage(
+  parsed: unknown,
+  httpStatus: number,
+  rawText: string,
+): string {
+  const root = asRecord(parsed);
+  if (!root) {
+    const snippet = rawText.trim().slice(0, 400);
+    return snippet
+      ? `ERP HTTP ${httpStatus}: ${snippet}`
+      : `ERP HTTP ${httpStatus} (empty response)`;
+  }
+
+  // _server_messages is a JSON-encoded array of { message: "..." }
+  if (typeof root._server_messages === "string") {
+    try {
+      const list = JSON.parse(root._server_messages) as unknown;
+      if (Array.isArray(list) && list.length > 0) {
+        const parts = list
+          .map((item) => {
+            if (typeof item === "string") {
+              try {
+                const inner = JSON.parse(item) as { message?: unknown };
+                return typeof inner.message === "string" ? inner.message : item;
+              } catch {
+                return item;
+              }
+            }
+            const rec = asRecord(item);
+            return typeof rec?.message === "string" ? rec.message : null;
+          })
+          .filter((m): m is string => Boolean(m && m.trim()));
+        if (parts.length) return parts.join(" | ");
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  if (typeof root.exception === "string" && root.exception.trim()) {
+    // Often "frappe.exceptions.ValidationError: rows_json is required"
+    const exc = root.exception.trim();
+    const afterColon = exc.includes(": ")
+      ? exc.slice(exc.indexOf(": ") + 2).trim()
+      : exc;
+    return afterColon || exc;
+  }
+
+  if (typeof root.exc_type === "string" && typeof root.message === "string") {
+    return `${root.exc_type}: ${root.message}`;
+  }
+
+  if (typeof root.message === "string" && root.message.trim()) {
+    return root.message.trim();
+  }
+
+  // Nested message object
+  const nested = asRecord(root.message);
+  if (nested && typeof nested.message === "string") {
+    return nested.message;
+  }
+
+  const snippet = rawText.trim().slice(0, 400);
+  return snippet
+    ? `ERP HTTP ${httpStatus}: ${snippet}`
+    : `ERP HTTP ${httpStatus}`;
+}
+
+function classifyErpFailure(
+  httpStatus: number,
+  message: string,
+): BookNoteErpFailCode {
+  const low = message.toLowerCase();
+  if (
+    httpStatus === 404 ||
+    low.includes("not found") ||
+    low.includes("does not exist") ||
+    (low.includes("method") && low.includes("not"))
+  ) {
+    return "ERP_METHOD_MISSING";
+  }
+  if (httpStatus >= 400) return "ERP_SCRIPT_ERROR";
+  return "ERP_HTTP";
+}
 
 /**
  * Push merchant book-note rows to ERP ss9 verify Server Script.
@@ -45,17 +149,21 @@ export async function sendBookNoteRowsToErp(input: {
 }): Promise<BookNoteErpVerifyResult> {
   const cfg = getErpConfig(input.erpnextInstance);
   const method = getBookNoteVerifyMethod();
+  const base = cfg.baseUrl.replace(/\/$/, "");
+  const erpUrl = base ? `${base}/api/method/${method}` : undefined;
 
   if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) {
     return {
       ok: false,
       method,
       company: input.company,
+      erpUrl,
       summary: null,
       rows: [],
       rawMessage: null,
+      code: "ERP_CREDENTIALS_MISSING",
       error:
-        "ERP credentials missing for this outlet (ErpnextInstance baseUrl/apiKey/apiSecret).",
+        "ERP credentials missing for this outlet. Link an ErpnextInstance (base URL, API key, API secret) to the location in Cosmo settings.",
     };
   }
 
@@ -64,9 +172,11 @@ export async function sendBookNoteRowsToErp(input: {
       ok: false,
       method,
       company: input.company,
+      erpUrl,
       summary: null,
       rows: [],
       rawMessage: null,
+      code: "NO_ROWS",
       error: "No rows to send to ERP",
     };
   }
@@ -82,16 +192,14 @@ export async function sendBookNoteRowsToErp(input: {
     })),
   );
 
-  // form-urlencoded matches Frappe Server Script form_dict usage in ss9
   const body = new URLSearchParams({
     rows_json,
     company: input.company,
   });
 
-  const url = `${cfg.baseUrl.replace(/\/$/, "")}/api/method/${method}`;
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(erpUrl!, {
       method: "POST",
       headers: {
         Authorization: `token ${cfg.apiKey}:${cfg.apiSecret}`,
@@ -100,14 +208,17 @@ export async function sendBookNoteRowsToErp(input: {
       body: body.toString(),
     });
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
       method,
       company: input.company,
+      erpUrl,
       summary: null,
       rows: [],
       rawMessage: null,
-      error: err instanceof Error ? err.message : "ERP request failed",
+      code: "NETWORK",
+      error: `Could not reach ERP at ${erpUrl}: ${detail}`,
     };
   }
 
@@ -120,25 +231,26 @@ export async function sendBookNoteRowsToErp(input: {
   }
 
   if (!res.ok) {
-    const msg =
-      typeof parsed === "object" &&
-      parsed &&
-      "message" in parsed &&
-      typeof (parsed as { message: unknown }).message === "string"
-        ? (parsed as { message: string }).message
-        : `ERP HTTP ${res.status}: ${text.slice(0, 300)}`;
+    const msg = extractErpErrorMessage(parsed, res.status, text);
+    const code = classifyErpFailure(res.status, msg);
+    const hint =
+      code === "ERP_METHOD_MISSING"
+        ? ` Create Server Script (API) with api_method="${method}" and paste ss9_verify_book_note.py.`
+        : "";
     return {
       ok: false,
       method,
       company: input.company,
+      erpUrl,
       summary: null,
       rows: [],
       rawMessage: parsed,
-      error: msg,
+      code,
+      httpStatus: res.status,
+      error: `${msg}${hint}`,
     };
   }
 
-  // Server Script sets frappe.response["message"] = { rows, summary }
   const message =
     typeof parsed === "object" && parsed && "message" in parsed
       ? (parsed as { message: unknown }).message
@@ -158,13 +270,31 @@ export async function sendBookNoteRowsToErp(input: {
     typeof message === "object" &&
     "rows" in message &&
     Array.isArray((message as { rows: unknown }).rows)
-      ? ((message as { rows: unknown[] }).rows)
+      ? (message as { rows: unknown[] }).rows
       : [];
+
+  // HTTP 200 but unexpected shape — still report clearly
+  if (!summary && rows.length === 0) {
+    return {
+      ok: false,
+      method,
+      company: input.company,
+      erpUrl,
+      summary: null,
+      rows: [],
+      rawMessage: message,
+      code: "ERP_UNKNOWN",
+      httpStatus: res.status,
+      error:
+        "ERP returned 200 but no { rows, summary } from verify_book_note. Check the Server Script sets frappe.response['message'] = { rows, summary }.",
+    };
+  }
 
   return {
     ok: true,
     method,
     company: input.company,
+    erpUrl,
     summary,
     rows,
     rawMessage: message,

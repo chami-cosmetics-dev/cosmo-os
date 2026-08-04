@@ -93,6 +93,7 @@ export function BookNotesPanel({
   const [locked, setLocked] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState("");
+  const [lastError, setLastError] = useState<string | null>(null);
   const [history, setHistory] = useState<BookNoteHistoryItem[]>([]);
   const [suggestForKey, setSuggestForKey] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<BookNoteOrderSuggestion[]>([]);
@@ -218,6 +219,41 @@ export function BookNotesPanel({
     setSuggestForKey(null);
   }
 
+  function formatSendError(data: {
+    error?: string;
+    code?: string;
+    step?: string;
+    method?: string;
+    erpUrl?: string;
+    httpStatus?: number;
+    locationName?: string;
+    postingDate?: string;
+  }): string {
+    const parts: string[] = [];
+    if (data.code) parts.push(`[${data.code}]`);
+    if (data.step) parts.push(`step=${data.step}`);
+    if (data.httpStatus) parts.push(`HTTP ${data.httpStatus}`);
+    if (data.method) parts.push(`method=${data.method}`);
+    const head = parts.length ? `${parts.join(" ")} — ` : "";
+    const msg = data.error?.trim() || "ERP send failed";
+    const where =
+      data.locationName || data.postingDate
+        ? ` (${[data.locationName, data.postingDate].filter(Boolean).join(" / ")})`
+        : "";
+    const url = data.erpUrl ? ` → ${data.erpUrl}` : "";
+    return `${head}${msg}${where}${url}`;
+  }
+
+  function showError(message: string) {
+    setLastError(message);
+    setStatusLine(message);
+    notify.error(message);
+  }
+
+  function clearError() {
+    setLastError(null);
+  }
+
   async function refreshHistory() {
     try {
       const histParams = new URLSearchParams({
@@ -256,12 +292,15 @@ export function BookNotesPanel({
     });
     const data = await res.json();
     if (!res.ok) {
-      const msg = data.error ?? "Save failed";
-      notify.error(msg);
-      setStatusLine(data.code === "DAY_LOCKED" ? "Day locked" : msg);
+      const msg =
+        data.code === "DAY_LOCKED"
+          ? `Day locked — ${data.error ?? "cannot save"}`
+          : (data.error ?? "Save failed");
+      showError(msg);
       if (data.code === "DAY_LOCKED") setLocked(true);
       return null;
     }
+    clearError();
     const day = data as BookNoteDayDto;
     setRows(dayToRows(day));
     setRowCountInput(String(day.rows.length));
@@ -279,12 +318,36 @@ export function BookNotesPanel({
         postingDate: dateYmd,
       }),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      notify.error(data.error ?? "ERP send failed");
-      setStatusLine(data.error ?? "ERP send failed");
+    let data: Record<string, unknown> = {};
+    try {
+      data = (await res.json()) as Record<string, unknown>;
+    } catch {
+      showError(
+        `ERP send failed — response was not JSON (HTTP ${res.status}). Check Cosmo server logs.`,
+      );
       return false;
     }
+    if (!res.ok) {
+      showError(
+        formatSendError({
+          error: typeof data.error === "string" ? data.error : undefined,
+          code: typeof data.code === "string" ? data.code : undefined,
+          step: typeof data.step === "string" ? data.step : undefined,
+          method: typeof data.method === "string" ? data.method : undefined,
+          erpUrl: typeof data.erpUrl === "string" ? data.erpUrl : undefined,
+          httpStatus:
+            typeof data.httpStatus === "number"
+              ? data.httpStatus
+              : res.status,
+          locationName:
+            typeof data.locationName === "string" ? data.locationName : undefined,
+          postingDate:
+            typeof data.postingDate === "string" ? data.postingDate : dateYmd,
+        }),
+      );
+      return false;
+    }
+    clearError();
     const s = data.summary as {
       verified_count?: number;
       mismatch_count?: number;
@@ -305,12 +368,16 @@ export function BookNotesPanel({
     if (readOnly) {
       // Viewing a locked/past day — resend saved data only
       setBusyKey(`erp:${postingDate}`);
+      clearError();
       setStatusLine(`Sending ${postingDate} to ERP...`);
       try {
         await sendDayToErp(postingDate);
-      } catch {
-        notify.error("ERP send failed");
-        setStatusLine("ERP send failed");
+      } catch (err) {
+        showError(
+          err instanceof Error
+            ? `Network/client error: ${err.message}`
+            : "ERP send failed (network/client error)",
+        );
       } finally {
         setBusyKey(null);
       }
@@ -323,24 +390,27 @@ export function BookNotesPanel({
         toNum(r.cash) + toNum(r.card) + toNum(r.koko) + toNum(r.bankTransfer) > 0,
     );
     if (!filled) {
-      notify.error("Add at least one invoice row before sending to ERP");
+      showError("Add at least one invoice row before sending to ERP");
       return;
     }
 
     setBusyKey(`erp:${postingDate}`);
+    clearError();
     setStatusLine("Saving and sending to ERP...");
     try {
       const day = await saveCurrentDay();
       if (!day) return;
       if (day.rows.length === 0) {
-        notify.error("Nothing to send — add invoice rows first");
-        setStatusLine("Nothing to send");
+        showError("Nothing to send — add invoice rows first");
         return;
       }
       await sendDayToErp(postingDate);
-    } catch {
-      notify.error("Save / ERP send failed");
-      setStatusLine("Save / ERP send failed");
+    } catch (err) {
+      showError(
+        err instanceof Error
+          ? `Network/client error: ${err.message}`
+          : "Save / ERP send failed (network/client error)",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -350,12 +420,16 @@ export function BookNotesPanel({
   async function handleResendHistoryToErp(dateYmd: string) {
     if (!companyLocationId || !dateYmd) return;
     setBusyKey(`erp:${dateYmd}`);
+    clearError();
     setStatusLine(`Sending ${dateYmd} to ERP...`);
     try {
       await sendDayToErp(dateYmd);
-    } catch {
-      notify.error("ERP send failed");
-      setStatusLine("ERP send failed");
+    } catch (err) {
+      showError(
+        err instanceof Error
+          ? `Network/client error: ${err.message}`
+          : "ERP send failed (network/client error)",
+      );
     } finally {
       setBusyKey(null);
     }
@@ -633,8 +707,29 @@ export function BookNotesPanel({
           <Plus className="h-4 w-4" />
           Add row
         </Button>
-        <div className="flex items-center gap-3">
-          <span className="text-muted-foreground text-sm">{statusLine}</span>
+        <div className="flex max-w-full flex-1 flex-col items-end gap-2 sm:max-w-xl">
+          {lastError ? (
+            <div
+              role="alert"
+              className="border-destructive/40 bg-destructive/10 text-destructive w-full rounded-md border px-3 py-2 text-left text-xs whitespace-pre-wrap break-words"
+            >
+              <div className="mb-1 flex items-start justify-between gap-2">
+                <span className="font-medium">Send failed — exact reason</span>
+                <button
+                  type="button"
+                  className="text-destructive/70 hover:text-destructive shrink-0 underline"
+                  onClick={clearError}
+                >
+                  Dismiss
+                </button>
+              </div>
+              {lastError}
+            </div>
+          ) : (
+            <span className="text-muted-foreground text-right text-sm break-words">
+              {statusLine}
+            </span>
+          )}
           <Button
             type="button"
             disabled={isBusy || !companyLocationId}

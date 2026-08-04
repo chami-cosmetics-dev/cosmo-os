@@ -1,16 +1,17 @@
 import type { AdaptImportDb } from "@/lib/adapt-import/db";
+import {
+  adaptEmailForContactUse,
+  normalizeAdaptEmail,
+  normalizeAdaptPhone,
+} from "@/lib/adapt-import/shared-emails";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
-import { LIMITS } from "@/lib/validation";
 
-export function normalizeAdaptEmail(value: string | null | undefined) {
-  const trimmed = value?.trim().toLowerCase() ?? "";
-  return trimmed ? trimmed.slice(0, LIMITS.email.max) : null;
-}
-
-export function normalizeAdaptPhone(value: string | null | undefined) {
-  const trimmed = value?.trim() ?? "";
-  return trimmed ? trimmed.slice(0, LIMITS.mobile.max) : null;
-}
+export {
+  adaptEmailForContactUse,
+  isSharedMerchantEmail,
+  normalizeAdaptEmail,
+  normalizeAdaptPhone,
+} from "@/lib/adapt-import/shared-emails";
 
 type ContactCandidate = {
   id: string;
@@ -45,21 +46,13 @@ export type ResolveAdaptContactResult =
   | { status: "none" }
   | { status: "match"; contact: ContactCandidate; ambiguous: boolean; matchCount: number };
 
-async function findAdaptContactCandidates(
-  db: AdaptImportDb,
-  companyId: string,
-  email: string | null,
-  phoneNumber: string | null
-) {
-  const phoneVariants = phoneNumber ? buildPhoneLookupVariants(phoneNumber) : [];
+async function findByPhone(db: AdaptImportDb, companyId: string, phoneNumber: string) {
+  const phoneVariants = buildPhoneLookupVariants(phoneNumber);
 
   const primaryCandidates = await db.contactMaster.findMany({
     where: {
       companyId,
-      OR: [
-        ...(email ? [{ email: { equals: email, mode: "insensitive" as const } }] : []),
-        ...(phoneVariants.length > 0 ? [{ phoneNumber: { in: phoneVariants } }] : []),
-      ],
+      phoneNumber: { in: phoneVariants },
     },
     select: {
       id: true,
@@ -73,52 +66,75 @@ async function findAdaptContactCandidates(
     },
   });
 
-  const emailAliasMatches = email
-    ? await db.contactEmail.findMany({
-        where: {
-          email: { equals: email, mode: "insensitive" },
-          contact: { is: { companyId } },
-        },
+  const phoneAliasMatches = await db.contactPhone.findMany({
+    where: {
+      phoneNumber: { in: phoneVariants },
+      contact: { is: { companyId } },
+    },
+    select: {
+      contact: {
         select: {
-          contact: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phoneNumber: true,
-              recentMerchant: true,
-              lastPurchaseAt: true,
-              source: true,
-              updatedAt: true,
-            },
-          },
+          id: true,
+          name: true,
+          email: true,
+          phoneNumber: true,
+          recentMerchant: true,
+          lastPurchaseAt: true,
+          source: true,
+          updatedAt: true,
         },
-      })
-    : [];
+      },
+    },
+  });
 
-  const phoneAliasMatches =
-    phoneVariants.length > 0
-      ? await db.contactPhone.findMany({
-          where: {
-            phoneNumber: { in: phoneVariants },
-            contact: { is: { companyId } },
-          },
-          select: {
-            contact: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                phoneNumber: true,
-                recentMerchant: true,
-                lastPurchaseAt: true,
-                source: true,
-                updatedAt: true,
-              },
-            },
-          },
-        })
-      : [];
+  const candidateMap = new Map<string, ContactCandidate>();
+  for (const contact of primaryCandidates) {
+    candidateMap.set(contact.id, contact);
+  }
+  for (const match of phoneAliasMatches) {
+    candidateMap.set(match.contact.id, match.contact);
+  }
+  return [...candidateMap.values()];
+}
+
+async function findByEmail(db: AdaptImportDb, companyId: string, email: string) {
+  const primaryCandidates = await db.contactMaster.findMany({
+    where: {
+      companyId,
+      email: { equals: email, mode: "insensitive" as const },
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phoneNumber: true,
+      recentMerchant: true,
+      lastPurchaseAt: true,
+      source: true,
+      updatedAt: true,
+    },
+  });
+
+  const emailAliasMatches = await db.contactEmail.findMany({
+    where: {
+      email: { equals: email, mode: "insensitive" },
+      contact: { is: { companyId } },
+    },
+    select: {
+      contact: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phoneNumber: true,
+          recentMerchant: true,
+          lastPurchaseAt: true,
+          source: true,
+          updatedAt: true,
+        },
+      },
+    },
+  });
 
   const candidateMap = new Map<string, ContactCandidate>();
   for (const contact of primaryCandidates) {
@@ -127,30 +143,29 @@ async function findAdaptContactCandidates(
   for (const match of emailAliasMatches) {
     candidateMap.set(match.contact.id, match.contact);
   }
-  for (const match of phoneAliasMatches) {
-    candidateMap.set(match.contact.id, match.contact);
-  }
-
   return [...candidateMap.values()];
 }
 
-/** Resolve ContactMaster for Adapt phone/email; multi-match → one best + ambiguous. */
+/**
+ * Resolve ContactMaster for Adapt row.
+ * Phone-first: if phone present, match ONLY by phone (ignore email — merchants reuse emails).
+ * Email fallback only when no phone; shared merchant emails never match.
+ */
 export async function resolveAdaptContact(input: {
   companyId: string;
   phone: string | null;
   email: string | null;
   db: AdaptImportDb;
 }): Promise<ResolveAdaptContactResult> {
-  const email = normalizeAdaptEmail(input.email);
   const phone = normalizeAdaptPhone(input.phone);
-  if (!email && !phone) return { status: "none" };
+  const email = adaptEmailForContactUse(input.email);
 
-  const candidates = await findAdaptContactCandidates(
-    input.db,
-    input.companyId,
-    email,
-    phone
-  );
+  if (!phone && !email) return { status: "none" };
+
+  const candidates = phone
+    ? await findByPhone(input.db, input.companyId, phone)
+    : await findByEmail(input.db, input.companyId, email!);
+
   if (candidates.length === 0) return { status: "none" };
 
   let best = candidates[0]!;

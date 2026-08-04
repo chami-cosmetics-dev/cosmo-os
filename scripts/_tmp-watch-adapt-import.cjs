@@ -1,7 +1,7 @@
 const fs = require("fs");
 
 const report = "C:\\dev\\cosmo-os\\data\\adapt-prod-full-report.json";
-const term = "C:\\Users\\Bad-Boy\\.cursor\\projects\\c-dev-cosmo-os\\terminals\\622411.txt";
+const term = "C:\\Users\\Bad-Boy\\.cursor\\projects\\c-dev-cosmo-os\\terminals\\907003.txt";
 const intervalMs = 30 * 60 * 1000;
 
 function isImportRunning() {
@@ -20,14 +20,14 @@ function sleep(ms) {
 
     if (fs.existsSync(report)) {
       console.log(
-        'AGENT_LOOP_WAKE_adapt_import {"prompt":"Adapt import finished — read data/adapt-prod-full-report.json and terminal 622411, summarize results for user, stop loop"}'
+        'AGENT_LOOP_WAKE_adapt_import {"prompt":"Adapt import finished — read data/adapt-prod-full-report.json and terminal 907003, summarize results for user, stop loop"}'
       );
       break;
     }
 
     if (!isImportRunning()) {
       console.log(
-        'AGENT_LOOP_WAKE_adapt_import {"prompt":"Adapt import process ended — check terminal 622411 and report file, summarize for user whether success or failure, stop loop"}'
+        'AGENT_LOOP_WAKE_adapt_import {"prompt":"Adapt import process ended — check terminal 907003 and report file, summarize for user whether success or failure, stop loop"}'
       );
       break;
     }

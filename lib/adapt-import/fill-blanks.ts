@@ -1,4 +1,5 @@
 import type { ContactFillBlanksPatch } from "@/lib/adapt-import/types";
+import { adaptEmailForContactUse } from "@/lib/adapt-import/shared-emails";
 import { LIMITS } from "@/lib/validation";
 
 function isBlank(value: string | null | undefined): boolean {
@@ -42,7 +43,7 @@ export function buildContactFillBlanksPatch(
 ): ContactFillBlanksPatch {
   const patch: ContactFillBlanksPatch = {};
   const name = clip(adapt.name, LIMITS.name.max);
-  const email = clip(adapt.email?.toLowerCase(), LIMITS.email.max);
+  const email = clip(adaptEmailForContactUse(adapt.email), LIMITS.email.max);
   const phone = clip(adapt.phone, LIMITS.mobile.max);
   const address = clip(adapt.address, LIMITS.address.max);
   const district = clip(adapt.district, LIMITS.locationName.max);
