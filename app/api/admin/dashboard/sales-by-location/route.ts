@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  fetchDashboardFilterSummaries,
   fetchDashboardSalesByLocationGateway,
   fetchDashboardSalesByLocationMerchant,
 } from "@/lib/page-data/dashboard-sales";
@@ -50,6 +51,7 @@ export async function GET(request: NextRequest) {
     to: searchParams.get("to") ?? "",
     date_type: searchParams.get("date_type") ?? undefined,
     analysis_type: searchParams.get("analysis_type") ?? undefined,
+    include_summaries: searchParams.get("include_summaries") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -65,7 +67,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { from, to, date_type: dateType, analysis_type: analysisType } = parsed.data;
+  const {
+    from,
+    to,
+    date_type: dateType,
+    analysis_type: analysisType,
+    include_summaries: includeSummaries,
+  } = parsed.data;
   const dateTypePermission = getDashboardDateTypePermission(dateType);
   if (!hasPermission(auth.context, dateTypePermission)) {
     perf.end({ status: 403, ok: false, dateType });
@@ -80,14 +88,21 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const summariesPromise = includeSummaries
+    ? fetchDashboardFilterSummaries(companyId, from, to)
+    : Promise.resolve(null);
+
   if (analysisType === "gateway") {
-    const result = await fetchDashboardSalesByLocationGateway(companyId, {
-      fromYmd: from,
-      toYmd: to,
-      dateType,
-    });
+    const [result, summaries] = await Promise.all([
+      fetchDashboardSalesByLocationGateway(companyId, {
+        fromYmd: from,
+        toYmd: to,
+        dateType,
+      }),
+      summariesPromise,
+    ]);
     perf.mark("query");
-    if (result.invalidRange) {
+    if (result.invalidRange || summaries?.invalidRange) {
       perf.end({ status: 400, ok: false, analysisType });
       return NextResponse.json(
         { error: "From date must be on or before To date" },
@@ -104,6 +119,8 @@ export async function GET(request: NextRequest) {
       {
         locations: result.locations,
         analysisType: "gateway" as const,
+        activeDateType: dateType,
+        ...(summaries ? { filterSummaries: summaries.filterSummaries } : {}),
       },
       {
         headers: {
@@ -113,14 +130,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = await fetchDashboardSalesByLocationMerchant(companyId, {
-    fromYmd: from,
-    toYmd: to,
-    dateType,
-  });
+  const [result, summaries] = await Promise.all([
+    fetchDashboardSalesByLocationMerchant(companyId, {
+      fromYmd: from,
+      toYmd: to,
+      dateType,
+    }),
+    summariesPromise,
+  ]);
   perf.mark("query");
 
-  if (result.invalidRange) {
+  if (result.invalidRange || summaries?.invalidRange) {
     perf.end({ status: 400, ok: false, analysisType });
     return NextResponse.json(
       { error: "From date must be on or before To date" },
@@ -138,6 +158,8 @@ export async function GET(request: NextRequest) {
     {
       locations: result.locations,
       analysisType: "merchant" as const,
+      activeDateType: dateType,
+      ...(summaries ? { filterSummaries: summaries.filterSummaries } : {}),
     },
     {
       headers: {

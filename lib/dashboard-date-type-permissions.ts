@@ -12,15 +12,19 @@ export const DASHBOARD_DATE_TYPE_PERMISSION_KEYS = Object.values(
 
 export function getDashboardDateTypePermission(dateType: DashboardSalesDateType) {
   switch (dateType) {
-    case "placed_all":
+    case "all_orders":
       return DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll;
-    case "placed_open":
-    case "placed_pending_invoice":
-    case "placed_invoice_completed":
+    case "not_delivered":
+    case "bill_done_early":
+    case "bill_open":
+    case "done_after_delivery":
       return DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown;
-    case "closed_in_period":
-    case "delivered_all":
-    case "delivered_pending_invoice":
+    case "bill_done_in_dates":
+    case "delivered_in_dates":
+    case "bill_done_old":
+    case "delivered_old":
+    case "still_bill_open":
+    case "still_not_delivered":
       return DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks;
   }
 }
@@ -28,13 +32,25 @@ export function getDashboardDateTypePermission(dateType: DashboardSalesDateType)
 export function getAllowedDashboardDateTypes(permissionKeys: string[]) {
   const allowed: DashboardSalesDateType[] = [];
   if (permissionKeys.includes(DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll)) {
-    allowed.push("placed_all");
+    allowed.push("all_orders");
   }
   if (permissionKeys.includes(DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown)) {
-    allowed.push("placed_open", "placed_pending_invoice", "placed_invoice_completed");
+    allowed.push(
+      "not_delivered",
+      "bill_done_early",
+      "bill_open",
+      "done_after_delivery",
+    );
   }
   if (permissionKeys.includes(DASHBOARD_DATE_TYPE_PERMISSIONS.otherClocks)) {
-    allowed.push("closed_in_period", "delivered_all", "delivered_pending_invoice");
+    allowed.push(
+      "bill_done_in_dates",
+      "delivered_in_dates",
+      "bill_done_old",
+      "delivered_old",
+      "still_bill_open",
+      "still_not_delivered",
+    );
   }
   return allowed;
 }

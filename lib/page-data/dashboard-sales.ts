@@ -7,7 +7,13 @@ import {
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
-import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
+import {
+  filterAddsToAllOrders,
+  getDashboardSalesDateTypeLabel,
+  getDashboardSalesFilterGroup,
+  type DashboardFilterSummary,
+  type DashboardSalesDateType,
+} from "@/lib/page-data/dashboard-overview-shared";
 import { prisma } from "@/lib/prisma";
 
 export type DashboardLocationMerchantRow = {
@@ -72,9 +78,7 @@ function isPaidOrPending(financialStatus: string | null | undefined) {
   return DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES.has(normalizeStatus(financialStatus));
 }
 
-/** Non-POS order that has been delivery-completed (still may await invoice close). */
-function isNonPosDeliveredPendingCandidate(order: DashboardSalesEligibilityOrder) {
-  if (isPosOrder(order.sourceName)) return false;
+function isPhysicallyDelivered(order: DashboardSalesEligibilityOrder) {
   return (
     order.deliveryCompleteAt != null ||
     normalizeStatus(order.fulfillmentStage) === "delivery_complete"
@@ -82,15 +86,34 @@ function isNonPosDeliveredPendingCandidate(order: DashboardSalesEligibilityOrder
 }
 
 /**
- * Mutually exclusive placed-bucket for create-date tallies.
- * closed → pending → open (POS without close stays in open).
+ * Mutually exclusive Group A status partition for place-date tallies.
+ * Bill done early = invoice complete and deliveryCompleteAt null (counted once).
  */
-export function getPlacedDashboardSalesBucket(
+export function getPlacedStatusPartition(
   order: DashboardSalesEligibilityOrder,
-): "placed_invoice_completed" | "placed_pending_invoice" | "placed_open" {
-  if (order.invoiceCompleteAt != null) return "placed_invoice_completed";
-  if (isNonPosDeliveredPendingCandidate(order)) return "placed_pending_invoice";
-  return "placed_open";
+): "not_delivered" | "bill_done_early" | "bill_open" | "done_after_delivery" {
+  const hasInvoice = order.invoiceCompleteAt != null;
+  if (hasInvoice && order.deliveryCompleteAt == null) return "bill_done_early";
+  const delivered = isPhysicallyDelivered(order);
+  if (delivered && !hasInvoice) return "bill_open";
+  if (delivered && hasInvoice) return "done_after_delivery";
+  return "not_delivered";
+}
+
+/** @deprecated Prefer getPlacedStatusPartition */
+export function getPlacedDashboardSalesBucket(order: DashboardSalesEligibilityOrder) {
+  return getPlacedStatusPartition(order);
+}
+
+const POS_SOURCE_NOT_IN = [...DASHBOARD_POS_SOURCE_NAMES];
+
+function deliveredCandidateWhere(): Prisma.OrderWhereInput {
+  return {
+    OR: [
+      { deliveryCompleteAt: { not: null } },
+      { fulfillmentStage: "delivery_complete" },
+    ],
+  };
 }
 
 export function buildDashboardSalesDateFilter(params: {
@@ -101,103 +124,114 @@ export function buildDashboardSalesDateFilter(params: {
   const createdInRange: Prisma.OrderWhereInput = {
     createdAt: { gte: params.fromDate, lte: params.toDate },
   };
-
-  if (params.dateType === "placed_all") {
-    return createdInRange;
-  }
-
-  if (params.dateType === "placed_invoice_completed") {
-    return {
-      ...createdInRange,
-      invoiceCompleteAt: { not: null },
-    };
-  }
-
-  if (params.dateType === "placed_pending_invoice") {
-    return {
-      ...createdInRange,
-      invoiceCompleteAt: null,
-      sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
-      OR: [
-        { deliveryCompleteAt: { not: null } },
-        { fulfillmentStage: "delivery_complete" },
-      ],
-    };
-  }
-
-  if (params.dateType === "placed_open") {
-    // Not closed, and not in the non-POS delivered-pending bucket.
-    return {
-      ...createdInRange,
-      invoiceCompleteAt: null,
-      NOT: {
-        AND: [
-          { sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] } },
-          {
-            OR: [
-              { deliveryCompleteAt: { not: null } },
-              { fulfillmentStage: "delivery_complete" },
-            ],
-          },
-        ],
-      },
-    };
-  }
-
-  if (params.dateType === "delivered_all") {
-    // Match delivery-complete report rows: delivered in range and still at that stage.
-    return {
-      deliveryCompleteAt: {
-        not: null,
-        gte: params.fromDate,
-        lte: params.toDate,
-      },
-      fulfillmentStage: "delivery_complete",
-      financialStatus: { not: "voided" },
-      sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
-    };
-  }
-
-  if (params.dateType === "delivered_pending_invoice") {
-    return {
-      deliveryCompleteAt: {
-        not: null,
-        gte: params.fromDate,
-        lte: params.toDate,
-      },
-      invoiceCompleteAt: null,
-      fulfillmentStage: "delivery_complete",
-      financialStatus: { not: "voided" },
-      sourceName: { notIn: [...DASHBOARD_POS_SOURCE_NAMES] },
-    };
-  }
-
-  // closed_in_period
-  return {
-    invoiceCompleteAt: {
+  const eventInRange = (field: "invoiceCompleteAt" | "deliveryCompleteAt") => ({
+    [field]: {
       not: null,
       gte: params.fromDate,
       lte: params.toDate,
     },
-  };
+  });
+
+  switch (params.dateType) {
+    case "all_orders":
+      return createdInRange;
+
+    case "bill_done_early":
+      return {
+        ...createdInRange,
+        invoiceCompleteAt: { not: null },
+        deliveryCompleteAt: null,
+      };
+
+    case "not_delivered":
+      return {
+        ...createdInRange,
+        invoiceCompleteAt: null,
+        deliveryCompleteAt: null,
+        NOT: { fulfillmentStage: "delivery_complete" },
+      };
+
+    case "bill_open":
+      return {
+        ...createdInRange,
+        invoiceCompleteAt: null,
+        ...deliveredCandidateWhere(),
+      };
+
+    case "done_after_delivery":
+      return {
+        ...createdInRange,
+        invoiceCompleteAt: { not: null },
+        deliveryCompleteAt: { not: null },
+      };
+
+    case "bill_done_in_dates":
+      return {
+        ...createdInRange,
+        ...eventInRange("invoiceCompleteAt"),
+      };
+
+    case "delivered_in_dates":
+      return {
+        ...createdInRange,
+        ...eventInRange("deliveryCompleteAt"),
+        fulfillmentStage: "delivery_complete",
+        financialStatus: { not: "voided" },
+        sourceName: { notIn: POS_SOURCE_NOT_IN },
+      };
+
+    case "bill_done_old":
+      return {
+        ...eventInRange("invoiceCompleteAt"),
+        createdAt: { lt: params.fromDate },
+      };
+
+    case "delivered_old":
+      return {
+        ...eventInRange("deliveryCompleteAt"),
+        createdAt: { lt: params.fromDate },
+        fulfillmentStage: "delivery_complete",
+        financialStatus: { not: "voided" },
+        sourceName: { notIn: POS_SOURCE_NOT_IN },
+      };
+
+    case "still_bill_open":
+      return {
+        invoiceCompleteAt: null,
+        financialStatus: { not: "voided" },
+        sourceName: { notIn: POS_SOURCE_NOT_IN },
+        ...deliveredCandidateWhere(),
+      };
+
+    case "still_not_delivered":
+      return {
+        deliveryCompleteAt: null,
+        fulfillmentStage: { not: "delivery_complete" },
+        financialStatus: { not: "voided" },
+        sourceName: { notIn: POS_SOURCE_NOT_IN },
+      };
+  }
 }
 
 export function isDashboardSalesOrderEligible(
   order: DashboardSalesEligibilityOrder,
   dateType: DashboardSalesDateType,
 ) {
-  if (
-    dateType === "placed_all" ||
-    dateType === "placed_open" ||
-    dateType === "placed_pending_invoice" ||
-    dateType === "placed_invoice_completed"
-  ) {
+  const statusKeys = new Set<DashboardSalesDateType>([
+    "all_orders",
+    "not_delivered",
+    "bill_done_early",
+    "bill_open",
+    "done_after_delivery",
+  ]);
+
+  if (statusKeys.has(dateType)) {
     if (!isPaidOrPending(order.financialStatus)) return false;
-    if (dateType === "placed_all") return true;
-    return getPlacedDashboardSalesBucket(order) === dateType;
+    if (dateType === "all_orders") return true;
+    return getPlacedStatusPartition(order) === dateType;
   }
 
-  if (dateType === "delivered_all") {
+  if (dateType === "delivered_in_dates" || dateType === "delivered_old") {
     return (
       !isPosOrder(order.sourceName) &&
       normalizeStatus(order.financialStatus) !== "voided" &&
@@ -206,20 +240,190 @@ export function isDashboardSalesOrderEligible(
     );
   }
 
-  if (dateType === "delivered_pending_invoice") {
+  if (dateType === "still_bill_open") {
     return (
       !isPosOrder(order.sourceName) &&
       normalizeStatus(order.financialStatus) !== "voided" &&
-      normalizeStatus(order.fulfillmentStage) === "delivery_complete" &&
-      order.deliveryCompleteAt != null &&
-      order.invoiceCompleteAt == null
+      order.invoiceCompleteAt == null &&
+      isPhysicallyDelivered(order)
     );
   }
 
-  // closed_in_period — date filter already requires invoiceCompleteAt.
+  if (dateType === "still_not_delivered") {
+    return (
+      !isPosOrder(order.sourceName) &&
+      normalizeStatus(order.financialStatus) !== "voided" &&
+      order.deliveryCompleteAt == null &&
+      normalizeStatus(order.fulfillmentStage) !== "delivery_complete"
+    );
+  }
+
+  // bill_done_in_dates / bill_done_old — date filter already scopes invoiceCompleteAt.
   if (normalizeStatus(order.financialStatus) === "voided") return false;
   if (isPosOrder(order.sourceName)) return true;
   return normalizeStatus(order.fulfillmentStatus) === "fulfilled";
+}
+
+function emptySummary(key: DashboardSalesDateType): DashboardFilterSummary {
+  return {
+    key,
+    group: getDashboardSalesFilterGroup(key),
+    label: getDashboardSalesDateTypeLabel(key),
+    total: 0,
+    orderCount: 0,
+    addsToAllOrders: filterAddsToAllOrders(key),
+  };
+}
+
+function addToSummary(summary: DashboardFilterSummary, totalPrice: unknown) {
+  summary.total += Number(totalPrice ?? 0);
+  summary.orderCount += 1;
+}
+
+/**
+ * Company-wide chip totals for Group A/B (range-scoped) and Group C (backlog).
+ */
+export async function fetchDashboardFilterSummaries(
+  companyId: string,
+  fromYmd: string,
+  toYmd: string,
+): Promise<{ filterSummaries: DashboardFilterSummary[]; invalidRange: boolean }> {
+  const fromDate = parseDayStartUtc(fromYmd);
+  const toDate = parseDayEndUtc(toYmd);
+  if (fromDate > toDate) {
+    return { filterSummaries: [], invalidRange: true };
+  }
+
+  const summaryKeys: DashboardSalesDateType[] = [
+    "all_orders",
+    "not_delivered",
+    "bill_done_early",
+    "bill_open",
+    "done_after_delivery",
+    "bill_done_in_dates",
+    "delivered_in_dates",
+    "bill_done_old",
+    "delivered_old",
+    "still_bill_open",
+    "still_not_delivered",
+  ];
+  const summaries = new Map<DashboardSalesDateType, DashboardFilterSummary>(
+    summaryKeys.map((key) => [key, emptySummary(key)]),
+  );
+
+  const eligibilitySelect = {
+    totalPrice: true,
+    createdAt: true,
+    sourceName: true,
+    financialStatus: true,
+    fulfillmentStatus: true,
+    fulfillmentStage: true,
+    deliveryCompleteAt: true,
+    invoiceCompleteAt: true,
+  } as const;
+
+  const [rangeOrders, backlogBillOpen, backlogNotDelivered] = await Promise.all([
+    prisma.order.findMany({
+      where: {
+        companyId,
+        OR: [
+          { createdAt: { gte: fromDate, lte: toDate } },
+          { invoiceCompleteAt: { gte: fromDate, lte: toDate } },
+          { deliveryCompleteAt: { gte: fromDate, lte: toDate } },
+        ],
+      },
+      select: eligibilitySelect,
+    }),
+    prisma.order.findMany({
+      where: {
+        companyId,
+        ...buildDashboardSalesDateFilter({
+          fromDate,
+          toDate,
+          dateType: "still_bill_open",
+        }),
+      },
+      select: { totalPrice: true, sourceName: true, financialStatus: true, fulfillmentStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true },
+    }),
+    prisma.order.findMany({
+      where: {
+        companyId,
+        ...buildDashboardSalesDateFilter({
+          fromDate,
+          toDate,
+          dateType: "still_not_delivered",
+        }),
+      },
+      select: { totalPrice: true, sourceName: true, financialStatus: true, fulfillmentStatus: true, fulfillmentStage: true, deliveryCompleteAt: true, invoiceCompleteAt: true },
+    }),
+  ]);
+
+  for (const order of rangeOrders) {
+    const createdInRange = order.createdAt >= fromDate && order.createdAt <= toDate;
+    const invoiceInRange =
+      order.invoiceCompleteAt != null &&
+      order.invoiceCompleteAt >= fromDate &&
+      order.invoiceCompleteAt <= toDate;
+    const deliveryInRange =
+      order.deliveryCompleteAt != null &&
+      order.deliveryCompleteAt >= fromDate &&
+      order.deliveryCompleteAt <= toDate;
+    const placedBeforeRange = order.createdAt < fromDate;
+
+    if (createdInRange && isDashboardSalesOrderEligible(order, "all_orders")) {
+      addToSummary(summaries.get("all_orders")!, order.totalPrice);
+      const partition = getPlacedStatusPartition(order);
+      addToSummary(summaries.get(partition)!, order.totalPrice);
+    }
+
+    if (
+      createdInRange &&
+      invoiceInRange &&
+      isDashboardSalesOrderEligible(order, "bill_done_in_dates")
+    ) {
+      addToSummary(summaries.get("bill_done_in_dates")!, order.totalPrice);
+    }
+
+    if (
+      createdInRange &&
+      deliveryInRange &&
+      isDashboardSalesOrderEligible(order, "delivered_in_dates")
+    ) {
+      addToSummary(summaries.get("delivered_in_dates")!, order.totalPrice);
+    }
+
+    if (
+      placedBeforeRange &&
+      invoiceInRange &&
+      isDashboardSalesOrderEligible(order, "bill_done_old")
+    ) {
+      addToSummary(summaries.get("bill_done_old")!, order.totalPrice);
+    }
+
+    if (
+      placedBeforeRange &&
+      deliveryInRange &&
+      isDashboardSalesOrderEligible(order, "delivered_old")
+    ) {
+      addToSummary(summaries.get("delivered_old")!, order.totalPrice);
+    }
+  }
+
+  for (const order of backlogBillOpen) {
+    if (isDashboardSalesOrderEligible(order, "still_bill_open")) {
+      addToSummary(summaries.get("still_bill_open")!, order.totalPrice);
+    }
+  }
+  for (const order of backlogNotDelivered) {
+    if (isDashboardSalesOrderEligible(order, "still_not_delivered")) {
+      addToSummary(summaries.get("still_not_delivered")!, order.totalPrice);
+    }
+  }
+
+  return {
+    filterSummaries: summaryKeys.map((key) => summaries.get(key)!),
+    invalidRange: false,
+  };
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 import {
   getDefaultDashboardOverviewRange,
   getDashboardSalesDateTypeLabel,
+  type DashboardFilterSummary,
   type DashboardSalesDateType,
   type DashboardOverviewInitialState,
 } from "@/lib/page-data/dashboard-overview-shared";
@@ -56,6 +57,7 @@ type DashboardOverviewContextValue = {
   hasInvalidRange: boolean;
   refreshSales: () => Promise<void>;
   lastUpdatedAt: number | null;
+  filterSummaries: DashboardFilterSummary[];
 };
 
 const DashboardOverviewContext = createContext<DashboardOverviewContextValue | null>(null);
@@ -78,7 +80,7 @@ export function DashboardOverviewProvider({
   const [fromDate, setFromDate] = useState(initialRange.fromDate);
   const [toDate, setToDate] = useState(initialRange.toDate);
   const [dateType, setDateType] = useState<DashboardSalesDateType>(
-    initialState?.dateType ?? "placed_all",
+    initialState?.dateType ?? "all_orders",
   );
   const [analysisType, setAnalysisType] = useState<"merchant" | "gateway">(
     initialState?.analysisType ?? "merchant",
@@ -86,6 +88,9 @@ export function DashboardOverviewProvider({
 
   const [salesLocations, setSalesLocations] = useState<DashboardSalesLocation[]>(
     initialState?.salesLocations ?? [],
+  );
+  const [filterSummaries, setFilterSummaries] = useState<DashboardFilterSummary[]>(
+    initialState?.filterSummaries ?? [],
   );
   const [salesLoading, setSalesLoading] = useState(false);
   const [salesError, setSalesError] = useState<string | null>(null);
@@ -115,6 +120,7 @@ export function DashboardOverviewProvider({
     if (hasInvalidRange) {
       fetchIdRef.current += 1;
       setSalesLocations([]);
+      setFilterSummaries([]);
       setSalesError(null);
       if (!silent) setSalesLoading(false);
       return;
@@ -130,6 +136,7 @@ export function DashboardOverviewProvider({
         to: toDate,
         date_type: dateType,
         analysis_type: analysisType,
+        include_summaries: "true",
       });
       const res = await fetch(`/api/admin/dashboard/sales-by-location?${params.toString()}`);
       const body = (await res.json()) as {
@@ -151,6 +158,7 @@ export function DashboardOverviewProvider({
             orderCount: number;
           }>;
         }>;
+        filterSummaries?: DashboardFilterSummary[];
       };
       if (id !== fetchIdRef.current) return;
       if (!res.ok) {
@@ -175,6 +183,9 @@ export function DashboardOverviewProvider({
           })),
         })),
       );
+      if (body.filterSummaries) {
+        setFilterSummaries(body.filterSummaries);
+      }
       setLastUpdatedAt(Date.now());
     } catch (e) {
       if (id !== fetchIdRef.current) return;
@@ -224,11 +235,13 @@ export function DashboardOverviewProvider({
       hasInvalidRange,
       refreshSales: loadSales,
       lastUpdatedAt,
+      filterSummaries,
     }),
     [
       analysisType,
       dateType,
       filterInfo,
+      filterSummaries,
       fromDate,
       hasInvalidRange,
       initialRange,
