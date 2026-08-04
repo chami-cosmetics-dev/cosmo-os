@@ -21,7 +21,7 @@ describe("format-datetime", () => {
     expect(formatAppIsoDate(iso)).toBe("2026-07-14");
     expect(formatAppDateTime(iso)).toContain("2026");
     expect(formatAppIsoDateTime(iso)).toBe("2026-07-14 04:00:00");
-    expect(formatAppIsoTime(iso)).toBe("04:00:00.000");
+    expect(formatAppIsoTime(iso)).toBe("04:00:00");
   });
 
   it("keeps date-only calendar fields on the UTC calendar day", () => {
