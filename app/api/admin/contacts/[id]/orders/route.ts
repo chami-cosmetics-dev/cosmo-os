@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
+import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -73,6 +74,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
+  const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
   const displayEmails = [
     contact.email,
     ...contact.emails.map((row) => row.email),
@@ -112,49 +114,42 @@ export async function GET(_request: NextRequest, { params }: Params) {
     },
   });
 
-  const hasOrderLookup = emails.length > 0 || phones.length > 0;
-  const ordersPromise = hasOrderLookup
-    ? prisma.order.findMany({
-        where: {
-          companyId,
-          OR: [
-            ...(emails.length > 0
-              ? emails.map((email) => ({
-                  customerEmail: { equals: email, mode: "insensitive" as const },
-                }))
-              : []),
-            ...(phones.length > 0 ? [{ customerPhone: { in: phones } }] : []),
-          ],
-        },
-        orderBy: { createdAt: "desc" },
-        take: 200,
-        select: {
-          id: true,
-          shopifyOrderId: true,
-          orderNumber: true,
-          name: true,
-          totalPrice: true,
-          currency: true,
-          financialStatus: true,
-          fulfillmentStatus: true,
-          createdAt: true,
-          lineItems: {
-            select: {
-              id: true,
-              quantity: true,
-              price: true,
-              productItem: {
-                select: {
-                  productTitle: true,
-                  variantTitle: true,
-                  sku: true,
+  const ordersPromise =
+    orderLookupOr.length > 0
+      ? prisma.order.findMany({
+          where: {
+            companyId,
+            OR: orderLookupOr,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+          select: {
+            id: true,
+            shopifyOrderId: true,
+            orderNumber: true,
+            name: true,
+            totalPrice: true,
+            currency: true,
+            financialStatus: true,
+            fulfillmentStatus: true,
+            createdAt: true,
+            lineItems: {
+              select: {
+                id: true,
+                quantity: true,
+                price: true,
+                productItem: {
+                  select: {
+                    productTitle: true,
+                    variantTitle: true,
+                    sku: true,
+                  },
                 },
               },
             },
           },
-        },
-      })
-    : Promise.resolve([]);
+        })
+      : Promise.resolve([]);
 
   const [orders, adaptRows] = await Promise.all([ordersPromise, adaptPurchasesPromise]);
 

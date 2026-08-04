@@ -41,6 +41,62 @@ function parseDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function preferText(next: string | null | undefined, prev: string | null | undefined) {
+  const n = next?.trim();
+  if (n) return n;
+  const p = prev?.trim();
+  return p || null;
+}
+
+function nameFromRestAddress(
+  address:
+    | {
+        name?: string | null;
+        first_name?: string | null;
+        last_name?: string | null;
+      }
+    | null
+    | undefined
+) {
+  if (!address) return null;
+  const full = address.name?.trim();
+  if (full) return full;
+  const joined = [address.first_name, address.last_name]
+    .map((v) => v?.trim())
+    .filter(Boolean)
+    .join(" ");
+  return joined || null;
+}
+
+function resolveCustomerName(data: ShopifyCheckoutWebhookPayload) {
+  const fromCustomer = [data.customer?.first_name, data.customer?.last_name]
+    .map((v) => v?.trim())
+    .filter(Boolean)
+    .join(" ");
+  if (fromCustomer) return fromCustomer;
+
+  return (
+    nameFromRestAddress(data.billing_address) ||
+    nameFromRestAddress(data.shipping_address) ||
+    null
+  );
+}
+
+function resolveCustomerEmail(data: ShopifyCheckoutWebhookPayload) {
+  return data.email?.trim() || data.customer?.email?.trim() || null;
+}
+
+function resolveCustomerPhone(data: ShopifyCheckoutWebhookPayload) {
+  return (
+    data.phone?.trim() ||
+    data.customer?.phone?.trim() ||
+    data.billing_address?.phone?.trim() ||
+    data.shipping_address?.phone?.trim() ||
+    data.sms_marketing_phone?.trim() ||
+    null
+  );
+}
+
 /**
  * Upsert an abandoned-checkout row from Shopify checkouts/* webhook (Vault path).
  */
@@ -76,6 +132,11 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
       customerResponse: true,
       remark: true,
       shopifyRecoveredAt: true,
+      customerName: true,
+      customerEmail: true,
+      customerPhone: true,
+      billingAddressText: true,
+      shippingAddressText: true,
     },
   });
 
@@ -97,33 +158,22 @@ export async function upsertAbandonedCheckoutFromWebhook(input: {
       ? "recovered_sale"
       : existing?.customerResponse ?? null;
 
-  const customerName =
-    input.data.customer?.first_name || input.data.customer?.last_name
-      ? [input.data.customer?.first_name, input.data.customer?.last_name]
-          .filter(Boolean)
-          .join(" ")
-          .trim()
-      : input.data.billing_address?.name?.trim() ||
-        [input.data.billing_address?.first_name, input.data.billing_address?.last_name]
-          .filter(Boolean)
-          .join(" ")
-          .trim() ||
-        null;
+  // Prefer newer non-empty values; never wipe contact fields with a sparse later webhook.
+  const customerName = preferText(resolveCustomerName(input.data), existing?.customerName);
+  const customerEmail = preferText(resolveCustomerEmail(input.data), existing?.customerEmail);
+  const customerPhone = preferText(resolveCustomerPhone(input.data), existing?.customerPhone);
 
-  const customerEmail =
-    input.data.email ?? input.data.customer?.email ?? null;
-  const customerPhone =
-    input.data.phone ??
-    input.data.customer?.phone ??
-    input.data.billing_address?.phone ??
-    input.data.shipping_address?.phone ??
-    null;
-
-  const billingAddressText = addressFromShopifyRest(
-    input.data.billing_address as Record<string, unknown> | null | undefined
+  const billingAddressText = preferText(
+    addressFromShopifyRest(
+      input.data.billing_address as Record<string, unknown> | null | undefined
+    ),
+    existing?.billingAddressText
   );
-  const shippingAddressText = addressFromShopifyRest(
-    input.data.shipping_address as Record<string, unknown> | null | undefined
+  const shippingAddressText = preferText(
+    addressFromShopifyRest(
+      input.data.shipping_address as Record<string, unknown> | null | undefined
+    ),
+    existing?.shippingAddressText
   );
 
   const lineItems = input.data.line_items ?? [];

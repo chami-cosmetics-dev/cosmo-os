@@ -14,6 +14,10 @@ export {
   resolveAdaptCompanyLocationId,
 } from "@/lib/adapt-import/location-map";
 export { resolveAdaptContact, pickBetterContact } from "@/lib/adapt-import/contact-resolve";
+export {
+  adaptEmailForContactUse,
+  isSharedMerchantEmail,
+} from "@/lib/adapt-import/shared-emails";
 export { persistAdaptPurchaseRow } from "@/lib/adapt-import/persist";
 export { runAdaptImport } from "@/lib/adapt-import/import-run";
 export type {

@@ -70,6 +70,7 @@ export const shopifyCheckoutWebhookSchema = z
     total_price: numericString.optional().nullable(),
     currency: z.string().optional().nullable(),
     phone: z.string().optional().nullable(),
+    sms_marketing_phone: z.string().optional().nullable(),
     customer: shopifyCustomerSchema,
     billing_address: shopifyAddressSchema,
     shipping_address: shopifyAddressSchema,
@@ -99,6 +100,10 @@ export const shopifyCheckoutWebhookSchema = z
       token,
       email: row.email?.trim().slice(0, LIMITS.email.max) || null,
       phone: row.phone?.trim().slice(0, LIMITS.mobile.max) || null,
+      sms_marketing_phone:
+        typeof row.sms_marketing_phone === "string"
+          ? row.sms_marketing_phone.trim().slice(0, LIMITS.mobile.max) || null
+          : null,
     };
   });
 
