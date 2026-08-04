@@ -136,43 +136,76 @@ const ymdQuerySchema = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format");
 
 const dashboardSalesDateTypeValues = [
+  "all_orders",
+  "not_delivered",
+  "bill_done_early",
+  "bill_open",
+  "done_after_delivery",
+  "bill_done_in_dates",
+  "delivered_in_dates",
+  "bill_done_old",
+  "delivered_old",
+  "still_bill_open",
+  "still_not_delivered",
+  // Legacy aliases (normalized below)
+  "order",
   "placed_all",
   "placed_open",
   "placed_pending_invoice",
   "placed_invoice_completed",
-  "closed_in_period",
-  "delivered_all",
-  "delivered_pending_invoice",
-  // Legacy aliases (normalized below)
-  "order",
   "completed",
+  "closed_in_period",
   "delivery_completed",
+  "delivered_all",
   "pending_invoice_complete",
+  "delivered_pending_invoice",
 ] as const;
 
 export const dashboardSalesDateTypeSchema = z
   .enum(dashboardSalesDateTypeValues)
   .transform((value) => {
-    if (value === "order") return "placed_all" as const;
-    if (value === "completed") return "closed_in_period" as const;
-    if (value === "delivery_completed") return "delivered_all" as const;
-    if (value === "pending_invoice_complete") {
-      return "delivered_pending_invoice" as const;
-    }
-    return value;
+    const aliases: Record<string, string> = {
+      order: "all_orders",
+      placed_all: "all_orders",
+      placed_open: "not_delivered",
+      placed_pending_invoice: "bill_open",
+      placed_invoice_completed: "done_after_delivery",
+      completed: "bill_done_old",
+      closed_in_period: "bill_done_old",
+      delivery_completed: "delivered_in_dates",
+      delivered_all: "delivered_in_dates",
+      pending_invoice_complete: "still_bill_open",
+      delivered_pending_invoice: "still_bill_open",
+    };
+    return (aliases[value] ?? value) as
+      | "all_orders"
+      | "not_delivered"
+      | "bill_done_early"
+      | "bill_open"
+      | "done_after_delivery"
+      | "bill_done_in_dates"
+      | "delivered_in_dates"
+      | "bill_done_old"
+      | "delivered_old"
+      | "still_bill_open"
+      | "still_not_delivered";
   });
 
 export const dashboardSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: dashboardSalesDateTypeSchema.optional().default("placed_all"),
+  date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
   analysis_type: z.enum(["merchant", "gateway"]).optional().default("merchant"),
+  include_summaries: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => v !== "false"),
 });
 
 export const dashboardBrandSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
-  date_type: dashboardSalesDateTypeSchema.optional().default("placed_all"),
+  date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
   location_id: z.string().max(40).optional().transform((s) => s?.trim() || undefined),
 });
 
