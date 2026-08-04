@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   }
 
   const location = await prisma.companyLocation.findFirst({
-    where: { id: parsed.data.companyLocationId, companyId, isMainCompany: false },
+    where: { id: parsed.data.companyLocationId, companyId },
     select: { id: true },
   });
   if (!location) {
