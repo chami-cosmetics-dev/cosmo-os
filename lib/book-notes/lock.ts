@@ -3,8 +3,8 @@ import { formatAppIsoDate } from "@/lib/format-datetime";
 export const DAY_LOCKED_CODE = "DAY_LOCKED" as const;
 
 /**
- * Merchants may save/send any sales date on or before today (Asia/Colombo).
- * Future dates are locked.
+ * Merchants may save any sales date on or before today (Asia/Colombo).
+ * Future dates are locked. Entry UI defaults to today; past days open via history.
  */
 export function isBookNoteWritable(
   postingDateYmd: string,
