@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 
+import { OSF_COLUMNS_CHANGED_EVENT } from "@/components/organisms/osf-columns-settings";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -54,7 +55,9 @@ function AccessMultiSelect({
           disabled={disabled}
         >
           <span className="truncate">
-            {count === 0 ? "Access — none selected" : `Access — ${count} column${count === 1 ? "" : "s"}`}
+            {count === 0
+              ? "Access — none selected"
+              : `Access — ${count} column${count === 1 ? "" : "s"}`}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
@@ -99,33 +102,53 @@ export function OsfColumnAccessPanel() {
   const [draft, setDraft] = useState<Record<string, Set<string>>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [usersOpen, setUsersOpen] = useState(false);
+
+  const applyPayload = useCallback((json: {
+    columns?: ColumnMeta[];
+    users?: UserRow[];
+  }) => {
+    const nextColumns = json.columns ?? [];
+    setColumns(nextColumns);
+    const catalogIds = new Set(nextColumns.map((c) => c.id));
+    const nextUsers: UserRow[] = json.users ?? [];
+    setUsers(nextUsers);
+    setDraft((prev) => {
+      const nextDraft: Record<string, Set<string>> = {};
+      for (const u of nextUsers) {
+        const prior = prev[u.id] ?? new Set(u.columnKeys ?? []);
+        nextDraft[u.id] = new Set([...prior].filter((k) => catalogIds.has(k)));
+      }
+      return nextDraft;
+    });
+  }, []);
+
+  const load = useCallback(async (opts?: { quiet?: boolean }) => {
+    try {
+      const res = await fetch("/api/admin/osf/column-access");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to load column access");
+      applyPayload(json);
+    } catch (err) {
+      if (!opts?.quiet) {
+        notify.error(err instanceof Error ? err.message : "Failed to load column access");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [applyPayload]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/admin/osf/column-access");
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? "Failed to load column access");
-        if (cancelled) return;
-        setColumns(json.columns ?? []);
-        const nextUsers: UserRow[] = json.users ?? [];
-        setUsers(nextUsers);
-        const nextDraft: Record<string, Set<string>> = {};
-        for (const u of nextUsers) {
-          nextDraft[u.id] = new Set(u.columnKeys ?? []);
-        }
-        setDraft(nextDraft);
-      } catch (err) {
-        notify.error(err instanceof Error ? err.message : "Failed to load column access");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    const onColumnsChanged = () => {
+      void load({ quiet: true });
     };
-  }, []);
+    window.addEventListener(OSF_COLUMNS_CHANGED_EVENT, onColumnsChanged);
+    return () => window.removeEventListener(OSF_COLUMNS_CHANGED_EVENT, onColumnsChanged);
+  }, [load]);
 
   const sortedColumns = useMemo(
     () => [...columns].sort((a, b) => a.label.localeCompare(b.label)),
@@ -147,6 +170,7 @@ export function OsfColumnAccessPanel() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Save failed");
       notify.success("OSF column access saved");
+      await load({ quiet: true });
     } catch (err) {
       notify.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -171,7 +195,8 @@ export function OsfColumnAccessPanel() {
             For each purchasing user, open Access and search/mark which OSF columns they may
             receive on download. Unmarked columns are omitted (identity columns such as SKU
             and barcode always remain). Users with OSF manage or OSF permission always get
-            the full column set on their own downloads.
+            the full column set on their own downloads. List updates when location columns
+            are saved.
           </p>
         </div>
         <Button type="button" size="sm" onClick={() => void save()} disabled={saving}>
@@ -180,48 +205,83 @@ export function OsfColumnAccessPanel() {
         </Button>
       </div>
 
-      {users.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No users with purchasing permissions found.
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">
+          All assignable columns ({sortedColumns.length})
         </p>
-      ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full min-w-[28rem] text-sm">
-            <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="p-2">User</th>
-                <th className="p-2">Access</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => {
-                const label = u.name ?? u.email ?? u.id;
-                return (
-                  <tr key={u.id} className="border-t">
-                    <td className="p-2 align-top">
-                      <div className="font-medium">{label}</div>
-                      {u.name && u.email && (
-                        <div className="text-xs text-muted-foreground">{u.email}</div>
-                      )}
-                    </td>
-                    <td className="p-2">
-                      <AccessMultiSelect
-                        columns={sortedColumns}
-                        selected={draft[u.id] ?? new Set()}
-                        userLabel={label}
-                        disabled={saving}
-                        onChange={(next) =>
-                          setDraft((prev) => ({ ...prev, [u.id]: next }))
-                        }
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+        {sortedColumns.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No assignable columns yet.</p>
+        ) : (
+          <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+            {sortedColumns.map((col) => (
+              <span
+                key={col.id}
+                className="rounded-md border border-border/70 bg-muted/40 px-2 py-0.5 text-xs"
+                title={col.id}
+              >
+                {col.label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        onClick={() => setUsersOpen((v) => !v)}
+      >
+        {usersOpen ? (
+          <ChevronDown className="size-4" />
+        ) : (
+          <ChevronRight className="size-4" />
+        )}
+        {usersOpen ? "Hide user access" : "Edit user access"}
+      </button>
+
+      {usersOpen &&
+        (users.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No users with purchasing permissions found.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full min-w-[28rem] text-sm">
+              <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="p-2">User</th>
+                  <th className="p-2">Access</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => {
+                  const label = u.name ?? u.email ?? u.id;
+                  return (
+                    <tr key={u.id} className="border-t">
+                      <td className="p-2 align-top">
+                        <div className="font-medium">{label}</div>
+                        {u.name && u.email && (
+                          <div className="text-xs text-muted-foreground">{u.email}</div>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        <AccessMultiSelect
+                          columns={sortedColumns}
+                          selected={draft[u.id] ?? new Set()}
+                          userLabel={label}
+                          disabled={saving}
+                          onChange={(next) =>
+                            setDraft((prev) => ({ ...prev, [u.id]: next }))
+                          }
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
     </div>
   );
 }

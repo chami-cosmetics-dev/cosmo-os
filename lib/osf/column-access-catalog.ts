@@ -10,13 +10,10 @@ export const OSF_ACCESS_SALES_UNITS = "Sales Units";
 /** Static assignable columns (identity headers are never listed — always included). */
 export const OSF_STATIC_ASSIGNABLE_COLUMNS: OsfAccessColumnMeta[] = [
   { id: "Total Stock", label: "Total Stock" },
-  { id: "Common SKU Stock", label: "Common SKU Stock" },
-  { id: "Common ROP", label: "Common ROP" },
   { id: "% of ROP", label: "% of ROP" },
   { id: "70% OF TOTAL ROP", label: "70% OF TOTAL ROP" },
   { id: "70% OF TOTAL ROP AVAILABILITY", label: "70% OF TOTAL ROP AVAILABILITY" },
   { id: "TOTAL ORDER QTY", label: "TOTAL ORDER QTY" },
-  { id: "Common SKU Reorder", label: "Common SKU Reorder" },
   { id: "Cosmetics MRP", label: "Cosmetics MRP" },
   { id: "Discounted Price", label: "Discounted Price" },
   { id: "OGF Price", label: "OGF Price" },
@@ -85,14 +82,13 @@ export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessCo
     if (c.includeInStock) push(stockAccessKey(c.key), c.label);
   }
   for (const c of OSF_STATIC_ASSIGNABLE_COLUMNS) {
-    if (c.id === "Total Stock" || c.id === "Common SKU Stock") push(c.id, c.label);
+    if (c.id === "Total Stock") push(c.id, c.label);
   }
   for (const c of active) {
     if (c.includeInRop) push(ropAccessKey(c.key), `${c.label} ROP`);
   }
   for (const c of OSF_STATIC_ASSIGNABLE_COLUMNS) {
     if (
-      c.id === "Common ROP" ||
       c.id === "% of ROP" ||
       c.id === "70% OF TOTAL ROP" ||
       c.id === "70% OF TOTAL ROP AVAILABILITY"
@@ -106,7 +102,6 @@ export function buildOsfAccessCatalog(columns: OsfResolvedColumn[]): OsfAccessCo
   for (const c of OSF_STATIC_ASSIGNABLE_COLUMNS) {
     if (
       c.id === "TOTAL ORDER QTY" ||
-      c.id === "Common SKU Reorder" ||
       [
         "Cosmetics MRP",
         "Discounted Price",

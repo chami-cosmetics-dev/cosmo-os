@@ -23,34 +23,19 @@ export default async function OsfPage() {
   const companyId = context.user.companyId;
   if (!companyId) return <PermissionDeniedCard />;
 
-  const [locations, buyers, vendors] = await Promise.all([
-    prisma.companyLocation.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, shortName: true },
-    }),
-    prisma.osfBuyer.findMany({
-      where: { companyId },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { name: true, brands: true, sortOrder: true, active: true },
-    }),
-    prisma.vendor.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { name: true },
-    }),
-  ]);
+  const locations = await prisma.companyLocation.findMany({
+    where: { companyId },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, shortName: true },
+  });
 
   return (
     <OsfHubPanel
       canManage={canManage}
-      canReadOsf={canRead || canManage}
       canManageThreshold={canManageThreshold}
       canReorderOnly={canToolsRead}
       canAssignColumns={canAssignColumns}
       initialLocations={locations}
-      initialBuyers={buyers}
-      brandOptions={vendors.map((v) => v.name)}
     />
   );
 }

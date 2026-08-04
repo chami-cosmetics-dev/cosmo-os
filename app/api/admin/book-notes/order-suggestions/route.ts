@@ -33,11 +33,11 @@ export async function GET(request: NextRequest) {
   }
 
   const location = await prisma.companyLocation.findFirst({
-    where: { id: parsed.data.companyLocationId, companyId },
+    where: { id: parsed.data.companyLocationId, companyId, isMainCompany: false },
     select: { id: true },
   });
   if (!location) {
-    return NextResponse.json({ error: "Location not found" }, { status: 404 });
+    return NextResponse.json({ error: "Shop not found" }, { status: 404 });
   }
 
   const suggestions = await searchBookNoteOrderSuggestions({

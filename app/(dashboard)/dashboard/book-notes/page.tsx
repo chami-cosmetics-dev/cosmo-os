@@ -21,7 +21,7 @@ export default async function BookNotesPage() {
   }
 
   const locations = await prisma.companyLocation.findMany({
-    where: { companyId },
+    where: { companyId, isMainCompany: false },
     orderBy: { name: "asc" },
     select: {
       id: true,
