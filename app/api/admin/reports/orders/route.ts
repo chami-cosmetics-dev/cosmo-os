@@ -71,6 +71,30 @@ function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
 }
 
+function resolveDiscountedLineValues(input: {
+  lineTotal: Prisma.Decimal;
+  quantity: number;
+  orderItemSubtotal: Prisma.Decimal;
+  orderDiscounts: Prisma.Decimal | null;
+}) {
+  const discount = input.orderDiscounts;
+  if (!discount || !discount.gt(0) || !input.orderItemSubtotal.gt(0) || input.quantity <= 0) {
+    return { discountedPrice: null, discountedTotal: null };
+  }
+
+  const allocatedDiscount = Prisma.Decimal.min(
+    input.lineTotal,
+    discount.mul(input.lineTotal).div(input.orderItemSubtotal),
+  );
+  const discountedTotal = Prisma.Decimal.max(new Prisma.Decimal(0), input.lineTotal.minus(allocatedDiscount));
+  const discountedPrice = discountedTotal.div(input.quantity);
+
+  return {
+    discountedPrice: discountedPrice.toDecimalPlaces(2).toString(),
+    discountedTotal: discountedTotal.toDecimalPlaces(2).toString(),
+  };
+}
+
 function getUserDisplayName(user: {
   knownName?: string | null;
   name?: string | null;
@@ -365,8 +389,21 @@ export async function GET(request: NextRequest) {
         userToGroup,
       });
 
-      return order.lineItems.map((item) =>
-        createOrderInvoiceItemRow({
+      const orderItemSubtotal = order.lineItems.reduce(
+        (sum, item) => sum.add(new Prisma.Decimal(item.price).mul(item.quantity)),
+        new Prisma.Decimal(0),
+      );
+
+      return order.lineItems.map((item) => {
+        const lineTotal = new Prisma.Decimal(item.price).mul(item.quantity).toString();
+        const discounted = resolveDiscountedLineValues({
+          lineTotal: new Prisma.Decimal(lineTotal),
+          quantity: item.quantity,
+          orderItemSubtotal,
+          orderDiscounts: order.totalDiscounts,
+        });
+
+        return createOrderInvoiceItemRow({
           invoiceNo,
           erpInvoiceId: order.erpnextInvoiceId,
           sourceName: order.sourceName,
@@ -382,16 +419,17 @@ export async function GET(request: NextRequest) {
           productTitle: item.productItem.productTitle,
           quantity: item.quantity,
           unitPrice: item.price.toString(),
-          lineDiscountPercent: item.discountPercent?.toString() ?? null,
-          lineTotal: new Prisma.Decimal(item.price).mul(item.quantity).toString(),
+          discountedPrice: discounted.discountedPrice,
+          afterDiscountTotal: discounted.discountedTotal,
+          lineTotal,
           fulfillmentStage: order.fulfillmentStage,
           financialStatus: order.financialStatus,
           fulfillmentStatus: order.fulfillmentStatus,
           paymentGateway,
           merchantName,
           createdBy,
-        })
-      );
+        });
+      });
     });
 
     const csv = omitCustomerPhone

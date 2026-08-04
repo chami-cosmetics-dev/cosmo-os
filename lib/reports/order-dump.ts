@@ -125,8 +125,9 @@ export type OrderInvoiceItemCsvRow = {
   product_title: string;
   quantity: string;
   unit_price: string;
-  line_discount_percent: string;
-  line_total: string;
+  grand_total: string;
+  discounted_price: string;
+  after_discount_total: string;
   status: string;
   payment_status: string;
   fulfillment_status: string;
@@ -193,8 +194,9 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "product_title",
   "quantity",
   "unit_price",
-  "line_discount_percent",
-  "line_total",
+  "grand_total",
+  "discounted_price",
+  "after_discount_total",
   "status",
   "fulfillment_status",
   "payment_status",
@@ -340,7 +342,8 @@ export function createOrderInvoiceItemRow(input: {
   productTitle: string;
   quantity: number;
   unitPrice: string;
-  lineDiscountPercent: string | null;
+  discountedPrice: string | null;
+  afterDiscountTotal: string | null;
   lineTotal: string;
   fulfillmentStage: string | null;
   financialStatus: string | null;
@@ -365,8 +368,9 @@ export function createOrderInvoiceItemRow(input: {
     product_title: input.productTitle,
     quantity: String(input.quantity),
     unit_price: input.unitPrice,
-    line_discount_percent: input.lineDiscountPercent ?? "",
-    line_total: input.lineTotal,
+    grand_total: input.lineTotal,
+    discounted_price: input.discountedPrice ?? "",
+    after_discount_total: input.afterDiscountTotal ?? "",
     status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
     payment_status: input.financialStatus ?? "",
     fulfillment_status: input.fulfillmentStatus ?? "",
