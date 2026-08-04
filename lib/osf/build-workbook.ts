@@ -471,26 +471,12 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
   ) => {
     const name = sanitizeSheetName(sheetName, used);
     const ws = wb.addWorksheet(name, {
-      views: [{ state: "frozen", ySplit: 3 }],
+      views: [{ state: "frozen", ySplit: 2 }],
     });
 
-    const totalsRow: SheetCell[] = sheetDefs.map((c) => {
-      if (!c.sum) return "";
-      let total = 0;
-      let seen = false;
-      for (const r of sheetRows) {
-        const v = r[c.header];
-        if (typeof v === "number" && Number.isFinite(v)) {
-          total += v;
-          seen = true;
-        }
-      }
-      return seen ? total : "";
-    });
     const sectionRow: SheetCell[] = sheetDefs.map((c) => c.section ?? "");
     const headerRow: SheetCell[] = sheetDefs.map((c) => c.header);
 
-    ws.addRow(totalsRow.map(cellValue));
     ws.addRow(sectionRow.map(cellValue));
     ws.addRow(headerRow.map(cellValue));
     for (const r of sheetRows) {
@@ -513,15 +499,13 @@ export async function buildOsfWorkbookBuffer(input: BuildWorkbookInput): Promise
         cell.font = { bold, color: { argb: `FF${fontArgb}` }, size: 10 };
         cell.alignment = { vertical: "middle", wrapText: true };
       };
-      styleRow(1, colors.totals, "000000", false);
-      styleRow(2, colors.section, "000000", true);
-      styleRow(3, colors.header, colors.font, true);
+      styleRow(1, colors.section, "000000", true);
+      styleRow(2, colors.header, colors.font, true);
       const len = Math.max(10, Math.min(28, sheetDefs[colIdx]!.header.length + 2));
       ws.getColumn(excelCol).width = len;
     }
     ws.getRow(1).height = 18;
-    ws.getRow(2).height = 18;
-    ws.getRow(3).height = 28;
+    ws.getRow(2).height = 28;
   };
 
   attachSheet("Main", mainDefs, rows);
