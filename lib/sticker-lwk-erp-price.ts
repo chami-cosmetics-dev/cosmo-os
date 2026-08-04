@@ -1,5 +1,7 @@
 import "server-only";
 
+import { Prisma } from "@prisma/client";
+
 import {
   getAllOsfErpInstances,
   OsfErpError,
@@ -10,6 +12,9 @@ import { prisma } from "@/lib/prisma";
 
 /** Cosmo ERP selling price list used by LWK POS. */
 export const LWK_STICKER_PRICE_LIST = "OGF Price List";
+
+/** Cosmo ERP standard catalog selling list (non-LWK stickers / OS product price). */
+export const STANDARD_SELLING_PRICE_LIST = "Standard Selling";
 
 const PAGE_LENGTH = 500;
 const MAX_PAGES = 80;
@@ -133,12 +138,26 @@ export async function fetchLwkItemPricesBySku(input: {
 export async function fetchAllLwkItemPrices(
   cfg: OsfErpCredentials
 ): Promise<Record<string, string>> {
+  return fetchAllItemPricesForList(cfg, LWK_STICKER_PRICE_LIST);
+}
+
+/** Paginate all selling rates on Standard Selling. */
+export async function fetchAllStandardSellingPrices(
+  cfg: OsfErpCredentials
+): Promise<Record<string, string>> {
+  return fetchAllItemPricesForList(cfg, STANDARD_SELLING_PRICE_LIST);
+}
+
+async function fetchAllItemPricesForList(
+  cfg: OsfErpCredentials,
+  priceList: string
+): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   let start = 0;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const filters = JSON.stringify([
-      ["price_list", "=", LWK_STICKER_PRICE_LIST],
+      ["price_list", "=", priceList],
       ["selling", "=", 1],
     ]);
     const fields = JSON.stringify(["item_code", "price_list_rate"]);
@@ -179,5 +198,63 @@ export async function loadLwkStickerPricesBySku(
     return await fetchAllLwkItemPrices(instance.cfg);
   } catch {
     return {};
+  }
+}
+
+/**
+ * Load Standard Selling rates from Cosmo ERP for non-LWK stickers / OS sync.
+ */
+export async function loadStandardSellingPricesBySku(
+  companyId: string
+): Promise<Record<string, string>> {
+  const instance = await resolveLwkErpInstance(companyId);
+  if (!instance) return {};
+  try {
+    return await fetchAllStandardSellingPrices(instance.cfg);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Write Cosmo ERP Standard Selling rates onto ProductItem.price (all locations for SKU).
+ * Does not invent prices; on ERP failure leaves OS prices unchanged.
+ */
+export async function syncStandardSellingToProductItems(
+  companyId: string
+): Promise<{ status: "ok" | "failed" | "not_configured"; updated: number; error: string | null }> {
+  const instance = await resolveLwkErpInstance(companyId);
+  if (!instance) {
+    return { status: "not_configured", updated: 0, error: "No Cosmo ERP instance" };
+  }
+  try {
+    const prices = await fetchAllStandardSellingPrices(instance.cfg);
+    const entries = Object.entries(prices);
+    if (entries.length === 0) {
+      return { status: "ok", updated: 0, error: null };
+    }
+
+    let updated = 0;
+    for (let i = 0; i < entries.length; i += ITEM_BATCH) {
+      const chunk = entries.slice(i, i + ITEM_BATCH);
+      await Promise.all(
+        chunk.map(async ([erpSku, money]) => {
+          const n = Number(money);
+          if (!Number.isFinite(n) || n <= 0) return;
+          const result = await prisma.productItem.updateMany({
+            where: {
+              companyId,
+              sku: { equals: erpSku, mode: "insensitive" },
+            },
+            data: { price: new Prisma.Decimal(n.toFixed(2)) },
+          });
+          updated += result.count;
+        })
+      );
+    }
+    return { status: "ok", updated, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Standard Selling sync failed";
+    return { status: "failed", updated: 0, error: message.slice(0, 300) };
   }
 }

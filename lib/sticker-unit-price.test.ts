@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isLwkLocation,
-  lookupLwkErpPrice,
+  lookupErpPriceBySku,
   resolveStickerUnitPrice,
 } from "@/lib/sticker-unit-price";
 
@@ -21,15 +21,26 @@ describe("isLwkLocation", () => {
   });
 });
 
-describe("lookupLwkErpPrice", () => {
+describe("lookupErpPriceBySku", () => {
   it("matches SKU case-insensitively", () => {
-    expect(lookupLwkErpPrice({ TRS28_1: "8500.00" }, "trs28_1")).toBe("8500.00");
-    expect(lookupLwkErpPrice({ trs28_1: "8500.00" }, "TRS28_1")).toBe("8500.00");
+    expect(lookupErpPriceBySku({ TRS28_1: "8500.00" }, "trs28_1")).toBe("8500.00");
+    expect(lookupErpPriceBySku({ trs28_1: "8500.00" }, "TRS28_1")).toBe("8500.00");
   });
 });
 
 describe("resolveStickerUnitPrice", () => {
-  it("uses original/list price for non-LWK locations", () => {
+  it("uses ERP Standard Selling for non-LWK when present", () => {
+    expect(
+      resolveStickerUnitPrice({
+        price: "7837.50",
+        compareAtPrice: null,
+        standardSellingErpPrice: "8250.00",
+        isLwk: false,
+      })
+    ).toBe("8250.00");
+  });
+
+  it("falls back to compare-at then sell when no Standard Selling", () => {
     expect(
       resolveStickerUnitPrice({
         price: "100.00",
@@ -56,6 +67,7 @@ describe("resolveStickerUnitPrice", () => {
         price: "100.00",
         compareAtPrice: "150.00",
         lwkErpPrice: "120.00",
+        standardSellingErpPrice: "8250.00",
         isLwk: true,
       })
     ).toBe("120.00");
@@ -67,6 +79,7 @@ describe("resolveStickerUnitPrice", () => {
         price: "100.00",
         compareAtPrice: "150.00",
         lwkErpPrice: null,
+        standardSellingErpPrice: "8250.00",
         isLwk: true,
       })
     ).toBe("");
