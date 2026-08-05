@@ -7,6 +7,7 @@ export type OrderInvoiceInput = {
   name: string | null;
   erpnextInvoiceId: string | null;
   totalPrice: number | string;
+  currency?: string | null;
   cancelledAt: Date | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
@@ -18,6 +19,7 @@ export type AdaptInvoiceInput = {
   invoiceDate: Date;
   salesInvoiceNo: string;
   ttlAmount: number | string;
+  currency?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -35,23 +37,20 @@ function orderReference(order: OrderInvoiceInput): string {
   return order.id;
 }
 
-function orderStatus(order: OrderInvoiceInput): string {
-  if (order.cancelledAt) return "cancelled";
-  const financial = order.financialStatus?.trim();
-  if (financial) return financial;
-  const fulfillment = order.fulfillmentStatus?.trim();
-  if (fulfillment) return fulfillment;
-  return "unknown";
-}
-
 export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRowDto {
   return {
     id: `order:${order.id}`,
     source: "order",
     date: order.createdAt.toISOString(),
     reference: orderReference(order),
-    status: orderStatus(order),
+    secondaryLabel: order.orderNumber?.trim() || null,
+    status: order.cancelledAt
+      ? "cancelled"
+      : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`,
+    financialStatus: order.cancelledAt ? "cancelled" : order.financialStatus,
+    fulfillmentStatus: order.fulfillmentStatus,
     amount: toAmount(order.totalPrice),
+    currency: order.currency?.trim() || "LKR",
     includedInLoyaltyTotal: !order.cancelledAt,
     orderId: order.id,
     lineItems: order.lineItems ?? [],
@@ -64,8 +63,12 @@ export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowD
     source: "adapt",
     date: row.invoiceDate.toISOString(),
     reference: row.salesInvoiceNo || row.id,
-    status: "adapt",
+    secondaryLabel: "Adapt",
+    status: "Adapt / —",
+    financialStatus: "Adapt",
+    fulfillmentStatus: null,
     amount: toAmount(row.ttlAmount),
+    currency: row.currency?.trim() || "LKR",
     includedInLoyaltyTotal: true,
     orderId: null,
     lineItems: row.lineItems ?? [],
@@ -103,4 +106,14 @@ export function mergeAndPaginateInvoices(input: {
     page,
     pageSize,
   };
+}
+
+/** Display label used for top-item aggregation / filter matching. */
+export function invoiceLineDisplayName(item: InvoiceLineDto): string {
+  const title = item.productTitle?.trim() || "Unknown item";
+  const variant = item.variantTitle?.trim();
+  if (variant && variant.toLowerCase() !== "default title") {
+    return `${title} — ${variant}`;
+  }
+  return title;
 }

@@ -24,7 +24,11 @@ export async function GET(
   const auth = await requireAnyPermission(
     shouldIncrementPrint
       ? ["fulfillment.order_print.print"]
-      : ["fulfillment.order_print.read"]
+      : [
+          "fulfillment.order_print.read",
+          // Merchants on Customer Insight may open Cosmo invoices view-only.
+          "contacts.insight.read",
+        ]
   );
   if (!auth.ok) {
     return new NextResponse("Unauthorized", { status: 401 });
