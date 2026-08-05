@@ -67,17 +67,32 @@ export function buildPhoneLookupVariants(raw: string): string[] {
 }
 
 /**
+ * True when the query is a complete phone (local 9/10, or country-code form),
+ * not a partial last-N digit shorthand.
+ */
+export function isCompletePhoneSearch(raw: string): boolean {
+  return canonicalPhoneForErpCustomerId(raw) != null;
+}
+
+/**
  * Suffixes useful for `endsWith` matching when the DB value has a different prefix
  * (e.g. stored "+94717106114", query "0717106114" or "6114").
+ *
+ * Short suffixes (last 4/6/8) are only used for partial searches. A full number
+ * must match that number's variants only — not every contact sharing the last 4.
  */
 export function buildPhoneSearchSuffixes(raw: string): string[] {
   const digits = phoneDigitsOnly(raw);
   const out = new Set<string>();
+  const complete = isCompletePhoneSearch(raw);
+
   if (digits.length >= 4) {
     out.add(digits);
-    out.add(digits.slice(-4));
-    if (digits.length > 4) out.add(digits.slice(-6));
-    if (digits.length > 6) out.add(digits.slice(-8));
+    if (!complete) {
+      out.add(digits.slice(-4));
+      if (digits.length > 4) out.add(digits.slice(-6));
+      if (digits.length > 6) out.add(digits.slice(-8));
+    }
     if (digits.length === 10 && digits.startsWith("0")) {
       out.add(digits.slice(1)); // 717106114
     }
@@ -96,7 +111,10 @@ export function buildPhoneSearchSuffixes(raw: string): string[] {
     // Keep formatted variants that can appear as stored suffixes (rare but cheap).
     if (variant.length >= 4 && variant.length <= LIMITS.mobile.max) out.add(variant);
   }
-  return [...out].filter((s) => s.length >= 4 && s.length <= LIMITS.mobile.max);
+
+  // For a complete number, drop any short leftover suffixes from variants.
+  const minLen = complete ? 9 : 4;
+  return [...out].filter((s) => s.length >= minLen && s.length <= LIMITS.mobile.max);
 }
 
 /**

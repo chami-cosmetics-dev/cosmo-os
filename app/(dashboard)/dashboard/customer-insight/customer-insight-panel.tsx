@@ -1,18 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { Loader2, Search } from "lucide-react";
+import { useRef, useState } from "react";
+import { Eye, Loader2, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -31,7 +27,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { CustomerInsightDto, SearchMatchDto } from "@/lib/customer-insight/types";
+import type {
+  CustomerInsightDto,
+  SearchMatchDto,
+  UnifiedInvoiceRowDto,
+} from "@/lib/customer-insight/types";
 import { LOYALTY_GOLD_MIN, LOYALTY_PLATINUM_ABOVE } from "@/lib/customer-insight/loyalty-tier";
 import { notify } from "@/lib/notify";
 
@@ -51,9 +51,22 @@ function formatDate(iso: string) {
   });
 }
 
+/** `YYYY-MM` → `Jan 2022` */
+function formatMonthLabel(monthKey: string) {
+  const [y, m] = monthKey.split("-");
+  const year = Number(y);
+  const month = Number(m);
+  if (!year || !month || month < 1 || month > 12) return monthKey;
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-LK", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function tierBadgeClass(key: CustomerInsightDto["loyalty"]["key"]) {
-  if (key === "gold") return "bg-amber-100 text-amber-900 border-amber-300";
-  if (key === "platinum") return "bg-slate-200 text-slate-900 border-slate-400";
+  if (key === "gold") return "bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-700";
+  if (key === "platinum") return "bg-slate-200 text-slate-900 border-slate-400 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-500";
   return "bg-muted text-muted-foreground";
 }
 
@@ -65,6 +78,9 @@ export function CustomerInsightPanel() {
   const [searched, setSearched] = useState(false);
   const [insight, setInsight] = useState<CustomerInsightDto | null>(null);
   const [invoicePage, setInvoicePage] = useState(1);
+  const [openInvoice, setOpenInvoice] = useState<UnifiedInvoiceRowDto | null>(null);
+  const [itemFilter, setItemFilter] = useState<string | null>(null);
+  const invoicesRef = useRef<HTMLDivElement>(null);
 
   const isBusy = busyKey !== null;
 
@@ -78,6 +94,8 @@ export function CustomerInsightPanel() {
     setInsight(null);
     setMatches(null);
     setSearched(false);
+    setItemFilter(null);
+    setOpenInvoice(null);
     let autoOpenId: string | null = null;
     try {
       const res = await fetch(
@@ -127,8 +145,31 @@ export function CustomerInsightPanel() {
     }
   }
 
+  function focusInvoicesForItem(itemName: string) {
+    setItemFilter(itemName);
+    invoicesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const totalPages = insight
     ? Math.max(1, Math.ceil(insight.invoicePagination.total / insight.invoicePagination.pageSize))
+    : 1;
+
+  const visibleInvoices =
+    insight && itemFilter
+      ? insight.invoices.filter((inv) =>
+          inv.lineItems.some((li) => li.name === itemFilter)
+        )
+      : insight?.invoices ?? [];
+
+  const maxTopSpend = insight
+    ? Math.max(...insight.topItems.map((i) => i.spend), 1)
+    : 1;
+
+  const spendSeriesNewestFirst = insight
+    ? [...insight.series].sort((a, b) => b.month.localeCompare(a.month))
+    : [];
+  const maxMonthSpend = spendSeriesNewestFirst.length
+    ? Math.max(...spendSeriesNewestFirst.map((s) => s.spend), 1)
     : 1;
 
   return (
@@ -145,7 +186,7 @@ export function CustomerInsightPanel() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Phone search</CardTitle>
           <CardDescription>
-            Enter a customer phone number. Results are capped; refine the number if truncated.
+            Enter a full customer phone number for an exact match.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -288,24 +329,45 @@ export function CustomerInsightPanel() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Top items</CardTitle>
-                <CardDescription>What they buy most (by spend)</CardDescription>
+                <CardDescription>
+                  Click an item to jump to invoices that include it (this page).
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 {insight.topItems.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No purchased items yet.</p>
                 ) : (
-                  <ul className="space-y-2 text-sm">
-                    {insight.topItems.map((item) => (
-                      <li
-                        key={item.name}
-                        className="flex flex-col gap-0.5 border-b border-border/60 py-2 last:border-0 sm:flex-row sm:justify-between"
-                      >
-                        <span className="font-medium">{item.name}</span>
-                        <span className="text-muted-foreground">
-                          qty {item.quantity} · {formatMoney(item.spend)}
-                        </span>
-                      </li>
-                    ))}
+                  <ul className="space-y-3">
+                    {insight.topItems.map((item) => {
+                      const pct = Math.max(4, Math.round((item.spend / maxTopSpend) * 100));
+                      const active = itemFilter === item.name;
+                      return (
+                        <li key={item.name}>
+                          <button
+                            type="button"
+                            onClick={() => focusInvoicesForItem(item.name)}
+                            className={`w-full rounded-md border px-3 py-2 text-left transition hover:bg-muted/40 ${
+                              active ? "border-primary bg-primary/5" : "border-border/70"
+                            }`}
+                          >
+                            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                              <span className="text-sm font-medium leading-snug break-words pr-2">
+                                {item.name}
+                              </span>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground sm:text-sm">
+                                qty {item.quantity} · {formatMoney(item.spend)}
+                              </span>
+                            </div>
+                            <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </CardContent>
@@ -314,88 +376,92 @@ export function CustomerInsightPanel() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Spend over time</CardTitle>
-                <CardDescription>Loyalty-eligible invoices by month</CardDescription>
+                <CardDescription>
+                  Loyalty-eligible spend by month (newest first). Amounts shown on each row.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                {!insight.chartsAvailable ? (
+                {spendSeriesNewestFirst.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    Need at least 3 loyalty-eligible invoices to show a trend chart. KPIs above
-                    still reflect available history.
+                    No loyalty-eligible monthly spend to show yet.
                   </p>
                 ) : (
-                  <div className="h-64 w-full min-w-0">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={insight.series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                        <YAxis tick={{ fontSize: 11 }} width={56} />
-                        <Tooltip
-                          formatter={(value) =>
-                            typeof value === "number" ? formatMoney(value) : String(value)
-                          }
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="spend"
-                          stroke="hsl(var(--primary))"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
+                  <ul className="max-h-80 space-y-2.5 overflow-y-auto pr-1">
+                    {spendSeriesNewestFirst.map((point) => {
+                      const pct = Math.max(4, Math.round((point.spend / maxMonthSpend) * 100));
+                      return (
+                        <li
+                          key={point.month}
+                          className="rounded-md border border-border/70 px-3 py-2"
+                        >
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="text-sm font-medium">
+                              {formatMonthLabel(point.month)}
+                            </span>
+                            <span className="shrink-0 text-sm tabular-nums font-medium">
+                              {formatMoney(point.spend)}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <span>
+                              {point.orderCount} invoice{point.orderCount === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-primary"
+                              style={{ width: `${pct}%` }}
+                              title={formatMoney(point.spend)}
+                            />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
               </CardContent>
             </Card>
           </div>
 
-          {insight.chartsAvailable && insight.topItems.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Top items chart</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-72 w-full min-w-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={insight.topItems.map((i) => ({
-                        name: i.name.length > 28 ? `${i.name.slice(0, 26)}…` : i.name,
-                        spend: i.spend,
-                      }))}
-                      layout="vertical"
-                      margin={{ left: 8, right: 16, top: 8, bottom: 8 }}
-                    >
-                      <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
-                      <XAxis type="number" hide />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        width={120}
-                        tick={{ fontSize: 11 }}
-                      />
-                      <Tooltip
-                        formatter={(value) =>
-                          typeof value === "number" ? formatMoney(value) : String(value)
-                        }
-                      />
-                      <Bar dataKey="spend" fill="hsl(var(--primary))" radius={4} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
+          <Card ref={invoicesRef}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Invoice history</CardTitle>
-              <CardDescription>
-                Cosmo orders and Adapt invoices · {insight.invoicePagination.total} total
-              </CardDescription>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base">Invoice history</CardTitle>
+                  <CardDescription>
+                    Cosmo orders and Adapt invoices · {insight.invoicePagination.total} total.
+                    Open any row to see line items.
+                  </CardDescription>
+                </div>
+                {itemFilter ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setItemFilter(null)}
+                  >
+                    <X className="size-4" aria-hidden />
+                    Clear item filter
+                  </Button>
+                ) : null}
+              </div>
+              {itemFilter ? (
+                <p className="text-xs text-muted-foreground">
+                  Showing invoices on this page that include:{" "}
+                  <span className="font-medium text-foreground">{itemFilter}</span>
+                  {visibleInvoices.length === 0
+                    ? " — none on this page; try another page or clear the filter."
+                    : null}
+                </p>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-4">
               {insight.invoices.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No purchase history yet.</p>
+              ) : visibleInvoices.length === 0 && itemFilter ? (
+                <p className="text-sm text-muted-foreground">
+                  No matching invoices on this page for that item.
+                </p>
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
@@ -406,16 +472,21 @@ export function CustomerInsightPanel() {
                         <TableHead>Source</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="w-[1%] text-right">Open</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {insight.invoices.map((inv) => (
-                        <TableRow key={inv.id}>
+                      {visibleInvoices.map((inv) => (
+                        <TableRow
+                          key={inv.id}
+                          className="cursor-pointer"
+                          onClick={() => setOpenInvoice(inv)}
+                        >
                           <TableCell className="whitespace-nowrap">
                             {formatDate(inv.date)}
                           </TableCell>
-                          <TableCell className="max-w-[10rem] truncate sm:max-w-none">
-                            {inv.reference}
+                          <TableCell className="max-w-[12rem]">
+                            <span className="break-words font-medium">{inv.reference}</span>
                           </TableCell>
                           <TableCell>{inv.source}</TableCell>
                           <TableCell>
@@ -428,6 +499,20 @@ export function CustomerInsightPanel() {
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap">
                             {formatMoney(inv.amount)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenInvoice(inv);
+                              }}
+                            >
+                              <Eye className="size-4" aria-hidden />
+                              Open
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -467,6 +552,51 @@ export function CustomerInsightPanel() {
           </Card>
         </>
       )}
+
+      <Dialog open={openInvoice != null} onOpenChange={(open) => !open && setOpenInvoice(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          {openInvoice ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="break-words pr-6">{openInvoice.reference}</DialogTitle>
+                <DialogDescription>
+                  {formatDate(openInvoice.date)} · {openInvoice.source} · {openInvoice.status}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 text-sm">
+                <p className="text-base font-semibold tabular-nums">
+                  {formatMoney(openInvoice.amount)}
+                </p>
+                {!openInvoice.includedInLoyaltyTotal ? (
+                  <p className="text-xs text-muted-foreground">
+                    This invoice is excluded from the loyalty lifetime total.
+                  </p>
+                ) : null}
+                <div>
+                  <p className="mb-2 font-medium">Items</p>
+                  {openInvoice.lineItems.length === 0 ? (
+                    <p className="text-muted-foreground">No line items available.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {openInvoice.lineItems.map((li, idx) => (
+                        <li
+                          key={`${li.name}-${idx}`}
+                          className="flex flex-col gap-0.5 rounded-md border border-border/70 px-3 py-2 sm:flex-row sm:justify-between"
+                        >
+                          <span className="break-words font-medium">{li.name}</span>
+                          <span className="shrink-0 text-muted-foreground tabular-nums">
+                            qty {li.quantity} · {formatMoney(li.spend)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

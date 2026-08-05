@@ -52,6 +52,12 @@ export type SeriesPointDto = {
 
 export type UnifiedInvoiceSource = "order" | "adapt";
 
+export type InvoiceLineDto = {
+  name: string;
+  quantity: number;
+  spend: number;
+};
+
 export type UnifiedInvoiceRowDto = {
   id: string;
   source: UnifiedInvoiceSource;
@@ -60,6 +66,9 @@ export type UnifiedInvoiceRowDto = {
   status: string;
   amount: number;
   includedInLoyaltyTotal: boolean;
+  /** Cosmo order id when source is order; null for Adapt. */
+  orderId: string | null;
+  lineItems: InvoiceLineDto[];
 };
 
 export type InvoicePaginationDto = {
