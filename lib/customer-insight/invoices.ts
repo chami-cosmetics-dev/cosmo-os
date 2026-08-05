@@ -1,4 +1,4 @@
-import type { UnifiedInvoiceRowDto } from "@/lib/customer-insight/types";
+import type { InvoiceLineDto, UnifiedInvoiceRowDto } from "@/lib/customer-insight/types";
 
 export type OrderInvoiceInput = {
   id: string;
@@ -10,6 +10,7 @@ export type OrderInvoiceInput = {
   cancelledAt: Date | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  lineItems?: InvoiceLineDto[];
 };
 
 export type AdaptInvoiceInput = {
@@ -17,6 +18,7 @@ export type AdaptInvoiceInput = {
   invoiceDate: Date;
   salesInvoiceNo: string;
   ttlAmount: number | string;
+  lineItems?: InvoiceLineDto[];
 };
 
 function toAmount(value: number | string): number {
@@ -51,6 +53,8 @@ export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRo
     status: orderStatus(order),
     amount: toAmount(order.totalPrice),
     includedInLoyaltyTotal: !order.cancelledAt,
+    orderId: order.id,
+    lineItems: order.lineItems ?? [],
   };
 }
 
@@ -63,6 +67,8 @@ export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowD
     status: "adapt",
     amount: toAmount(row.ttlAmount),
     includedInLoyaltyTotal: true,
+    orderId: null,
+    lineItems: row.lineItems ?? [],
   };
 }
 
