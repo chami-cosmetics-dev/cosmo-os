@@ -1,3 +1,4 @@
+import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
@@ -10,7 +11,7 @@ import {
 } from "@/lib/customer-insight/serialize";
 import { buildMonthlySeries } from "@/lib/customer-insight/series";
 import { aggregateTopItems } from "@/lib/customer-insight/top-items";
-import type { CustomerInsightDto } from "@/lib/customer-insight/types";
+import type { CustomerInsightDto, InvoiceLineDto } from "@/lib/customer-insight/types";
 import { prisma } from "@/lib/prisma";
 
 function uniqueDisplayPhones(values: Array<string | null>) {
@@ -23,6 +24,21 @@ function uniqueDisplayPhones(values: Array<string | null>) {
     phones.push(phone);
   }
   return phones;
+}
+
+function lineLabel(productTitle: string | null, variantTitle: string | null): string {
+  const title = productTitle?.trim() || "Unknown item";
+  const variant = variantTitle?.trim();
+  if (variant && variant.toLowerCase() !== "default title") {
+    return `${title} — ${variant}`;
+  }
+  return title;
+}
+
+function toSpend(price: string | number, qty: number): number {
+  const n = typeof price === "number" ? price : Number(String(price).replace(/,/g, ""));
+  const unit = Number.isFinite(n) ? n : 0;
+  return Math.round(unit * qty * 100) / 100;
 }
 
 export async function loadCustomerInsight(input: {
@@ -146,23 +162,39 @@ export async function loadCustomerInsight(input: {
   });
 
   const paged = mergeAndPaginateInvoices({
-    orders: orders.map((o) => ({
-      id: o.id,
-      createdAt: o.createdAt,
-      orderNumber: o.orderNumber,
-      name: o.name,
-      erpnextInvoiceId: o.erpnextInvoiceId,
-      totalPrice: o.totalPrice.toString(),
-      cancelledAt: o.cancelledAt,
-      financialStatus: o.financialStatus,
-      fulfillmentStatus: o.fulfillmentStatus,
-    })),
-    adaptRows: adaptRows.map((r) => ({
-      id: r.id,
-      invoiceDate: r.invoiceDate,
-      salesInvoiceNo: r.salesInvoiceNo,
-      ttlAmount: r.ttlAmount.toString(),
-    })),
+    orders: orders.map((o) => {
+      const lineItems: InvoiceLineDto[] = o.lineItems.map((li) => ({
+        name: lineLabel(li.productItem.productTitle, li.productItem.variantTitle),
+        quantity: li.quantity,
+        spend: toSpend(li.price.toString(), li.quantity),
+      }));
+      return {
+        id: o.id,
+        createdAt: o.createdAt,
+        orderNumber: o.orderNumber,
+        name: o.name,
+        erpnextInvoiceId: o.erpnextInvoiceId,
+        totalPrice: o.totalPrice.toString(),
+        cancelledAt: o.cancelledAt,
+        financialStatus: o.financialStatus,
+        fulfillmentStatus: o.fulfillmentStatus,
+        lineItems,
+      };
+    }),
+    adaptRows: adaptRows.map((r) => {
+      const lineItems: InvoiceLineDto[] = adaptLineItemsForPurchaseUi(r.lineItems).map((li) => ({
+        name: lineLabel(li.productTitle, li.variantTitle),
+        quantity: li.quantity,
+        spend: toSpend(li.price, li.quantity),
+      }));
+      return {
+        id: r.id,
+        invoiceDate: r.invoiceDate,
+        salesInvoiceNo: r.salesInvoiceNo,
+        ttlAmount: r.ttlAmount.toString(),
+        lineItems,
+      };
+    }),
     page: input.invoicesPage,
     pageSize: input.invoicesPageSize,
   });
