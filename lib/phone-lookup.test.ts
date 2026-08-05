@@ -74,8 +74,25 @@ describe("buildPhoneLookupVariants", () => {
 });
 
 describe("buildPhoneSearchSuffixes", () => {
-  it("includes last-4 and local suffixes for endsWith search", () => {
+  it("includes last-4 for partial digit searches", () => {
+    const suffixes = buildPhoneSearchSuffixes("6114");
+    expect(suffixes).toEqual(expect.arrayContaining(["6114"]));
+  });
+
+  it("omits last-4 when the query is a complete phone number", () => {
     const suffixes = buildPhoneSearchSuffixes("0717106114");
-    expect(suffixes).toEqual(expect.arrayContaining(["6114", "717106114", "0717106114"]));
+    expect(suffixes).toEqual(
+      expect.arrayContaining(["717106114", "0717106114"]),
+    );
+    expect(suffixes).not.toContain("6114");
+    expect(suffixes.every((s) => s.length >= 9)).toBe(true);
+  });
+
+  it("omits short suffixes for +94 complete numbers", () => {
+    const suffixes = buildPhoneSearchSuffixes("+94774223062");
+    expect(suffixes).not.toContain("3062");
+    expect(suffixes).toEqual(
+      expect.arrayContaining(["0774223062", "774223062"]),
+    );
   });
 });
