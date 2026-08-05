@@ -1644,6 +1644,7 @@ model AdaptPurchaseHistory {
   adaptMerchantId       String?
   adaptCustomerMasterId String?
   rawPaymentContext     Json?
+  lineItems             Json?
   importBatchId         String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
@@ -1654,6 +1655,7 @@ model AdaptPurchaseHistory {
   @@unique([companyId, adaptInvoiceKey])
   @@index([contactId, invoiceDate(sort: Desc)])
   @@index([companyId, invoiceDate])
+  @@index([companyId, salesInvoiceMasterId])
 }
 
 model ContactEmail {

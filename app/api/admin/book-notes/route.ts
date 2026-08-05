@@ -5,6 +5,10 @@ import {
   isBookNoteWritable,
 } from "@/lib/book-notes/lock";
 import {
+  assertBookNoteShopAllowed,
+  resolveBookNoteShopAccess,
+} from "@/lib/book-notes/access";
+import {
   loadBookNoteDayDto,
   loadBookNoteDaysInRange,
 } from "@/lib/book-notes/load";
@@ -126,6 +130,17 @@ export async function PUT(request: NextRequest) {
         code: DAY_LOCKED_CODE,
       },
       { status: 409 },
+    );
+  }
+
+  const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  if (!assertBookNoteShopAllowed(access, companyLocationId)) {
+    return NextResponse.json(
+      {
+        error: "Shop not allowed for your account",
+        code: "SHOP_FORBIDDEN",
+      },
+      { status: 403 },
     );
   }
 

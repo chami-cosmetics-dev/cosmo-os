@@ -91,15 +91,15 @@ describe("resolveFailedErpPeRetryMop", () => {
 });
 
 describe("finance approval stage guard", () => {
+  function nextStage(current: "print" | "invoice_complete") {
+    return current === "invoice_complete" ? "keep" : "print";
+  }
+
   it("keeps invoice_complete instead of forcing print", () => {
-    const current = "invoice_complete";
-    const next = current === "invoice_complete" ? "keep" : "print";
-    expect(next).toBe("keep");
+    expect(nextStage("invoice_complete")).toBe("keep");
   });
 
   it("still advances first-time approvals to print", () => {
-    const current = "print";
-    const next = current === "invoice_complete" ? "keep" : "print";
-    expect(next).toBe("print");
+    expect(nextStage("print")).toBe("print");
   });
 });

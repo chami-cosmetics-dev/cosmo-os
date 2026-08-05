@@ -115,6 +115,11 @@ const DEFAULT_PERMISSIONS = [
     description: "Create, import, backfill, and edit Contact Master records",
   },
   {
+    key: "contacts.insight.read",
+    description:
+      "Search a customer by phone and view purchase insight (no contact list, export, or import)",
+  },
+  {
     key: "contacts.updates.read",
     description: "View Contact Updates",
   },
@@ -507,6 +512,7 @@ const DEFAULT_ROLES = [
       "contacts.manage",
       "contacts.master.read",
       "contacts.master.manage",
+      "contacts.insight.read",
       "contacts.updates.read",
       "contacts.updates.manage",
       "contacts.allocation.read",

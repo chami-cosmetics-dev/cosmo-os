@@ -72,7 +72,7 @@ type AdaptPurchaseRow = {
   companyLocationName: string | null;
   paymentMethod: string | null;
   merchantKnownName: string | null;
-  lineItems: [];
+  lineItems: ContactPurchaseOrder["lineItems"];
 };
 
 type ContactPurchaseDetails = {
@@ -362,7 +362,7 @@ export function ContactsPanel({
         fulfillmentStatus: row.companyLocationName ?? row.locationName ?? "Adapt",
         createdAt: row.invoiceDate,
         source: "adapt",
-        lineItems: [],
+        lineItems: row.lineItems ?? [],
       }));
       setContactPurchases(
         [...cosmoOrders, ...adaptOrders].sort(

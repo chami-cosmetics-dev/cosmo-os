@@ -30,6 +30,7 @@ import {
   SendHorizonal,
   ClipboardList,
   NotebookPen,
+  UserSearch,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -125,6 +126,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("outlets.read.assigned");
   const canViewMerchantReviews = hasSidebarPermission("merchant_reviews.read");
   const canManageBookNotes = hasSidebarPermission("book_notes.manage");
+  const canViewCustomerInsight = hasSidebarPermission("contacts.insight.read");
   const fulfillmentLinks = [
     {
       href: "/dashboard/fulfillment/sample-free-issue",
@@ -160,7 +162,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewContactUpdates ||
     canViewContactAllocation ||
     canViewMerchantReviews ||
-    canViewOutletReviews;
+    canViewOutletReviews ||
+    canViewCustomerInsight;
   const canViewSettings =
     canViewCompanySettings ||
     canViewEmailTemplates ||
@@ -173,6 +176,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canCreateManualOrder ||
     canViewReturns ||
     canViewExchanges ||
+    canManageBookNotes ||
     Boolean(fulfillmentHref);
   const canViewStickers = canStickerBatch || canStickerPrint;
   const canViewProductManagement = canViewProducts;
@@ -323,6 +327,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
           <SidebarGroup>
             <SidebarGroupLabel>Contacts</SidebarGroupLabel>
             <SidebarGroupContent>
+              {canViewCustomerInsight && (
+                <NavItem
+                  href="/dashboard/customer-insight"
+                  icon={UserSearch}
+                  label="Customer Insight"
+                  isActive={pathname === "/dashboard/customer-insight"}
+                />
+              )}
               {canViewContactMaster && (
                 <NavItem
                   href="/dashboard/contacts"
