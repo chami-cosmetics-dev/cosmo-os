@@ -76,14 +76,19 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
 
 type BookNotesPanelProps = {
   initialLocations: BookNoteLocationOption[];
+  initialCanAccessAllShops?: boolean;
+  initialHistory?: BookNoteHistoryItem[];
   initialToday: string;
 };
 
 export function BookNotesPanel({
   initialLocations,
+  initialCanAccessAllShops = false,
+  initialHistory = [],
   initialToday,
 }: BookNotesPanelProps) {
   const [locations] = useState(initialLocations);
+  const [canAccessAllShops] = useState(initialCanAccessAllShops);
   const [companyLocationId, setCompanyLocationId] = useState(
     initialLocations[0]?.id ?? "",
   );
@@ -95,7 +100,7 @@ export function BookNotesPanel({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [statusLine, setStatusLine] = useState("");
   const [lastError, setLastError] = useState<string | null>(null);
-  const [history, setHistory] = useState<BookNoteHistoryItem[]>([]);
+  const [history, setHistory] = useState<BookNoteHistoryItem[]>(initialHistory);
   const [suggestForKey, setSuggestForKey] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<BookNoteOrderSuggestion[]>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,9 +182,11 @@ export function BookNotesPanel({
   }
 
   function openHistoryDay(item: BookNoteHistoryItem) {
+    setCompanyLocationId(item.companyLocationId);
     setPostingDate(item.posting_date);
     setLocked(item.locked || isBookNoteDayLocked(item.posting_date));
-    void loadDay(companyLocationId, item.posting_date);
+    clearError();
+    void loadDay(item.companyLocationId, item.posting_date);
   }
 
   function fetchSuggestions(rowKey: string, q: string) {
@@ -310,12 +317,15 @@ export function BookNotesPanel({
     return day;
   }
 
-  async function sendDayToErp(dateYmd: string): Promise<boolean> {
+  async function sendDayToErp(
+    dateYmd: string,
+    locationId: string = companyLocationId,
+  ): Promise<boolean> {
     const res = await fetch("/api/admin/book-notes/send-to-erp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        companyLocationId,
+        companyLocationId: locationId,
         postingDate: dateYmd,
       }),
     });
@@ -406,13 +416,13 @@ export function BookNotesPanel({
   }
 
   /** Resend an already-saved history day (no edit). */
-  async function handleResendHistoryToErp(dateYmd: string) {
-    if (!companyLocationId || !dateYmd) return;
-    setBusyKey(`erp:${dateYmd}`);
+  async function handleResendHistoryToErp(item: BookNoteHistoryItem) {
+    if (!item.companyLocationId || !item.posting_date) return;
+    setBusyKey(`erp:${item.companyLocationId}:${item.posting_date}`);
     clearError();
-    setStatusLine(`Sending ${dateYmd} to ERP...`);
+    setStatusLine(`Sending ${item.shopName} ${item.posting_date} to ERP...`);
     try {
-      await sendDayToErp(dateYmd);
+      await sendDayToErp(item.posting_date, item.companyLocationId);
     } catch (err) {
       showError(
         err instanceof Error
@@ -443,9 +453,20 @@ export function BookNotesPanel({
         <p className="text-muted-foreground text-sm">
           Enter shop invoices and payment splits as recorded in the physical
           book. New entry uses today&apos;s date; open a history day to edit or
-          resend. Matching against ERP happens later on the finance side.
+          resend. History is shop-scoped
+          {canAccessAllShops
+            ? " — admins see all shops"
+            : " — you only see your assigned shop(s)"}
+          .
         </p>
       </div>
+
+      {locations.length === 0 ? (
+        <div className="border-destructive/40 bg-destructive/10 text-destructive rounded-lg border px-4 py-3 text-sm">
+          No shop assigned to your account. Ask an admin to set your employee
+          location (or default merchant) before entering book notes.
+        </div>
+      ) : null}
 
       <div className="bg-card grid gap-4 rounded-lg border p-4 md:grid-cols-3">
         <div className="space-y-2">
@@ -754,16 +775,24 @@ export function BookNotesPanel({
       <div className="bg-card rounded-lg border p-4">
         <h2 className="mb-3 text-sm font-semibold tracking-wide uppercase text-muted-foreground">
           Save history
+          {canAccessAllShops ? " (all shops)" : ""}
         </h2>
-        {history.length === 0 ? (
+        {locations.length === 0 ? (
           <p className="text-muted-foreground text-sm">
-            No saved book notes for this shop yet.
+            No shop assigned to your account. Ask an admin to set your employee
+            location.
+          </p>
+        ) : history.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No saved book notes for{" "}
+            {canAccessAllShops ? "any shop" : "this shop"} yet.
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[480px] text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="p-2">Shop</th>
                   <th className="p-2">Date</th>
                   <th className="p-2 text-right">Rows</th>
                   <th className="p-2 text-right">Total</th>
@@ -773,8 +802,12 @@ export function BookNotesPanel({
               </thead>
               <tbody>
                 {history.map((item) => {
-                  const active = item.posting_date === postingDate;
-                  const resending = busyKey === `erp:${item.posting_date}`;
+                  const active =
+                    item.posting_date === postingDate &&
+                    item.companyLocationId === companyLocationId;
+                  const resending =
+                    busyKey ===
+                    `erp:${item.companyLocationId}:${item.posting_date}`;
                   return (
                     <tr
                       key={item.id}
@@ -784,6 +817,7 @@ export function BookNotesPanel({
                           : "border-b hover:bg-muted/40"
                       }
                     >
+                      <td className="p-2 font-medium">{item.shopName}</td>
                       <td className="p-2 font-mono">{item.posting_date}</td>
                       <td className="p-2 text-right font-mono">{item.rowCount}</td>
                       <td className="p-2 text-right font-mono">
@@ -807,8 +841,8 @@ export function BookNotesPanel({
                             type="button"
                             variant="secondary"
                             size="sm"
-                            disabled={isBusy || item.rowCount === 0 || !companyLocationId}
-                            onClick={() => void handleResendHistoryToErp(item.posting_date)}
+                            disabled={isBusy || item.rowCount === 0}
+                            onClick={() => void handleResendHistoryToErp(item)}
                           >
                             {resending ? (
                               <>

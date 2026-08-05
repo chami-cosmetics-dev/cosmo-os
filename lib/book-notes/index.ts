@@ -13,6 +13,12 @@ export {
   isBookNoteWritable,
 } from "@/lib/book-notes/lock";
 
+export {
+  resolveBookNoteShopAccess,
+  assertBookNoteShopAllowed,
+} from "@/lib/book-notes/access";
+export type { BookNoteShopAccess } from "@/lib/book-notes/access";
+
 export { resolveBookNoteSalesInvoice } from "@/lib/book-notes/invoice-identity";
 
 export {

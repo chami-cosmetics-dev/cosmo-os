@@ -50,6 +50,8 @@ export type BookNoteLocationOption = {
 /** Summary row for merchant save-history list. */
 export type BookNoteHistoryItem = {
   id: string;
+  companyLocationId: string;
+  shopName: string;
   posting_date: string;
   rowCount: number;
   grandTotal: number;

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  assertBookNoteShopAllowed,
+  resolveBookNoteShopAccess,
+} from "@/lib/book-notes/access";
 import { searchBookNoteOrderSuggestions } from "@/lib/book-notes/order-suggestions";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -29,6 +33,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { error: "Invalid query", details: parsed.error.flatten() },
       { status: 400 },
+    );
+  }
+
+  const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  if (!assertBookNoteShopAllowed(access, parsed.data.companyLocationId)) {
+    return NextResponse.json(
+      { error: "Shop not allowed for your account", code: "SHOP_FORBIDDEN" },
+      { status: 403 },
     );
   }
 

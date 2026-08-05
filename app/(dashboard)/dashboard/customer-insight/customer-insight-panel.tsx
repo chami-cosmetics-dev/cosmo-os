@@ -14,7 +14,6 @@ import {
 } from "recharts";
 import { Loader2, Search } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -236,13 +235,12 @@ export function CustomerInsightPanel() {
                 </CardDescription>
               </div>
               <div className="flex flex-col items-start gap-2 sm:items-end">
-                <Badge
-                  variant="outline"
-                  className={tierBadgeClass(insight.loyalty.key)}
+                <span
+                  className={`inline-flex whitespace-nowrap rounded-md border px-2 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
                 >
                   {insight.loyalty.label}
                   {insight.loyalty.code ? ` (${insight.loyalty.code})` : ""}
-                </Badge>
+                </span>
                 <p className="text-sm font-medium">
                   Lifetime total: {formatMoney(insight.loyalty.lifetimeTotal, insight.loyalty.currency)}
                 </p>
