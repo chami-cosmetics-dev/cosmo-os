@@ -1,0 +1,190 @@
+import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
+import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
+import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
+import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
+import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import {
+  buildCustomerInsightDto,
+  serializeContactInsight,
+  serializeLoyalty,
+} from "@/lib/customer-insight/serialize";
+import { buildMonthlySeries } from "@/lib/customer-insight/series";
+import { aggregateTopItems } from "@/lib/customer-insight/top-items";
+import type { CustomerInsightDto } from "@/lib/customer-insight/types";
+import { prisma } from "@/lib/prisma";
+
+function uniqueDisplayPhones(values: Array<string | null>) {
+  const phones: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const phone = value?.trim();
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    phones.push(phone);
+  }
+  return phones;
+}
+
+export async function loadCustomerInsight(input: {
+  companyId: string;
+  contactId: string;
+  invoicesPage: number;
+  invoicesPageSize: number;
+}): Promise<CustomerInsightDto | null> {
+  const contact = await prisma.contactMaster.findFirst({
+    where: { id: input.contactId, companyId: input.companyId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phoneNumber: true,
+      emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
+      phones: { orderBy: { createdAt: "asc" }, select: { phoneNumber: true } },
+    },
+  });
+  if (!contact) return null;
+
+  const emails = await listContactEmails(contact.id, contact.email);
+  const phones = await listContactPhones(contact.id, contact.phoneNumber);
+  const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
+  const displayPhones = uniqueDisplayPhones([
+    contact.phoneNumber,
+    ...contact.phones.map((p) => p.phoneNumber),
+  ]);
+
+  const adaptPromise = prisma.adaptPurchaseHistory.findMany({
+    where: { contactId: contact.id, companyId: input.companyId },
+    orderBy: { invoiceDate: "desc" },
+    select: {
+      id: true,
+      salesInvoiceNo: true,
+      invoiceDate: true,
+      ttlAmount: true,
+      lineItems: true,
+    },
+  });
+
+  const ordersPromise =
+    orderLookupOr.length > 0
+      ? prisma.order.findMany({
+          where: { companyId: input.companyId, OR: orderLookupOr },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            createdAt: true,
+            orderNumber: true,
+            name: true,
+            erpnextInvoiceId: true,
+            totalPrice: true,
+            cancelledAt: true,
+            financialStatus: true,
+            fulfillmentStatus: true,
+            lineItems: {
+              select: {
+                quantity: true,
+                price: true,
+                productItem: {
+                  select: {
+                    productTitle: true,
+                    variantTitle: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]);
+
+  const [orders, adaptRows] = await Promise.all([ordersPromise, adaptPromise]);
+
+  const orderAmounts = orders.map((o) => ({
+    totalPrice: o.totalPrice.toString(),
+    cancelledAt: o.cancelledAt,
+  }));
+  const adaptAmounts = adaptRows.map((r) => ({
+    ttlAmount: r.ttlAmount.toString(),
+  }));
+  const lifetimeTotal = computeLifetimeTotal({
+    orders: orderAmounts,
+    adaptRows: adaptAmounts,
+  });
+
+  const loyaltyEligibleDates: Date[] = [];
+  for (const o of orders) {
+    if (!o.cancelledAt) loyaltyEligibleDates.push(o.createdAt);
+  }
+  for (const r of adaptRows) {
+    loyaltyEligibleDates.push(r.invoiceDate);
+  }
+
+  const seriesEvents = [
+    ...orders.map((o) => ({
+      date: o.createdAt,
+      amount: Number(o.totalPrice.toString()),
+      includedInLoyaltyTotal: !o.cancelledAt,
+    })),
+    ...adaptRows.map((r) => ({
+      date: r.invoiceDate,
+      amount: Number(r.ttlAmount.toString()),
+      includedInLoyaltyTotal: true,
+    })),
+  ];
+
+  const { series, chartsAvailable } = buildMonthlySeries(seriesEvents);
+  const frequency = buildFrequencyMetrics(loyaltyEligibleDates);
+  const topItems = aggregateTopItems({
+    orders: orders.map((o) => ({
+      cancelledAt: o.cancelledAt,
+      lineItems: o.lineItems.map((li) => ({
+        quantity: li.quantity,
+        price: li.price.toString(),
+        productTitle: li.productItem.productTitle,
+        variantTitle: li.productItem.variantTitle,
+      })),
+    })),
+    adaptRows: adaptRows.map((r) => ({ lineItems: r.lineItems })),
+  });
+
+  const paged = mergeAndPaginateInvoices({
+    orders: orders.map((o) => ({
+      id: o.id,
+      createdAt: o.createdAt,
+      orderNumber: o.orderNumber,
+      name: o.name,
+      erpnextInvoiceId: o.erpnextInvoiceId,
+      totalPrice: o.totalPrice.toString(),
+      cancelledAt: o.cancelledAt,
+      financialStatus: o.financialStatus,
+      fulfillmentStatus: o.fulfillmentStatus,
+    })),
+    adaptRows: adaptRows.map((r) => ({
+      id: r.id,
+      invoiceDate: r.invoiceDate,
+      salesInvoiceNo: r.salesInvoiceNo,
+      ttlAmount: r.ttlAmount.toString(),
+    })),
+    page: input.invoicesPage,
+    pageSize: input.invoicesPageSize,
+  });
+
+  return buildCustomerInsightDto({
+    contact: serializeContactInsight({
+      id: contact.id,
+      name: contact.name,
+      phoneNumber: contact.phoneNumber,
+      phones: displayPhones,
+      email: contact.email,
+    }),
+    loyalty: serializeLoyalty(lifetimeTotal, "LKR"),
+    frequency,
+    topItems,
+    series,
+    chartsAvailable,
+    invoices: paged.invoices,
+    invoicePagination: {
+      page: paged.page,
+      pageSize: paged.pageSize,
+      total: paged.total,
+    },
+  });
+}
