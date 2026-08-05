@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Eye, Loader2, Search, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,34 +11,30 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import type {
   CustomerInsightDto,
   SearchMatchDto,
-  UnifiedInvoiceRowDto,
 } from "@/lib/customer-insight/types";
 import { LOYALTY_GOLD_MIN, LOYALTY_PLATINUM_ABOVE } from "@/lib/customer-insight/loyalty-tier";
+import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
 function formatMoney(amount: number, currency = "LKR") {
   return `${currency} ${new Intl.NumberFormat("en-LK", {
     maximumFractionDigits: 0,
   }).format(amount)}`;
+}
+
+function formatAmount(value: string | number, currency?: string | null) {
+  const n = typeof value === "number" ? value : Number.parseFloat(value);
+  if (Number.isNaN(n)) return String(value);
+  const formatted = n.toLocaleString("en-LK", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return currency ? `${formatted} ${currency}` : formatted;
 }
 
 function formatDate(iso: string) {
@@ -78,7 +74,6 @@ export function CustomerInsightPanel() {
   const [searched, setSearched] = useState(false);
   const [insight, setInsight] = useState<CustomerInsightDto | null>(null);
   const [invoicePage, setInvoicePage] = useState(1);
-  const [openInvoice, setOpenInvoice] = useState<UnifiedInvoiceRowDto | null>(null);
   const [itemFilter, setItemFilter] = useState<string | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +90,6 @@ export function CustomerInsightPanel() {
     setMatches(null);
     setSearched(false);
     setItemFilter(null);
-    setOpenInvoice(null);
     let autoOpenId: string | null = null;
     try {
       const res = await fetch(
@@ -157,7 +151,7 @@ export function CustomerInsightPanel() {
   const visibleInvoices =
     insight && itemFilter
       ? insight.invoices.filter((inv) =>
-          inv.lineItems.some((li) => li.name === itemFilter)
+          inv.lineItems.some((li) => invoiceLineDisplayName(li) === itemFilter)
         )
       : insight?.invoices ?? [];
 
@@ -429,8 +423,9 @@ export function CustomerInsightPanel() {
                 <div>
                   <CardTitle className="text-base">Invoice history</CardTitle>
                   <CardDescription>
-                    Cosmo orders and Adapt invoices · {insight.invoicePagination.total} total.
-                    Open any row to see line items.
+                    Same purchase layout as Contact Master · {insight.invoicePagination.total}{" "}
+                    order(s). Cosmo invoices open with View Invoice; Adapt is view-only in the
+                    table.
                   </CardDescription>
                 </div>
                 {itemFilter ? (
@@ -457,67 +452,115 @@ export function CustomerInsightPanel() {
             </CardHeader>
             <CardContent className="space-y-4">
               {insight.invoices.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No purchase history yet.</p>
+                <div className="rounded-md border border-dashed py-10 text-center">
+                  <p className="text-sm font-medium">No purchases found</p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    This contact has no matching orders yet.
+                  </p>
+                </div>
               ) : visibleInvoices.length === 0 && itemFilter ? (
                 <p className="text-sm text-muted-foreground">
                   No matching invoices on this page for that item.
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Reference</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead className="w-[1%] text-right">Open</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {visibleInvoices.map((inv) => (
-                        <TableRow
-                          key={inv.id}
-                          className="cursor-pointer"
-                          onClick={() => setOpenInvoice(inv)}
+                <div className="overflow-x-auto rounded-xl border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
+                        <th className="px-4 py-2 text-left font-medium">Order</th>
+                        <th className="px-4 py-2 text-left font-medium">Items</th>
+                        <th className="px-4 py-2 text-left font-medium">Date</th>
+                        <th className="px-4 py-2 text-right font-medium">Total</th>
+                        <th className="px-4 py-2 text-left font-medium">Status</th>
+                        <th className="px-4 py-2 text-left font-medium">Invoice</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleInvoices.map((order) => (
+                        <tr
+                          key={order.id}
+                          className="border-b last:border-0 hover:bg-secondary/10"
                         >
-                          <TableCell className="whitespace-nowrap">
-                            {formatDate(inv.date)}
-                          </TableCell>
-                          <TableCell className="max-w-[12rem]">
-                            <span className="break-words font-medium">{inv.reference}</span>
-                          </TableCell>
-                          <TableCell>{inv.source}</TableCell>
-                          <TableCell>
-                            {inv.status}
-                            {!inv.includedInLoyaltyTotal ? (
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                (excluded from total)
+                          <td className="px-4 py-2 align-top">
+                            <p className="font-medium">{order.reference}</p>
+                            <p className="text-muted-foreground text-xs">
+                              {order.secondaryLabel ??
+                                (order.source === "adapt" ? "Adapt" : "N/A")}
+                            </p>
+                          </td>
+                          <td className="px-4 py-2 align-top">
+                            {order.lineItems.length > 0 ? (
+                              <div className="space-y-2">
+                                {order.lineItems.map((item) => (
+                                  <div
+                                    key={item.id}
+                                    className="rounded-md border border-dashed border-border/70 px-3 py-2"
+                                  >
+                                    <p className="font-medium leading-snug">
+                                      {item.productTitle}
+                                    </p>
+                                    <p className="text-muted-foreground text-xs">
+                                      {[
+                                        item.variantTitle,
+                                        item.sku ? `SKU: ${item.sku}` : null,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" • ") || "Standard item"}
+                                    </p>
+                                    <p className="mt-1 text-xs">
+                                      Qty {item.quantity}
+                                      <span className="text-muted-foreground">
+                                        {" "}
+                                        • {formatAmount(item.price, order.currency)} each
+                                      </span>
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">
+                                {order.source === "adapt"
+                                  ? "Adapt history (no line items)"
+                                  : "No items"}
                               </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 align-top text-muted-foreground whitespace-nowrap">
+                            {formatAppDateTime(order.date, "N/A")}
+                          </td>
+                          <td className="px-4 py-2 align-top text-right whitespace-nowrap">
+                            {formatAmount(order.amount, order.currency)}
+                            {!order.includedInLoyaltyTotal ? (
+                              <p className="text-muted-foreground text-[10px]">
+                                Excluded from loyalty total
+                              </p>
                             ) : null}
-                          </TableCell>
-                          <TableCell className="text-right whitespace-nowrap">
-                            {formatMoney(inv.amount)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenInvoice(inv);
-                              }}
-                            >
-                              <Eye className="size-4" aria-hidden />
-                              Open
-                            </Button>
-                          </TableCell>
-                        </TableRow>
+                          </td>
+                          <td className="px-4 py-2 align-top text-xs text-muted-foreground">
+                            {order.source === "adapt"
+                              ? `${order.financialStatus ?? "Adapt"} / ${order.fulfillmentStatus ?? "—"}`
+                              : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`}
+                          </td>
+                          <td className="px-4 py-2 align-top">
+                            {order.source === "adapt" || !order.orderId ? (
+                              <span className="text-muted-foreground text-xs">
+                                Adapt (view only)
+                              </span>
+                            ) : (
+                              <a
+                                href={`/api/admin/orders/${order.orderId}/invoice`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary underline-offset-4 hover:underline"
+                              >
+                                View Invoice
+                              </a>
+                            )}
+                          </td>
+                        </tr>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </tbody>
+                  </table>
                 </div>
               )}
 
@@ -552,51 +595,6 @@ export function CustomerInsightPanel() {
           </Card>
         </>
       )}
-
-      <Dialog open={openInvoice != null} onOpenChange={(open) => !open && setOpenInvoice(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          {openInvoice ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="break-words pr-6">{openInvoice.reference}</DialogTitle>
-                <DialogDescription>
-                  {formatDate(openInvoice.date)} · {openInvoice.source} · {openInvoice.status}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 text-sm">
-                <p className="text-base font-semibold tabular-nums">
-                  {formatMoney(openInvoice.amount)}
-                </p>
-                {!openInvoice.includedInLoyaltyTotal ? (
-                  <p className="text-xs text-muted-foreground">
-                    This invoice is excluded from the loyalty lifetime total.
-                  </p>
-                ) : null}
-                <div>
-                  <p className="mb-2 font-medium">Items</p>
-                  {openInvoice.lineItems.length === 0 ? (
-                    <p className="text-muted-foreground">No line items available.</p>
-                  ) : (
-                    <ul className="space-y-2">
-                      {openInvoice.lineItems.map((li, idx) => (
-                        <li
-                          key={`${li.name}-${idx}`}
-                          className="flex flex-col gap-0.5 rounded-md border border-border/70 px-3 py-2 sm:flex-row sm:justify-between"
-                        >
-                          <span className="break-words font-medium">{li.name}</span>
-                          <span className="shrink-0 text-muted-foreground tabular-nums">
-                            qty {li.quantity} · {formatMoney(li.spend)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

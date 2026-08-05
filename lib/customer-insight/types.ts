@@ -53,9 +53,13 @@ export type SeriesPointDto = {
 export type UnifiedInvoiceSource = "order" | "adapt";
 
 export type InvoiceLineDto = {
-  name: string;
+  id: string;
+  productTitle: string;
+  variantTitle: string | null;
+  sku: string | null;
   quantity: number;
-  spend: number;
+  /** Unit price as string (Contact Master purchase table style). */
+  price: string;
 };
 
 export type UnifiedInvoiceRowDto = {
@@ -63,8 +67,13 @@ export type UnifiedInvoiceRowDto = {
   source: UnifiedInvoiceSource;
   date: string;
   reference: string;
+  /** Secondary label under Order (order number / Adapt). */
+  secondaryLabel: string | null;
   status: string;
+  financialStatus: string | null;
+  fulfillmentStatus: string | null;
   amount: number;
+  currency: string;
   includedInLoyaltyTotal: boolean;
   /** Cosmo order id when source is order; null for Adapt. */
   orderId: string | null;
