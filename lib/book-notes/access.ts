@@ -20,7 +20,8 @@ export type BookNoteShopAccess = {
 };
 
 function isBookNotesAdmin(context: UserContext): boolean {
-  const roles = context.roleNames ?? [];
+  // roleNames may be inferred as never[] from empty-array return paths in getCurrentUserContext.
+  const roles = context.roleNames as string[];
   return roles.includes("super_admin") || roles.includes("admin");
 }
 
