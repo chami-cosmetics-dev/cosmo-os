@@ -4,6 +4,10 @@ import {
   companyLabelForLocation,
   shopLabelForLocation,
 } from "@/lib/book-notes/serialize";
+import {
+  assertBookNoteShopAllowed,
+  resolveBookNoteShopAccess,
+} from "@/lib/book-notes/access";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
 import { prisma } from "@/lib/prisma";
@@ -64,6 +68,18 @@ export async function POST(request: NextRequest) {
   }
 
   const { companyLocationId, postingDate } = parsed.data;
+
+  const access = await resolveBookNoteShopAccess(auth.context!, companyId);
+  if (!assertBookNoteShopAllowed(access, companyLocationId)) {
+    return NextResponse.json(
+      {
+        error: "Shop not allowed for your account",
+        code: "SHOP_FORBIDDEN",
+        step: "auth",
+      },
+      { status: 403 },
+    );
+  }
 
   const location = await prisma.companyLocation.findFirst({
     where: { id: companyLocationId, companyId },

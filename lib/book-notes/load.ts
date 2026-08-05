@@ -89,22 +89,37 @@ export async function loadBookNoteDaysInRange(input: {
   );
 }
 
-/** Recent saved days for an outlet (newest first). */
+/** Recent saved days for allowed shop(s), newest first. */
 export async function loadBookNoteHistory(input: {
   companyId: string;
-  companyLocationId: string;
+  /** When set, only that shop. When omitted, all `companyLocationIds`. */
+  companyLocationId?: string;
+  companyLocationIds: string[];
   limit?: number;
   now?: Date;
 }): Promise<BookNoteHistoryItem[]> {
+  const allowed = input.companyLocationIds.filter(Boolean);
+  if (allowed.length === 0) return [];
+
+  const locationFilter = input.companyLocationId
+    ? allowed.includes(input.companyLocationId)
+      ? [input.companyLocationId]
+      : []
+    : allowed;
+  if (locationFilter.length === 0) return [];
+
   const limit = Math.min(Math.max(input.limit ?? 30, 1), 60);
   const days = await prisma.bookNoteDay.findMany({
     where: {
       companyId: input.companyId,
-      companyLocationId: input.companyLocationId,
+      companyLocationId: { in: locationFilter },
     },
-    orderBy: { postingDate: "desc" },
+    orderBy: [{ postingDate: "desc" }, { updatedAt: "desc" }],
     take: limit,
     include: {
+      companyLocation: {
+        select: { name: true, shortName: true },
+      },
       rows: {
         select: { cash: true, card: true, koko: true, bankTransfer: true },
       },
@@ -123,8 +138,12 @@ export async function loadBookNoteHistory(input: {
         money(r.bankTransfer)
       );
     }, 0);
+    const shopName =
+      day.companyLocation.shortName?.trim() || day.companyLocation.name;
     return {
       id: day.id,
+      companyLocationId: day.companyLocationId,
+      shopName,
       posting_date,
       rowCount: day.rows.length,
       grandTotal: Math.round(grandTotal * 100) / 100,

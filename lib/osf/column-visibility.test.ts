@@ -17,7 +17,7 @@ function ctx(perms: string[]) {
     permissionKeys: perms,
     roleNames: [] as string[],
     sessionUser: {},
-  };
+  } as Parameters<typeof hasFullOsfColumnAccess>[0];
 }
 
 const sampleColumns: OsfResolvedColumn[] = [

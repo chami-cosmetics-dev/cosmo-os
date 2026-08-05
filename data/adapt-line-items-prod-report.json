@@ -1,0 +1,77 @@
+{
+  "companyId": "cmn2xcas1002crl5xtgoq28f5",
+  "dryRun": false,
+  "files": [
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2019\\Untitled.csv",
+      "rowsRead": 5208,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 1481,
+      "purchasesUpdated": 1478,
+      "purchasesMissing": 3
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2020\\Untitled.csv",
+      "rowsRead": 37201,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 8904,
+      "purchasesUpdated": 8894,
+      "purchasesMissing": 10
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2021\\Untitled.csv",
+      "rowsRead": 72462,
+      "rowsSkipped": 32,
+      "invoicesGrouped": 18218,
+      "purchasesUpdated": 18212,
+      "purchasesMissing": 6
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2022\\Untitled.csv",
+      "rowsRead": 84350,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 24384,
+      "purchasesUpdated": 24379,
+      "purchasesMissing": 5
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2023\\Untitled.csv",
+      "rowsRead": 79243,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 24905,
+      "purchasesUpdated": 24905,
+      "purchasesMissing": 0
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2024\\Untitled.csv",
+      "rowsRead": 90767,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 30444,
+      "purchasesUpdated": 29782,
+      "purchasesMissing": 662
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2025\\Untitled.csv",
+      "rowsRead": 83769,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 35794,
+      "purchasesUpdated": 34724,
+      "purchasesMissing": 1070
+    },
+    {
+      "file": "c:\\Users\\Bad-Boy\\Downloads\\ADAPT DB\\ADAPT DB\\2026\\Untitled.csv",
+      "rowsRead": 59291,
+      "rowsSkipped": 0,
+      "invoicesGrouped": 25229,
+      "purchasesUpdated": 24674,
+      "purchasesMissing": 555
+    }
+  ],
+  "totals": {
+    "rowsRead": 512291,
+    "rowsSkipped": 32,
+    "invoicesGrouped": 169359,
+    "purchasesUpdated": 167048,
+    "purchasesMissing": 2311
+  }
+}
