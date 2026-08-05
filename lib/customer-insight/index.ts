@@ -22,6 +22,7 @@ export {
   mapAdaptToInvoiceRow,
   mapOrderToInvoiceRow,
   mergeAndPaginateInvoices,
+  invoiceLineDisplayName,
 } from "@/lib/customer-insight/invoices";
 export { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 export { aggregateTopItems } from "@/lib/customer-insight/top-items";
