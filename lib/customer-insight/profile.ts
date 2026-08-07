@@ -1,5 +1,9 @@
+import {
+  ensureSecondaryContactIdentifiers,
+  normalizeContactEmail,
+  normalizeContactPhone,
+} from "@/lib/contact-identifiers";
 import { prisma } from "@/lib/prisma";
-import { normalizeContactEmail, normalizeContactPhone } from "@/lib/contact-identifiers";
 
 export type ProfilePatchInput = {
   name?: string;
@@ -17,7 +21,7 @@ export async function updateContactInsightProfile(input: {
 }) {
   const existing = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
-    select: { id: true },
+    select: { id: true, email: true, phoneNumber: true },
   });
   if (!existing) return null;
 
@@ -29,6 +33,9 @@ export async function updateContactInsightProfile(input: {
     birthMonth?: number | null;
     birthDay?: number | null;
   } = {};
+
+  const previousPhone = existing.phoneNumber;
+  const previousEmail = existing.email;
 
   if (input.patch.name !== undefined) data.name = input.patch.name;
   if (input.patch.email !== undefined) {
@@ -44,7 +51,7 @@ export async function updateContactInsightProfile(input: {
   if (input.patch.birthMonth !== undefined) data.birthMonth = input.patch.birthMonth;
   if (input.patch.birthDay !== undefined) data.birthDay = input.patch.birthDay;
 
-  return prisma.contactMaster.update({
+  const updated = await prisma.contactMaster.update({
     where: { id: input.contactId },
     data,
     select: {
@@ -58,4 +65,32 @@ export async function updateContactInsightProfile(input: {
       assignedMerchant: true,
     },
   });
+
+  // Keep prior phone/email as secondary so purchase lookup still finds history.
+  if (
+    input.patch.phoneNumber !== undefined &&
+    previousPhone &&
+    updated.phoneNumber &&
+    normalizeContactPhone(previousPhone) !== normalizeContactPhone(updated.phoneNumber)
+  ) {
+    await ensureSecondaryContactIdentifiers({
+      contactId: updated.id,
+      primaryPhoneNumber: updated.phoneNumber,
+      phoneNumber: previousPhone,
+    });
+  }
+  if (
+    input.patch.email !== undefined &&
+    previousEmail &&
+    updated.email &&
+    normalizeContactEmail(previousEmail) !== normalizeContactEmail(updated.email)
+  ) {
+    await ensureSecondaryContactIdentifiers({
+      contactId: updated.id,
+      primaryEmail: updated.email,
+      email: previousEmail,
+    });
+  }
+
+  return updated;
 }

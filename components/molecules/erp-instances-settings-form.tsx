@@ -427,6 +427,13 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
                   placeholder="Must match x-erpnext-secret header in ERPNext webhooks"
                   maxLength={500}
                 />
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Item Price realtime sync: ERP webhook on{" "}
+                  <span className="font-medium">Item Price</span> (after insert/update) →{" "}
+                  <code className="rounded bg-muted px-1 py-0.5">/api/webhooks/erpnext/item-price</code>{" "}
+                  with this secret. Only <span className="font-medium">Standard Selling</span> updates
+                  product prices in OS.
+                </p>
               </div>
             </div>
 

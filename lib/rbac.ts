@@ -117,7 +117,7 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "contacts.insight.read",
     description:
-      "Search a customer by phone and view purchase insight (no contact list, export, or import)",
+      "Open Customer Insight: search by phone, view purchase insight and filters; allocated merchants and admins can edit profile (no Contact Master list/export)",
   },
   {
     key: "contacts.updates.read",
