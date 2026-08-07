@@ -114,6 +114,7 @@ export type OrderInvoiceItemCsvRow = {
   erp_invoice_id: string;
   source_name: string;
   merchant_coupon_code: string;
+  coupon_code: string;
   invoice_date: string;
   location_name: string;
   customer_name: string;
@@ -125,9 +126,10 @@ export type OrderInvoiceItemCsvRow = {
   product_title: string;
   quantity: string;
   unit_price: string;
-  grand_total: string;
+  unit_price_total: string;
   discounted_price: string;
   after_discount_total: string;
+  grand_total: string;
   status: string;
   payment_status: string;
   fulfillment_status: string;
@@ -183,6 +185,7 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "erp_invoice_id",
   "source_name",
   "merchant_coupon_code",
+  "coupon_code",
   "invoice_date",
   "location_name",
   "customer_name",
@@ -194,9 +197,10 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "product_title",
   "quantity",
   "unit_price",
-  "grand_total",
+  "unit_price_total",
   "discounted_price",
   "after_discount_total",
+  "grand_total",
   "status",
   "fulfillment_status",
   "payment_status",
@@ -331,6 +335,7 @@ export function createOrderInvoiceItemRow(input: {
   erpInvoiceId: string | null;
   sourceName: string;
   merchantCouponCode: string | null;
+  couponCode: string | null;
   createdAt: Date;
   locationName: string;
   customerName: string;
@@ -357,6 +362,7 @@ export function createOrderInvoiceItemRow(input: {
     erp_invoice_id: input.erpInvoiceId ?? "",
     source_name: formatSourceName(input.sourceName),
     merchant_coupon_code: input.merchantCouponCode ?? "",
+    coupon_code: input.couponCode ?? "",
     invoice_date: formatIsoDate(input.createdAt),
     location_name: input.locationName,
     customer_name: input.customerName,
@@ -368,9 +374,10 @@ export function createOrderInvoiceItemRow(input: {
     product_title: input.productTitle,
     quantity: String(input.quantity),
     unit_price: input.unitPrice,
-    grand_total: input.lineTotal,
+    unit_price_total: input.lineTotal,
     discounted_price: input.discountedPrice ?? "",
     after_discount_total: input.afterDiscountTotal ?? "",
+    grand_total: input.afterDiscountTotal ?? input.lineTotal,
     status: input.financialStatus?.toLowerCase() === "voided" ? "voided" : (input.fulfillmentStage ?? ""),
     payment_status: input.financialStatus ?? "",
     fulfillment_status: input.fulfillmentStatus ?? "",
