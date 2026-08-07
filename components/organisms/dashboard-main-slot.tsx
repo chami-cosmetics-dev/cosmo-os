@@ -116,14 +116,8 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
   const summaryAgentSegments = (() => {
     const totals = new Map<string, number>();
     for (const location of salesLocations) {
-      if (analysisType === "gateway") {
-        for (const row of location.sources) {
-          totals.set(row.sourceName, (totals.get(row.sourceName) ?? 0) + row.total);
-        }
-      } else {
-        for (const row of location.merchants) {
-          totals.set(row.merchantName, (totals.get(row.merchantName) ?? 0) + row.total);
-        }
+      for (const row of location.merchants) {
+        totals.set(row.merchantName, (totals.get(row.merchantName) ?? 0) + row.total);
       }
     }
     return [...totals.entries()]
