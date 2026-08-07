@@ -27,13 +27,16 @@ export function getPaymentMethodInfo(input?: {
     return { label: "Bank Transfer", variant: "bank" };
   }
   if (normalized === "cod" || normalized.includes("cash on delivery")) {
-    return { label: "COD", variant: "cod" };
+    return { label: "Cash", variant: "cash" };
   }
   if (normalized.includes("card payment on delivery") || normalized.includes("card on delivery")) {
     return { label: "Card on Delivery", variant: "card" };
   }
   if (normalized === "cash") {
     return { label: "Cash", variant: "cash" };
+  }
+  if (normalized === "koko") {
+    return { label: "KOKO", variant: "paid" };
   }
   if (normalized === "cc" || normalized === "cc checkout" || normalized === "cc_checkout" || normalized === "cc-checkout") {
     return { label: "CC Checkout", variant: "card" };
@@ -62,3 +65,5 @@ export function formatPaymentMethodLabel(input?: {
 }): string {
   return getPaymentMethodInfo(input).label;
 }
+
+

@@ -14,6 +14,7 @@ import {
   type DashboardFilterSummary,
   type DashboardSalesDateType,
 } from "@/lib/page-data/dashboard-overview-shared";
+import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
 
 export type DashboardLocationMerchantRow = {
@@ -700,7 +701,11 @@ export async function fetchDashboardSalesByLocationGateway(
     const list = byLocation.get(order.companyLocationId);
     if (!list) continue;
 
-    const gatewayLabel = order.paymentGatewayPrimary?.trim() || "Unspecified";
+    const gatewayLabel =
+      getPaymentMethodInfo({
+        paymentGatewayPrimary: order.paymentGatewayPrimary,
+        financialStatus: order.financialStatus,
+      }).label || "Unspecified";
     const total = Number(order.totalPrice ?? 0);
     const existingGateway = list.find((row) => row.merchantName === gatewayLabel);
     if (existingGateway) {

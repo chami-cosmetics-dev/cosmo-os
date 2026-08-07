@@ -23,7 +23,9 @@ import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
+import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
 import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
@@ -69,30 +71,6 @@ function getRangeBounds(range: RangeKind, year: number | null) {
 
 function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
-}
-
-function resolveDiscountedLineValues(input: {
-  lineTotal: Prisma.Decimal;
-  quantity: number;
-  orderItemSubtotal: Prisma.Decimal;
-  orderDiscounts: Prisma.Decimal | null;
-}) {
-  const discount = input.orderDiscounts;
-  if (!discount || !discount.gt(0) || !input.orderItemSubtotal.gt(0) || input.quantity <= 0) {
-    return { discountedPrice: null, discountedTotal: null };
-  }
-
-  const allocatedDiscount = Prisma.Decimal.min(
-    input.lineTotal,
-    discount.mul(input.lineTotal).div(input.orderItemSubtotal),
-  );
-  const discountedTotal = Prisma.Decimal.max(new Prisma.Decimal(0), input.lineTotal.minus(allocatedDiscount));
-  const discountedPrice = discountedTotal.div(input.quantity);
-
-  return {
-    discountedPrice: discountedPrice.toDecimalPlaces(2).toString(),
-    discountedTotal: discountedTotal.toDecimalPlaces(2).toString(),
-  };
 }
 
 function getUserDisplayName(user: {
@@ -160,6 +138,28 @@ function getRawPayloadString(rawPayload: Prisma.JsonValue | null | undefined, ke
       ? (data as Record<string, unknown>)[key]
       : undefined);
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getPayloadLineItems(rawPayload: Prisma.JsonValue | null | undefined): Array<Record<string, unknown>> {
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) return [];
+  const lineItems = (rawPayload as Record<string, unknown>).line_items;
+  if (!Array.isArray(lineItems)) return [];
+  return lineItems.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item));
+}
+
+function getPayloadLineItemBrand(input: {
+  rawPayload: Prisma.JsonValue | null;
+  shopifyLineItemId: string;
+  sku: string | null;
+  index: number;
+}) {
+  const payloadItems = getPayloadLineItems(input.rawPayload);
+  const matched =
+    payloadItems.find((item) => item.id != null && String(item.id) === input.shopifyLineItemId) ??
+    payloadItems.find((item) => input.sku && typeof item.sku === "string" && item.sku.trim() === input.sku.trim()) ??
+    payloadItems[input.index];
+  const vendor = matched?.vendor;
+  return typeof vendor === "string" && vendor.trim() ? vendor.trim() : null;
 }
 
 function looksLikeEmail(value: string) {
@@ -274,7 +274,13 @@ export async function GET(request: NextRequest) {
     },
     orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
     include: {
-      companyLocation: { select: { name: true, erpnextCompany: true } },
+      companyLocation: {
+        select: {
+          name: true,
+          erpnextCompany: true,
+          erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } },
+        },
+      },
       assignedMerchant: { select: { id: true, knownName: true, name: true, email: true, couponCodes: true } },
       dispatchedBy: { select: { knownName: true, name: true, email: true } },
       dispatchedByRider: { select: { knownName: true, name: true, mobile: true } },
@@ -356,7 +362,7 @@ export async function GET(request: NextRequest) {
   const reportLabel = omitCustomerPhone ? `Utility ${baseReportLabel}` : baseReportLabel;
 
   if (report === "invoice-item") {
-    const rows = orders.flatMap((order) => {
+    const rowsByOrder = await Promise.all(orders.map(async (order) => {
       const customerName =
         getCustomerName(order.shippingAddress) ||
         getCustomerName(order.billingAddress) ||
@@ -380,7 +386,14 @@ export async function GET(request: NextRequest) {
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
         assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
-        joinAllDiscountCodes: true,
+      });
+      const couponCode = await resolveOrderDiscountCouponForOrder({
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+        name: order.name,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        erpnextInstance: order.companyLocation.erpnextInstance,
       });
       const merchantName = resolveMerchantName({
         couponCode: merchantCouponCode,
@@ -389,25 +402,63 @@ export async function GET(request: NextRequest) {
         userToGroup,
       });
 
-      const orderItemSubtotal = order.lineItems.reduce(
-        (sum, item) => sum.add(new Prisma.Decimal(item.price).mul(item.quantity)),
-        new Prisma.Decimal(0),
-      );
-
-      return order.lineItems.map((item) => {
-        const lineTotal = new Prisma.Decimal(item.price).mul(item.quantity).toString();
-        const discounted = resolveDiscountedLineValues({
-          lineTotal: new Prisma.Decimal(lineTotal),
+      const linePricing = await resolveOrderLineItemsPricing({
+        sourceName: order.sourceName,
+        rawPayload: order.rawPayload,
+        name: order.name,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        erpnextInstance: order.companyLocation.erpnextInstance,
+        lineItems: order.lineItems.map((item) => ({
+          sku: item.productItem.sku,
           quantity: item.quantity,
-          orderItemSubtotal,
-          orderDiscounts: order.totalDiscounts,
-        });
+          price: item.price.toString(),
+        })),
+      });
+      const hasLineLevelDiscount = linePricing.some(
+        (pricing) => pricing.originalPrice != null || pricing.originalTotal != null,
+      );
+      const orderDiscount = !hasLineLevelDiscount && order.totalDiscounts?.gt(0)
+        ? order.totalDiscounts
+        : null;
+      const orderItemSubtotal = orderDiscount
+        ? linePricing.reduce(
+            (sum, pricing, index) => {
+              const fallbackTotal = new Prisma.Decimal(order.lineItems[index]?.price ?? 0)
+                .mul(order.lineItems[index]?.quantity ?? 0);
+              return sum.add(new Prisma.Decimal(pricing.originalTotal ?? pricing.saleTotal ?? fallbackTotal));
+            },
+            new Prisma.Decimal(0),
+          )
+        : new Prisma.Decimal(0);
+
+      return order.lineItems.map((item, index) => {
+        const pricing = linePricing[index];
+        const unitPrice = pricing?.originalPrice ?? pricing?.salePrice ?? item.price.toString();
+        const lineTotal = pricing?.originalTotal ?? pricing?.saleTotal ?? new Prisma.Decimal(item.price).mul(item.quantity).toString();
+        const hasDiscount = pricing?.originalPrice != null || pricing?.originalTotal != null;
+        let discountedPrice = hasDiscount ? (pricing?.salePrice ?? item.price.toString()) : null;
+        let afterDiscountTotal = hasDiscount ? (pricing?.saleTotal ?? new Prisma.Decimal(item.price).mul(item.quantity).toString()) : null;
+
+        if (!hasDiscount && orderDiscount && orderItemSubtotal.gt(0) && item.quantity > 0) {
+          const lineTotalDecimal = new Prisma.Decimal(lineTotal);
+          const allocatedDiscount = Prisma.Decimal.min(
+            lineTotalDecimal,
+            orderDiscount.mul(lineTotalDecimal).div(orderItemSubtotal),
+          );
+          const allocatedTotal = Prisma.Decimal.max(
+            new Prisma.Decimal(0),
+            lineTotalDecimal.minus(allocatedDiscount),
+          );
+          afterDiscountTotal = allocatedTotal.toDecimalPlaces(2).toString();
+          discountedPrice = allocatedTotal.div(item.quantity).toDecimalPlaces(2).toString();
+        }
 
         return createOrderInvoiceItemRow({
           invoiceNo,
           erpInvoiceId: order.erpnextInvoiceId,
           sourceName: order.sourceName,
           merchantCouponCode,
+          couponCode,
           createdAt: order.createdAt,
           locationName: order.companyLocation.name,
           customerName,
@@ -415,12 +466,17 @@ export async function GET(request: NextRequest) {
           customerPhone: resolveCustomerPhone(order) ?? null,
           sku: item.productItem.sku,
           barcode: item.productItem.barcode,
-          brand: item.productItem.vendor?.name ?? null,
+          brand: getPayloadLineItemBrand({
+            rawPayload: order.rawPayload,
+            shopifyLineItemId: item.shopifyLineItemId,
+            sku: item.productItem.sku,
+            index,
+          }) ?? item.productItem.vendor?.name ?? null,
           productTitle: item.productItem.productTitle,
           quantity: item.quantity,
-          unitPrice: item.price.toString(),
-          discountedPrice: discounted.discountedPrice,
-          afterDiscountTotal: discounted.discountedTotal,
+          unitPrice,
+          discountedPrice,
+          afterDiscountTotal,
           lineTotal,
           fulfillmentStage: order.fulfillmentStage,
           financialStatus: order.financialStatus,
@@ -430,7 +486,8 @@ export async function GET(request: NextRequest) {
           createdBy,
         });
       });
-    });
+    }));
+    const rows = rowsByOrder.flat();
 
     const csv = omitCustomerPhone
       ? buildOrderInvoiceItemCsvWithoutCustomerPhone(rows)
