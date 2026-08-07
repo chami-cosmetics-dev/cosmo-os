@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
 
   const companies = await prisma.companyLocation.findMany({
     where: {
-      shopifyAdminStoreHandle: { not: null },
+      OR: [
+        { shopifyAdminStoreHandle: { not: null } },
+        { shopifyLocationId: { not: null } },
+      ],
     },
     select: { companyId: true },
     distinct: ["companyId"],

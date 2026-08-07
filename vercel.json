@@ -31,7 +31,7 @@
     },
     {
       "path": "/api/cron/abandoned-checkouts-sync",
-      "schedule": "*/30 * * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/advance-sample-send-later",
