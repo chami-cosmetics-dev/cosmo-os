@@ -100,6 +100,140 @@ function normalizeStoreHandle(raw: string) {
     .replace(/\/$/, "");
 }
 
+function preferText(next: string | null | undefined, prev: string | null | undefined) {
+  const n = next?.trim();
+  if (n) return n;
+  const p = prev?.trim();
+  return p || null;
+}
+
+function phoneFromRestValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (value && typeof value === "object" && "phone" in value) {
+    const nested = (value as { phone?: unknown }).phone;
+    if (typeof nested === "string" && nested.trim()) return nested.trim();
+  }
+  return null;
+}
+
+type RestCheckoutContact = {
+  email: string | null;
+  phone: string | null;
+  name: string | null;
+};
+
+/**
+ * GraphQL AbandonedCheckout has no top-level email — only customer.email.
+ * Guest checkouts often have email on the REST abandoned checkout resource instead.
+ */
+async function fetchRestAbandonedCheckoutContacts({
+  storeHandle,
+  token,
+  createdAtMinIso,
+}: {
+  storeHandle: string;
+  token: string;
+  createdAtMinIso: string;
+}): Promise<Map<string, RestCheckoutContact>> {
+  const handle = normalizeStoreHandle(storeHandle);
+  const contacts = new Map<string, RestCheckoutContact>();
+  let sinceId: string | null = null;
+  let pages = 0;
+
+  while (pages < 40) {
+    pages += 1;
+    const params = new URLSearchParams({
+      limit: "250",
+      status: "any",
+      created_at_min: createdAtMinIso,
+    });
+    if (sinceId) params.set("since_id", sinceId);
+
+    const url = `https://${handle}.myshopify.com/admin/api/${SHOPIFY_API_VERSION}/checkouts.json?${params.toString()}`;
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token,
+      },
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      checkouts?: Array<Record<string, unknown>>;
+      errors?: string | Array<{ message?: string }>;
+    };
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error(
+          `[Shopify abandonedCheckouts REST] 401 Unauthorized for store "${handle}".`
+        );
+      }
+      const message =
+        typeof json.errors === "string"
+          ? json.errors
+          : json.errors?.[0]?.message ?? `REST checkouts failed with status ${res.status}`;
+      throw new Error(`[Shopify abandonedCheckouts REST] ${message}`);
+    }
+
+    const rows = json.checkouts ?? [];
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const id = row.id != null ? String(row.id) : null;
+      if (!id) continue;
+
+      const customer =
+        row.customer && typeof row.customer === "object"
+          ? (row.customer as Record<string, unknown>)
+          : null;
+      const billing =
+        row.billing_address && typeof row.billing_address === "object"
+          ? (row.billing_address as Record<string, unknown>)
+          : null;
+      const shipping =
+        row.shipping_address && typeof row.shipping_address === "object"
+          ? (row.shipping_address as Record<string, unknown>)
+          : null;
+
+      const email =
+        (typeof row.email === "string" && row.email.trim()) ||
+        (typeof customer?.email === "string" && customer.email.trim()) ||
+        null;
+
+      const phone =
+        phoneFromRestValue(row.phone) ||
+        phoneFromRestValue(row.sms_marketing_phone) ||
+        phoneFromRestValue(customer?.phone) ||
+        phoneFromRestValue(billing?.phone) ||
+        phoneFromRestValue(shipping?.phone);
+
+      const name =
+        joinName([
+          typeof customer?.first_name === "string" ? customer.first_name : null,
+          typeof customer?.last_name === "string" ? customer.last_name : null,
+        ]) ||
+        (typeof billing?.name === "string" ? billing.name.trim() : null) ||
+        joinName([
+          typeof billing?.first_name === "string" ? billing.first_name : null,
+          typeof billing?.last_name === "string" ? billing.last_name : null,
+        ]) ||
+        (typeof shipping?.name === "string" ? shipping.name.trim() : null) ||
+        joinName([
+          typeof shipping?.first_name === "string" ? shipping.first_name : null,
+          typeof shipping?.last_name === "string" ? shipping.last_name : null,
+        ]);
+
+      contacts.set(id, { email, phone, name });
+      sinceId = id;
+    }
+
+    if (rows.length < 250) break;
+  }
+
+  return contacts;
+}
+
 async function fetchAbandonedCheckoutsPage({
   storeHandle,
   token,
@@ -293,6 +427,22 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
       const storeHandle = loc.shopifyAdminStoreHandle as string;
 
       try {
+        const createdAtMinIso = sinceDate.toISOString();
+        let restContacts = new Map<string, RestCheckoutContact>();
+        try {
+          restContacts = await fetchRestAbandonedCheckoutContacts({
+            storeHandle,
+            token,
+            createdAtMinIso,
+          });
+        } catch (enrichErr) {
+          console.warn("[Shopify abandonedCheckouts] REST email enrichment failed; continuing with GraphQL", {
+            companyId,
+            storeHandle,
+            error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
+          });
+        }
+
         let after: string | null = null;
         let hasNextPage = true;
 
@@ -324,6 +474,11 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               customerResponse: true,
               remark: true,
               shopifyRecoveredAt: true,
+              customerName: true,
+              customerEmail: true,
+              customerPhone: true,
+              billingAddressText: true,
+              shippingAddressText: true,
             },
           });
           const existingByGid = new Map(existing.map((e) => [e.shopifyCheckoutGid, e]));
@@ -337,6 +492,7 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
             const recovered = Boolean(shopifyCompletedAt);
 
             const current = existingByGid.get(shopifyCheckoutGid);
+            const rest = restContacts.get(numericId);
 
             const keepManualClosed =
               recovered &&
@@ -372,44 +528,65 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               ? (node.lineItems.nodes as unknown as Prisma.InputJsonValue)
               : Prisma.JsonNull;
 
-            const customerPhone = node.billingAddress?.phone ?? node.shippingAddress?.phone ?? null;
-            const billingAddressText = formatAbandonedCheckoutAddress(
-              node.billingAddress
-                ? {
-                    name: node.billingAddress.name,
-                    firstName: node.billingAddress.firstName,
-                    lastName: node.billingAddress.lastName,
-                    company: node.billingAddress.company,
-                    address1: node.billingAddress.address1,
-                    address2: node.billingAddress.address2,
-                    city: node.billingAddress.city,
-                    province: node.billingAddress.province,
-                    provinceCode: node.billingAddress.provinceCode,
-                    zip: node.billingAddress.zip,
-                    country: node.billingAddress.country,
-                    countryCode: node.billingAddress.countryCodeV2,
-                    phone: node.billingAddress.phone,
-                  }
-                : null
+            const customerPhone = preferText(
+              node.billingAddress?.phone ??
+                node.shippingAddress?.phone ??
+                rest?.phone ??
+                null,
+              current?.customerPhone
             );
-            const shippingAddressText = formatAbandonedCheckoutAddress(
-              node.shippingAddress
-                ? {
-                    name: node.shippingAddress.name,
-                    firstName: node.shippingAddress.firstName,
-                    lastName: node.shippingAddress.lastName,
-                    company: node.shippingAddress.company,
-                    address1: node.shippingAddress.address1,
-                    address2: node.shippingAddress.address2,
-                    city: node.shippingAddress.city,
-                    province: node.shippingAddress.province,
-                    provinceCode: node.shippingAddress.provinceCode,
-                    zip: node.shippingAddress.zip,
-                    country: node.shippingAddress.country,
-                    countryCode: node.shippingAddress.countryCodeV2,
-                    phone: node.shippingAddress.phone,
-                  }
-                : null
+            const customerEmail = preferText(
+              node.customer?.email ?? rest?.email ?? null,
+              current?.customerEmail
+            );
+            const customerName = preferText(
+              resolveCustomerName(node) ?? rest?.name ?? null,
+              current?.customerName
+            );
+
+            const billingAddressText = preferText(
+              formatAbandonedCheckoutAddress(
+                node.billingAddress
+                  ? {
+                      name: node.billingAddress.name,
+                      firstName: node.billingAddress.firstName,
+                      lastName: node.billingAddress.lastName,
+                      company: node.billingAddress.company,
+                      address1: node.billingAddress.address1,
+                      address2: node.billingAddress.address2,
+                      city: node.billingAddress.city,
+                      province: node.billingAddress.province,
+                      provinceCode: node.billingAddress.provinceCode,
+                      zip: node.billingAddress.zip,
+                      country: node.billingAddress.country,
+                      countryCode: node.billingAddress.countryCodeV2,
+                      phone: node.billingAddress.phone,
+                    }
+                  : null
+              ),
+              current?.billingAddressText
+            );
+            const shippingAddressText = preferText(
+              formatAbandonedCheckoutAddress(
+                node.shippingAddress
+                  ? {
+                      name: node.shippingAddress.name,
+                      firstName: node.shippingAddress.firstName,
+                      lastName: node.shippingAddress.lastName,
+                      company: node.shippingAddress.company,
+                      address1: node.shippingAddress.address1,
+                      address2: node.shippingAddress.address2,
+                      city: node.shippingAddress.city,
+                      province: node.shippingAddress.province,
+                      provinceCode: node.shippingAddress.provinceCode,
+                      zip: node.shippingAddress.zip,
+                      country: node.shippingAddress.country,
+                      countryCode: node.shippingAddress.countryCodeV2,
+                      phone: node.shippingAddress.phone,
+                    }
+                  : null
+              ),
+              current?.shippingAddressText
             );
 
             const commonFields = {
@@ -419,8 +596,8 @@ export async function syncAbandonedCheckoutsForCompany(companyId: string): Promi
               shopifyAdminStoreHandle: normalizeStoreHandle(storeHandle),
               companyLocationId: loc.id,
 
-              customerName: resolveCustomerName(node),
-              customerEmail: node.customer?.email ?? null,
+              customerName,
+              customerEmail,
               customerPhone,
               billingAddressText,
               shippingAddressText,
