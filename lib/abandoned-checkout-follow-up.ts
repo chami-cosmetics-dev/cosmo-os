@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit-log";
 import { abandonedOrderFollowUpPatchBodySchema } from "@/lib/validation";
 import type { CustomerResponse, FollowUpStatus } from "@/lib/abandoned-orders-constants";
-import { CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import { FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
 import type { AbandonedOrdersListItem } from "@/lib/page-data/abandoned-orders-types";
 
 type CheckoutRow = {
@@ -34,9 +34,7 @@ function parseFollowUpStatus(value: string): FollowUpStatus {
 
 function parseCustomerResponse(value: string | null): CustomerResponse | null {
   if (!value) return null;
-  return (CUSTOMER_RESPONSES as readonly string[]).includes(value)
-    ? (value as CustomerResponse)
-    : null;
+  return value as CustomerResponse;
 }
 
 function toListItem(row: CheckoutRow): AbandonedOrdersListItem {

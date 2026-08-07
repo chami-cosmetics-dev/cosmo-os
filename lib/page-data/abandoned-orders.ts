@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import type { CustomerResponse, FollowUpStatus } from "@/lib/abandoned-orders-constants";
-import { CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import { FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
 import type {
   AbandonedOrdersFilters,
   AbandonedOrdersListItem,
@@ -17,9 +17,8 @@ function parseFollowUpStatus(value: string): FollowUpStatus {
 
 function parseCustomerResponse(value: string | null): CustomerResponse | null {
   if (!value) return null;
-  return (CUSTOMER_RESPONSES as readonly string[]).includes(value)
-    ? (value as CustomerResponse)
-    : null;
+  // Keep legacy + current values for list display; labels resolve via getCustomerResponseLabel.
+  return value as CustomerResponse;
 }
 
 function toEndOfDayUtc(d: Date) {

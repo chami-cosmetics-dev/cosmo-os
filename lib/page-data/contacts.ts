@@ -1,7 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
-import { findContactIdsByPurchasedBrand } from "@/lib/page-data/contact-brand-ids";
+import {
+  findContactIdsByPurchasedBrand,
+  findContactsByPurchasedBrandRanked,
+} from "@/lib/page-data/contact-brand-ids";
 import {
   buildContactPhoneSearchOrFilters,
   isPhoneLikeSearch,
@@ -71,7 +74,8 @@ function andWhere(
 /** Shared filter where for Contact Master list + export. */
 export async function buildContactsListWhere(
   companyId: string,
-  params: Pick<ContactsPageParams, "status" | "search" | "allocatedTo" | "brand"> = {}
+  params: Pick<ContactsPageParams, "status" | "search" | "allocatedTo" | "brand"> = {},
+  options?: { brandContactIds?: string[] }
 ): Promise<Prisma.ContactMasterWhereInput> {
   const cutoff = getActiveCutoff();
   const where: Prisma.ContactMasterWhereInput = { companyId };
@@ -101,9 +105,10 @@ export async function buildContactsListWhere(
 
   const brand = params.brand?.trim() || null;
   if (brand) {
-    const brandContactIds = await findContactIdsByPurchasedBrand(companyId, brand);
+    const brandContactIds =
+      options?.brandContactIds ??
+      (await findContactIdsByPurchasedBrand(companyId, brand));
     if (brandContactIds.length === 0) {
-      // Force empty result set (no contact id will match).
       andWhere(where, { id: { equals: "__no_brand_match__" } });
     } else {
       andWhere(where, { id: { in: brandContactIds } });
@@ -120,7 +125,7 @@ export type ContactsPageOptions = {
 };
 
 async function fetchContactsPageOptions(companyId: string): Promise<ContactsPageOptions> {
-  const [assignedRows, vendors, assigneeRows] = await Promise.all([
+  const [assignedRows, vendors, brandConfigs, assigneeRows] = await Promise.all([
     prisma.contactMaster.findMany({
       where: {
         companyId,
@@ -137,6 +142,11 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
     prisma.vendor.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
+      select: { name: true },
+    }),
+    prisma.dashboardBrandConfig.findMany({
+      where: { companyId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { name: true },
     }),
     prisma.user.findMany({
@@ -157,10 +167,13 @@ async function fetchContactsPageOptions(companyId: string): Promise<ContactsPage
     .map((r) => r.assignedMerchant?.trim())
     .filter((v): v is string => Boolean(v));
 
+  // Dashboard brand configs first (e.g. Anua), then Vendor names.
   const seenBrands = new Set<string>();
   const brands: string[] = [];
-  for (const v of vendors) {
-    const name = v.name.trim();
+  for (const name of [
+    ...brandConfigs.map((b) => b.name.trim()),
+    ...vendors.map((v) => v.name.trim()),
+  ]) {
     if (!name) continue;
     const key = name.toLowerCase();
     if (seenBrands.has(key)) continue;
@@ -185,6 +198,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
   const sortOrder = params.sortOrder ?? "desc";
   const sortBy = params.sortBy?.trim();
   const cutoff = getActiveCutoff();
+  const brand = params.brand?.trim() || null;
 
   const SORT_FIELDS: Record<string, Prisma.ContactMasterOrderByWithRelationInput> = {
     name: { name: sortOrder },
@@ -194,35 +208,63 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
   const orderBy: Prisma.ContactMasterOrderByWithRelationInput =
     sortBy && sortBy in SORT_FIELDS ? SORT_FIELDS[sortBy]! : { updatedAt: "desc" };
 
-  const where = await buildContactsListWhere(companyId, params);
+  const brandRanksPromise = brand
+    ? findContactsByPurchasedBrandRanked(companyId, brand)
+    : Promise.resolve([]);
 
-  const [activeCount, inactiveCount, neverPurchasedCount, rawContacts, options] =
-    await Promise.all([
-      prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
-      prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
-      prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
-      prisma.contactMaster.findMany({
-        where,
-        orderBy,
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          phoneNumber: true,
-          lastPurchaseAt: true,
-          recentMerchant: true,
-          assignedMerchant: true,
-          birthYear: true,
-          birthMonth: true,
-          birthDay: true,
-          updatedAt: true,
-          createdAt: true,
-        },
-      }),
-      fetchContactsPageOptions(companyId),
-    ]);
+  const [
+    activeCount,
+    inactiveCount,
+    neverPurchasedCount,
+    brandRanks,
+    options,
+  ] = await Promise.all([
+    prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
+    prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
+    prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
+    brandRanksPromise,
+    fetchContactsPageOptions(companyId),
+  ]);
 
-  const dedupedContacts = dedupeContactsForDisplay(rawContacts);
+  const brandSpendById = new Map(
+    brandRanks.map((r) => [r.contactId, r.brandSpend] as const)
+  );
+
+  const where = await buildContactsListWhere(companyId, params, {
+    brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined,
+  });
+
+  const rawContacts = await prisma.contactMaster.findMany({
+    where,
+    orderBy: brand ? { updatedAt: "desc" } : orderBy,
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phoneNumber: true,
+      lastPurchaseAt: true,
+      recentMerchant: true,
+      assignedMerchant: true,
+      birthYear: true,
+      birthMonth: true,
+      birthDay: true,
+      updatedAt: true,
+      createdAt: true,
+    },
+  });
+
+  let dedupedContacts = dedupeContactsForDisplay(rawContacts);
+
+  // Brand filter → most-purchased list (highest brand spend first).
+  if (brand) {
+    dedupedContacts = [...dedupedContacts].sort((a, b) => {
+      const spendA = brandSpendById.get(a.id) ?? 0;
+      const spendB = brandSpendById.get(b.id) ?? 0;
+      if (spendB !== spendA) return spendB - spendA;
+      return b.updatedAt.getTime() - a.updatedAt.getTime();
+    });
+  }
+
   const total = dedupedContacts.length;
   const contacts = dedupedContacts.slice((page - 1) * limit, page * limit);
 
@@ -233,6 +275,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
       lastPurchaseAt: contact.lastPurchaseAt?.toISOString() ?? null,
       updatedAt: contact.updatedAt.toISOString(),
       createdAt: contact.createdAt.toISOString(),
+      brandSpend: brand ? brandSpendById.get(contact.id) ?? 0 : null,
     })),
     total,
     page,
@@ -244,6 +287,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
       neverPurchased: neverPurchasedCount,
     },
     options,
+    brandFilterActive: Boolean(brand),
   };
   maybeLogSlowDbRequest("contacts.page_data", startedAt, {
     companyId,

@@ -30,16 +30,20 @@ describe("classifyLoyaltyTierKey", () => {
 });
 
 describe("push bands", () => {
-  it("Push to Gold is ≥75k and <200k", () => {
+  it("Push to Gold is ≥75k and ≤100k", () => {
     expect(isPushToGold(74_999)).toBe(false);
     expect(isPushToGold(75_000)).toBe(true);
-    expect(isPushToGold(199_999)).toBe(true);
+    expect(isPushToGold(100_000)).toBe(true);
+    expect(isPushToGold(100_001)).toBe(false);
+    expect(isPushToGold(199_999)).toBe(false);
     expect(isPushToGold(200_000)).toBe(false);
   });
 
-  it("Push to Platinum is ≥200k", () => {
-    expect(isPushToPlatinum(199_999)).toBe(false);
+  it("Push to Platinum is ≥150k and ≤200k", () => {
+    expect(isPushToPlatinum(149_999)).toBe(false);
+    expect(isPushToPlatinum(150_000)).toBe(true);
     expect(isPushToPlatinum(200_000)).toBe(true);
+    expect(isPushToPlatinum(200_001)).toBe(false);
   });
 });
 
