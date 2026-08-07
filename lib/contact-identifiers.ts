@@ -10,6 +10,7 @@ type ContactIdentifierContact = {
   email: string | null;
   phoneNumber: string | null;
   recentMerchant: string | null;
+  assignedMerchant: string | null;
   lastPurchaseAt: Date | null;
   source: string | null;
 };
@@ -72,6 +73,7 @@ export async function findMatchingContacts(
       email: true,
       phoneNumber: true,
       recentMerchant: true,
+      assignedMerchant: true,
       lastPurchaseAt: true,
       source: true,
     },
@@ -95,6 +97,7 @@ export async function findMatchingContacts(
               email: true,
               phoneNumber: true,
               recentMerchant: true,
+              assignedMerchant: true,
               lastPurchaseAt: true,
               source: true,
             },
@@ -118,6 +121,7 @@ export async function findMatchingContacts(
               email: true,
               phoneNumber: true,
               recentMerchant: true,
+              assignedMerchant: true,
               lastPurchaseAt: true,
               source: true,
             },

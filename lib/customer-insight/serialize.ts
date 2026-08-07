@@ -1,14 +1,17 @@
 import { buildLoyaltyDto } from "@/lib/customer-insight/loyalty-tier";
+import { buildProgressBarDto } from "@/lib/customer-insight/progress-bar";
 import type {
   ContactInsightDto,
   CustomerInsightDto,
   FrequencyDto,
   InvoicePaginationDto,
+  InsightVisibility,
   LoyaltyDto,
   SeriesPointDto,
   TopItemDto,
   UnifiedInvoiceRowDto,
 } from "@/lib/customer-insight/types";
+import { toLimitedInsightDto } from "@/lib/customer-insight/visibility";
 
 export function serializeContactInsight(input: {
   id: string;
@@ -16,6 +19,10 @@ export function serializeContactInsight(input: {
   phoneNumber: string | null;
   phones: string[];
   email: string | null;
+  birthYear?: number | null;
+  birthMonth?: number | null;
+  birthDay?: number | null;
+  assignedMerchant?: string | null;
 }): ContactInsightDto {
   return {
     id: input.id,
@@ -23,6 +30,10 @@ export function serializeContactInsight(input: {
     phoneNumber: input.phoneNumber,
     phones: input.phones,
     email: input.email,
+    birthYear: input.birthYear ?? null,
+    birthMonth: input.birthMonth ?? null,
+    birthDay: input.birthDay ?? null,
+    assignedMerchant: input.assignedMerchant ?? null,
   };
 }
 
@@ -31,6 +42,8 @@ export function serializeLoyalty(lifetimeTotal: number, currency = "LKR"): Loyal
 }
 
 export function buildCustomerInsightDto(input: {
+  visibility: InsightVisibility;
+  assignedMerchant: string | null;
   contact: ContactInsightDto;
   loyalty: LoyaltyDto;
   frequency: FrequencyDto;
@@ -39,15 +52,29 @@ export function buildCustomerInsightDto(input: {
   chartsAvailable: boolean;
   invoices: UnifiedInvoiceRowDto[];
   invoicePagination: InvoicePaginationDto;
+  lastContactedAt?: string | null;
+  canEditProfile?: boolean;
+  canMarkContacted?: boolean;
 }): CustomerInsightDto {
-  return {
+  const owner: CustomerInsightDto = {
+    visibility: "owner",
+    assignedMerchant: input.assignedMerchant,
     contact: input.contact,
     loyalty: input.loyalty,
     frequency: input.frequency,
     topItems: input.topItems,
     series: input.series,
     chartsAvailable: input.chartsAvailable,
+    progressBar: buildProgressBarDto(input.loyalty.lifetimeTotal),
+    lastContactedAt: input.lastContactedAt ?? null,
+    canEditProfile: input.canEditProfile ?? true,
+    canMarkContacted: input.canMarkContacted ?? true,
     invoices: input.invoices,
     invoicePagination: input.invoicePagination,
   };
+
+  if (input.visibility === "limited") {
+    return toLimitedInsightDto(owner);
+  }
+  return owner;
 }

@@ -7,6 +7,7 @@ import {
   normalizeContactEmail,
   normalizeContactPhone,
 } from "@/lib/contact-identifiers";
+import { resolveAutoAllocateMerchant } from "@/lib/customer-insight/auto-allocate";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 
@@ -107,7 +108,18 @@ async function updatePurchaseSnapshotForContacts(input: {
     },
   });
 
-  return purchaseDateResult.count + merchantResult.count;
+  // Auto-allocate only when assignedMerchant is empty (never overwrite).
+  const allocateResult = await prisma.contactMaster.updateMany({
+    where: {
+      id: { in: uniqueIds },
+      OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+    },
+    data: {
+      assignedMerchant: input.recentMerchant,
+    },
+  });
+
+  return purchaseDateResult.count + merchantResult.count + allocateResult.count;
 }
 
 function pickBestCustomerName(order: ShopifyOrderWebhookPayload) {
@@ -180,6 +192,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
       email: true,
       phoneNumber: true,
       recentMerchant: true,
+      assignedMerchant: true,
       lastPurchaseAt: true,
       source: true,
     },
@@ -222,6 +235,11 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
         return { status: "unchanged" as const, contactId: existing.id };
       }
 
+      const autoAssigned = resolveAutoAllocateMerchant({
+        assignedMerchant: null,
+        purchaseMerchantLabel: recentMerchant,
+      });
+
       const created = await tx.contactMaster.create({
         data: {
           companyId: input.companyId,
@@ -229,6 +247,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
           email,
           phoneNumber,
           recentMerchant,
+          ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
           lastPurchaseAt: input.occurredAt,
           ...(source ? { source } : {}),
         },
@@ -244,6 +263,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
     email?: string;
     phoneNumber?: string;
     recentMerchant?: string;
+    assignedMerchant?: string;
     lastPurchaseAt?: Date;
     source?: string;
   } = {};
@@ -256,6 +276,11 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
     updateData.lastPurchaseAt = input.occurredAt;
   }
+  const autoAssigned = resolveAutoAllocateMerchant({
+    assignedMerchant: matchedContact.assignedMerchant,
+    purchaseMerchantLabel: recentMerchant,
+  });
+  if (autoAssigned) updateData.assignedMerchant = autoAssigned;
 
   if (Object.keys(updateData).length === 0) {
     return { status: "unchanged", contactId: matchedContact.id };
@@ -368,6 +393,11 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
         return { status: "unchanged" as const, contactId: recheckedContact.id };
       }
 
+      const autoAssigned = resolveAutoAllocateMerchant({
+        assignedMerchant: null,
+        purchaseMerchantLabel: recentMerchant,
+      });
+
       const created = await tx.contactMaster.create({
         data: {
           companyId: input.companyId,
@@ -375,6 +405,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
           email,
           phoneNumber,
           recentMerchant,
+          ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
           lastPurchaseAt: input.occurredAt,
           ...(source ? { source } : {}),
         },
@@ -384,6 +415,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
           email: true,
           phoneNumber: true,
           recentMerchant: true,
+          assignedMerchant: true,
           lastPurchaseAt: true,
         },
       });
@@ -412,6 +444,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
           email: created.email,
           phoneNumber: created.phoneNumber,
           recentMerchant: created.recentMerchant,
+          assignedMerchant: created.assignedMerchant,
           lastPurchaseAt: created.lastPurchaseAt,
         },
         metadata: {
@@ -437,6 +470,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     email?: string;
     phoneNumber?: string;
     recentMerchant?: string;
+    assignedMerchant?: string;
     lastPurchaseAt?: Date;
     source?: string;
   } = {};
@@ -458,6 +492,13 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   }
   if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
     updateData.lastPurchaseAt = input.occurredAt;
+  }
+  const autoAssigned = resolveAutoAllocateMerchant({
+    assignedMerchant: matchedContact.assignedMerchant,
+    purchaseMerchantLabel: recentMerchant,
+  });
+  if (autoAssigned) {
+    updateData.assignedMerchant = autoAssigned;
   }
 
   if (Object.keys(updateData).length === 0) {

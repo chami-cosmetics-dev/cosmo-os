@@ -27,6 +27,9 @@ export async function GET(request: NextRequest) {
   const limitResult = limitSchema.safeParse(searchParams.get("limit"));
   const sortOrderResult = sortOrderSchema.safeParse(searchParams.get("sort_order"));
 
+  const allocatedTo = searchParams.get("allocatedTo")?.trim() || undefined;
+  const brand = searchParams.get("brand")?.trim() || undefined;
+
   const data = await fetchContactsPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,
     limit: limitResult.success ? limitResult.data : 10,
@@ -39,6 +42,8 @@ export async function GET(request: NextRequest) {
         ? (searchParams.get("status") as "active" | "inactive" | "never_purchased")
         : undefined,
     search: searchParams.get("search")?.trim() ?? undefined,
+    allocatedTo,
+    brand,
   });
 
   return NextResponse.json(data);

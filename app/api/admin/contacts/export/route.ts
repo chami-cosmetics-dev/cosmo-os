@@ -1,26 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 
 import { logReportDownload } from "@/lib/report-download-log";
-import {
-  buildContactPhoneSearchOrFilters,
-  buildPhoneLookupVariants,
-  isPhoneLikeSearch,
-} from "@/lib/phone-lookup";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { buildContactsListWhere } from "@/lib/page-data/contacts";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
 type ContactExportMode = "contacts" | "purchase_summary";
-
-const ACTIVE_WINDOW_DAYS = 180;
-
-function getActiveCutoff() {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - ACTIVE_WINDOW_DAYS);
-  return cutoff;
-}
 
 function parseStatus(value: string | null): ContactStatusFilter {
   if (value === "active" || value === "inactive" || value === "never_purchased") {
@@ -80,7 +68,10 @@ async function buildPurchaseSummary(
     },
   });
 
-  const summary = new Map<string, { orderCount: number; totalSpent: number; lastOrderAt: Date | null }>();
+  const summary = new Map<
+    string,
+    { orderCount: number; totalSpent: number; lastOrderAt: Date | null }
+  >();
 
   for (const order of orders) {
     const phone = normalizePhone(order.customerPhone);
@@ -89,7 +80,11 @@ async function buildPurchaseSummary(
     if (!matchingContactIds || matchingContactIds.size !== 1) continue;
 
     const [contactId] = [...matchingContactIds];
-    const current = summary.get(contactId) ?? { orderCount: 0, totalSpent: 0, lastOrderAt: null };
+    const current = summary.get(contactId) ?? {
+      orderCount: 0,
+      totalSpent: 0,
+      lastOrderAt: null,
+    };
     current.orderCount += 1;
     current.totalSpent += Number(order.totalPrice);
     if (!current.lastOrderAt || order.createdAt > current.lastOrderAt) {
@@ -109,38 +104,24 @@ export async function GET(request: NextRequest) {
 
   const companyId = auth.context?.user?.companyId ?? null;
   if (!companyId) {
-    return NextResponse.json({ error: "No company associated with your account" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No company associated with your account" },
+      { status: 404 }
+    );
   }
 
   const status = parseStatus(request.nextUrl.searchParams.get("status"));
   const mode = parseMode(request.nextUrl.searchParams.get("mode"));
   const search = request.nextUrl.searchParams.get("search")?.trim() || null;
-  const cutoff = getActiveCutoff();
+  const allocatedTo = request.nextUrl.searchParams.get("allocatedTo")?.trim() || null;
+  const brand = request.nextUrl.searchParams.get("brand")?.trim() || null;
 
-  const where: Prisma.ContactMasterWhereInput = { companyId };
-  if (status === "active") {
-    where.lastPurchaseAt = { gte: cutoff };
-  } else if (status === "inactive") {
-    where.lastPurchaseAt = { lt: cutoff };
-  } else if (status === "never_purchased") {
-    where.lastPurchaseAt = null;
-  }
-
-  if (search) {
-    const or: Prisma.ContactMasterWhereInput[] = [
-      { name: { contains: search, mode: "insensitive" } },
-      { email: { contains: search, mode: "insensitive" } },
-      { recentMerchant: { contains: search, mode: "insensitive" } },
-    ];
-    if (isPhoneLikeSearch(search)) {
-      or.push(
-        ...(buildContactPhoneSearchOrFilters(search) as Prisma.ContactMasterWhereInput[]),
-      );
-    } else {
-      or.push({ phoneNumber: { contains: search, mode: "insensitive" } });
-    }
-    where.AND = [{ OR: or }];
-  }
+  const where = await buildContactsListWhere(companyId, {
+    status,
+    search,
+    allocatedTo,
+    brand,
+  });
 
   const contacts = await prisma.contactMaster.findMany({
     where,
@@ -151,6 +132,7 @@ export async function GET(request: NextRequest) {
       email: true,
       phoneNumber: true,
       recentMerchant: true,
+      assignedMerchant: true,
       lastPurchaseAt: true,
       createdAt: true,
       updatedAt: true,
@@ -160,6 +142,18 @@ export async function GET(request: NextRequest) {
   const purchaseSummary =
     mode === "purchase_summary" ? await buildPurchaseSummary(companyId, contacts) : null;
 
+  const baseHeaders = [
+    "contact_no",
+    "name",
+    "email",
+    "phone_number",
+    "recent_merchant",
+    "assigned_merchant",
+    "last_purchased_date",
+    "created_at",
+    "updated_at",
+  ];
+
   const csv = buildCsv(
     mode === "purchase_summary"
       ? [
@@ -168,6 +162,7 @@ export async function GET(request: NextRequest) {
           "email",
           "phone_number",
           "recent_merchant",
+          "assigned_merchant",
           "total_orders",
           "total_purchase_value",
           "last_order_date",
@@ -175,7 +170,7 @@ export async function GET(request: NextRequest) {
           "created_at",
           "updated_at",
         ]
-      : ["contact_no", "name", "email", "phone_number", "recent_merchant", "last_purchased_date", "created_at", "updated_at"],
+      : baseHeaders,
     contacts.map((contact, index) => {
       const summary = purchaseSummary?.get(contact.id);
       return {
@@ -184,6 +179,7 @@ export async function GET(request: NextRequest) {
         email: contact.email ?? "",
         phone_number: contact.phoneNumber ?? "",
         recent_merchant: contact.recentMerchant ?? "",
+        assigned_merchant: contact.assignedMerchant ?? "",
         ...(mode === "purchase_summary"
           ? {
               total_orders: summary?.orderCount ?? 0,
@@ -198,13 +194,22 @@ export async function GET(request: NextRequest) {
     })
   );
 
-  const fileName = mode === "purchase_summary" ? "contact-master-with-purchases.csv" : "contact-master-export.csv";
+  const fileName =
+    mode === "purchase_summary"
+      ? "contact-master-with-purchases.csv"
+      : "contact-master-export.csv";
   await logReportDownload({
     companyId,
     userId: auth.context?.user?.id,
-    reportKey: mode === "purchase_summary" ? "contacts:master_export_with_purchase_summary" : "contacts:master_export",
-    reportLabel: mode === "purchase_summary" ? "Contact Master Export With Purchase Summary" : "Contact Master Export",
-    filters: `mode=${mode}&status=${status ?? "all"}&search=${search ?? ""}`,
+    reportKey:
+      mode === "purchase_summary"
+        ? "contacts:master_export_with_purchase_summary"
+        : "contacts:master_export",
+    reportLabel:
+      mode === "purchase_summary"
+        ? "Contact Master Export With Purchase Summary"
+        : "Contact Master Export",
+    filters: `mode=${mode}&status=${status ?? "all"}&search=${search ?? ""}&allocatedTo=${allocatedTo ?? ""}&brand=${brand ?? ""}`,
     fileName,
   });
 

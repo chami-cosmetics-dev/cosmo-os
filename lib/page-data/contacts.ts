@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
+
 import { dedupeContactsForDisplay } from "@/lib/contact-display-dedupe";
+import { findContactIdsByPurchasedBrand } from "@/lib/page-data/contact-brand-ids";
 import {
   buildContactPhoneSearchOrFilters,
   isPhoneLikeSearch,
@@ -8,6 +10,7 @@ import { prisma } from "@/lib/prisma";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 
 const ACTIVE_WINDOW_DAYS = 180;
+export const CONTACTS_UNALLOCATED = "__unallocated";
 
 function getActiveCutoff() {
   const cutoff = new Date();
@@ -27,6 +30,10 @@ export type ContactsPageParams = {
   sortOrder?: "asc" | "desc";
   status?: "active" | "inactive" | "never_purchased" | null;
   search?: string | null;
+  /** Exact allocated merchant label, or `__unallocated` for empty. */
+  allocatedTo?: string | null;
+  /** Vendor / brand name purchased. */
+  brand?: string | null;
 };
 
 function buildContactsSearchWhere(search: string): Prisma.ContactMasterWhereInput {
@@ -34,17 +41,141 @@ function buildContactsSearchWhere(search: string): Prisma.ContactMasterWhereInpu
     { name: { contains: search, mode: "insensitive" } },
     { email: { contains: search, mode: "insensitive" } },
     { recentMerchant: { contains: search, mode: "insensitive" } },
+    { assignedMerchant: { contains: search, mode: "insensitive" } },
   ];
 
   if (isPhoneLikeSearch(search)) {
     or.push(
-      ...(buildContactPhoneSearchOrFilters(search) as Prisma.ContactMasterWhereInput[]),
+      ...(buildContactPhoneSearchOrFilters(search) as Prisma.ContactMasterWhereInput[])
     );
   } else {
     or.push({ phoneNumber: { contains: search, mode: "insensitive" } });
   }
 
   return { OR: or };
+}
+
+function andWhere(
+  where: Prisma.ContactMasterWhereInput,
+  clause: Prisma.ContactMasterWhereInput
+) {
+  if (Array.isArray(where.AND)) {
+    where.AND = [...where.AND, clause];
+  } else if (where.AND) {
+    where.AND = [where.AND, clause];
+  } else {
+    where.AND = [clause];
+  }
+}
+
+/** Shared filter where for Contact Master list + export. */
+export async function buildContactsListWhere(
+  companyId: string,
+  params: Pick<ContactsPageParams, "status" | "search" | "allocatedTo" | "brand"> = {}
+): Promise<Prisma.ContactMasterWhereInput> {
+  const cutoff = getActiveCutoff();
+  const where: Prisma.ContactMasterWhereInput = { companyId };
+
+  if (params.status === "active") {
+    where.lastPurchaseAt = { gte: cutoff };
+  } else if (params.status === "inactive") {
+    where.lastPurchaseAt = { lt: cutoff };
+  } else if (params.status === "never_purchased") {
+    where.lastPurchaseAt = null;
+  }
+
+  if (params.search?.trim()) {
+    andWhere(where, buildContactsSearchWhere(params.search.trim()));
+  }
+
+  const allocatedTo = params.allocatedTo?.trim() || null;
+  if (allocatedTo === CONTACTS_UNALLOCATED) {
+    andWhere(where, {
+      OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+    });
+  } else if (allocatedTo) {
+    andWhere(where, {
+      assignedMerchant: { equals: allocatedTo, mode: "insensitive" },
+    });
+  }
+
+  const brand = params.brand?.trim() || null;
+  if (brand) {
+    const brandContactIds = await findContactIdsByPurchasedBrand(companyId, brand);
+    if (brandContactIds.length === 0) {
+      // Force empty result set (no contact id will match).
+      andWhere(where, { id: { equals: "__no_brand_match__" } });
+    } else {
+      andWhere(where, { id: { in: brandContactIds } });
+    }
+  }
+
+  return where;
+}
+
+export type ContactsPageOptions = {
+  assignedMerchants: string[];
+  brands: string[];
+  assignees: Array<{ id: string; label: string }>;
+};
+
+async function fetchContactsPageOptions(companyId: string): Promise<ContactsPageOptions> {
+  const [assignedRows, vendors, assigneeRows] = await Promise.all([
+    prisma.contactMaster.findMany({
+      where: {
+        companyId,
+        AND: [
+          { assignedMerchant: { not: null } },
+          { assignedMerchant: { not: "" } },
+        ],
+      },
+      distinct: ["assignedMerchant"],
+      select: { assignedMerchant: true },
+      orderBy: { assignedMerchant: "asc" },
+      take: 500,
+    }),
+    prisma.vendor.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { name: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        companyId,
+        OR: [
+          { employeeProfile: null },
+          { employeeProfile: { status: "active" } },
+        ],
+      },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, knownName: true, email: true },
+      take: 300,
+    }),
+  ]);
+
+  const assignedMerchants = assignedRows
+    .map((r) => r.assignedMerchant?.trim())
+    .filter((v): v is string => Boolean(v));
+
+  const seenBrands = new Set<string>();
+  const brands: string[] = [];
+  for (const v of vendors) {
+    const name = v.name.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seenBrands.has(key)) continue;
+    seenBrands.add(key);
+    brands.push(name);
+  }
+
+  return {
+    assignedMerchants,
+    brands,
+    assignees: assigneeRows.map((user) => ({
+      id: user.id,
+      label: user.knownName?.trim() || user.name?.trim() || user.email?.trim() || "Unnamed user",
+    })),
+  };
 }
 
 export async function fetchContactsPageData(companyId: string, params: ContactsPageParams = {}) {
@@ -63,45 +194,34 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
   const orderBy: Prisma.ContactMasterOrderByWithRelationInput =
     sortBy && sortBy in SORT_FIELDS ? SORT_FIELDS[sortBy]! : { updatedAt: "desc" };
 
-  const where: Prisma.ContactMasterWhereInput = { companyId };
-  if (params.status === "active") {
-    where.lastPurchaseAt = { gte: cutoff };
-  } else if (params.status === "inactive") {
-    where.lastPurchaseAt = { lt: cutoff };
-  } else if (params.status === "never_purchased") {
-    where.lastPurchaseAt = null;
-  }
+  const where = await buildContactsListWhere(companyId, params);
 
-  if (params.search?.trim()) {
-    const searchWhere = buildContactsSearchWhere(params.search.trim());
-    if (Array.isArray(where.AND)) {
-      where.AND = [...where.AND, searchWhere];
-    } else if (where.AND) {
-      where.AND = [where.AND, searchWhere];
-    } else {
-      where.AND = [searchWhere];
-    }
-  }
+  const [activeCount, inactiveCount, neverPurchasedCount, rawContacts, options] =
+    await Promise.all([
+      prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
+      prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
+      prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
+      prisma.contactMaster.findMany({
+        where,
+        orderBy,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phoneNumber: true,
+          lastPurchaseAt: true,
+          recentMerchant: true,
+          assignedMerchant: true,
+          birthYear: true,
+          birthMonth: true,
+          birthDay: true,
+          updatedAt: true,
+          createdAt: true,
+        },
+      }),
+      fetchContactsPageOptions(companyId),
+    ]);
 
-  const [activeCount, inactiveCount, neverPurchasedCount, rawContacts] = await Promise.all([
-    prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { gte: cutoff } } }),
-    prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: { lt: cutoff } } }),
-    prisma.contactMaster.count({ where: { companyId, lastPurchaseAt: null } }),
-    prisma.contactMaster.findMany({
-      where,
-      orderBy,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phoneNumber: true,
-        lastPurchaseAt: true,
-        recentMerchant: true,
-        updatedAt: true,
-        createdAt: true,
-      },
-    }),
-  ]);
   const dedupedContacts = dedupeContactsForDisplay(rawContacts);
   const total = dedupedContacts.length;
   const contacts = dedupedContacts.slice((page - 1) * limit, page * limit);
@@ -123,6 +243,7 @@ export async function fetchContactsPageData(companyId: string, params: ContactsP
       inactive: inactiveCount,
       neverPurchased: neverPurchasedCount,
     },
+    options,
   };
   maybeLogSlowDbRequest("contacts.page_data", startedAt, {
     companyId,

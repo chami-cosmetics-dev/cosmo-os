@@ -1,10 +1,10 @@
-/** Shared DTOs for merchant Customer Insight (contracts/customer-insight.md). */
+/** Shared DTOs for merchant Customer Insight (contracts/insight-allocation-loyalty.md). */
 
 export type LoyaltyTierKey = "standard" | "gold" | "platinum";
 
 export type LoyaltyThresholds = {
   goldMin: number;
-  platinumAbove: number;
+  platinumMin: number;
 };
 
 export type LoyaltyDto = {
@@ -15,6 +15,8 @@ export type LoyaltyDto = {
   currency: string;
   thresholds: LoyaltyThresholds;
 };
+
+export type InsightVisibility = "owner" | "limited";
 
 export type SearchMatchDto = {
   id: string;
@@ -29,6 +31,10 @@ export type ContactInsightDto = {
   phoneNumber: string | null;
   phones: string[];
   email: string | null;
+  birthYear: number | null;
+  birthMonth: number | null;
+  birthDay: number | null;
+  assignedMerchant: string | null;
 };
 
 export type FrequencyDto = {
@@ -60,6 +66,7 @@ export type InvoiceLineDto = {
   quantity: number;
   /** Unit price as string (Contact Master purchase table style). */
   price: string;
+  brand?: string | null;
 };
 
 export type UnifiedInvoiceRowDto = {
@@ -86,17 +93,48 @@ export type InvoicePaginationDto = {
   total: number;
 };
 
+export type ProgressBarDto = {
+  currentTotal: number;
+  goldMin: number;
+  platinumMin: number;
+  amountToNext: number;
+  tier: LoyaltyTierKey;
+};
+
+/** Full owner insight, or limited fields when visibility is "limited". */
 export type CustomerInsightDto = {
-  contact: ContactInsightDto;
+  visibility: InsightVisibility;
+  assignedMerchant: string | null;
   loyalty: LoyaltyDto;
-  frequency: FrequencyDto;
-  topItems: TopItemDto[];
-  series: SeriesPointDto[];
-  chartsAvailable: boolean;
   invoices: UnifiedInvoiceRowDto[];
   invoicePagination: InvoicePaginationDto;
+  /** Owner / admin only */
+  contact?: ContactInsightDto;
+  frequency?: FrequencyDto;
+  topItems?: TopItemDto[];
+  series?: SeriesPointDto[];
+  chartsAvailable?: boolean;
+  progressBar?: ProgressBarDto;
+  lastContactedAt?: string | null;
+  canEditProfile?: boolean;
+  canMarkContacted?: boolean;
+};
+
+export type AllocatedFilterItemDto = {
+  contactId: string;
+  name: string;
+  phoneNumber: string | null;
+  lifetimeTotal: number;
+  loyalty: Pick<LoyaltyDto, "key" | "label" | "code">;
+  assignedMerchant: string | null;
+};
+
+export type AllocatedFilterResultDto = {
+  items: AllocatedFilterItemDto[];
+  pagination: InvoicePaginationDto;
 };
 
 export const CUSTOMER_INSIGHT_SEARCH_CAP = 10;
 export const CUSTOMER_INSIGHT_TOP_ITEMS = 10;
 export const CUSTOMER_INSIGHT_CHART_MIN_DOCS = 3;
+export const CUSTOMER_INSIGHT_FILTER_PAGE_SIZE_MAX = 50;
