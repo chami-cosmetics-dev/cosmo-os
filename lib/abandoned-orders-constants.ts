@@ -13,7 +13,22 @@ export const CUSTOMER_RESPONSES = [
 export type CustomerResponse = (typeof CUSTOMER_RESPONSES)[number];
 
 /** Older stored values — still display correctly in lists/filters. */
-const LEGACY_CUSTOMER_RESPONSE_LABELS: Record<string, string> = {
+export const LEGACY_CUSTOMER_RESPONSES = [
+  "no_more_interest",
+  "purchased_elsewhere",
+  "changed_my_mind",
+  "no_response",
+] as const;
+export type LegacyCustomerResponse = (typeof LEGACY_CUSTOMER_RESPONSES)[number];
+
+/** Current + legacy values allowed in abandoned-orders list filters. */
+export const FILTER_CUSTOMER_RESPONSES = [
+  ...CUSTOMER_RESPONSES,
+  ...LEGACY_CUSTOMER_RESPONSES,
+] as const;
+export type CustomerResponseFilterValue = (typeof FILTER_CUSTOMER_RESPONSES)[number];
+
+const LEGACY_CUSTOMER_RESPONSE_LABELS: Record<LegacyCustomerResponse, string> = {
   no_more_interest: "No more interest",
   purchased_elsewhere: "Purchased elsewhere",
   changed_my_mind: "Changed my mind",
@@ -45,7 +60,10 @@ export function getCustomerResponseLabel(value: string | null | undefined): stri
   if (value in CUSTOMER_RESPONSE_LABELS) {
     return CUSTOMER_RESPONSE_LABELS[value as CustomerResponse];
   }
-  return LEGACY_CUSTOMER_RESPONSE_LABELS[value] ?? value;
+  if ((LEGACY_CUSTOMER_RESPONSES as readonly string[]).includes(value)) {
+    return LEGACY_CUSTOMER_RESPONSE_LABELS[value as LegacyCustomerResponse];
+  }
+  return value;
 }
 
 export const REMARK_TEMPLATES = [

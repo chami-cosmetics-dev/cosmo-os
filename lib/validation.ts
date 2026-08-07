@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
+import { CUSTOMER_RESPONSES, FILTER_CUSTOMER_RESPONSES, FOLLOW_UP_STATUSES } from "@/lib/abandoned-orders-constants";
 
 /**
  * Application-wide validation constants.
@@ -341,13 +341,9 @@ const csvEnumSchema = <T extends string>(enumValues: readonly T[]) =>
     });
 
 export const abandonedOrdersFollowUpStatusCsvSchema = csvEnumSchema(FOLLOW_UP_STATUSES);
-export const abandonedOrdersCustomerResponseCsvSchema = csvEnumSchema([
-  ...CUSTOMER_RESPONSES,
-  "no_more_interest",
-  "purchased_elsewhere",
-  "changed_my_mind",
-  "no_response",
-] as const);
+export const abandonedOrdersCustomerResponseCsvSchema = csvEnumSchema(
+  FILTER_CUSTOMER_RESPONSES
+);
 
 export const abandonedOrdersListQuerySchema = z.object({
   from: optionalYmdDateQuerySchema,
