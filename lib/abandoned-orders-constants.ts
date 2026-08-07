@@ -1,14 +1,24 @@
 export const FOLLOW_UP_STATUSES = ["pending", "follow_up", "closed"] as const;
 export type FollowUpStatus = (typeof FOLLOW_UP_STATUSES)[number];
 
+/** Values staff can pick when closing follow-up (plus recovered_sale from Shopify auto-close). */
 export const CUSTOMER_RESPONSES = [
-  "no_more_interest",
-  "purchased_elsewhere",
-  "changed_my_mind",
+  "converted_to_order",
+  "unable_to_contact",
+  "internal_staff",
+  "customer_doesnt_want_order",
+  "already_placed_order",
   "recovered_sale",
-  "no_response",
 ] as const;
 export type CustomerResponse = (typeof CUSTOMER_RESPONSES)[number];
+
+/** Older stored values — still display correctly in lists/filters. */
+const LEGACY_CUSTOMER_RESPONSE_LABELS: Record<string, string> = {
+  no_more_interest: "No more interest",
+  purchased_elsewhere: "Purchased elsewhere",
+  changed_my_mind: "Changed my mind",
+  no_response: "No response",
+};
 
 export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   pending: "Pending",
@@ -17,10 +27,59 @@ export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
 };
 
 export const CUSTOMER_RESPONSE_LABELS: Record<CustomerResponse, string> = {
-  no_more_interest: "No more interest",
-  purchased_elsewhere: "Purchased elsewhere",
-  changed_my_mind: "Changed my mind",
+  converted_to_order: "Converted to an order",
+  unable_to_contact: "Unable to contact",
+  internal_staff: "Internal staff",
+  customer_doesnt_want_order: "Customer doesn't want the order",
+  already_placed_order: "Already placed an order",
   recovered_sale: "Recovered sale",
-  no_response: "No response",
 };
 
+/** Responses shown in filters / close form (exclude system-only recovered_sale from manual pick? keep it — useful). */
+export const MANUAL_CUSTOMER_RESPONSES = CUSTOMER_RESPONSES.filter(
+  (r) => r !== "recovered_sale"
+) as Exclude<CustomerResponse, "recovered_sale">[];
+
+export function getCustomerResponseLabel(value: string | null | undefined): string {
+  if (!value) return "—";
+  if (value in CUSTOMER_RESPONSE_LABELS) {
+    return CUSTOMER_RESPONSE_LABELS[value as CustomerResponse];
+  }
+  return LEGACY_CUSTOMER_RESPONSE_LABELS[value] ?? value;
+}
+
+export const REMARK_TEMPLATES = [
+  {
+    id: "converted_to_order",
+    label: "Converted to an order",
+  },
+  {
+    id: "unable_to_contact",
+    label: "Unable to contact",
+  },
+  {
+    id: "internal_staff",
+    label: "Internal staff",
+  },
+  {
+    id: "customer_doesnt_want_order",
+    label: "Customer doesn't want the order",
+  },
+  {
+    id: "already_placed_order",
+    label: "Already placed an order",
+  },
+  {
+    id: "custom",
+    label: "Custom",
+  },
+] as const;
+
+export type RemarkTemplateId = (typeof REMARK_TEMPLATES)[number]["id"];
+
+export function matchRemarkTemplateId(remark: string | null | undefined): RemarkTemplateId {
+  const trimmed = remark?.trim() ?? "";
+  if (!trimmed) return "custom";
+  const hit = REMARK_TEMPLATES.find((t) => t.id !== "custom" && t.label === trimmed);
+  return hit?.id ?? "custom";
+}

@@ -15,7 +15,12 @@ import type {
   AbandonedOrdersListItem,
   AbandonedOrdersPagination,
 } from "@/lib/page-data/abandoned-orders-types";
-import { CUSTOMER_RESPONSE_LABELS, FOLLOW_UP_STATUS_LABELS } from "@/lib/abandoned-orders-constants";
+import {
+  FOLLOW_UP_STATUS_LABELS,
+  getCustomerResponseLabel,
+  MANUAL_CUSTOMER_RESPONSES,
+  CUSTOMER_RESPONSE_LABELS,
+} from "@/lib/abandoned-orders-constants";
 import { AbandonedOrderFollowUpForm } from "@/components/molecules/abandoned-order-follow-up-form";
 import {
   Dialog,
@@ -271,11 +276,16 @@ export function AbandonedOrdersPanel({
                 }}
               >
                 <option value="">Any</option>
-                <option value="no_more_interest">No more interest</option>
-                <option value="purchased_elsewhere">Purchased elsewhere</option>
-                <option value="changed_my_mind">Changed my mind</option>
-                <option value="recovered_sale">Recovered sale</option>
-                <option value="no_response">No response</option>
+                {MANUAL_CUSTOMER_RESPONSES.map((key) => (
+                  <option key={key} value={key}>
+                    {CUSTOMER_RESPONSE_LABELS[key]}
+                  </option>
+                ))}
+                <option value="recovered_sale">{CUSTOMER_RESPONSE_LABELS.recovered_sale}</option>
+                <option value="no_more_interest">No more interest (legacy)</option>
+                <option value="purchased_elsewhere">Purchased elsewhere (legacy)</option>
+                <option value="changed_my_mind">Changed my mind (legacy)</option>
+                <option value="no_response">No response (legacy)</option>
               </select>
             </div>
 
@@ -386,7 +396,7 @@ export function AbandonedOrdersPanel({
                         {FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerResponse ? CUSTOMER_RESPONSE_LABELS[item.customerResponse] : "—"}
+                        {item.customerResponse ? getCustomerResponseLabel(item.customerResponse) : "—"}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {item.lastFollowUpBy?.name ?? "—"}

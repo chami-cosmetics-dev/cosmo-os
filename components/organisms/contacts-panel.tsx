@@ -234,6 +234,7 @@ export function ContactsPanel({
   }, [effectiveSearch, status, allocatedTo, brand]);
 
   const fetchPageData = useCallback(async () => {
+    setLoading(true);
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("limit", String(limit));
@@ -244,17 +245,21 @@ export function ContactsPanel({
     if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
     if (brand !== "__all") params.set("brand", brand);
 
-    const res = await fetch(`/api/admin/contacts/page-data?${params.toString()}`);
-    if (!res.ok) {
-      const data = (await res.json()) as { error?: string };
-      throw new Error(data.error ?? "Failed to fetch contacts");
+    try {
+      const res = await fetch(`/api/admin/contacts/page-data?${params.toString()}`);
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Failed to fetch contacts");
+      }
+      const data = (await res.json()) as ContactsPanelInitialData;
+      setContacts(data.contacts);
+      setTotal(data.total);
+      setCounts(data.counts);
+      if (data.options) setFilterOptions(data.options);
+      setBrandFilterActive(Boolean(data.brandFilterActive) || brand !== "__all");
+    } finally {
+      setLoading(false);
     }
-    const data = (await res.json()) as ContactsPanelInitialData;
-    setContacts(data.contacts);
-    setTotal(data.total);
-    setCounts(data.counts);
-    if (data.options) setFilterOptions(data.options);
-    setBrandFilterActive(Boolean(data.brandFilterActive));
   }, [effectiveSearch, page, limit, status, allocatedTo, brand]);
 
   useEffect(() => {

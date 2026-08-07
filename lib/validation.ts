@@ -341,7 +341,13 @@ const csvEnumSchema = <T extends string>(enumValues: readonly T[]) =>
     });
 
 export const abandonedOrdersFollowUpStatusCsvSchema = csvEnumSchema(FOLLOW_UP_STATUSES);
-export const abandonedOrdersCustomerResponseCsvSchema = csvEnumSchema(CUSTOMER_RESPONSES);
+export const abandonedOrdersCustomerResponseCsvSchema = csvEnumSchema([
+  ...CUSTOMER_RESPONSES,
+  "no_more_interest",
+  "purchased_elsewhere",
+  "changed_my_mind",
+  "no_response",
+] as const);
 
 export const abandonedOrdersListQuerySchema = z.object({
   from: optionalYmdDateQuerySchema,
