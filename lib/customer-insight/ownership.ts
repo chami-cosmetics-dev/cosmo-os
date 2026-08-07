@@ -33,6 +33,24 @@ export function isAdminOrSuperAdmin(roleNames: string[] | undefined | null): boo
 }
 
 /**
+ * Company-wide Insight filters (all contacts, not only allocated).
+ * Admins always; also users with Contact Master / allocation manage rights.
+ */
+export function canFilterAllInsightContacts(input: {
+  roleNames?: string[] | null;
+  permissionKeys?: string[] | null;
+}): boolean {
+  if (isAdminOrSuperAdmin(input.roleNames)) return true;
+  const keys = input.permissionKeys ?? [];
+  return (
+    keys.includes("contacts.master.read") ||
+    keys.includes("contacts.master.manage") ||
+    keys.includes("contacts.manage") ||
+    keys.includes("contacts.allocation.manage")
+  );
+}
+
+/**
  * Owner when admin/super_admin, or assignedMerchant equals one of the viewer's
  * display labels (knownName / name / email), case-insensitive.
  */

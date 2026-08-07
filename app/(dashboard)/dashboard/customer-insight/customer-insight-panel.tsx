@@ -98,7 +98,11 @@ type ProfileForm = {
   birthDay: string;
 };
 
-export function CustomerInsightPanel() {
+export function CustomerInsightPanel({
+  canFilterAllContacts = false,
+}: {
+  canFilterAllContacts?: boolean;
+}) {
   const [phone, setPhone] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [matches, setMatches] = useState<SearchMatchDto[] | null>(null);
@@ -354,16 +358,25 @@ export function CustomerInsightPanel() {
         <h1 className="text-2xl font-semibold tracking-tight">Customer Insight</h1>
         <p className="text-sm text-muted-foreground">
           Search any customer by exact phone. Full profile and analytics are only for the
-          allocated merchant (and admins). Filters search your allocated customers.
+          allocated merchant (and admins), who can also edit name, email, phone, and DOB.{" "}
+          {canFilterAllContacts
+            ? "Filters search all company contacts."
+            : "Filters search your allocated customers."}
         </p>
       </div>
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Allocated customer filters</CardTitle>
+          <CardTitle className="text-base">
+            {canFilterAllContacts ? "Customer filters" : "Allocated customer filters"}
+          </CardTitle>
           <CardDescription>
-            Results are limited to your allocated customers (admins: all allocated), highest
-            totals first.
+            {canFilterAllContacts
+              ? "Results include all company contacts matching your filters (allocated and unallocated)."
+              : "Results are limited to your allocated customers."}{" "}
+            Without a brand, highest lifetime totals first. With a brand, customers who bought
+            that brand (vendor or product title), ranked by brand spend — same rules as Contact
+            Master.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -455,7 +468,9 @@ export function CustomerInsightPanel() {
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
                 {filterTotal === 0
-                  ? "No allocated customers match these filters."
+                  ? canFilterAllContacts
+                    ? "No contacts match these filters."
+                    : "No allocated customers match these filters."
                   : `${filterTotal} match(es), showing ${filterResults.length}.`}
               </p>
               <ul className="divide-y rounded-md border">
@@ -470,6 +485,9 @@ export function CustomerInsightPanel() {
                       <span className="font-medium">{row.name}</span>
                       <span className="text-muted-foreground">
                         {row.phoneNumber ?? "—"} ·{" "}
+                        {row.brandSpend != null
+                          ? `Brand ${formatMoney(row.brandSpend)} · `
+                          : null}
                         {formatMoney(row.lifetimeTotal)} · {row.loyalty.label}
                       </span>
                     </button>

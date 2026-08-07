@@ -125,6 +125,8 @@ export type AllocatedFilterItemDto = {
   name: string;
   phoneNumber: string | null;
   lifetimeTotal: number;
+  /** Present when brand filter is applied — spend on that brand only. */
+  brandSpend?: number | null;
   loyalty: Pick<LoyaltyDto, "key" | "label" | "code">;
   assignedMerchant: string | null;
 };

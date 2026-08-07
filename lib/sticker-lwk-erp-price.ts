@@ -10,11 +10,15 @@ import {
 } from "@/lib/osf/erp-stock";
 import { prisma } from "@/lib/prisma";
 
-/** Cosmo ERP selling price list used by LWK POS. */
-export const LWK_STICKER_PRICE_LIST = "OGF Price List";
+export {
+  LWK_STICKER_PRICE_LIST,
+  STANDARD_SELLING_PRICE_LIST,
+} from "@/lib/sticker-lwk-erp-price-list";
 
-/** Cosmo ERP standard catalog selling list (non-LWK stickers / OS product price). */
-export const STANDARD_SELLING_PRICE_LIST = "Standard Selling";
+import {
+  LWK_STICKER_PRICE_LIST,
+  STANDARD_SELLING_PRICE_LIST,
+} from "@/lib/sticker-lwk-erp-price-list";
 
 const PAGE_LENGTH = 500;
 const MAX_PAGES = 80;
