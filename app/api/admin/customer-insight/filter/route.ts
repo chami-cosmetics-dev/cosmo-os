@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
-import { isAdminOrSuperAdmin } from "@/lib/customer-insight/ownership";
+import {
+  canFilterAllInsightContacts,
+  isAdminOrSuperAdmin,
+} from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 import { customerInsightFilterQuerySchema } from "@/lib/validation/customer-insight";
 
@@ -40,6 +43,7 @@ export async function GET(request: NextRequest) {
   }
 
   const roleNames = (auth.context!.roleNames as string[]) ?? [];
+  const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
   const viewer = {
     knownName: user.knownName ?? null,
     name: user.name ?? null,
@@ -47,10 +51,16 @@ export async function GET(request: NextRequest) {
     roleNames,
   };
 
+  const scopeAllContacts = canFilterAllInsightContacts({
+    roleNames,
+    permissionKeys,
+  });
+
   const result = await filterAllocatedContacts({
     companyId,
     viewer,
     isAdmin: isAdminOrSuperAdmin(roleNames),
+    scopeAllContacts,
     pushGold: parsed.data.pushGold,
     pushPlatinum: parsed.data.pushPlatinum,
     loyalty: parsed.data.loyalty,
