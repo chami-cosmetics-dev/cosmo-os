@@ -37,6 +37,7 @@ type ContactItem = {
   lastPurchaseAt: string | null;
   recentMerchant: string | null;
   assignedMerchant: string | null;
+  brandSpend?: number | null;
   birthYear?: number | null;
   birthMonth?: number | null;
   birthDay?: number | null;
@@ -104,6 +105,7 @@ type ContactsPanelInitialData = {
     brands: string[];
     assignees: Array<{ id: string; label: string }>;
   };
+  brandFilterActive?: boolean;
 };
 
 type ContactBackfillPreview = {
@@ -187,6 +189,9 @@ export function ContactsPanel({
   const [filterOptions, setFilterOptions] = useState(
     initialData.options ?? { assignedMerchants: [], brands: [], assignees: [] }
   );
+  const [brandFilterActive, setBrandFilterActive] = useState(
+    Boolean(initialData.brandFilterActive)
+  );
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -249,6 +254,7 @@ export function ContactsPanel({
     setTotal(data.total);
     setCounts(data.counts);
     if (data.options) setFilterOptions(data.options);
+    setBrandFilterActive(Boolean(data.brandFilterActive));
   }, [effectiveSearch, page, limit, status, allocatedTo, brand]);
 
   useEffect(() => {
@@ -975,6 +981,13 @@ export function ContactsPanel({
             </Button>
           </div>
 
+          {brandFilterActive ? (
+            <p className="text-muted-foreground text-xs">
+              Brand filter: customers who bought this brand, ranked by highest brand spend
+              first (e.g. Anua top buyers).
+            </p>
+          ) : null}
+
           {loading && contacts.length === 0 ? (
             <TableSkeleton columns={8} rows={6} />
           ) : contacts.length === 0 ? (
@@ -999,6 +1012,9 @@ export function ContactsPanel({
                       <th className="px-4 py-2 text-left font-medium">Last Purchase</th>
                       <th className="px-4 py-2 text-left font-medium">Recent Merchant</th>
                       <th className="px-4 py-2 text-left font-medium">Allocated To</th>
+                      {brandFilterActive ? (
+                        <th className="px-4 py-2 text-right font-medium">Brand spend</th>
+                      ) : null}
                       <th className="px-4 py-2 text-left font-medium">Updated</th>
                       <th className="px-4 py-2 text-left font-medium">Actions</th>
                     </tr>
@@ -1026,6 +1042,11 @@ export function ContactsPanel({
                         <td className="px-4 py-2 text-muted-foreground">{toDateTimeLabel(contact.lastPurchaseAt)}</td>
                         <td className="px-4 py-2">{contact.recentMerchant || "N/A"}</td>
                         <td className="px-4 py-2">{contact.assignedMerchant || "—"}</td>
+                        {brandFilterActive ? (
+                          <td className="px-4 py-2 text-right tabular-nums font-medium">
+                            {formatAmount(String(contact.brandSpend ?? 0), "LKR")}
+                          </td>
+                        ) : null}
                         <td className="px-4 py-2 text-muted-foreground">{toDateTimeLabel(contact.updatedAt)}</td>
                         <td className="px-4 py-2">
                           <Button

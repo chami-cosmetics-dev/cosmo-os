@@ -379,8 +379,8 @@ export function CustomerInsightPanel() {
                 disabled={isBusy}
               >
                 <option value="">None</option>
-                <option value="gold">Push to Gold (≥75k &lt;200k)</option>
-                <option value="platinum">Push to Platinum (≥200k)</option>
+                <option value="gold">Push to Gold (≥75k ≤100k)</option>
+                <option value="platinum">Push to Platinum (≥150k ≤200k)</option>
               </select>
             </label>
             <label className="space-y-1 text-sm">
