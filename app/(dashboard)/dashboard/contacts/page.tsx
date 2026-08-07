@@ -47,6 +47,10 @@ export default async function ContactsPage() {
           hasPermission(auth.context!, "contacts.master.manage") ||
           hasPermission(auth.context!, "contacts.manage")
         }
+        canAllocate={
+          hasPermission(auth.context!, "contacts.allocation.manage") ||
+          hasPermission(auth.context!, "contacts.manage")
+        }
       />
     </div>
   );

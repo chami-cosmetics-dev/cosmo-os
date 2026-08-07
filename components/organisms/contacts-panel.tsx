@@ -36,6 +36,10 @@ type ContactItem = {
   status: "active" | "inactive" | "never_purchased";
   lastPurchaseAt: string | null;
   recentMerchant: string | null;
+  assignedMerchant: string | null;
+  birthYear?: number | null;
+  birthMonth?: number | null;
+  birthDay?: number | null;
   updatedAt: string;
   createdAt: string;
 };
@@ -94,6 +98,11 @@ type ContactsPanelInitialData = {
     active: number;
     inactive: number;
     neverPurchased: number;
+  };
+  options?: {
+    assignedMerchants: string[];
+    brands: string[];
+    assignees: Array<{ id: string; label: string }>;
   };
 };
 
@@ -159,9 +168,11 @@ function formatAmount(value: string, currency?: string | null) {
 export function ContactsPanel({
   initialData,
   canManage,
+  canAllocate = false,
 }: {
   initialData: ContactsPanelInitialData;
   canManage: boolean;
+  canAllocate?: boolean;
 }) {
   const [contacts, setContacts] = useState<ContactItem[]>(initialData.contacts);
   const [total, setTotal] = useState(initialData.total);
@@ -171,6 +182,11 @@ export function ContactsPanel({
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [status, setStatus] = useState<"__all" | "active" | "inactive" | "never_purchased">("__all");
+  const [allocatedTo, setAllocatedTo] = useState<string>("__all");
+  const [brand, setBrand] = useState<string>("__all");
+  const [filterOptions, setFilterOptions] = useState(
+    initialData.options ?? { assignedMerchants: [], brands: [], assignees: [] }
+  );
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -184,6 +200,12 @@ export function ContactsPanel({
   const [purchasesLoading, setPurchasesLoading] = useState(false);
   const [contactPurchases, setContactPurchases] = useState<ContactPurchaseOrder[]>([]);
   const [purchaseContactDetails, setPurchaseContactDetails] = useState<ContactPurchaseDetails | null>(null);
+  const [assignPhone, setAssignPhone] = useState("");
+  const [assignTo, setAssignTo] = useState("");
+  const [assignSaving, setAssignSaving] = useState(false);
+  const [transferFrom, setTransferFrom] = useState("");
+  const [transferTo, setTransferTo] = useState("");
+  const [transferSaving, setTransferSaving] = useState(false);
   const [createForm, setCreateForm] = useState<CreateContactInput>({
     name: "",
     email: "",
@@ -204,7 +226,7 @@ export function ContactsPanel({
 
   useEffect(() => {
     setPage(1);
-  }, [effectiveSearch, status]);
+  }, [effectiveSearch, status, allocatedTo, brand]);
 
   const fetchPageData = useCallback(async () => {
     const params = new URLSearchParams();
@@ -214,6 +236,8 @@ export function ContactsPanel({
     params.set("sort_order", "desc");
     if (effectiveSearch) params.set("search", effectiveSearch);
     if (status !== "__all") params.set("status", status);
+    if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
+    if (brand !== "__all") params.set("brand", brand);
 
     const res = await fetch(`/api/admin/contacts/page-data?${params.toString()}`);
     if (!res.ok) {
@@ -224,7 +248,8 @@ export function ContactsPanel({
     setContacts(data.contacts);
     setTotal(data.total);
     setCounts(data.counts);
-  }, [effectiveSearch, page, limit, status]);
+    if (data.options) setFilterOptions(data.options);
+  }, [effectiveSearch, page, limit, status, allocatedTo, brand]);
 
   useEffect(() => {
     if (!skippedInitialFetch.current) {
@@ -277,9 +302,80 @@ export function ContactsPanel({
     const params = new URLSearchParams();
     if (effectiveSearch) params.set("search", effectiveSearch);
     if (status !== "__all") params.set("status", status);
+    if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
+    if (brand !== "__all") params.set("brand", brand);
     params.set("mode", mode);
     window.open(`/api/admin/contacts/export?${params.toString()}`, "_blank", "noopener");
     setExportDialogOpen(false);
+  }
+
+  async function onAssignContact() {
+    if (!assignPhone.trim() || !assignTo.trim()) {
+      notify.error("Enter a phone number and select a merchant");
+      return;
+    }
+    setAssignSaving(true);
+    try {
+      const res = await fetch("/api/admin/contacts/allocation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "individual",
+          phoneNumber: assignPhone.trim(),
+          allocatedTo: assignTo.trim(),
+        }),
+      });
+      const data = (await res.json()) as { error?: string; count?: number };
+      if (!res.ok) {
+        notify.error(data.error ?? "Allocation failed");
+        return;
+      }
+      notify.success(`Allocated ${data.count ?? 1} contact(s)`);
+      setAssignPhone("");
+      await fetchPageData();
+    } catch {
+      notify.error("Allocation failed");
+    } finally {
+      setAssignSaving(false);
+    }
+  }
+
+  async function onTransferAllocated() {
+    if (!transferFrom.trim() || !transferTo.trim()) {
+      notify.error("Select both source and destination merchants");
+      return;
+    }
+    if (transferFrom.trim().toLowerCase() === transferTo.trim().toLowerCase()) {
+      notify.error("Source and destination must differ");
+      return;
+    }
+    setTransferSaving(true);
+    try {
+      const res = await fetch("/api/admin/contacts/allocation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "transfer",
+          fromMerchant: transferFrom.trim(),
+          toMerchant: transferTo.trim(),
+        }),
+      });
+      const data = (await res.json()) as { error?: string; count?: number; message?: string };
+      if (!res.ok) {
+        notify.error(data.error ?? "Transfer failed");
+        return;
+      }
+      notify.success(
+        data.count
+          ? `Transferred ${data.count} contact(s)`
+          : data.message ?? "No contacts to transfer"
+      );
+      await fetchPageData();
+    } catch {
+      notify.error("Transfer failed");
+    } finally {
+      setTransferSaving(false);
+    }
   }
 
   function downloadImportSample() {
@@ -424,6 +520,87 @@ export function ContactsPanel({
 
   return (
     <div className="space-y-6">
+      {canAllocate ? (
+        <Card className="overflow-hidden border-border/70 shadow-xs">
+          <CardHeader className="border-b border-border/50">
+            <CardTitle className="text-base">Allocate / Transfer</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-6 pt-4 lg:grid-cols-2">
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Assign by phone</p>
+              <p className="text-muted-foreground text-xs">
+                Set allocated merchant for one contact (same as Contact Allocation individual assign).
+              </p>
+              <Input
+                placeholder="Phone / TP number"
+                value={assignPhone}
+                onChange={(e) => setAssignPhone(e.target.value)}
+                disabled={assignSaving}
+              />
+              <Select value={assignTo || undefined} onValueChange={setAssignTo}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Allocate to merchant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filterOptions.assignees.map((a) => (
+                    <SelectItem key={a.id} value={a.label}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                disabled={assignSaving}
+                onClick={() => void onAssignContact()}
+              >
+                {assignSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Assign
+              </Button>
+            </div>
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Transfer allocated list</p>
+              <p className="text-muted-foreground text-xs">
+                Move every contact currently allocated to one merchant over to another.
+              </p>
+              <Select value={transferFrom || undefined} onValueChange={setTransferFrom}>
+                <SelectTrigger>
+                  <SelectValue placeholder="From merchant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filterOptions.assignedMerchants.map((label) => (
+                    <SelectItem key={`from-${label}`} value={label}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={transferTo || undefined} onValueChange={setTransferTo}>
+                <SelectTrigger>
+                  <SelectValue placeholder="To merchant" />
+                </SelectTrigger>
+                <SelectContent>
+                  {filterOptions.assignees.map((a) => (
+                    <SelectItem key={`to-${a.id}`} value={a.label}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={transferSaving}
+                onClick={() => void onTransferAllocated()}
+              >
+                {transferSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                Transfer all
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="overflow-hidden border-border/70 shadow-xs">
         <CardHeader className="border-b border-border/50 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,white),color-mix(in_srgb,var(--secondary)_12%,transparent))]">
           <CardTitle className="flex items-center gap-2">
@@ -706,7 +883,8 @@ export function ContactsPanel({
                     <DialogHeader>
                       <DialogTitle>Choose Export Type</DialogTitle>
                       <DialogDescription>
-                        Export only contact details, or include purchase summary values matched by the contact&apos;s number.
+                        Export uses your current filters (search, status, allocated merchant, brand).
+                        Choose contact details only, or include purchase summary values matched by phone.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-3">
@@ -756,12 +934,41 @@ export function ContactsPanel({
                 <SelectItem value="never_purchased">Never Purchased</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={allocatedTo} onValueChange={setAllocatedTo}>
+              <SelectTrigger className="w-full border-border/80 bg-background/80 sm:w-52">
+                <SelectValue placeholder="Allocated merchant" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">Any allocated</SelectItem>
+                <SelectItem value="__unallocated">Unallocated</SelectItem>
+                {filterOptions.assignedMerchants.map((label) => (
+                  <SelectItem key={label} value={label}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={brand} onValueChange={setBrand}>
+              <SelectTrigger className="w-full border-border/80 bg-background/80 sm:w-48">
+                <SelectValue placeholder="Brand" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">Any brand</SelectItem>
+                {filterOptions.brands.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               variant="ghost"
               className="hover:bg-secondary/15"
               onClick={() => {
                 setSearch("");
                 setStatus("__all");
+                setAllocatedTo("__all");
+                setBrand("__all");
               }}
             >
               Reset
@@ -769,7 +976,7 @@ export function ContactsPanel({
           </div>
 
           {loading && contacts.length === 0 ? (
-            <TableSkeleton columns={7} rows={6} />
+            <TableSkeleton columns={8} rows={6} />
           ) : contacts.length === 0 ? (
             <div className="rounded-md border border-dashed py-10 text-center">
               <p className="text-sm font-medium">No contacts found</p>
@@ -791,6 +998,7 @@ export function ContactsPanel({
                       <th className="px-4 py-2 text-left font-medium">Status</th>
                       <th className="px-4 py-2 text-left font-medium">Last Purchase</th>
                       <th className="px-4 py-2 text-left font-medium">Recent Merchant</th>
+                      <th className="px-4 py-2 text-left font-medium">Allocated To</th>
                       <th className="px-4 py-2 text-left font-medium">Updated</th>
                       <th className="px-4 py-2 text-left font-medium">Actions</th>
                     </tr>
@@ -817,6 +1025,7 @@ export function ContactsPanel({
                         </td>
                         <td className="px-4 py-2 text-muted-foreground">{toDateTimeLabel(contact.lastPurchaseAt)}</td>
                         <td className="px-4 py-2">{contact.recentMerchant || "N/A"}</td>
+                        <td className="px-4 py-2">{contact.assignedMerchant || "—"}</td>
                         <td className="px-4 py-2 text-muted-foreground">{toDateTimeLabel(contact.updatedAt)}</td>
                         <td className="px-4 py-2">
                           <Button

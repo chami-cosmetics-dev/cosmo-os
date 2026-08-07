@@ -48,6 +48,11 @@ const allocationSchema = z.discriminatedUnion("mode", [
     filters: filterSchema,
     allocatedTo: z.string().trim().min(1).max(255),
   }),
+  z.object({
+    mode: z.literal("transfer"),
+    fromMerchant: z.string().trim().min(1).max(255),
+    toMerchant: z.string().trim().min(1).max(255),
+  }),
 ]);
 
 function filtersFromSearchParams(searchParams: URLSearchParams): ContactAllocationFilters {
@@ -212,21 +217,53 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, count: contactIds.length });
   }
 
-  const contactIds = await fetchContactAllocationIds(companyId, input.filters, 5000);
-  if (contactIds.length === 0) {
-    return NextResponse.json({ error: "No matching contacts found" }, { status: 404 });
+  if (input.mode === "bulk") {
+    const contactIds = await fetchContactAllocationIds(companyId, input.filters, 5000);
+    if (contactIds.length === 0) {
+      return NextResponse.json({ error: "No matching contacts found" }, { status: 404 });
+    }
+    await assignContacts({
+      companyId,
+      contactIds,
+      assignedMerchant: input.allocatedTo,
+    });
+    await logAllocationUpdates({
+      companyId,
+      contactIds,
+      allocatedTo: input.allocatedTo,
+      merchantId,
+    });
+
+    return NextResponse.json({ success: true, count: contactIds.length });
   }
+
+  // transfer: move all contacts currently allocated to fromMerchant → toMerchant
+  const contacts = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      assignedMerchant: { equals: input.fromMerchant, mode: "insensitive" },
+    },
+    select: { id: true },
+    take: 5000,
+  });
+  if (contacts.length === 0) {
+    return NextResponse.json({
+      success: true,
+      count: 0,
+      message: "No contacts allocated to that merchant",
+    });
+  }
+  const contactIds = contacts.map((c) => c.id);
   await assignContacts({
     companyId,
     contactIds,
-    assignedMerchant: input.allocatedTo,
+    assignedMerchant: input.toMerchant,
   });
   await logAllocationUpdates({
     companyId,
     contactIds,
-    allocatedTo: input.allocatedTo,
+    allocatedTo: input.toMerchant,
     merchantId,
   });
-
   return NextResponse.json({ success: true, count: contactIds.length });
 }

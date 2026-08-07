@@ -194,6 +194,9 @@ export function ContactAllocationPanel({
   const [bulkAssignee, setBulkAssignee] = useState("");
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [transferFrom, setTransferFrom] = useState("");
+  const [transferTo, setTransferTo] = useState("");
+  const [transferSaving, setTransferSaving] = useState(false);
 
   const assigneeLabels = useMemo(
     () => allocationData.options.assignees.map((assignee) => assignee.label),
@@ -335,6 +338,32 @@ export function ContactAllocationPanel({
       notify.error(error instanceof Error ? error.message : "Allocation failed");
     } finally {
       setBulkSaving(false);
+    }
+  }
+
+  async function transferAll() {
+    if (!transferFrom.trim() || !transferTo.trim()) {
+      notify.error("Select both source and destination merchants");
+      return;
+    }
+    if (transferFrom.trim().toLowerCase() === transferTo.trim().toLowerCase()) {
+      notify.error("Source and destination must differ");
+      return;
+    }
+    setTransferSaving(true);
+    try {
+      await allocate(
+        {
+          mode: "transfer",
+          fromMerchant: transferFrom.trim(),
+          toMerchant: transferTo.trim(),
+        },
+        "bulk"
+      );
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Transfer failed");
+    } finally {
+      setTransferSaving(false);
     }
   }
 
@@ -564,6 +593,44 @@ export function ContactAllocationPanel({
               Allocate
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="gap-0 rounded-none border-t-2 border-t-amber-600 py-0">
+        <CardHeader className="border-b px-4 py-2">
+          <CardTitle className="text-sm font-medium uppercase">
+            Transfer allocated list
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 px-4 py-4">
+          <p className="text-muted-foreground">
+            Move every contact currently allocated to one merchant over to another merchant.
+          </p>
+          <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+            <SelectField
+              label="From merchant"
+              value={transferFrom}
+              onChange={setTransferFrom}
+              options={allocationData.options.assignedMerchants}
+              placeholder="Select source"
+            />
+            <SelectField
+              label="To merchant"
+              value={transferTo}
+              onChange={setTransferTo}
+              options={assigneeLabels}
+              placeholder="Select destination"
+            />
+          </div>
+          <Button
+            type="button"
+            onClick={() => void transferAll()}
+            disabled={!canManage || transferSaving}
+            className="h-9 min-w-36 rounded-none bg-amber-600 hover:bg-amber-700"
+          >
+            {transferSaving && <Loader2 className="mr-2 size-4 animate-spin" />}
+            Transfer all
+          </Button>
         </CardContent>
       </Card>
     </div>
