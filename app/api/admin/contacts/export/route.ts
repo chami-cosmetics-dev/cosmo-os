@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { logReportDownload } from "@/lib/report-download-log";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { buildContactsListWhere } from "@/lib/page-data/contacts";
 import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
 import { prisma } from "@/lib/prisma";
@@ -116,14 +117,25 @@ export async function GET(request: NextRequest) {
   const allocatedTo = request.nextUrl.searchParams.get("allocatedTo")?.trim() || null;
   const brand = request.nextUrl.searchParams.get("brand")?.trim() || null;
 
-  const where = await buildContactsListWhere(companyId, {
-    status,
-    search,
-    allocatedTo,
-    brand,
-  });
+  const brandRanks = brand
+    ? await findContactsByPurchasedBrandRanked(companyId, brand)
+    : [];
+  const brandSpendById = new Map(
+    brandRanks.map((r) => [r.contactId, r.brandSpend] as const)
+  );
 
-  const contacts = await prisma.contactMaster.findMany({
+  const where = await buildContactsListWhere(
+    companyId,
+    {
+      status,
+      search,
+      allocatedTo,
+      brand,
+    },
+    { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
+  );
+
+  let contacts = await prisma.contactMaster.findMany({
     where,
     orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
     select: {
@@ -139,6 +151,14 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  if (brand) {
+    contacts = [...contacts].sort((a, b) => {
+      const spendA = brandSpendById.get(a.id) ?? 0;
+      const spendB = brandSpendById.get(b.id) ?? 0;
+      return spendB - spendA;
+    });
+  }
+
   const purchaseSummary =
     mode === "purchase_summary" ? await buildPurchaseSummary(companyId, contacts) : null;
 
@@ -149,6 +169,7 @@ export async function GET(request: NextRequest) {
     "phone_number",
     "recent_merchant",
     "assigned_merchant",
+    ...(brand ? (["brand_spend"] as const) : []),
     "last_purchased_date",
     "created_at",
     "updated_at",
@@ -163,6 +184,7 @@ export async function GET(request: NextRequest) {
           "phone_number",
           "recent_merchant",
           "assigned_merchant",
+          ...(brand ? (["brand_spend"] as const) : []),
           "total_orders",
           "total_purchase_value",
           "last_order_date",
@@ -170,7 +192,7 @@ export async function GET(request: NextRequest) {
           "created_at",
           "updated_at",
         ]
-      : baseHeaders,
+      : [...baseHeaders],
     contacts.map((contact, index) => {
       const summary = purchaseSummary?.get(contact.id);
       return {
@@ -180,6 +202,9 @@ export async function GET(request: NextRequest) {
         phone_number: contact.phoneNumber ?? "",
         recent_merchant: contact.recentMerchant ?? "",
         assigned_merchant: contact.assignedMerchant ?? "",
+        ...(brand
+          ? { brand_spend: (brandSpendById.get(contact.id) ?? 0).toFixed(2) }
+          : {}),
         ...(mode === "purchase_summary"
           ? {
               total_orders: summary?.orderCount ?? 0,

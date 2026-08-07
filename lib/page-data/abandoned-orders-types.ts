@@ -1,11 +1,15 @@
-import type { CustomerResponse, FollowUpStatus } from "@/lib/abandoned-orders-constants";
+import type {
+  CustomerResponse,
+  CustomerResponseFilterValue,
+  FollowUpStatus,
+} from "@/lib/abandoned-orders-constants";
 
 export type AbandonedOrdersFilters = {
   /** Inclusive bounds for abandonedAt. */
   from?: Date;
   to?: Date;
   followUpStatus?: FollowUpStatus[];
-  customerResponse?: CustomerResponse[];
+  customerResponse?: CustomerResponseFilterValue[];
   search?: string;
   page: number;
   limit: number;

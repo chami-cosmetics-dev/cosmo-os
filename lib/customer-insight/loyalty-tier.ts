@@ -51,14 +51,22 @@ export function buildLoyaltyDto(
   };
 }
 
-/** Push to Gold band: ≥ 75k and &lt; 200k */
+/** Push to Gold band: ≥ 75,000 and ≤ 100,000 */
+export const PUSH_GOLD_MIN = 75_000;
+export const PUSH_GOLD_MAX = 100_000;
+
+/** Push to Platinum band: ≥ 150,000 and ≤ 200,000 */
+export const PUSH_PLATINUM_MIN = 150_000;
+export const PUSH_PLATINUM_MAX = 200_000;
+
+/** Push to Gold band: ≥ 75k and ≤ 100k */
 export function isPushToGold(lifetimeTotal: number): boolean {
   const total = Number.isFinite(lifetimeTotal) ? lifetimeTotal : 0;
-  return total >= LOYALTY_GOLD_MIN && total < LOYALTY_PLATINUM_MIN;
+  return total >= PUSH_GOLD_MIN && total <= PUSH_GOLD_MAX;
 }
 
-/** Push to Platinum: ≥ 200k */
+/** Push to Platinum: ≥ 150k and ≤ 200k */
 export function isPushToPlatinum(lifetimeTotal: number): boolean {
   const total = Number.isFinite(lifetimeTotal) ? lifetimeTotal : 0;
-  return total >= LOYALTY_PLATINUM_MIN;
+  return total >= PUSH_PLATINUM_MIN && total <= PUSH_PLATINUM_MAX;
 }

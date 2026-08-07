@@ -11,8 +11,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { CustomerResponse, FollowUpStatus } from "@/lib/abandoned-orders-constants";
-import { CUSTOMER_RESPONSE_LABELS, FOLLOW_UP_STATUS_LABELS } from "@/lib/abandoned-orders-constants";
+import type { CustomerResponse, FollowUpStatus, RemarkTemplateId } from "@/lib/abandoned-orders-constants";
+import {
+  CUSTOMER_RESPONSE_LABELS,
+  FOLLOW_UP_STATUS_LABELS,
+  MANUAL_CUSTOMER_RESPONSES,
+  REMARK_TEMPLATES,
+  matchRemarkTemplateId,
+} from "@/lib/abandoned-orders-constants";
 
 export function AbandonedOrderFollowUpForm({
   initialFollowUpStatus,
@@ -32,7 +38,12 @@ export function AbandonedOrderFollowUpForm({
   }) => Promise<void>;
 }) {
   const [followUpStatus, setFollowUpStatus] = useState<FollowUpStatus>(initialFollowUpStatus);
-  const [customerResponse, setCustomerResponse] = useState<CustomerResponse | null>(initialCustomerResponse);
+  const [customerResponse, setCustomerResponse] = useState<CustomerResponse | null>(
+    initialCustomerResponse
+  );
+  const [remarkTemplateId, setRemarkTemplateId] = useState<RemarkTemplateId>(() =>
+    matchRemarkTemplateId(initialRemark)
+  );
   const [remark, setRemark] = useState<string>(initialRemark ?? "");
 
   const isClosing = followUpStatus === "closed";
@@ -43,6 +54,16 @@ export function AbandonedOrderFollowUpForm({
     if (customerResponse) return null;
     return "Customer response is required when closing follow-up.";
   }, [customerResponse, isClosing]);
+
+  function applyRemarkTemplate(id: RemarkTemplateId) {
+    setRemarkTemplateId(id);
+    if (id === "custom") {
+      setRemark("");
+      return;
+    }
+    const template = REMARK_TEMPLATES.find((t) => t.id === id);
+    setRemark(template?.label ?? "");
+  }
 
   return (
     <form
@@ -60,8 +81,8 @@ export function AbandonedOrderFollowUpForm({
           followUpStatus,
           customerResponse: isClosing ? customerResponse : customerResponse,
           remark: remark.trim() ? remark.trim() : undefined,
-        }).catch((e) => {
-          setError(e instanceof Error ? e.message : "Failed to save follow-up");
+        }).catch((err) => {
+          setError(err instanceof Error ? err.message : "Failed to save follow-up");
         });
       }}
     >
@@ -86,25 +107,68 @@ export function AbandonedOrderFollowUpForm({
           <label className="text-sm font-medium">Customer response</label>
           <Select
             value={customerResponse ?? undefined}
-            onValueChange={(v) => setCustomerResponse(v as CustomerResponse)}
+            onValueChange={(v) => {
+              const next = v as CustomerResponse;
+              setCustomerResponse(next);
+              // Keep remark in sync when staff pick a matching reason (unless already custom text).
+              if (next !== "recovered_sale" && (remarkTemplateId !== "custom" || !remark.trim())) {
+                applyRemarkTemplate(next as RemarkTemplateId);
+              }
+            }}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select a response" />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(CUSTOMER_RESPONSE_LABELS).map(([key, label]) => (
+              {MANUAL_CUSTOMER_RESPONSES.map((key) => (
                 <SelectItem key={key} value={key}>
-                  {label}
+                  {CUSTOMER_RESPONSE_LABELS[key]}
                 </SelectItem>
               ))}
+              <SelectItem value="recovered_sale">
+                {CUSTOMER_RESPONSE_LABELS.recovered_sale}
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
       )}
 
       <div className="space-y-1">
-        <label className="text-sm font-medium">Remark (optional)</label>
-        <Textarea value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Add a call note or outcome detail..." />
+        <label className="text-sm font-medium">Remark template</label>
+        <Select
+          value={remarkTemplateId}
+          onValueChange={(v) => applyRemarkTemplate(v as RemarkTemplateId)}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a template" />
+          </SelectTrigger>
+          <SelectContent>
+            {REMARK_TEMPLATES.map((template) => (
+              <SelectItem key={template.id} value={template.id}>
+                {template.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-sm font-medium">
+          Remark {remarkTemplateId === "custom" ? "(custom)" : "(optional)"}
+        </label>
+        <Textarea
+          value={remark}
+          onChange={(e) => {
+            const next = e.target.value;
+            setRemark(next);
+            setRemarkTemplateId(matchRemarkTemplateId(next));
+          }}
+          placeholder={
+            remarkTemplateId === "custom"
+              ? "Type a custom remark..."
+              : "Add a call note or outcome detail..."
+          }
+        />
       </div>
 
       {error && <div className="text-sm text-rose-700">{error}</div>}
@@ -117,4 +181,3 @@ export function AbandonedOrderFollowUpForm({
     </form>
   );
 }
-
