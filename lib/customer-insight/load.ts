@@ -1,11 +1,15 @@
 import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
+import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
+import { getLastContactedAt } from "@/lib/customer-insight/contacted";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
-import {
-  mergeAndPaginateInvoices,
-} from "@/lib/customer-insight/invoices";
+import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
 import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import {
+  insightVisibility,
+  type ViewerIdentity,
+} from "@/lib/customer-insight/ownership";
 import {
   buildCustomerInsightDto,
   serializeContactInsight,
@@ -33,6 +37,7 @@ export async function loadCustomerInsight(input: {
   contactId: string;
   invoicesPage: number;
   invoicesPageSize: number;
+  viewer: ViewerIdentity;
 }): Promise<CustomerInsightDto | null> {
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
@@ -41,12 +46,17 @@ export async function loadCustomerInsight(input: {
       name: true,
       email: true,
       phoneNumber: true,
+      birthYear: true,
+      birthMonth: true,
+      birthDay: true,
+      assignedMerchant: true,
       emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
       phones: { orderBy: { createdAt: "asc" }, select: { phoneNumber: true } },
     },
   });
   if (!contact) return null;
 
+  const visibility = insightVisibility(input.viewer, contact.assignedMerchant);
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
   const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
@@ -94,6 +104,7 @@ export async function loadCustomerInsight(input: {
                     productTitle: true,
                     variantTitle: true,
                     sku: true,
+                    vendor: { select: { name: true } },
                   },
                 },
               },
@@ -102,7 +113,19 @@ export async function loadCustomerInsight(input: {
         })
       : Promise.resolve([]);
 
-  const [orders, adaptRows] = await Promise.all([ordersPromise, adaptPromise]);
+  const lastContactedPromise =
+    visibility === "owner"
+      ? getLastContactedAt({
+          companyId: input.companyId,
+          contactId: contact.id,
+        })
+      : Promise.resolve(null);
+
+  const [orders, adaptRows, lastContactedAt] = await Promise.all([
+    ordersPromise,
+    adaptPromise,
+    lastContactedPromise,
+  ]);
 
   const orderAmounts = orders.map((o) => ({
     totalPrice: o.totalPrice.toString(),
@@ -161,6 +184,7 @@ export async function loadCustomerInsight(input: {
         sku: li.productItem.sku,
         quantity: li.quantity,
         price: li.price.toString(),
+        brand: brandFromVendorName(li.productItem.vendor?.name),
       }));
       return {
         id: o.id,
@@ -177,14 +201,18 @@ export async function loadCustomerInsight(input: {
       };
     }),
     adaptRows: adaptRows.map((r) => {
-      const lineItems: InvoiceLineDto[] = adaptLineItemsForPurchaseUi(r.lineItems).map((li) => ({
-        id: li.id,
-        productTitle: li.productTitle,
-        variantTitle: li.variantTitle,
-        sku: li.sku,
-        quantity: li.quantity,
-        price: li.price,
-      }));
+      const rawItems = Array.isArray(r.lineItems) ? r.lineItems : [];
+      const lineItems: InvoiceLineDto[] = adaptLineItemsForPurchaseUi(r.lineItems).map(
+        (li, idx) => ({
+          id: li.id,
+          productTitle: li.productTitle,
+          variantTitle: li.variantTitle,
+          sku: li.sku,
+          quantity: li.quantity,
+          price: li.price,
+          brand: brandFromAdaptLineItem(rawItems[idx] ?? null),
+        })
+      );
       return {
         id: r.id,
         invoiceDate: r.invoiceDate,
@@ -199,12 +227,18 @@ export async function loadCustomerInsight(input: {
   });
 
   return buildCustomerInsightDto({
+    visibility,
+    assignedMerchant: contact.assignedMerchant,
     contact: serializeContactInsight({
       id: contact.id,
       name: contact.name,
       phoneNumber: contact.phoneNumber,
       phones: displayPhones,
       email: contact.email,
+      birthYear: contact.birthYear,
+      birthMonth: contact.birthMonth,
+      birthDay: contact.birthDay,
+      assignedMerchant: contact.assignedMerchant,
     }),
     loyalty: serializeLoyalty(lifetimeTotal, "LKR"),
     frequency,
@@ -217,5 +251,8 @@ export async function loadCustomerInsight(input: {
       pageSize: paged.pageSize,
       total: paged.total,
     },
+    lastContactedAt,
+    canEditProfile: visibility === "owner",
+    canMarkContacted: visibility === "owner",
   });
 }
