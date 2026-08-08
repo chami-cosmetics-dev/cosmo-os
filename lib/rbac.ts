@@ -303,6 +303,14 @@ const DEFAULT_PERMISSIONS = [
     description: "View dashboard overview analytics",
   },
   {
+    key: "dashboard.merchant_view",
+    description: "View personalized merchant dashboard (own slice, or any merchant if admin)",
+  },
+  {
+    key: "dashboard.merchant_targets.manage",
+    description: "Assign and update merchant monthly sales targets",
+  },
+  {
     key: "dashboard.edit",
     description: "Edit dashboard brand configuration (add/remove brands, change selection)",
   },
@@ -539,6 +547,8 @@ const DEFAULT_ROLES = [
       "finance.approvals.manage",
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
+      "dashboard.merchant_view",
+      "dashboard.merchant_targets.manage",
       "dashboard.edit",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedBreakdown,

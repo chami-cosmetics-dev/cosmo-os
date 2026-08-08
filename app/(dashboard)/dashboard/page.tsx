@@ -2,15 +2,38 @@ import { redirect } from "next/navigation";
 
 import { DashboardOrderSearch } from "@/components/molecules/dashboard-order-search";
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
-import { requirePermission } from "@/lib/rbac";
+import {
+  isCompanyAdminRole,
+  userHasMerchantRole,
+} from "@/lib/merchant-role";
+import { getCurrentUserContext, hasPermission, requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const context = await getCurrentUserContext();
+  if (!context?.user) {
+    redirect("/login");
+  }
+
+  const roleNames = (context.roleNames ?? []) as string[];
+  // Merchants without company dashboard land on their personal home.
+  if (
+    userHasMerchantRole(roleNames) &&
+    !isCompanyAdminRole(roleNames) &&
+    !hasPermission(context, "dashboard.view")
+  ) {
+    redirect("/dashboard/merchant");
+  }
+
   const auth = await requirePermission("dashboard.view");
   if (!auth.ok) {
     if (auth.status === 401) {
       redirect("/login");
+    }
+    // Merchant-role users without dashboard.view still get merchant home.
+    if (userHasMerchantRole(roleNames)) {
+      redirect("/dashboard/merchant");
     }
     return <PermissionDeniedCard />;
   }
