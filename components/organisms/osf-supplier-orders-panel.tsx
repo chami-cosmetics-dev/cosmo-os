@@ -62,6 +62,7 @@ export function OsfSupplierOrdersPanel() {
   const [generating, setGenerating] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
   const searchWrapRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Skip priority→brands refetch on the initial bootstrap load. */
   const skipPriorityBrandRefreshRef = useRef(true);
@@ -202,6 +203,19 @@ export function OsfSupplierOrdersPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when filters change while open
   }, [vendorId, priority]);
 
+  function focusSearch(opts?: { open?: boolean; clearQuery?: boolean }) {
+    if (opts?.clearQuery) setQ("");
+    if (opts?.open) {
+      setSearchOpen(true);
+      void fetchItems({ page: 1, query: opts.clearQuery ? "" : q });
+    }
+    // Keep viewport on the search box so a long table doesn’t leave the user scrolled down.
+    requestAnimationFrame(() => {
+      searchInputRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      searchInputRef.current?.focus({ preventScroll: true });
+    });
+  }
+
   function addItem(item: SearchItem) {
     setRows((prev) => {
       if (prev.some((r) => r.sku === item.sku)) {
@@ -219,6 +233,8 @@ export function OsfSupplierOrdersPanel() {
       ];
     });
     setSearchOpen(false);
+    setQ("");
+    focusSearch();
   }
 
   function removeRow(sku: string) {
@@ -458,6 +474,7 @@ export function OsfSupplierOrdersPanel() {
         <label className="space-y-1 text-sm block">
           <span className="text-muted-foreground">Search items (SKU / description)</span>
           <Input
+            ref={searchInputRef}
             value={q}
             placeholder="Click to list all filtered items, or type to filter…"
             onFocus={openSearch}
@@ -717,6 +734,16 @@ export function OsfSupplierOrdersPanel() {
               })}
             </tbody>
           </table>
+          <div className="flex justify-center border-t p-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => focusSearch({ open: true, clearQuery: true })}
+            >
+              Add another item
+            </Button>
+          </div>
         </div>
       )}
     </div>
