@@ -8,7 +8,7 @@ import {
 } from "@/lib/merchant-dashboard/cheer";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { isMerchantRoleName } from "@/lib/merchant-role";
-import { fetchMerchantUserSales } from "@/lib/page-data/merchant-dashboard-sales";
+import { fetchMerchantUserSales, fetchMerchantTopCustomersBySales, fetchMerchantReturnStats } from "@/lib/page-data/merchant-dashboard-sales";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 
@@ -79,6 +79,19 @@ export type MerchantDashboardPageData = {
   target: MerchantDashboardTargetDto;
   history: MerchantDashboardHistoryRow[];
   overview: MerchantDashboardOverviewRow[] | null;
+  topCustomers: Array<{
+    key: string;
+    name: string;
+    phone: string | null;
+    email: string | null;
+    total: number;
+    orderCount: number;
+  }>;
+  returns: {
+    returnOrderCount: number;
+    orderCount: number;
+    returnRatePct: number | null;
+  };
 };
 
 function currentYearMonth(now = new Date()): string {
@@ -246,7 +259,7 @@ export async function getMerchantDashboardPageData(input: {
 
   const displayName = getMerchantDisplayName(profileUser);
 
-  const [sales, targetRow, historyEvents, overviewSales] = await Promise.all([
+  const [sales, targetRow, historyEvents, overviewSales, topCustomers] = await Promise.all([
     fetchMerchantUserSales(input.companyId, selectedMerchantId, {
       fromYmd,
       toYmd: rangeToYmd,
@@ -283,7 +296,20 @@ export async function getMerchantDashboardPageData(input: {
           }),
         )
       : Promise.resolve(null),
+    fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
+      limit: 10,
+    }),
   ]);
+
+  const returns = await fetchMerchantReturnStats(
+    input.companyId,
+    selectedMerchantId,
+    {
+      fromYmd,
+      toYmd: rangeToYmd,
+      orderCount: sales.orderCount,
+    },
+  );
 
   // Past-month achieved amounts for history status
   const pastMonths = [
@@ -389,6 +415,8 @@ export async function getMerchantDashboardPageData(input: {
     target,
     history,
     overview,
+    topCustomers,
+    returns,
   };
 }
 
