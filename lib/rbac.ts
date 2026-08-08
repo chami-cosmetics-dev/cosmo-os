@@ -81,6 +81,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit SKU reorder threshold % and purchasing tool settings",
   },
   {
+    key: "store.allocation.read",
+    description: "Use store location allocation advisor (SKU/barcode take-qty split)",
+  },
+  {
     key: "academy.learn",
     description: "View Cosmo Academy lessons and update own learning progress",
   },

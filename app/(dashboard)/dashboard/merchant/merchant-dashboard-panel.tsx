@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Loader2, Target } from "lucide-react";
+import { Cake, Loader2, Target } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -17,6 +17,13 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -25,7 +32,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
+import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 
 function formatMoney(value: number) {
@@ -86,6 +95,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [showAllToday, setShowAllToday] = useState(false);
   const [showAllLifetime, setShowAllLifetime] = useState(false);
+  const [wishContact, setWishContact] = useState<
+    MerchantDashboardPageData["nearestBirthdays"][number] | null
+  >(null);
+  const [wishDiscount, setWishDiscount] = useState("10");
+  const [wishCode, setWishCode] = useState("");
+  const [wishMessage, setWishMessage] = useState("");
   const [isPending, startTransition] = useTransition();
   const isBusy = busyKey !== null || isPending;
 
@@ -158,6 +173,61 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       await reload(merchantId);
     } catch {
       notify.error("Failed to save target");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function openWish(
+    row: MerchantDashboardPageData["nearestBirthdays"][number],
+  ) {
+    const discount = Number(wishDiscount) || 10;
+    setWishContact(row);
+    setWishDiscount(String(discount));
+    setWishCode("");
+    setWishMessage(
+      buildBirthdayWishMessage({
+        customerName: row.name,
+        merchantName: data.profile.displayName,
+        discountPercent: discount,
+        code: null,
+      }),
+    );
+  }
+
+  async function sendWish() {
+    if (!wishContact) return;
+    const discountPercent = Number(wishDiscount);
+    if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 50) {
+      notify.error("Discount must be between 0 and 50");
+      return;
+    }
+    if (!wishMessage.trim()) {
+      notify.error("Message is required");
+      return;
+    }
+    setBusyKey("wish-sms");
+    try {
+      const res = await fetch("/api/admin/merchant-dashboard/birthday-wish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: wishContact.contactId,
+          discountPercent,
+          discountCode: wishCode.trim() || null,
+          phoneNumber: wishContact.phoneNumber || undefined,
+          message: wishMessage.trim(),
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        notify.error(json.error ?? "Failed to send birthday wish");
+        return;
+      }
+      notify.success("Birthday wish SMS sent.");
+      setWishContact(null);
+    } catch {
+      notify.error("Failed to send birthday wish");
     } finally {
       setBusyKey(null);
     }
@@ -712,6 +782,161 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base">Nearest birthdays</CardTitle>
+          <p className="text-muted-foreground text-xs">
+            Allocated customers with birthdays in the next 45 days. Wish them with
+            an SMS (editable) and optional discount.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {(data.nearestBirthdays ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No upcoming birthdays among allocated customers (need birth month on
+              contact + matching assigned merchant name).
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {(data.nearestBirthdays ?? []).map((row) => (
+                <li
+                  key={row.contactId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full">
+                      <Cake className="size-4" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {row.daysUntil === 0
+                          ? "Birthday today"
+                          : `In ${row.daysUntil} day${row.daysUntil === 1 ? "" : "s"}`}
+                        {" · "}
+                        {row.birthMonth}/{row.birthDay ?? "—"}
+                        {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={isBusy || !row.phoneNumber}
+                    onClick={() => openWish(row)}
+                  >
+                    Wish them
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={wishContact != null}
+        onOpenChange={(open) => {
+          if (!open && busyKey !== "wish-sms") setWishContact(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Birthday wish{wishContact ? ` — ${wishContact.name}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">
+                  Discount %
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={50}
+                  disabled={isBusy}
+                  value={wishDiscount}
+                  onChange={(e) => {
+                    setWishDiscount(e.target.value);
+                    if (!wishContact) return;
+                    const pct = Number(e.target.value) || 0;
+                    setWishMessage(
+                      buildBirthdayWishMessage({
+                        customerName: wishContact.name,
+                        merchantName: data.profile.displayName,
+                        discountPercent: pct,
+                        code: wishCode || null,
+                      }),
+                    );
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">
+                  Discount code (optional)
+                </label>
+                <Input
+                  disabled={isBusy}
+                  value={wishCode}
+                  onChange={(e) => {
+                    setWishCode(e.target.value);
+                    if (!wishContact) return;
+                    const pct = Number(wishDiscount) || 0;
+                    setWishMessage(
+                      buildBirthdayWishMessage({
+                        customerName: wishContact.name,
+                        merchantName: data.profile.displayName,
+                        discountPercent: pct,
+                        code: e.target.value || null,
+                      }),
+                    );
+                  }}
+                  placeholder="e.g. BD10"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="text-muted-foreground text-xs font-medium">
+                SMS message
+              </label>
+              <Textarea
+                disabled={isBusy}
+                value={wishMessage}
+                onChange={(e) => setWishMessage(e.target.value)}
+                rows={5}
+                className="min-h-28"
+              />
+              <p className="text-muted-foreground text-[11px]">
+                Edit freely before send. One wish per phone per year.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => setWishContact(null)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" disabled={isBusy} onClick={() => void sendWish()}>
+              {busyKey === "wish-sms" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Sending...
+                </>
+              ) : (
+                "Send SMS"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
