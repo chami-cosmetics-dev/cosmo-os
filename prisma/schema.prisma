@@ -1633,6 +1633,7 @@ model ContactMaster {
   // CRM profile fields
   remarks           String?
   gender            String?
+  language          String?
   workPlace         String?
   occupation        String?
   address           String?

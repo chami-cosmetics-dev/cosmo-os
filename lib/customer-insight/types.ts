@@ -31,6 +31,9 @@ export type ContactInsightDto = {
   phoneNumber: string | null;
   phones: string[];
   email: string | null;
+  gender: string | null;
+  language: string | null;
+  address: string | null;
   birthYear: number | null;
   birthMonth: number | null;
   birthDay: number | null;

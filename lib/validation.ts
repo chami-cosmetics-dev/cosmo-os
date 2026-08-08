@@ -21,6 +21,7 @@ export const LIMITS = {
   permissionKey: { max: 64 },
   nicNo: { max: 15 },
   gender: { max: 20 },
+  language: { max: 40 },
   mobile: { max: 100 },
   knownName: { max: 100 },
   employeeNumber: { max: 50 },

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import {
+  CONTACT_GENDER_OPTIONS,
+  CONTACT_LANGUAGE_OPTIONS,
+} from "@/lib/customer-insight/contact-profile-options";
+import {
   cuidSchema,
   emailSchema,
   LIMITS,
@@ -55,6 +59,18 @@ export const customerInsightProfilePatchSchema = z
       .min(1)
       .max(LIMITS.mobile.max)
       .optional(),
+    gender: z
+      .union([z.enum(CONTACT_GENDER_OPTIONS), z.literal(""), z.null()])
+      .optional()
+      .transform((v) => (v === "" || v === undefined ? (v === undefined ? undefined : null) : v)),
+    language: z
+      .union([z.enum(CONTACT_LANGUAGE_OPTIONS), z.literal(""), z.null()])
+      .optional()
+      .transform((v) => (v === "" || v === undefined ? (v === undefined ? undefined : null) : v)),
+    address: z
+      .union([z.string().trim().max(LIMITS.address.max), z.null()])
+      .optional()
+      .transform((v) => (v === "" || v === undefined ? (v === undefined ? undefined : null) : v)),
     birthYear: z.coerce.number().int().min(1900).max(2100).optional().nullable(),
     birthMonth: z.coerce.number().int().min(1).max(12).optional().nullable(),
     birthDay: z.coerce.number().int().min(1).max(31).optional().nullable(),
@@ -76,6 +92,9 @@ export const customerInsightProfilePatchSchema = z
       data.name !== undefined ||
       data.email !== undefined ||
       data.addPhoneNumber !== undefined ||
+      data.gender !== undefined ||
+      data.language !== undefined ||
+      data.address !== undefined ||
       data.birthYear !== undefined ||
       data.birthMonth !== undefined ||
       data.birthDay !== undefined,
