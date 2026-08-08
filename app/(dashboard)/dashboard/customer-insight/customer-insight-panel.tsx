@@ -939,7 +939,7 @@ export function CustomerInsightPanel({
                               position="top"
                               className="fill-foreground"
                               fontSize={11}
-                              formatter={(value) =>
+                              formatter={(value: unknown) =>
                                 value == null || value === "" ? "" : String(value)
                               }
                             />

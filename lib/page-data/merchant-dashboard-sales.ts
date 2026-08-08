@@ -168,13 +168,13 @@ export type MerchantTopCustomerRow = {
 function customerGroupKey(order: {
   customerPhone: string | null;
   customerEmail: string | null;
-  customerName: string | null;
+  name: string | null;
 }) {
   const phone = (order.customerPhone ?? "").replace(/\D/g, "");
   if (phone.length >= 7) return `p:${phone}`;
   const email = (order.customerEmail ?? "").trim().toLowerCase();
   if (email) return `e:${email}`;
-  const name = (order.customerName ?? "").trim().toLowerCase();
+  const name = (order.name ?? "").trim().toLowerCase();
   if (name) return `n:${name}`;
   return null;
 }
@@ -198,7 +198,7 @@ export async function fetchMerchantTopCustomersBySales(
     },
     select: {
       totalPrice: true,
-      customerName: true,
+      name: true,
       customerPhone: true,
       customerEmail: true,
     },
@@ -217,13 +217,13 @@ export async function fetchMerchantTopCustomersBySales(
     if (existing) {
       existing.total += amount;
       existing.orderCount += 1;
-      if (!existing.name && order.customerName) existing.name = order.customerName.trim();
+      if (!existing.name && order.name) existing.name = order.name.trim();
       if (!existing.phone && order.customerPhone) existing.phone = order.customerPhone;
       if (!existing.email && order.customerEmail) existing.email = order.customerEmail;
     } else {
       byCustomer.set(key, {
         key,
-        name: order.customerName?.trim() || order.customerPhone || order.customerEmail || "Customer",
+        name: order.name?.trim() || order.customerPhone || order.customerEmail || "Customer",
         phone: order.customerPhone,
         email: order.customerEmail,
         total: amount,
