@@ -17,7 +17,7 @@ describe("daysUntilNextBirthday", () => {
 });
 
 describe("buildBirthdayWishMessage", () => {
-  it("includes name, merchant, discount, and marker", () => {
+  it("includes cosmetics.lk, store link, merchant advisor, discount, and marker", () => {
     const msg = buildBirthdayWishMessage({
       customerName: "Nimali",
       merchantName: "Ishadi",
@@ -25,9 +25,12 @@ describe("buildBirthdayWishMessage", () => {
       code: "BD10",
     });
     expect(msg).toContain("Nimali");
+    expect(msg).toContain("cosmetics.lk");
+    expect(msg).toContain("https://cosmetics.lk");
     expect(msg).toContain("Ishadi");
     expect(msg).toContain("10%");
     expect(msg).toContain("BD10");
     expect(msg).toContain("[BDWISH]");
+    expect(msg).not.toContain("Cosmo purchase");
   });
 });
