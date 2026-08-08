@@ -27,7 +27,10 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime, formatAppIsoCalendarDate, formatAppIsoDate } from "@/lib/format-datetime";
-import { getPaymentMethodInfo } from "@/lib/payment-method-label";
+import {
+  canRequestPaymentMethodChange,
+  getPaymentMethodInfo,
+} from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
 
@@ -391,7 +394,10 @@ export function FulfillmentSampleFreeIssuePanel({
     paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames,
   });
   const paymentMethod = paymentMethodInfo.label;
-  const isCodOrder = paymentMethodInfo.variant === "cod";
+  const canChangePayment = canRequestPaymentMethodChange({
+    paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
+    paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames,
+  });
 
   const requiresFinanceApproval = useMemo(() => {
     const gateways = [
@@ -508,7 +514,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">Payment:</span>
                   <span>{paymentMethod}</span>
-                  {perms.canChangePaymentMethod && isCodOrder && orderId && (
+                  {perms.canChangePaymentMethod && canChangePayment && orderId && (
                     <>
                       <Button
                         type="button"
@@ -932,7 +938,7 @@ export function FulfillmentSampleFreeIssuePanel({
           <AlertDialogTitle>Change to Bank Transfer</AlertDialogTitle>
           <AlertDialogDescription>
             This will send a payment method change request to the finance team for approval.
-            Once approved, the payment type will be changed from COD to Bank Transfer and the ERP payment entry will be created.
+            Once approved, the payment type will be changed to Bank Transfer and the ERP payment entry will be created.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -957,7 +963,7 @@ export function FulfillmentSampleFreeIssuePanel({
           <AlertDialogTitle>Change to KOKO</AlertDialogTitle>
           <AlertDialogDescription>
             This will send a payment method change request to the finance team for approval.
-            Once approved, the payment type will be changed from COD to KOKO and the ERP payment entry will be created under KOKO.
+            Once approved, the payment type will be changed to KOKO and the ERP payment entry will be created under KOKO.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
