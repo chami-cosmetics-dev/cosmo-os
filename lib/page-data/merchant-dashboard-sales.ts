@@ -2,8 +2,8 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   buildDashboardSalesDateFilter,
   isDashboardSalesOrderEligible,
-  type DashboardSalesDateType,
 } from "@/lib/page-data/dashboard-sales";
+import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
 import { prisma } from "@/lib/prisma";
 
 export type MerchantSalesLocationRow = {
