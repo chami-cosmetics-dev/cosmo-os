@@ -1570,7 +1570,6 @@ export function UserManagementPanel({
                 onClick={async () => {
                   if (editingRoleId) {
                     await updateRole(editingRoleId);
-                    cancelEditingRole();
                   }
                 }}
                 disabled={isBusy}

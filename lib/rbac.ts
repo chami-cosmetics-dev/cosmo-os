@@ -819,11 +819,9 @@ export async function ensureDefaultRbacSetup() {
       });
     }
 
-    // Remove stale permissions no longer in DEFAULT_PERMISSIONS (cascades to RolePermission)
-    const validKeys = DEFAULT_PERMISSIONS.map((p) => p.key);
-    await prisma.permission.deleteMany({
-      where: { key: { notIn: validKeys } },
-    });
+    // Do not auto-delete Permission rows missing from DEFAULT_PERMISSIONS.
+    // An older app process (pre-new-permission deploy) calling this would wipe
+    // newer keys and cascade-remove RolePermission grants on custom roles.
   } catch (error) {
     if (isMissingRbacTableError(error)) {
       throw new Error(
