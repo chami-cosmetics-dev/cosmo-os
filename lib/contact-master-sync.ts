@@ -8,6 +8,7 @@ import {
   normalizeContactPhone,
 } from "@/lib/contact-identifiers";
 import { resolveAutoAllocateMerchant } from "@/lib/customer-insight/auto-allocate";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 
@@ -70,6 +71,69 @@ function normalizeMerchant(value: string | null | undefined) {
 
 function isBlank(value: string | null | undefined) {
   return !value || !value.trim();
+}
+
+/** True when either side is blank, or both resolve to the same phone via lookup variants. */
+function phonesCompatible(left: string | null | undefined, right: string | null | undefined) {
+  const a = normalizePhone(left);
+  const b = normalizePhone(right);
+  if (!a || !b) return true;
+  const leftVariants = new Set(buildPhoneLookupVariants(a));
+  return buildPhoneLookupVariants(b).some((variant) => leftVariants.has(variant));
+}
+
+type IdentityContact = {
+  id: string;
+  name: string;
+  email: string | null;
+  phoneNumber: string | null;
+  recentMerchant: string | null;
+  assignedMerchant: string | null;
+  lastPurchaseAt: Date | null;
+  source: string | null;
+};
+
+/**
+ * Phone is primary identity. A shared checkout email (staff/store) must not merge
+ * different customer phones onto one Contact Master row, and must not conflict when
+ * the same phone reorders using that shared email.
+ */
+function resolveIdentityMatch(
+  emailMatch: IdentityContact | null,
+  phoneMatch: IdentityContact | null,
+  incomingPhone: string | null
+): { status: "match"; contact: IdentityContact } | { status: "conflict" } | { status: "none" } {
+  if (phoneMatch) {
+    return { status: "match", contact: phoneMatch };
+  }
+  if (emailMatch && phonesCompatible(emailMatch.phoneNumber, incomingPhone)) {
+    return { status: "match", contact: emailMatch };
+  }
+  return { status: "none" };
+}
+
+/** Keep shared emails from being copied onto a different phone's contact. */
+function emailSafeForContact(
+  email: string | null,
+  matchedContact: IdentityContact,
+  emailMatch: IdentityContact | null
+) {
+  if (!email) return null;
+  if (emailMatch && emailMatch.id !== matchedContact.id) return null;
+  return email;
+}
+
+function emailForCreate(
+  email: string | null,
+  emailMatch: IdentityContact | null,
+  incomingPhone: string | null
+) {
+  if (!email) return null;
+  // Shared email already owned by a different phone → create phone-only contact.
+  if (emailMatch && !phonesCompatible(emailMatch.phoneNumber, incomingPhone)) {
+    return null;
+  }
+  return email;
 }
 
 async function updatePurchaseSnapshotForContacts(input: {
@@ -212,16 +276,16 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   const emailMatch = emailMatches[0] ?? null;
   const phoneMatch = phoneMatches[0] ?? null;
 
-  if (emailMatch && phoneMatch && emailMatch.id !== phoneMatch.id) {
+  const identity = resolveIdentityMatch(emailMatch, phoneMatch, phoneNumber);
+  if (identity.status === "conflict") {
     return { status: "conflict" };
   }
-
-  const matchedContact = emailMatch ?? phoneMatch;
+  const matchedContact = identity.status === "match" ? identity.contact : null;
 
   if (!matchedContact) {
     const result = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
-      const existing = await tx.contactMaster.findFirst({
+      const existingCandidates = await tx.contactMaster.findMany({
         where: {
           companyId: input.companyId,
           OR: [
@@ -229,10 +293,29 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
             ...(phoneNumber ? [{ phoneNumber }] : []),
           ],
         },
-        select: { id: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phoneNumber: true,
+          recentMerchant: true,
+          assignedMerchant: true,
+          lastPurchaseAt: true,
+          source: true,
+        },
       });
-      if (existing) {
-        return { status: "unchanged" as const, contactId: existing.id };
+      const recheckedEmail = email
+        ? existingCandidates.find((c) => c.email?.trim().toLowerCase() === email) ?? null
+        : null;
+      const recheckedPhone = phoneNumber
+        ? existingCandidates.find((c) => c.phoneNumber?.trim() === phoneNumber) ?? null
+        : null;
+      const recheckedIdentity = resolveIdentityMatch(recheckedEmail, recheckedPhone, phoneNumber);
+      if (recheckedIdentity.status === "conflict") {
+        return { status: "conflict" as const };
+      }
+      if (recheckedIdentity.status === "match") {
+        return { status: "unchanged" as const, contactId: recheckedIdentity.contact.id };
       }
 
       const autoAssigned = resolveAutoAllocateMerchant({
@@ -244,7 +327,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
         data: {
           companyId: input.companyId,
           name: name ?? email ?? phoneNumber ?? defaultContactName(input),
-          email,
+          email: emailForCreate(email, recheckedEmail, phoneNumber),
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
@@ -268,8 +351,9 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
     source?: string;
   } = {};
 
+  const safeEmail = emailSafeForContact(email, matchedContact, emailMatch);
   if (isBlank(matchedContact.name) && name) updateData.name = name;
-  if (isBlank(matchedContact.email) && email) updateData.email = email;
+  if (isBlank(matchedContact.email) && safeEmail) updateData.email = safeEmail;
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
   if (isBlank(matchedContact.recentMerchant) && recentMerchant) updateData.recentMerchant = recentMerchant;
   if (isBlank(matchedContact.source) && source) updateData.source = source;
@@ -348,31 +432,11 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const emailMatch = emailMatches[0] ?? null;
   const phoneMatch = phoneMatches[0] ?? null;
 
-  if (emailMatch && phoneMatch && emailMatch.id !== phoneMatch.id) {
-    if (auditBehavior === "full") {
-      await writeAuditLog({
-        companyId: input.companyId,
-        module: "contacts",
-        action: "contact_auto_sync_conflict",
-        entityType: "ContactMaster",
-        entityId: null,
-        summary: `Skipped contact sync for ${input.sourceLabel} ${orderLabel} due to conflicting email/phone matches`,
-        metadata: {
-          sourceType: input.sourceType ?? "shopify_order",
-          sourceId: input.sourceId,
-          orderNumber: input.orderNumber,
-          email,
-          phoneNumber,
-          emailMatchId: emailMatch.id,
-          phoneMatchId: phoneMatch.id,
-          reason: "identifier_conflict",
-        },
-      });
-    }
+  const identity = resolveIdentityMatch(emailMatch, phoneMatch, phoneNumber);
+  if (identity.status === "conflict") {
     return { status: "conflict" };
   }
-
-  const matchedContact = emailMatch ?? phoneMatch;
+  const matchedContact = identity.status === "match" ? identity.contact : null;
 
   if (!matchedContact) {
     const createResult = await prisma.$transaction(async (tx) => {
@@ -384,13 +448,16 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
       const recheckedEmailMatch = rechecked.emailMatches[0] ?? null;
       const recheckedPhoneMatch = rechecked.phoneMatches[0] ?? null;
-      if (recheckedEmailMatch && recheckedPhoneMatch && recheckedEmailMatch.id !== recheckedPhoneMatch.id) {
+      const recheckedIdentity = resolveIdentityMatch(
+        recheckedEmailMatch,
+        recheckedPhoneMatch,
+        phoneNumber
+      );
+      if (recheckedIdentity.status === "conflict") {
         return { status: "conflict" as const };
       }
-
-      const recheckedContact = recheckedEmailMatch ?? recheckedPhoneMatch;
-      if (recheckedContact) {
-        return { status: "unchanged" as const, contactId: recheckedContact.id };
+      if (recheckedIdentity.status === "match") {
+        return { status: "unchanged" as const, contactId: recheckedIdentity.contact.id };
       }
 
       const autoAssigned = resolveAutoAllocateMerchant({
@@ -398,11 +465,12 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
         purchaseMerchantLabel: recentMerchant,
       });
 
+      const createdEmail = emailForCreate(email, recheckedEmailMatch, phoneNumber);
       const created = await tx.contactMaster.create({
         data: {
           companyId: input.companyId,
-          name: name ?? email ?? phoneNumber ?? defaultContactName(input),
-          email,
+          name: name ?? createdEmail ?? phoneNumber ?? defaultContactName(input),
+          email: createdEmail,
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
@@ -457,11 +525,13 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     return { status: "created", contactId: created.id };
   }
 
+  const safeEmail = emailSafeForContact(email, matchedContact, emailMatch);
+
   await ensureSecondaryContactIdentifiers({
     contactId: matchedContact.id,
     primaryEmail: matchedContact.email,
     primaryPhoneNumber: matchedContact.phoneNumber,
-    email,
+    email: safeEmail,
     phoneNumber,
   });
 
@@ -478,8 +548,8 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   if (isBlank(matchedContact.name) && name) {
     updateData.name = name;
   }
-  if (isBlank(matchedContact.email) && email) {
-    updateData.email = email;
+  if (isBlank(matchedContact.email) && safeEmail) {
+    updateData.email = safeEmail;
   }
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) {
     updateData.phoneNumber = phoneNumber;
