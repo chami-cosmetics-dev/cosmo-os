@@ -49,6 +49,10 @@ export function OsfSupplierOrdersPanel() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [rows, setRows] = useState<WorkingOrderRow[]>([]);
   const [suppliersBySku, setSuppliersBySku] = useState<Record<string, SupplierOption[]>>({});
+  /** Per-SKU: show full allowlist (not just recent). */
+  const [showAllSuppliersBySku, setShowAllSuppliersBySku] = useState<Record<string, boolean>>({});
+  /** Per-SKU: compact to suppliers that already have qty allocated. */
+  const [compactSuppliersBySku, setCompactSuppliersBySku] = useState<Record<string, boolean>>({});
   const [loadingSuppliers, setLoadingSuppliers] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -278,6 +282,52 @@ export function OsfSupplierOrdersPanel() {
     return hit?.qty ?? 0;
   }
 
+  function supplierKey(s: SupplierOption): string {
+    return s.supplierId || s.supplierName;
+  }
+
+  /** Visible suppliers for a row: compact → allocated only; else recent (+ allocated others); optional full list. */
+  function visibleSuppliersForRow(row: WorkingOrderRow, suppliers: SupplierOption[]): SupplierOption[] {
+    const compact = Boolean(compactSuppliersBySku[row.sku]);
+    if (compact) {
+      return suppliers.filter((s) => allocationQtyFor(row, s) > 0);
+    }
+    if (showAllSuppliersBySku[row.sku]) {
+      return suppliers;
+    }
+    const recent = suppliers.filter((s) => s.sortGroup === "sku_recent");
+    const allocatedOther = suppliers.filter(
+      (s) => s.sortGroup !== "sku_recent" && allocationQtyFor(row, s) > 0,
+    );
+    if (recent.length === 0 && allocatedOther.length === 0) {
+      // No SKU history — show nothing until user opens “Choose another supplier”
+      return [];
+    }
+    const seen = new Set<string>();
+    const out: SupplierOption[] = [];
+    for (const s of [...recent, ...allocatedOther]) {
+      const k = supplierKey(s);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(s);
+    }
+    return out;
+  }
+
+  function setShowAllSuppliers(sku: string, open: boolean) {
+    setShowAllSuppliersBySku((prev) => ({ ...prev, [sku]: open }));
+    if (open) {
+      setCompactSuppliersBySku((prev) => ({ ...prev, [sku]: false }));
+    }
+  }
+
+  function setCompactSuppliers(sku: string, compact: boolean) {
+    setCompactSuppliersBySku((prev) => ({ ...prev, [sku]: compact }));
+    if (compact) {
+      setShowAllSuppliersBySku((prev) => ({ ...prev, [sku]: false }));
+    }
+  }
+
   async function generate() {
     const validation = validateDraftForGenerate(rows);
     if (!validation.ok) {
@@ -450,6 +500,12 @@ export function OsfSupplierOrdersPanel() {
                 const allocated = rowAllocatedSum(row);
                 const over = isRowOverAllocated(row);
                 const suppliers = suppliersBySku[row.sku];
+                const showAll = Boolean(showAllSuppliersBySku[row.sku]);
+                const compact = Boolean(compactSuppliersBySku[row.sku]);
+                const recentCount = suppliers?.filter((s) => s.sortGroup === "sku_recent").length ?? 0;
+                const otherCount = suppliers?.filter((s) => s.sortGroup !== "sku_recent").length ?? 0;
+                const visible = suppliers ? visibleSuppliersForRow(row, suppliers) : [];
+                const hasPositiveAlloc = row.allocations.some((a) => a.qty > 0);
                 return (
                   <tr key={row.sku} className="border-t align-top">
                     <td className="p-2 font-medium whitespace-nowrap">{row.sku}</td>
@@ -481,29 +537,99 @@ export function OsfSupplierOrdersPanel() {
                           <p className="text-xs text-muted-foreground">No suppliers configured.</p>
                         )}
                         {suppliers && suppliers.length > 0 && (
-                          <div className="grid gap-1.5 sm:grid-cols-2">
-                            {suppliers.map((s) => (
-                              <label
-                                key={s.supplierId}
-                                className="flex items-center gap-2 text-xs"
-                              >
-                                <span className="min-w-0 flex-1 truncate" title={s.supplierName}>
-                                  {s.supplierName}
-                                  {s.sortGroup === "sku_recent" ? " · recent" : ""}
-                                </span>
-                                <Input
-                                  className="h-8 w-20"
-                                  type="number"
-                                  min={0}
-                                  step={1}
-                                  value={allocationQtyFor(row, s) || ""}
-                                  placeholder="0"
-                                  onChange={(e) =>
-                                    setAllocationQty(row.sku, s, e.target.value)
-                                  }
-                                />
-                              </label>
-                            ))}
+                          <div className="space-y-2">
+                            {!compact && (
+                              <p className="text-xs text-muted-foreground">
+                                {showAll
+                                  ? `All suppliers (${suppliers.length})`
+                                  : recentCount > 0
+                                    ? `Recent for this SKU (${recentCount})`
+                                    : "No recent suppliers for this SKU — choose another below"}
+                              </p>
+                            )}
+                            {compact && (
+                              <p className="text-xs text-muted-foreground">
+                                Allocated suppliers only ({visible.length})
+                              </p>
+                            )}
+                            {visible.length > 0 ? (
+                              <div className="grid gap-1.5 sm:grid-cols-2">
+                                {visible.map((s) => (
+                                  <label
+                                    key={supplierKey(s)}
+                                    className="flex items-center gap-2 text-xs"
+                                  >
+                                    <span
+                                      className="min-w-0 flex-1 truncate"
+                                      title={s.supplierName}
+                                    >
+                                      {s.supplierName}
+                                      {s.sortGroup === "sku_recent" ? " · recent" : ""}
+                                    </span>
+                                    <Input
+                                      className="h-8 w-20"
+                                      type="number"
+                                      min={0}
+                                      step={1}
+                                      value={allocationQtyFor(row, s) || ""}
+                                      placeholder="0"
+                                      onChange={(e) =>
+                                        setAllocationQty(row.sku, s, e.target.value)
+                                      }
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                            ) : (
+                              !compact &&
+                              !showAll && (
+                                <p className="text-xs text-muted-foreground">
+                                  Use “Choose another supplier” to pick from the full list.
+                                </p>
+                              )
+                            )}
+                            <div className="flex flex-wrap gap-2">
+                              {!compact && !showAll && otherCount > 0 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => setShowAllSuppliers(row.sku, true)}
+                                >
+                                  Choose another supplier ({otherCount})
+                                </Button>
+                              )}
+                              {showAll && !compact && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setShowAllSuppliers(row.sku, false)}
+                                >
+                                  Show recent only
+                                </Button>
+                              )}
+                              {!compact && hasPositiveAlloc && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setCompactSuppliers(row.sku, true)}
+                                >
+                                  Shrink list
+                                </Button>
+                              )}
+                              {compact && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => setCompactSuppliers(row.sku, false)}
+                                >
+                                  Edit suppliers
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
