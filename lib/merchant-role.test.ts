@@ -14,6 +14,7 @@ describe("isMerchantRoleName", () => {
     expect(isMerchantRoleName("merchant01")).toBe(true);
     expect(isMerchantRoleName("MERCHANT 9")).toBe(true);
     expect(isMerchantRoleName("merchant-level-02")).toBe(true);
+    expect(isMerchantRoleName("merchant-level-01")).toBe(true);
     expect(isMerchantRoleName("merchant_level_01")).toBe(true);
     expect(isMerchantRoleName("Merchant Level 2")).toBe(true);
   });

@@ -48,7 +48,7 @@ export async function PUT(request: NextRequest) {
   const merchants = await listMerchantRoleUsers(companyId);
   if (!merchants.some((m) => m.id === parsed.data.merchantUserId)) {
     return NextResponse.json(
-      { error: "Target user must have a merchant role (e.g. merchant-level-02)" },
+      { error: "Target user must have a merchant role (e.g. merchant-level-01)" },
       { status: 400 },
     );
   }

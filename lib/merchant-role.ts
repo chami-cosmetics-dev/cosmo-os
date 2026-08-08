@@ -1,6 +1,6 @@
 /**
  * Merchant dashboard identity: users whose role name is like
- * "Merchant 01", "merchant 02", "merchant01", "merchant-level-02".
+ * "Merchant 01", "merchant 02", "merchant01", "merchant-level-01", "merchant-level-02".
  */
 
 const MERCHANT_ROLE_NAME_RE =
