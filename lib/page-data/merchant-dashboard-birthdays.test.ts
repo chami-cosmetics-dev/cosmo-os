@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  buildBirthdayWishMessage,
-  daysUntilNextBirthday,
-} from "@/lib/page-data/merchant-dashboard-birthdays";
+import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
+import { daysUntilNextBirthday } from "@/lib/page-data/merchant-dashboard-birthdays";
 
 describe("daysUntilNextBirthday", () => {
   it("returns 0 when birthday is today", () => {

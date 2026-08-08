@@ -4,7 +4,7 @@ import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import { sendSms } from "@/lib/hutch-sms";
 import {
   buildBirthdayWishMessage,
-} from "@/lib/page-data/merchant-dashboard-birthdays";
+} from "@/lib/page-data/merchant-birthday-wish-message";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import {
   canAccessMerchantDashboard,

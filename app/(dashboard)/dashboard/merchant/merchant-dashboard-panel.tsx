@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { notify } from "@/lib/notify";
-import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-dashboard-birthdays";
+import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 
 function formatMoney(value: number) {
