@@ -66,6 +66,11 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     roleNames.includes("admin") ||
     permissionKeys.includes(permission);
   const canViewDashboard = hasSidebarPermission("dashboard.view");
+  const canViewMerchantDashboard =
+    roleNames.includes("super_admin") ||
+    roleNames.includes("admin") ||
+    hasSidebarPermission("dashboard.merchant_view") ||
+    roleNames.some((name) => /^merchant\s*0*\d+$/i.test(name.trim()));
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
@@ -217,6 +222,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                 icon={LayoutDashboard}
                 label="Dashboard"
                 isActive={pathname === "/dashboard"}
+              />
+            )}
+            {canViewMerchantDashboard && (
+              <NavItem
+                href="/dashboard/merchant"
+                icon={Store}
+                label="Merchant Dashboard"
+                isActive={pathname === "/dashboard/merchant" || pathname.startsWith("/dashboard/merchant/")}
               />
             )}
             {canViewComplaints && (

@@ -200,6 +200,9 @@ export function ContactsPanel({
   const [backfillPreviewLoading, setBackfillPreviewLoading] = useState(false);
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportBusyKey, setExportBusyKey] = useState<"contacts" | "purchase_summary" | null>(
+    null
+  );
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [viewingContact, setViewingContact] = useState<ContactItem | null>(null);
   const [purchasesLoading, setPurchasesLoading] = useState(false);
@@ -309,15 +312,45 @@ export function ContactsPanel({
     }
   }
 
-  function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
-    const params = new URLSearchParams();
-    if (effectiveSearch) params.set("search", effectiveSearch);
-    if (status !== "__all") params.set("status", status);
-    if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
-    if (brand !== "__all") params.set("brand", brand);
-    params.set("mode", mode);
-    window.open(`/api/admin/contacts/export?${params.toString()}`, "_blank", "noopener");
-    setExportDialogOpen(false);
+  async function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
+    setExportBusyKey(mode);
+    try {
+      const params = new URLSearchParams();
+      if (effectiveSearch) params.set("search", effectiveSearch);
+      if (status !== "__all") params.set("status", status);
+      if (allocatedTo !== "__all") params.set("allocatedTo", allocatedTo);
+      if (brand !== "__all") params.set("brand", brand);
+      params.set("mode", mode);
+
+      const res = await fetch(`/api/admin/contacts/export?${params.toString()}`);
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        notify.error(data.error ?? "Failed to export contacts");
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const fileName =
+        match?.[1] ??
+        (mode === "purchase_summary"
+          ? "contact-master-with-purchases.csv"
+          : "contact-master-export.csv");
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportDialogOpen(false);
+      notify.success("Contact export downloaded");
+    } catch {
+      notify.error("Failed to export contacts");
+    } finally {
+      setExportBusyKey(null);
+    }
   }
 
   async function onAssignContact() {
@@ -889,32 +922,53 @@ export function ContactsPanel({
                   </DialogContent>
                 </Dialog>
 
-                <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+                <Dialog
+                  open={exportDialogOpen}
+                  onOpenChange={(open) => {
+                    if (exportBusyKey) return;
+                    setExportDialogOpen(open);
+                  }}
+                >
                   <DialogContent className="max-w-lg border-border/70 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))]">
                     <DialogHeader>
                       <DialogTitle>Choose Export Type</DialogTitle>
                       <DialogDescription>
                         Export uses your current filters (search, status, allocated merchant, brand).
                         Choose contact details only, or include purchase summary values matched by phone.
+                        Full exports can take a minute with a large contact list.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-3">
                       <button
                         type="button"
-                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10"
-                        onClick={() => downloadContactExport("contacts")}
+                        disabled={exportBusyKey !== null}
+                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
+                        onClick={() => void downloadContactExport("contacts")}
                       >
-                        <p className="font-medium">Contact Info Only</p>
+                        <p className="font-medium inline-flex items-center gap-2">
+                          {exportBusyKey === "contacts" ? (
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          ) : null}
+                          {exportBusyKey === "contacts" ? "Exporting..." : "Contact Info Only"}
+                        </p>
                         <p className="text-muted-foreground mt-1 text-sm">
                           Name, email, phone number, merchant, and contact dates only.
                         </p>
                       </button>
                       <button
                         type="button"
-                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10"
-                        onClick={() => downloadContactExport("purchase_summary")}
+                        disabled={exportBusyKey !== null}
+                        className="rounded-xl border border-border/70 bg-background/70 p-4 text-left transition hover:bg-secondary/10 disabled:pointer-events-none disabled:opacity-60"
+                        onClick={() => void downloadContactExport("purchase_summary")}
                       >
-                        <p className="font-medium">With Purchase Summary</p>
+                        <p className="font-medium inline-flex items-center gap-2">
+                          {exportBusyKey === "purchase_summary" ? (
+                            <Loader2 className="size-4 animate-spin" aria-hidden />
+                          ) : null}
+                          {exportBusyKey === "purchase_summary"
+                            ? "Exporting..."
+                            : "With Purchase Summary"}
+                        </p>
                         <p className="text-muted-foreground mt-1 text-sm">
                           Includes total orders, total purchase value, and last order date matched by contact number.
                         </p>
