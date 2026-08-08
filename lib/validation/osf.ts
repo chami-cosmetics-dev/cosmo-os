@@ -143,6 +143,10 @@ const osfSupplierOrdersRowSchema = z.object({
   allocations: z.array(osfSupplierOrdersAllocationSchema).max(100),
 });
 
+export const osfSupplierOrdersPageDataQuerySchema = z.object({
+  priority: trimmedString(0, 80).optional(),
+});
+
 export const osfSupplierOrdersItemsQuerySchema = z.object({
   q: trimmedString(0, LIMITS.sku.max).optional(),
   vendorId: cuidSchema.optional(),
@@ -159,6 +163,7 @@ export const osfSupplierOrdersGenerateBodySchema = z.object({
   rows: z.array(osfSupplierOrdersRowSchema).min(1).max(500),
 });
 
+export type OsfSupplierOrdersPageDataQuery = z.infer<typeof osfSupplierOrdersPageDataQuerySchema>;
 export type OsfSupplierOrdersItemsQuery = z.infer<typeof osfSupplierOrdersItemsQuerySchema>;
 export type OsfSupplierOrdersSuppliersQuery = z.infer<typeof osfSupplierOrdersSuppliersQuerySchema>;
 export type OsfSupplierOrdersGenerateBodyInput = z.infer<typeof osfSupplierOrdersGenerateBodySchema>;

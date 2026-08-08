@@ -36,6 +36,37 @@ function formatMoney(value: number) {
   }).format(value);
 }
 
+function MerchantChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ dataKey?: string; value?: number; color?: string; name?: string }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-md">
+      {label ? (
+        <p className="mb-1.5 font-semibold text-foreground">{label}</p>
+      ) : null}
+      {payload.map((entry) => (
+        <div key={String(entry.dataKey)} className="flex items-center gap-2 py-0.5">
+          <span
+            className="inline-block size-2 shrink-0 rounded-[2px]"
+            style={{ backgroundColor: entry.color ?? "#14b8a6" }}
+          />
+          <span className="text-muted-foreground">{entry.name}:</span>
+          <span className="font-medium tabular-nums text-foreground">
+            {formatMoney(Number(entry.value ?? 0))}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const PIE_COLORS = ["#0d9488", "#f59e0b", "#6366f1", "#ef4444", "#14b8a6", "#a855f7"];
 
 type Props = {
@@ -271,8 +302,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     tick={{ fontSize: 11 }}
                   />
                   <Tooltip
-                    formatter={(value: number) => formatMoney(value)}
-                    contentStyle={{ fontSize: 12 }}
+                    content={<MerchantChartTooltip />}
+                    cursor={{ fill: "rgba(148, 163, 184, 0.15)" }}
                   />
                   {hasAnyTarget && (
                     <Bar dataKey="target" name="Target" fill="#64748b" radius={[0, 4, 4, 0]} />
@@ -416,17 +447,17 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Top customer spend
+              Today’s top buyer
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xl font-semibold tabular-nums">
-              {data.topCustomers[0]
-                ? formatMoney(data.topCustomers[0].total)
+              {data.topCustomersToday[0]
+                ? formatMoney(data.topCustomersToday[0].total)
                 : "—"}
             </p>
             <p className="text-muted-foreground truncate text-xs">
-              {data.topCustomers[0]?.name ?? "No customers yet"}
+              {data.topCustomersToday[0]?.name ?? "No buyers today"}
             </p>
           </CardContent>
         </Card>
@@ -492,7 +523,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         <Cell key={entry.name} fill={entry.fill} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => formatMoney(value)} />
+                    <Tooltip
+                      content={<MerchantChartTooltip />}
+                      cursor={{ fill: "rgba(148, 163, 184, 0.12)" }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -509,62 +543,129 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-base">Top customers by sales</CardTitle>
-          <p className="text-muted-foreground text-xs">
-            Highest Cosmo order totals attributed to this merchant (non-cancelled).
-          </p>
-        </CardHeader>
-        <CardContent>
-          {data.topCustomers.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No attributed customer sales found for this merchant yet.
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-base">Daily top customers</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              Today ({data.topCustomersTodayYmd}) — ranked by today’s purchase
+              amount. Grouped by phone or email.
             </p>
-          ) : (
-            <ul className="space-y-2">
-              {data.topCustomers.map((customer, index) => {
-                const maxTotal = data.topCustomers[0]?.total || 1;
-                const share = Math.min(100, (customer.total / maxTotal) * 100);
-                return (
-                  <li
-                    key={customer.key}
-                    className="rounded-xl border border-border/60 px-3 py-2.5"
-                  >
-                    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
-                          {index + 1}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{customer.name}</p>
-                          <p className="text-muted-foreground truncate text-xs">
-                            {customer.phone || customer.email || "—"}
+          </CardHeader>
+          <CardContent>
+            {data.topCustomersToday.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No purchases attributed to this merchant today.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {data.topCustomersToday.map((customer, index) => {
+                  const maxTotal = Math.max(1, data.topCustomersToday[0]?.total || 1);
+                  const share = Math.min(100, (customer.total / maxTotal) * 100);
+                  return (
+                    <li
+                      key={`today-${customer.key}`}
+                      className="rounded-xl border border-border/60 px-3 py-2.5"
+                    >
+                      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{customer.name}</p>
+                            <p className="text-muted-foreground truncate text-xs">
+                              {customer.phone || customer.email || "—"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p className="font-semibold tabular-nums">
+                            {formatMoney(customer.total)}
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {customer.orderCount} orders today
                           </p>
                         </div>
                       </div>
-                      <div className="text-right text-sm">
-                        <p className="font-semibold tabular-nums">
-                          {formatMoney(customer.total)}
-                        </p>
-                        <p className="text-muted-foreground text-xs">
-                          {customer.orderCount} orders
-                        </p>
+                      <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+                        <div
+                          className="h-full rounded-full bg-sky-500"
+                          style={{ width: `${share}%` }}
+                        />
                       </div>
-                    </div>
-                    <div className="bg-muted h-1.5 overflow-hidden rounded-full">
-                      <div
-                        className="h-full rounded-full bg-teal-500"
-                        style={{ width: `${share}%` }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-base">Lifetime top customers</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              All-time — ranked by how often they buy (distinct purchase days).
+              Grouped by phone or email.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {data.topCustomersLifetime.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No attributed customer purchases found for this merchant yet.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {data.topCustomersLifetime.map((customer, index) => {
+                  const maxDays = Math.max(
+                    1,
+                    data.topCustomersLifetime[0]?.purchaseDays || 1,
+                  );
+                  const share = Math.min(
+                    100,
+                    (customer.purchaseDays / maxDays) * 100,
+                  );
+                  return (
+                    <li
+                      key={`life-${customer.key}`}
+                      className="rounded-xl border border-border/60 px-3 py-2.5"
+                    >
+                      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{customer.name}</p>
+                            <p className="text-muted-foreground truncate text-xs">
+                              {customer.phone || customer.email || "—"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right text-sm">
+                          <p className="font-semibold tabular-nums">
+                            {customer.purchaseDays} purchase days
+                          </p>
+                          <p className="text-muted-foreground text-xs">
+                            {customer.orderCount} orders · {formatMoney(customer.total)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+                        <div
+                          className="h-full rounded-full bg-teal-500"
+                          style={{ width: `${share}%` }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader>
