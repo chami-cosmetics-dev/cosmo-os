@@ -156,10 +156,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
                 {data.profile.displayName}
               </h1>
-              <p className="text-sm text-foreground/80">
-                {data.yearMonth} · {data.sales.orderCount} orders ·{" "}
-                {formatMoney(data.sales.total)} MTD
-              </p>
+            <p className="text-sm text-foreground/80">
+              {data.yearMonth} · {data.sales.orderCount} orders ·{" "}
+              {formatMoney(data.sales.total)} MTD
+              {data.returns.returnRatePct != null
+                ? ` · ${data.returns.returnRatePct}% returns`
+                : ""}
+            </p>
               {data.profile.email && (
                 <p className="text-muted-foreground text-xs">{data.profile.email}</p>
               )}
@@ -352,6 +355,83 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </Card>
       )}
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              MTD sales
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold tabular-nums">
+              {formatMoney(data.sales.total)}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {data.sales.orderCount} orders
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              Target progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold tabular-nums">
+              {data.target.percent != null ? `${data.target.percent}%` : "—"}
+            </p>
+            <div className="bg-muted mt-2 h-2 overflow-hidden rounded-full">
+              <div
+                className="h-full rounded-full bg-teal-600"
+                style={{ width: `${progressWidth}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              Return rate (MTD)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p
+              className={`text-xl font-semibold tabular-nums ${
+                (data.returns.returnRatePct ?? 0) >= 10
+                  ? "text-amber-600 dark:text-amber-400"
+                  : ""
+              }`}
+            >
+              {data.returns.returnRatePct != null
+                ? `${data.returns.returnRatePct}%`
+                : "—"}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {data.returns.returnOrderCount} returned / {data.returns.orderCount}{" "}
+              orders
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              Top customer spend
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xl font-semibold tabular-nums">
+              {data.topCustomers[0]
+                ? formatMoney(data.topCustomers[0].total)
+                : "—"}
+            </p>
+            <p className="text-muted-foreground truncate text-xs">
+              {data.topCustomers[0]?.name ?? "No customers yet"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -428,6 +508,63 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base">Top customers by sales</CardTitle>
+          <p className="text-muted-foreground text-xs">
+            Highest Cosmo order totals attributed to this merchant (non-cancelled).
+          </p>
+        </CardHeader>
+        <CardContent>
+          {data.topCustomers.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No attributed customer sales found for this merchant yet.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {data.topCustomers.map((customer, index) => {
+                const maxTotal = data.topCustomers[0]?.total || 1;
+                const share = Math.min(100, (customer.total / maxTotal) * 100);
+                return (
+                  <li
+                    key={customer.key}
+                    className="rounded-xl border border-border/60 px-3 py-2.5"
+                  >
+                    <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{customer.name}</p>
+                          <p className="text-muted-foreground truncate text-xs">
+                            {customer.phone || customer.email || "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right text-sm">
+                        <p className="font-semibold tabular-nums">
+                          {formatMoney(customer.total)}
+                        </p>
+                        <p className="text-muted-foreground text-xs">
+                          {customer.orderCount} orders
+                        </p>
+                      </div>
+                    </div>
+                    <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+                      <div
+                        className="h-full rounded-full bg-teal-500"
+                        style={{ width: `${share}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

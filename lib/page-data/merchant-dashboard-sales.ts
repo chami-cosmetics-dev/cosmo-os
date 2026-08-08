@@ -155,3 +155,121 @@ export async function fetchMerchantUserSales(
       .sort((a, b) => b.total - a.total),
   };
 }
+
+export type MerchantTopCustomerRow = {
+  key: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  total: number;
+  orderCount: number;
+};
+
+function customerGroupKey(order: {
+  customerPhone: string | null;
+  customerEmail: string | null;
+  customerName: string | null;
+}) {
+  const phone = (order.customerPhone ?? "").replace(/\D/g, "");
+  if (phone.length >= 7) return `p:${phone}`;
+  const email = (order.customerEmail ?? "").trim().toLowerCase();
+  if (email) return `e:${email}`;
+  const name = (order.customerName ?? "").trim().toLowerCase();
+  if (name) return `n:${name}`;
+  return null;
+}
+
+/**
+ * Top customers by attributed Cosmo sales for this merchant (non-cancelled).
+ * Uses Order.assignedMerchantId (same link used for returns).
+ */
+export async function fetchMerchantTopCustomersBySales(
+  companyId: string,
+  merchantUserId: string,
+  params?: { limit?: number },
+): Promise<MerchantTopCustomerRow[]> {
+  const limit = params?.limit ?? 10;
+
+  const orders = await prisma.order.findMany({
+    where: {
+      companyId,
+      assignedMerchantId: merchantUserId,
+      cancelledAt: null,
+    },
+    select: {
+      totalPrice: true,
+      customerName: true,
+      customerPhone: true,
+      customerEmail: true,
+    },
+    take: 8_000,
+    orderBy: { createdAt: "desc" },
+  });
+
+  const byCustomer = new Map<string, MerchantTopCustomerRow>();
+
+  for (const order of orders) {
+    const key = customerGroupKey(order);
+    if (!key) continue;
+
+    const amount = Number(order.totalPrice ?? 0);
+    const existing = byCustomer.get(key);
+    if (existing) {
+      existing.total += amount;
+      existing.orderCount += 1;
+      if (!existing.name && order.customerName) existing.name = order.customerName.trim();
+      if (!existing.phone && order.customerPhone) existing.phone = order.customerPhone;
+      if (!existing.email && order.customerEmail) existing.email = order.customerEmail;
+    } else {
+      byCustomer.set(key, {
+        key,
+        name: order.customerName?.trim() || order.customerPhone || order.customerEmail || "Customer",
+        phone: order.customerPhone,
+        email: order.customerEmail,
+        total: amount,
+        orderCount: 1,
+      });
+    }
+  }
+
+  return [...byCustomer.values()]
+    .sort((a, b) => b.total - a.total)
+    .slice(0, limit);
+}
+
+export type MerchantReturnStats = {
+  returnOrderCount: number;
+  orderCount: number;
+  returnRatePct: number | null;
+};
+
+/** MTD return % = distinct returned orders / attributed order count for the period. */
+export async function fetchMerchantReturnStats(
+  companyId: string,
+  merchantUserId: string,
+  params: { fromYmd: string; toYmd: string; orderCount: number },
+): Promise<MerchantReturnStats> {
+  const fromDate = parseDayStartUtc(params.fromYmd);
+  const toDate = parseDayEndUtc(params.toYmd);
+  if (fromDate > toDate) {
+    return { returnOrderCount: 0, orderCount: params.orderCount, returnRatePct: null };
+  }
+
+  const returns = await prisma.orderReturn.findMany({
+    where: {
+      companyId,
+      merchantUserId,
+      returnDate: { gte: fromDate, lte: toDate },
+    },
+    select: { orderId: true },
+  });
+
+  const returnOrderCount = new Set(returns.map((row) => row.orderId)).size;
+  const orderCount = params.orderCount;
+  const returnRatePct =
+    orderCount > 0
+      ? Math.round((returnOrderCount / orderCount) * 1000) / 10
+      : null;
+
+  return { returnOrderCount, orderCount, returnRatePct };
+}
