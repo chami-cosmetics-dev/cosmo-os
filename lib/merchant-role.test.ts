@@ -8,11 +8,15 @@ import {
 } from "@/lib/merchant-role";
 
 describe("isMerchantRoleName", () => {
-  it("matches Merchant 01 / merchant02 style names", () => {
+  it("matches Merchant 01 / merchant02 / merchant-level-02 style names", () => {
     expect(isMerchantRoleName("Merchant 01")).toBe(true);
     expect(isMerchantRoleName("merchant 02")).toBe(true);
     expect(isMerchantRoleName("merchant01")).toBe(true);
     expect(isMerchantRoleName("MERCHANT 9")).toBe(true);
+    expect(isMerchantRoleName("merchant-level-02")).toBe(true);
+    expect(isMerchantRoleName("merchant-level-01")).toBe(true);
+    expect(isMerchantRoleName("merchant_level_01")).toBe(true);
+    expect(isMerchantRoleName("Merchant Level 2")).toBe(true);
   });
 
   it("rejects non-merchant roles", () => {
@@ -20,6 +24,7 @@ describe("isMerchantRoleName", () => {
     expect(isMerchantRoleName("manager")).toBe(false);
     expect(isMerchantRoleName("admin")).toBe(false);
     expect(isMerchantRoleName("merchant lead")).toBe(false);
+    expect(isMerchantRoleName("merchant-level")).toBe(false);
     expect(isMerchantRoleName("")).toBe(false);
   });
 });

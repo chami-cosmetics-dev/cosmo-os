@@ -214,7 +214,7 @@ export async function getMerchantDashboardPageData(input: {
     selectedMerchantId = input.viewerUserId;
     if (!merchants.some((m) => m.id === selectedMerchantId)) {
       return {
-        error: "Your account does not have a merchant role (e.g. Merchant 01)",
+        error: "Your account does not have a merchant role (e.g. merchant-level-01)",
         status: 403,
       };
     }
@@ -224,7 +224,7 @@ export async function getMerchantDashboardPageData(input: {
     }
     if (!selectedMerchantId) {
       return {
-        error: "No users with merchant roles found. Assign Merchant 01 / 02 roles first.",
+        error: "No users with merchant roles found. Assign roles like merchant-level-01 / merchant-level-02 first.",
         status: 404,
       };
     }
