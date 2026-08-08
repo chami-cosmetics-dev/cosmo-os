@@ -116,9 +116,11 @@ function resolveIdentityMatch(
 function emailSafeForContact(
   email: string | null,
   matchedContact: IdentityContact,
-  emailMatch: IdentityContact | null
+  emailMatch: IdentityContact | null,
+  emailMatchCount = emailMatch ? 1 : 0
 ) {
   if (!email) return null;
+  if (emailMatchCount > 1) return null;
   if (emailMatch && emailMatch.id !== matchedContact.id) return null;
   return email;
 }
@@ -126,14 +128,41 @@ function emailSafeForContact(
 function emailForCreate(
   email: string | null,
   emailMatch: IdentityContact | null,
-  incomingPhone: string | null
+  incomingPhone: string | null,
+  emailMatchCount = emailMatch ? 1 : 0
 ) {
   if (!email) return null;
+  // Shared/ambiguous email already on multiple contacts → create phone-only.
+  if (emailMatchCount > 1) return null;
   // Shared email already owned by a different phone → create phone-only contact.
   if (emailMatch && !phonesCompatible(emailMatch.phoneNumber, incomingPhone)) {
     return null;
   }
   return email;
+}
+
+/**
+ * Duplicate emails are common (POS/staff checkout). Only hard-conflict when we
+ * cannot safely identify by phone.
+ */
+function shouldHardConflictOnDuplicates(
+  emailMatches: IdentityContact[],
+  phoneMatches: IdentityContact[],
+  phoneNumber: string | null
+) {
+  if (phoneMatches.length > 1) return true;
+  if (emailMatches.length > 1 && !phoneNumber) return true;
+  return false;
+}
+
+function pickEmailMatchForIdentity(emailMatches: IdentityContact[], phoneNumber: string | null) {
+  if (emailMatches.length === 0) return null;
+  if (emailMatches.length === 1) return emailMatches[0] ?? null;
+  // Ambiguous shared email: only keep it if one row is phone-compatible.
+  if (!phoneNumber) return null;
+  return (
+    emailMatches.find((contact) => phonesCompatible(contact.phoneNumber, phoneNumber)) ?? null
+  );
 }
 
 async function updatePurchaseSnapshotForContacts(input: {
@@ -269,11 +298,11 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
     ? candidates.filter((contact) => contact.phoneNumber?.trim() === phoneNumber)
     : [];
 
-  if (emailMatches.length > 1 || phoneMatches.length > 1) {
+  if (shouldHardConflictOnDuplicates(emailMatches, phoneMatches, phoneNumber)) {
     return { status: "conflict" };
   }
 
-  const emailMatch = emailMatches[0] ?? null;
+  const emailMatch = pickEmailMatchForIdentity(emailMatches, phoneNumber);
   const phoneMatch = phoneMatches[0] ?? null;
 
   const identity = resolveIdentityMatch(emailMatch, phoneMatch, phoneNumber);
@@ -304,12 +333,17 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
           source: true,
         },
       });
-      const recheckedEmail = email
-        ? existingCandidates.find((c) => c.email?.trim().toLowerCase() === email) ?? null
-        : null;
-      const recheckedPhone = phoneNumber
-        ? existingCandidates.find((c) => c.phoneNumber?.trim() === phoneNumber) ?? null
-        : null;
+      const recheckedEmailMatches = email
+        ? existingCandidates.filter((c) => c.email?.trim().toLowerCase() === email)
+        : [];
+      const recheckedPhoneMatches = phoneNumber
+        ? existingCandidates.filter((c) => c.phoneNumber?.trim() === phoneNumber)
+        : [];
+      if (shouldHardConflictOnDuplicates(recheckedEmailMatches, recheckedPhoneMatches, phoneNumber)) {
+        return { status: "conflict" as const };
+      }
+      const recheckedEmail = pickEmailMatchForIdentity(recheckedEmailMatches, phoneNumber);
+      const recheckedPhone = recheckedPhoneMatches[0] ?? null;
       const recheckedIdentity = resolveIdentityMatch(recheckedEmail, recheckedPhone, phoneNumber);
       if (recheckedIdentity.status === "conflict") {
         return { status: "conflict" as const };
@@ -327,7 +361,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
         data: {
           companyId: input.companyId,
           name: name ?? email ?? phoneNumber ?? defaultContactName(input),
-          email: emailForCreate(email, recheckedEmail, phoneNumber),
+          email: emailForCreate(email, recheckedEmail, phoneNumber, recheckedEmailMatches.length),
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
@@ -351,7 +385,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
     source?: string;
   } = {};
 
-  const safeEmail = emailSafeForContact(email, matchedContact, emailMatch);
+  const safeEmail = emailSafeForContact(email, matchedContact, emailMatch, emailMatches.length);
   if (isBlank(matchedContact.name) && name) updateData.name = name;
   if (isBlank(matchedContact.email) && safeEmail) updateData.email = safeEmail;
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
@@ -393,7 +427,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const orderLabel = buildSourceLabel(input.sourceId, input.orderNumber);
   const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
 
-  if (emailMatches.length > 1 || phoneMatches.length > 1) {
+  if (shouldHardConflictOnDuplicates(emailMatches, phoneMatches, phoneNumber)) {
     const purchaseSnapshotContactIds = [
       ...emailMatches.map((contact) => contact.id),
       ...phoneMatches.map((contact) => contact.id),
@@ -429,7 +463,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     return { status: "conflict" };
   }
 
-  const emailMatch = emailMatches[0] ?? null;
+  const emailMatch = pickEmailMatchForIdentity(emailMatches, phoneNumber);
   const phoneMatch = phoneMatches[0] ?? null;
 
   const identity = resolveIdentityMatch(emailMatch, phoneMatch, phoneNumber);
@@ -442,11 +476,11 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     const createResult = await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${buildContactSyncLockKey(input.companyId, email, phoneNumber)}))`;
       const rechecked = await findMatchingContacts(input.companyId, email, phoneNumber, tx as never);
-      if (rechecked.emailMatches.length > 1 || rechecked.phoneMatches.length > 1) {
+      if (shouldHardConflictOnDuplicates(rechecked.emailMatches, rechecked.phoneMatches, phoneNumber)) {
         return { status: "conflict" as const };
       }
 
-      const recheckedEmailMatch = rechecked.emailMatches[0] ?? null;
+      const recheckedEmailMatch = pickEmailMatchForIdentity(rechecked.emailMatches, phoneNumber);
       const recheckedPhoneMatch = rechecked.phoneMatches[0] ?? null;
       const recheckedIdentity = resolveIdentityMatch(
         recheckedEmailMatch,
@@ -465,7 +499,12 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
         purchaseMerchantLabel: recentMerchant,
       });
 
-      const createdEmail = emailForCreate(email, recheckedEmailMatch, phoneNumber);
+      const createdEmail = emailForCreate(
+        email,
+        recheckedEmailMatch,
+        phoneNumber,
+        rechecked.emailMatches.length
+      );
       const created = await tx.contactMaster.create({
         data: {
           companyId: input.companyId,
@@ -525,7 +564,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
     return { status: "created", contactId: created.id };
   }
 
-  const safeEmail = emailSafeForContact(email, matchedContact, emailMatch);
+  const safeEmail = emailSafeForContact(email, matchedContact, emailMatch, emailMatches.length);
 
   await ensureSecondaryContactIdentifiers({
     contactId: matchedContact.id,
