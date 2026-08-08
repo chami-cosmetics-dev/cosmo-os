@@ -24,9 +24,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import {
+  LOYALTY_GOLD_MIN,
   LOYALTY_PLATINUM_MIN,
 } from "@/lib/customer-insight/loyalty-tier";
 import {
+  goldMilestoneRatio,
   progressBarFillRatio,
 } from "@/lib/customer-insight/progress-bar";
 import type {
@@ -853,20 +855,44 @@ export function CustomerInsightPanel({
                           {progressPct}%
                         </p>
                       </div>
-                      <div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                          style={{ width: `${progressPct}%` }}
-                        />
+                      <div className="space-y-1.5">
+                        <div className="relative h-2.5 rounded-full bg-muted">
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                          {/* Gold @ 100,000 */}
+                          <div
+                            className="absolute top-1/2 z-[1] h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400 shadow-[0_0_0_2px_rgba(15,23,42,0.35)]"
+                            style={{ left: `${goldMilestoneRatio() * 100}%` }}
+                            title={`Gold ${formatMoney(LOYALTY_GOLD_MIN, insight.loyalty.currency)}`}
+                          />
+                          {/* Platinum @ 250,000 (end of bar) */}
+                          <div
+                            className="absolute top-1/2 right-0 z-[1] h-4 w-0.5 -translate-y-1/2 rounded-full bg-violet-400 shadow-[0_0_0_2px_rgba(15,23,42,0.35)]"
+                            title={`Platinum ${formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}`}
+                          />
+                        </div>
+                        <div className="relative h-4 text-[10px] tabular-nums text-muted-foreground">
+                          <span className="absolute left-0">0</span>
+                          <span
+                            className="absolute -translate-x-1/2 font-medium text-amber-600 dark:text-amber-400"
+                            style={{ left: `${goldMilestoneRatio() * 100}%` }}
+                          >
+                            Gold {formatMoney(LOYALTY_GOLD_MIN, insight.loyalty.currency)}
+                          </span>
+                          <span className="absolute right-0 font-medium text-violet-600 dark:text-violet-400">
+                            Platinum {formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}
+                          </span>
+                        </div>
+                        <p className="text-xs tabular-nums text-muted-foreground">
+                          Now:{" "}
+                          {formatMoney(
+                            insight.progressBar.currentTotal,
+                            insight.loyalty.currency
+                          )}
+                        </p>
                       </div>
-                      <p className="text-xs tabular-nums text-muted-foreground">
-                        {formatMoney(
-                          insight.progressBar.currentTotal,
-                          insight.loyalty.currency
-                        )}{" "}
-                        /{" "}
-                        {formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}
-                      </p>
                     </div>
                   </div>
                 ) : null}
