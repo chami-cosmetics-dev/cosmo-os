@@ -12,7 +12,7 @@ const sampleOwner: CustomerInsightDto = {
     code: "loyalcs",
     lifetimeTotal: 100_000,
     currency: "LKR",
-    thresholds: { goldMin: 75_000, platinumMin: 200_000 },
+    thresholds: { goldMin: 100_000, platinumMin: 250_000 },
   },
   contact: {
     id: "c1",
@@ -36,9 +36,9 @@ const sampleOwner: CustomerInsightDto = {
   chartsAvailable: true,
   progressBar: {
     currentTotal: 100_000,
-    goldMin: 75_000,
-    platinumMin: 200_000,
-    amountToNext: 100_000,
+    goldMin: 100_000,
+    platinumMin: 250_000,
+    amountToNext: 150_000,
     tier: "gold",
   },
   lastContactedAt: "2026-01-01T00:00:00.000Z",

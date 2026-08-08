@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Check, Crown, Loader2, Search, X } from "lucide-react";
+import { Calendar, Check, Crown, Loader2, Phone, Search, ShieldCheck, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +26,6 @@ import {
   LOYALTY_PLATINUM_MIN,
 } from "@/lib/customer-insight/loyalty-tier";
 import {
-  goldMilestoneRatio,
   progressBarFillRatio,
 } from "@/lib/customer-insight/progress-bar";
 import type {
@@ -101,6 +100,13 @@ function initialFromName(name: string | null | undefined) {
   const trimmed = name?.trim();
   if (!trimmed) return "?";
   return trimmed.charAt(0).toUpperCase();
+}
+
+function formatMemberSince(iso: string | null | undefined) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-LK", { month: "short", year: "numeric" });
 }
 
 function truncateLabel(value: string, max = 18) {
@@ -432,8 +438,8 @@ export function CustomerInsightPanel({
                 disabled={isBusy}
               >
                 <option value="">None</option>
-                <option value="gold">Push to Gold (≥75k ≤100k)</option>
-                <option value="platinum">Push to Platinum (≥150k ≤200k)</option>
+                <option value="gold">Push to Gold (≥75k &lt;100k)</option>
+                <option value="platinum">Push to Platinum (≥200k &lt;250k)</option>
               </select>
             </label>
             <label className="space-y-1 text-sm">
@@ -664,343 +670,247 @@ export function CustomerInsightPanel({
             </Card>
           )}
 
-          {/* Owner profile — screenshot-style */}
+          {/* Owner contact details + progress (screenshot layout) */}
           {isOwner && insight.contact && (
-            <Card>
-              <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
-                    {initialFromName(insight.contact.name)}
-                  </div>
-                  <div className="space-y-1">
-                    <CardTitle className="text-xl">{insight.contact.name}</CardTitle>
-                    <CardDescription className="space-y-0.5">
-                      <span className="block">
-                        {insight.contact.phoneNumber ??
-                          insight.contact.phones[0] ??
-                          "No phone"}
-                      </span>
-                      {insight.contact.email ? (
-                        <span className="block">{insight.contact.email}</span>
+            <Card className="overflow-hidden">
+              <CardContent className="space-y-5 p-5 sm:p-6">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
+                      {initialFromName(insight.contact.name)}
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <h2 className="text-xl font-semibold tracking-tight">
+                        {insight.contact.name}
+                      </h2>
+                      <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Phone className="size-3.5 shrink-0" aria-hidden />
+                          {insight.contact.phoneNumber ??
+                            insight.contact.phones[0] ??
+                            "No phone"}
+                        </span>
+                        {formatMemberSince(insight.frequency?.firstOrderAt) ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Calendar className="size-3.5 shrink-0" aria-hidden />
+                            Member since{" "}
+                            {formatMemberSince(insight.frequency?.firstOrderAt)}
+                          </span>
+                        ) : null}
+                        {insight.contact.email ? (
+                          <span className="truncate">{insight.contact.email}</span>
+                        ) : null}
+                        <span className="text-foreground/80">
+                          Allocated: {insight.assignedMerchant ?? "—"}
+                          {" · "}
+                          DOB:{" "}
+                          {formatDob(
+                            insight.contact.birthYear,
+                            insight.contact.birthMonth,
+                            insight.contact.birthDay
+                          )}
+                        </span>
+                      </div>
+                      {insight.canEditProfile ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-1 w-fit"
+                          disabled={isBusy}
+                          onClick={() => setEditing((v) => !v)}
+                        >
+                          {editing ? "Cancel edit" : "Edit profile"}
+                        </Button>
                       ) : null}
-                      <span className="block font-medium text-foreground">
-                        Allocated: {insight.assignedMerchant ?? "—"}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-start gap-8 lg:justify-end">
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">Loyalty Tier</p>
+                      <span
+                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
+                      >
+                        <ShieldCheck className="size-3.5" aria-hidden />
+                        {insight.loyalty.label}
+                        {insight.loyalty.code ? ` (${insight.loyalty.code})` : ""}
                       </span>
-                      <span className="block">
-                        DOB:{" "}
-                        {formatDob(
-                          insight.contact.birthYear,
-                          insight.contact.birthMonth,
-                          insight.contact.birthDay
+                    </div>
+                    <div className="space-y-1 lg:text-right">
+                      <p className="text-xs text-muted-foreground">Lifetime Total Spend</p>
+                      <p className="text-2xl font-semibold tabular-nums tracking-tight">
+                        {formatMoney(
+                          insight.loyalty.lifetimeTotal,
+                          insight.loyalty.currency
                         )}
-                      </span>
-                    </CardDescription>
+                      </p>
+                      {insight.frequency ? (
+                        <p className="text-xs text-muted-foreground">
+                          Across {insight.frequency.orderCount} order
+                          {insight.frequency.orderCount === 1 ? "" : "s"}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-start gap-6 sm:justify-end">
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Loyalty Tier</p>
-                    <span
-                      className={`inline-flex whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
-                    >
-                      {insight.loyalty.label}
-                      {insight.loyalty.code ? ` (${insight.loyalty.code})` : ""}
-                    </span>
-                  </div>
-                  <div className="space-y-1 sm:text-right">
-                    <p className="text-xs text-muted-foreground">Lifetime Total Spend</p>
-                    <p className="text-xl font-semibold tabular-nums tracking-tight">
-                      {formatMoney(insight.loyalty.lifetimeTotal, insight.loyalty.currency)}
-                    </p>
-                    {insight.frequency ? (
-                      <p className="text-xs text-muted-foreground">
-                        Across {insight.frequency.orderCount} order
-                        {insight.frequency.orderCount === 1 ? "" : "s"}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {insight.canEditProfile ? (
+
+                {editing && profileForm ? (
+                  <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
+                    {(
+                      [
+                        ["name", "Name"],
+                        ["email", "Email"],
+                        ["phoneNumber", "Phone"],
+                        ["birthYear", "Birth year"],
+                        ["birthMonth", "Birth month"],
+                        ["birthDay", "Birth day"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <label key={key} className="space-y-1 text-sm">
+                        <span className="text-muted-foreground">{label}</span>
+                        <Input
+                          value={profileForm[key]}
+                          onChange={(e) =>
+                            setProfileForm((prev) =>
+                              prev ? { ...prev, [key]: e.target.value } : prev
+                            )
+                          }
+                          disabled={isBusy}
+                        />
+                      </label>
+                    ))}
+                    <div className="sm:col-span-2">
                       <Button
                         type="button"
-                        size="sm"
-                        variant="outline"
                         disabled={isBusy}
-                        onClick={() => setEditing((v) => !v)}
+                        onClick={() => void saveProfile()}
                       >
-                        {editing ? "Cancel edit" : "Edit profile"}
+                        Save profile
                       </Button>
-                    ) : null}
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              {editing && profileForm ? (
-                <CardContent className="grid gap-3 sm:grid-cols-2">
-                  {(
-                    [
-                      ["name", "Name"],
-                      ["email", "Email"],
-                      ["phoneNumber", "Phone"],
-                      ["birthYear", "Birth year"],
-                      ["birthMonth", "Birth month"],
-                      ["birthDay", "Birth day"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label key={key} className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">{label}</span>
-                      <Input
-                        value={profileForm[key]}
-                        onChange={(e) =>
-                          setProfileForm((prev) =>
-                            prev ? { ...prev, [key]: e.target.value } : prev
-                          )
-                        }
-                        disabled={isBusy}
-                      />
-                    </label>
-                  ))}
-                  <div className="sm:col-span-2">
-                    <Button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => void saveProfile()}
-                    >
-                      Save profile
-                    </Button>
-                  </div>
-                </CardContent>
-              ) : null}
-            </Card>
-          )}
+                ) : null}
 
-          {/* Progress — screenshot-style */}
-          {isOwner && insight.progressBar && (
-            <Card>
-              <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                  <Crown className="size-5" aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {insight.loyalty.key === "platinum"
-                          ? "Platinum reached"
-                          : `Progress to ${nextTierLabel}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {insight.progressBar.amountToNext > 0
-                          ? `Spend ${formatMoney(insight.progressBar.amountToNext, insight.loyalty.currency)} more to reach ${nextTierLabel} tier`
-                          : "Highest loyalty milestone reached."}
+                {insight.progressBar ? (
+                  <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                      <Crown className="size-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {insight.loyalty.key === "platinum"
+                              ? "Platinum reached"
+                              : `Progress to ${nextTierLabel}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {insight.progressBar.amountToNext > 0
+                              ? `Spend ${formatMoney(insight.progressBar.amountToNext, insight.loyalty.currency)} more to reach ${nextTierLabel} tier`
+                              : "Highest loyalty milestone reached."}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm font-semibold tabular-nums text-muted-foreground sm:pt-0.5">
+                          {progressPct}%
+                        </p>
+                      </div>
+                      <div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                          style={{ width: `${progressPct}%` }}
+                        />
+                      </div>
+                      <p className="text-xs tabular-nums text-muted-foreground">
+                        {formatMoney(
+                          insight.progressBar.currentTotal,
+                          insight.loyalty.currency
+                        )}{" "}
+                        /{" "}
+                        {formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}
                       </p>
                     </div>
-                    <p className="text-sm font-medium tabular-nums text-muted-foreground">
-                      {progressPct}%
-                    </p>
                   </div>
-                  <div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                    <div
-                      className="absolute inset-y-0 w-0.5 bg-amber-500"
-                      style={{ left: `${Math.round(goldMilestoneRatio() * 100)}%` }}
-                      title="Gold"
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
-                    <span>
-                      {formatMoney(
-                        insight.progressBar.currentTotal,
-                        insight.loyalty.currency
-                      )}
-                    </span>
-                    <span>
-                      {formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}
-                    </span>
-                  </div>
-                </div>
+                ) : null}
               </CardContent>
             </Card>
           )}
 
-          {/* Invoice history (unchanged content) + Monthly spend chart */}
-          <div className="grid gap-4 xl:grid-cols-5">
-            <Card ref={invoicesRef} className="xl:col-span-3">
-              <CardHeader className="pb-2">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <CardTitle className="text-base">Invoice history</CardTitle>
-                    <CardDescription>
-                      {insight.invoicePagination.total} order(s).
-                      {!isOwner
-                        ? " Headers only — line items hidden for non-allocated merchants."
-                        : " Cosmo invoices open with View Invoice; Adapt is view-only in the table."}
-                    </CardDescription>
-                  </div>
-                  {itemFilter && isOwner ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setItemFilter(null)}
-                    >
-                      <X className="size-4" aria-hidden />
-                      Clear item filter
-                    </Button>
-                  ) : null}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {insight.invoices.length === 0 ? (
-                  <div className="rounded-md border border-dashed py-10 text-center">
-                    <p className="text-sm font-medium">No purchases found</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-xl border border-border/70">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
-                          <th className="px-4 py-2 text-left font-medium">Order</th>
-                          {isOwner ? (
-                            <th className="px-4 py-2 text-left font-medium">Items</th>
-                          ) : null}
-                          <th className="px-4 py-2 text-left font-medium">Date</th>
-                          <th className="px-4 py-2 text-right font-medium">Total</th>
-                          <th className="px-4 py-2 text-left font-medium">Status</th>
-                          {isOwner ? (
-                            <th className="px-4 py-2 text-left font-medium">Invoice</th>
-                          ) : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleInvoices.map((order) => (
-                          <tr
-                            key={order.id}
-                            className="border-b last:border-0 hover:bg-secondary/10"
-                          >
-                            <td className="px-4 py-2 align-top">
-                              <p className="font-medium">{order.reference}</p>
-                              <p className="text-muted-foreground text-xs">
-                                {order.secondaryLabel ??
-                                  (order.source === "adapt" ? "Adapt" : "N/A")}
-                              </p>
-                            </td>
-                            {isOwner ? (
-                              <td className="px-4 py-2 align-top">
-                                {order.lineItems.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {order.lineItems.map((item) => (
-                                      <div
-                                        key={item.id}
-                                        className="rounded-md border border-dashed border-border/70 px-3 py-2"
-                                      >
-                                        <p className="font-medium leading-snug">
-                                          {item.productTitle}
-                                        </p>
-                                        <p className="text-muted-foreground text-xs">
-                                          {[
-                                            item.variantTitle,
-                                            item.sku ? `SKU: ${item.sku}` : null,
-                                            item.brand ? `Brand: ${item.brand}` : null,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" • ") || "Standard item"}
-                                        </p>
-                                        <p className="mt-1 text-xs">
-                                          Qty {item.quantity}
-                                          <span className="text-muted-foreground">
-                                            {" "}
-                                            • {formatAmount(item.price, order.currency)} each
-                                          </span>
-                                        </p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="text-muted-foreground text-xs">
-                                    {order.source === "adapt"
-                                      ? "Adapt history (no line items)"
-                                      : "No items"}
-                                  </span>
-                                )}
-                              </td>
-                            ) : null}
-                            <td className="px-4 py-2 align-top text-muted-foreground whitespace-nowrap">
-                              {formatAppDateTime(order.date, "N/A")}
-                            </td>
-                            <td className="px-4 py-2 align-top text-right whitespace-nowrap">
-                              {formatAmount(order.amount, order.currency)}
-                              {!order.includedInLoyaltyTotal ? (
-                                <p className="text-muted-foreground text-[10px]">
-                                  Excluded from loyalty total
-                                </p>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-2 align-top text-xs text-muted-foreground">
-                              {order.source === "adapt"
-                                ? `${order.financialStatus ?? "Adapt"} / ${order.fulfillmentStatus ?? "—"}`
-                                : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`}
-                            </td>
-                            {isOwner ? (
-                              <td className="px-4 py-2 align-top">
-                                {order.source === "adapt" || !order.orderId ? (
-                                  <span className="text-muted-foreground text-xs">
-                                    Adapt (view only)
-                                  </span>
-                                ) : (
-                                  <a
-                                    href={`/api/admin/orders/${order.orderId}/invoice`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-primary underline-offset-4 hover:underline"
-                                  >
-                                    View Invoice
-                                  </a>
-                                )}
-                              </td>
-                            ) : null}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {insight.invoicePagination.total > insight.invoicePagination.pageSize &&
-                  contactIdForPaging && (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        Page {invoicePage} of {totalPages}
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isBusy || invoicePage <= 1}
-                          onClick={() => void loadInsight(contactIdForPaging, invoicePage - 1)}
+          {/* Charts side-by-side; invoice history stays full-width below */}
+          {isOwner ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Top Items Overview</CardTitle>
+                  <CardDescription>
+                    Highest spend items. Click a bar to filter invoice history to that item.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {topItemsChart.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-muted-foreground">
+                      No purchased items yet.
+                    </p>
+                  ) : (
+                    <div className="h-[280px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={topItemsChart}
+                          margin={{ top: 8, right: 8, left: 0, bottom: 48 }}
                         >
-                          Previous
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isBusy || invoicePage >= totalPages}
-                          onClick={() => void loadInsight(contactIdForPaging, invoicePage + 1)}
-                        >
-                          Next
-                        </Button>
-                      </div>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={10}
+                            interval={0}
+                            angle={-28}
+                            textAnchor="end"
+                            height={60}
+                          />
+                          <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={11}
+                            tickFormatter={formatChartAxis}
+                            width={42}
+                          />
+                          <Tooltip
+                            formatter={(value, _name, item) => {
+                              const row = item?.payload as
+                                | { name?: string; quantity?: number }
+                                | undefined;
+                              return [
+                                `${formatMoney(Number(value ?? 0))} · qty ${row?.quantity ?? 0}`,
+                                row?.name ?? "Spend",
+                              ];
+                            }}
+                          />
+                          <Bar
+                            dataKey="spend"
+                            fill={CHART_BLUE}
+                            radius={[4, 4, 0, 0]}
+                            cursor="pointer"
+                            onClick={(data) => {
+                              const name =
+                                data &&
+                                typeof data === "object" &&
+                                "name" in data &&
+                                typeof (data as { name?: unknown }).name === "string"
+                                  ? (data as { name: string }).name
+                                  : null;
+                              if (name) focusInvoicesForItem(name);
+                            }}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   )}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            {isOwner ? (
-              <Card className="xl:col-span-2">
+              <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Monthly Spend Overview</CardTitle>
                   <CardDescription>Last 12 months of loyalty-eligible spend.</CardDescription>
@@ -1051,82 +961,181 @@ export function CustomerInsightPanel({
                   )}
                 </CardContent>
               </Card>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
-          {/* Top items graph (replaces old list; same style as monthly spend) */}
-          {isOwner ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Top Items Overview</CardTitle>
-                <CardDescription>
-                  Highest spend items. Click a bar to filter invoice history to that item.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {topItemsChart.length === 0 ? (
-                  <p className="py-10 text-center text-sm text-muted-foreground">
-                    No purchased items yet.
-                  </p>
-                ) : (
-                  <div className="h-[320px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={topItemsChart}
-                        margin={{ top: 8, right: 8, left: 0, bottom: 48 }}
+          {/* Invoice history — full width, same as before */}
+          <Card ref={invoicesRef}>
+            <CardHeader className="pb-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base">Invoice history</CardTitle>
+                  <CardDescription>
+                    {insight.invoicePagination.total} order(s).
+                    {!isOwner
+                      ? " Headers only — line items hidden for non-allocated merchants."
+                      : " Cosmo invoices open with View Invoice; Adapt is view-only in the table."}
+                  </CardDescription>
+                </div>
+                {itemFilter && isOwner ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setItemFilter(null)}
+                  >
+                    <X className="size-4" aria-hidden />
+                    Clear item filter
+                  </Button>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {insight.invoices.length === 0 ? (
+                <div className="rounded-md border border-dashed py-10 text-center">
+                  <p className="text-sm font-medium">No purchases found</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
+                        <th className="px-4 py-2 text-left font-medium">Order</th>
+                        {isOwner ? (
+                          <th className="px-4 py-2 text-left font-medium">Items</th>
+                        ) : null}
+                        <th className="px-4 py-2 text-left font-medium">Date</th>
+                        <th className="px-4 py-2 text-right font-medium">Total</th>
+                        <th className="px-4 py-2 text-left font-medium">Status</th>
+                        {isOwner ? (
+                          <th className="px-4 py-2 text-left font-medium">Invoice</th>
+                        ) : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleInvoices.map((order) => (
+                        <tr
+                          key={order.id}
+                          className="border-b last:border-0 hover:bg-secondary/10"
+                        >
+                          <td className="px-4 py-2 align-top">
+                            <p className="font-medium">{order.reference}</p>
+                            <p className="text-muted-foreground text-xs">
+                              {order.secondaryLabel ??
+                                (order.source === "adapt" ? "Adapt" : "N/A")}
+                            </p>
+                          </td>
+                          {isOwner ? (
+                            <td className="px-4 py-2 align-top">
+                              {order.lineItems.length > 0 ? (
+                                <div className="space-y-2">
+                                  {order.lineItems.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="rounded-md border border-dashed border-border/70 px-3 py-2"
+                                    >
+                                      <p className="font-medium leading-snug">
+                                        {item.productTitle}
+                                      </p>
+                                      <p className="text-muted-foreground text-xs">
+                                        {[
+                                          item.variantTitle,
+                                          item.sku ? `SKU: ${item.sku}` : null,
+                                          item.brand ? `Brand: ${item.brand}` : null,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" • ") || "Standard item"}
+                                      </p>
+                                      <p className="mt-1 text-xs">
+                                        Qty {item.quantity}
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          • {formatAmount(item.price, order.currency)} each
+                                        </span>
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">
+                                  {order.source === "adapt"
+                                    ? "Adapt history (no line items)"
+                                    : "No items"}
+                                </span>
+                              )}
+                            </td>
+                          ) : null}
+                          <td className="px-4 py-2 align-top text-muted-foreground whitespace-nowrap">
+                            {formatAppDateTime(order.date, "N/A")}
+                          </td>
+                          <td className="px-4 py-2 align-top text-right whitespace-nowrap">
+                            {formatAmount(order.amount, order.currency)}
+                            {!order.includedInLoyaltyTotal ? (
+                              <p className="text-muted-foreground text-[10px]">
+                                Excluded from loyalty total
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-2 align-top text-xs text-muted-foreground">
+                            {order.source === "adapt"
+                              ? `${order.financialStatus ?? "Adapt"} / ${order.fulfillmentStatus ?? "—"}`
+                              : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`}
+                          </td>
+                          {isOwner ? (
+                            <td className="px-4 py-2 align-top">
+                              {order.source === "adapt" || !order.orderId ? (
+                                <span className="text-muted-foreground text-xs">
+                                  Adapt (view only)
+                                </span>
+                              ) : (
+                                <a
+                                  href={`/api/admin/orders/${order.orderId}/invoice`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline-offset-4 hover:underline"
+                                >
+                                  View Invoice
+                                </a>
+                              )}
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {insight.invoicePagination.total > insight.invoicePagination.pageSize &&
+                contactIdForPaging && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Page {invoicePage} of {totalPages}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isBusy || invoicePage <= 1}
+                        onClick={() => void loadInsight(contactIdForPaging, invoicePage - 1)}
                       >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={10}
-                          interval={0}
-                          angle={-28}
-                          textAnchor="end"
-                          height={60}
-                        />
-                        <YAxis
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={11}
-                          tickFormatter={formatChartAxis}
-                          width={42}
-                        />
-                        <Tooltip
-                          formatter={(value, _name, item) => {
-                            const row = item?.payload as
-                              | { name?: string; quantity?: number }
-                              | undefined;
-                            return [
-                              `${formatMoney(Number(value ?? 0))} · qty ${row?.quantity ?? 0}`,
-                              row?.name ?? "Spend",
-                            ];
-                          }}
-                        />
-                        <Bar
-                          dataKey="spend"
-                          fill={CHART_BLUE}
-                          radius={[4, 4, 0, 0]}
-                          cursor="pointer"
-                          onClick={(data) => {
-                            const name =
-                              data &&
-                              typeof data === "object" &&
-                              "name" in data &&
-                              typeof (data as { name?: unknown }).name === "string"
-                                ? (data as { name: string }).name
-                                : null;
-                            if (name) focusInvoicesForItem(name);
-                          }}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
+                        Previous
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isBusy || invoicePage >= totalPages}
+                        onClick={() => void loadInsight(contactIdForPaging, invoicePage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          ) : null}
+            </CardContent>
+          </Card>
 
           {/* Contacted footer */}
           {isOwner ? (
