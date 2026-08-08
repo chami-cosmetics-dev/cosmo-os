@@ -1,9 +1,10 @@
 /**
  * Merchant dashboard identity: users whose role name is like
- * "Merchant 01", "merchant 02", "merchant01".
+ * "Merchant 01", "merchant 02", "merchant01", "merchant-level-02".
  */
 
-const MERCHANT_ROLE_NAME_RE = /^merchant\s*0*\d+$/i;
+const MERCHANT_ROLE_NAME_RE =
+  /^merchant(?:[\s_-]*level)?[\s_-]*0*\d+$/i;
 
 export function isMerchantRoleName(name: string | null | undefined): boolean {
   const trimmed = (name ?? "").trim();
