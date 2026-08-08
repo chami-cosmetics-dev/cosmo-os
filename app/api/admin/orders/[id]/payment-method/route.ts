@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
-import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { createPaymentMethodChangeApproval } from "@/lib/approval-workflow";
+import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
+import { canRequestPaymentMethodChange } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -13,26 +14,6 @@ const bodySchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
   targetPaymentMethod: z.enum(["bank_transfer", "koko"]).optional().default("bank_transfer"),
 });
-
-function normalizeText(value: string | null | undefined) {
-  return value?.trim().toLowerCase() ?? "";
-}
-
-function isCodOrder(order: {
-  financialStatus: string | null;
-  paymentGatewayPrimary: string | null;
-  paymentGatewayNames: string[];
-}) {
-  const candidates = [
-    order.paymentGatewayPrimary,
-    ...order.paymentGatewayNames,
-    order.financialStatus,
-  ].map(normalizeText);
-
-  if (candidates.some((v) => v.includes("bank"))) return false;
-  if (candidates.some((v) => v.includes("card") || v.includes("paid"))) return false;
-  return candidates.some((v) => v.includes("cod")) || normalizeText(order.financialStatus) === "pending";
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -92,8 +73,11 @@ export async function PATCH(
       : [],
   };
 
-  if (!isCodOrder(orderForCheck)) {
-    return NextResponse.json({ error: "Order is not a COD order" }, { status: 400 });
+  if (!canRequestPaymentMethodChange(orderForCheck)) {
+    return NextResponse.json(
+      { error: "Order payment method cannot be changed (only COD / Cash orders)" },
+      { status: 400 },
+    );
   }
 
   const { targetPaymentMethod } = parsed.data;

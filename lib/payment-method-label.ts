@@ -66,4 +66,21 @@ export function formatPaymentMethodLabel(input?: {
   return getPaymentMethodInfo(input).label;
 }
 
+/**
+ * COD and Cash (POS/web “Cash”) can be switched to Bank Transfer / KOKO.
+ * Already bank / card / paid gateways cannot.
+ */
+export function canRequestPaymentMethodChange(input?: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+  financialStatus?: string | null;
+}): boolean {
+  const info = getPaymentMethodInfo(input);
+  if (info.variant === "cod" || info.variant === "cash") return true;
 
+  const pendingFinancial = input?.financialStatus?.toLowerCase().trim() ?? "";
+  if (pendingFinancial === "pending" && (info.variant === "other" || info.label === "—")) {
+    return true;
+  }
+  return false;
+}
