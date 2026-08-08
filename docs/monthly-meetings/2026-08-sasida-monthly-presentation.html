@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sasida — August 2026 Monthly Work</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --slide: #161d27;
+      --text: #e8eef5;
+      --muted: #9aabbd;
+      --accent: #3d8bfd;
+      --accent-soft: #1e3a5f;
+      --line: #2a3544;
+      --good: #3ecf8e;
+      --warn: #e8b84a;
+      --purple: #8b7cf6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; }
+    .deck { height: 100%; overflow: hidden; position: relative; }
+    .slide {
+      display: none;
+      height: 100%;
+      padding: 40px 56px 76px;
+      flex-direction: column;
+      justify-content: center;
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+    .slide.active { display: flex; }
+    .slide.cover { background: linear-gradient(160deg, #0f1419 0%, #1a2740 100%); max-width: none; padding: 64px; }
+    .slide.wide { max-width: 1200px; }
+    h1 { font-size: 2.5rem; font-weight: 650; letter-spacing: -0.02em; line-height: 1.15; margin-bottom: 16px; }
+    h2 { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; margin-bottom: 18px; color: var(--text); }
+    h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 8px; color: var(--accent); }
+    .subtitle { font-size: 1.05rem; color: var(--muted); margin-bottom: 14px; }
+    .meta { font-size: 0.95rem; color: var(--muted); margin-top: 24px; }
+    .badge {
+      display: inline-block;
+      background: var(--accent-soft);
+      color: var(--accent);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    ul { list-style: none; }
+    li {
+      position: relative;
+      padding: 9px 0 9px 22px;
+      font-size: 1.02rem;
+      line-height: 1.4;
+      color: var(--text);
+      border-bottom: 1px solid var(--line);
+    }
+    li:last-child { border-bottom: none; }
+    li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 16px;
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+    li strong { color: #fff; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    .card {
+      background: var(--slide);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .card p { color: var(--muted); font-size: 0.9rem; line-height: 1.4; margin-top: 4px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 8px; }
+    .stat {
+      background: var(--slide);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .stat .n { font-size: 1.85rem; font-weight: 700; color: var(--accent); }
+    .stat .l { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
+    .note {
+      margin-top: 16px;
+      padding: 12px 14px;
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .note strong { color: var(--text); }
+    .footer {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 24px;
+      background: rgba(15, 20, 25, 0.94);
+      border-top: 1px solid var(--line);
+      font-size: 0.82rem;
+      color: var(--muted);
+      z-index: 10;
+    }
+    .footer button {
+      background: var(--slide);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 7px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+    }
+    .footer button:hover { border-color: var(--accent); color: var(--accent); }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+    .split-img { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 22px; align-items: center; }
+    .small li { font-size: 0.92rem; padding: 7px 0 7px 18px; }
+    .small li::before { top: 13px; width: 6px; height: 6px; }
+
+    /* Figures / screenshots */
+    .figure {
+      background: var(--slide);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: 420px;
+      object-fit: cover;
+      object-position: top;
+    }
+    .figure .cap {
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+    }
+    .drop-slot {
+      border: 1.5px dashed var(--line);
+      border-radius: 10px;
+      min-height: 140px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 16px;
+      background: #121820;
+    }
+    .drop-slot code {
+      font-size: 0.75rem;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    /* Process flow */
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .flow-step {
+      flex: 1 1 120px;
+      background: var(--slide);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 12px;
+      text-align: center;
+      position: relative;
+      min-width: 110px;
+    }
+    .flow-step .num {
+      width: 26px; height: 26px;
+      margin: 0 auto 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.8rem;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .flow-step .t { font-size: 0.88rem; font-weight: 600; margin-bottom: 4px; }
+    .flow-step .d { font-size: 0.75rem; color: var(--muted); line-height: 1.35; }
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      color: var(--accent);
+      font-size: 1.4rem;
+      padding: 0 4px;
+      flex: 0 0 auto;
+    }
+
+    /* Simple charts */
+    .chart-wrap {
+      background: var(--slide);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px 18px 12px;
+    }
+    .chart-title { font-size: 0.85rem; color: var(--muted); margin-bottom: 12px; }
+    .bars { display: flex; align-items: flex-end; gap: 14px; height: 160px; padding-top: 8px; }
+    .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; gap: 6px; }
+    .bar {
+      width: 100%;
+      max-width: 48px;
+      border-radius: 6px 6px 2px 2px;
+      background: var(--accent);
+      min-height: 4px;
+    }
+    .bar.g { background: var(--good); }
+    .bar.w { background: var(--warn); }
+    .bar.p { background: var(--purple); }
+    .bar-col .v { font-size: 0.75rem; font-weight: 600; color: var(--text); }
+    .bar-col .lbl { font-size: 0.72rem; color: var(--muted); text-align: center; }
+
+    .hbar { display: grid; gap: 10px; }
+    .hbar-row { display: grid; grid-template-columns: 110px 1fr 36px; gap: 10px; align-items: center; }
+    .hbar-row .name { font-size: 0.82rem; color: var(--muted); }
+    .hbar-track { height: 12px; background: #0f1419; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+    .hbar-fill { height: 100%; border-radius: 6px; background: var(--accent); }
+    .hbar-row .pct { font-size: 0.78rem; font-weight: 600; text-align: right; }
+
+    .nav-path {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 14px;
+      font-size: 0.88rem;
+    }
+    .nav-path span {
+      background: var(--slide);
+      border: 1px solid var(--line);
+      padding: 5px 10px;
+      border-radius: 6px;
+      color: var(--text);
+    }
+    .nav-path .sep { border: none; background: none; color: var(--muted); padding: 0 2px; }
+
+    @media (max-width: 800px) {
+      .slide { padding: 28px 20px 80px; }
+      h1 { font-size: 1.7rem; }
+      h2 { font-size: 1.3rem; }
+      .grid, .stats, .two-col, .split-img, .grid-3 { grid-template-columns: 1fr; }
+      .flow-arrow { display: none; }
+    }
+    @media print {
+      .footer { display: none; }
+      .slide { display: flex !important; page-break-after: always; height: auto; min-height: 100vh; }
+    }
+  </style>
+</head>
+<body>
+  <div class="deck" id="deck">
+
+    <!-- 1 Cover -->
+    <section class="slide cover active">
+      <div class="badge">Monthly Meeting · Cosmo OS</div>
+      <h1>August 2026<br />Work Presentation</h1>
+      <p class="subtitle">Sasida D. Wijenandana · Software Development</p>
+      <p class="meta">Period: 1 – 31 August 2026<br />Status as of: 8 August 2026 · Includes process flows, charts &amp; UI visuals</p>
+    </section>
+
+    <!-- 2 Agenda -->
+    <section class="slide">
+      <h2>Agenda</h2>
+      <ul>
+        <li><strong>Snapshot + charts</strong> — activity this month</li>
+        <li><strong>Feature walkthroughs</strong> — navigate process + UI proof for Book Notes, Insight, OSF</li>
+        <li><strong>Ops &amp; fixes</strong> — rider, samples, abandoned, stickers</li>
+        <li><strong>Impact &amp; next</strong> — rest of August</li>
+      </ul>
+    </section>
+
+    <!-- 3 Snapshot -->
+    <section class="slide">
+      <h2>August snapshot (as of Aug 8)</h2>
+      <div class="stats">
+        <div class="stat"><div class="n">30</div><div class="l">Feature commits</div></div>
+        <div class="stat"><div class="n">~25</div><div class="l">Feature PRs merged</div></div>
+        <div class="stat"><div class="n">5</div><div class="l">Major features</div></div>
+        <div class="stat"><div class="n">5</div><div class="l">Active commit days</div></div>
+      </div>
+      <div class="note"><strong>Living deck</strong> — refresh before September meeting with Aug 9–31 work + real app screenshots.</div>
+    </section>
+
+    <!-- 4 Chart: commits by day -->
+    <section class="slide">
+      <h2>Activity chart — commits by day</h2>
+      <p class="subtitle">Source: git · Sasida · Aug 1–8 2026 (no-merge commits)</p>
+      <div class="chart-wrap">
+        <div class="chart-title">Feature commits per day</div>
+        <div class="bars">
+          <div class="bar-col"><div class="v">0</div><div class="bar" style="height:2%"></div><div class="lbl">Aug 1–2</div></div>
+          <div class="bar-col"><div class="v">9</div><div class="bar g" style="height:90%"></div><div class="lbl">Aug 3</div></div>
+          <div class="bar-col"><div class="v">8</div><div class="bar" style="height:80%"></div><div class="lbl">Aug 4</div></div>
+          <div class="bar-col"><div class="v">6</div><div class="bar w" style="height:60%"></div><div class="lbl">Aug 5</div></div>
+          <div class="bar-col"><div class="v">0</div><div class="bar" style="height:2%"></div><div class="lbl">Aug 6</div></div>
+          <div class="bar-col"><div class="v">6</div><div class="bar p" style="height:60%"></div><div class="lbl">Aug 7</div></div>
+          <div class="bar-col"><div class="v">1</div><div class="bar" style="height:12%"></div><div class="lbl">Aug 8</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 Chart: work mix -->
+    <section class="slide">
+      <h2>Work mix by theme</h2>
+      <p class="subtitle">Approximate share of August effort so far (by feature size / commits)</p>
+      <div class="two-col">
+        <div class="chart-wrap">
+          <div class="chart-title">Theme share</div>
+          <div class="hbar">
+            <div class="hbar-row"><span class="name">Customer Insight</span><div class="hbar-track"><div class="hbar-fill" style="width:32%"></div></div><span class="pct">32%</span></div>
+            <div class="hbar-row"><span class="name">Book Notes</span><div class="hbar-track"><div class="hbar-fill" style="width:28%;background:var(--good)"></div></div><span class="pct">28%</span></div>
+            <div class="hbar-row"><span class="name">OSF / Purchasing</span><div class="hbar-track"><div class="hbar-fill" style="width:16%;background:var(--warn)"></div></div><span class="pct">16%</span></div>
+            <div class="hbar-row"><span class="name">Ops / Fulfillment</span><div class="hbar-track"><div class="hbar-fill" style="width:14%;background:var(--purple)"></div></div><span class="pct">14%</span></div>
+            <div class="hbar-row"><span class="name">Fixes / ERP</span><div class="hbar-track"><div class="hbar-fill" style="width:10%"></div></div><span class="pct">10%</span></div>
+          </div>
+        </div>
+        <div>
+          <ul class="small">
+            <li><strong>Insight + Book Notes</strong> dominate early August delivery</li>
+            <li>OSF Supplier Orders delivered as a complete purchasing tool</li>
+            <li>Ops work supports riders, samples, abandoned recovery</li>
+            <li>Fixes keep sticker pricing / builds / payments stable</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6 Highlights -->
+    <section class="slide">
+      <h2>Highlights at a glance</h2>
+      <div class="grid">
+        <div class="card"><h3>Merchant Daily Book Notes</h3><p>Outlet daily ledger with split payments + ERP verify.</p></div>
+        <div class="card"><h3>Customer Insight</h3><p>Phone search, loyalty, allocation, contacted tracking.</p></div>
+        <div class="card"><h3>OSF Supplier Orders</h3><p>Allocate reorder qty → supplier Excel zip.</p></div>
+        <div class="card"><h3>Rider &amp; Ops</h3><p>Incentives, sample cron, abandoned sync.</p></div>
+      </div>
+    </section>
+
+    <!-- 7 Book Notes content -->
+    <section class="slide">
+      <h2>1. Merchant Daily Book Notes</h2>
+      <p class="subtitle">Spec 029 · Shipped Aug 3–5</p>
+      <ul class="small">
+        <li><strong>New page</strong> — invoice + Cash / Card / KOKO / Bank / City Pak</li>
+        <li><strong>Split payments</strong> · invoice typeahead autofill · same-day lock</li>
+        <li><strong>History + Send to ERP</strong> for finance reconciliation</li>
+        <li>Main company shops included in outlet list · ExcelJS support</li>
+      </ul>
+    </section>
+
+    <!-- 8 Book Notes process -->
+    <section class="slide wide">
+      <h2>Book Notes — how to navigate</h2>
+      <div class="nav-path">
+        <span>Dashboard</span><span class="sep">→</span>
+        <span>Book Notes</span><span class="sep">→</span>
+        <span>Pick outlet + date</span><span class="sep">→</span>
+        <span>Enter rows</span><span class="sep">→</span>
+        <span>Save</span><span class="sep">→</span>
+        <span>Send to ERP</span>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><div class="num">1</div><div class="t">Open page</div><div class="d">Sidebar → Book Notes</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">2</div><div class="t">Select outlet</div><div class="d">Assigned shops only</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">3</div><div class="t">Add invoices</div><div class="d">Typeahead + split MOP</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">4</div><div class="t">Save day</div><div class="d">Locked after midnight</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">5</div><div class="t">Finance verify</div><div class="d">History / Send ERP</div></div>
+      </div>
+    </section>
+
+    <!-- 9 Book Notes UI proof -->
+    <section class="slide wide">
+      <h2>Book Notes — UI proof</h2>
+      <div class="split-img">
+        <div class="figure">
+          <img src="assets/book-notes-ui.png" alt="Book Notes UI mock" />
+          <div class="cap">Illustrative UI mock · replace with real screenshot: assets/proof-book-notes.png</div>
+        </div>
+        <div>
+          <ul class="small">
+            <li>Outlet + date selectors</li>
+            <li>Payment columns + row totals</li>
+            <li>Split payment rows visible</li>
+            <li>Save / ERP actions</li>
+          </ul>
+          <div class="drop-slot" style="margin-top:14px">
+            <strong>Drop real screenshot here</strong>
+            Save as <code>assets/proof-book-notes.png</code>
+            then change img src above
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 10 Insight content -->
+    <section class="slide">
+      <h2>2. Customer Insight</h2>
+      <p class="subtitle">Specs 032 + 033 · Shipped Aug 5–7</p>
+      <div class="two-col">
+        <ul class="small">
+          <li><strong>Search by phone</strong> — no full list dump</li>
+          <li>Gold / Platinum loyalty from lifetime spend</li>
+          <li>Invoices, top items, spend over time</li>
+          <li>Progress bar to loyalty milestones</li>
+        </ul>
+        <ul class="small">
+          <li>Allocated vs limited visibility rules</li>
+          <li>Filters: value, loyalty, birthday, push tiers</li>
+          <li>Mark Contacted → dashboard counts</li>
+          <li>Manual / bulk allocation (permissioned)</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 11 Insight process -->
+    <section class="slide wide">
+      <h2>Customer Insight — how to navigate</h2>
+      <div class="nav-path">
+        <span>Dashboard</span><span class="sep">→</span>
+        <span>Customer Insight</span><span class="sep">→</span>
+        <span>Search phone</span><span class="sep">→</span>
+        <span>View profile</span><span class="sep">→</span>
+        <span>Filter / Contact / Allocate</span>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><div class="num">1</div><div class="t">Search</div><div class="d">Exact phone number</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">2</div><div class="t">Identify</div><div class="d">Name · tier · total</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">3</div><div class="t">Review</div><div class="d">Invoices · charts</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">4</div><div class="t">Act</div><div class="d">Contacted / edit*</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">5</div><div class="t">Allocate*</div><div class="d">Admin / permitted</div></div>
+      </div>
+      <div class="note">* Full profile, edit, progress, contacted &amp; item detail = allocated merchant (or admin) only.</div>
+    </section>
+
+    <!-- 12 Insight UI -->
+    <section class="slide wide">
+      <h2>Customer Insight — UI proof</h2>
+      <div class="split-img">
+        <div class="figure">
+          <img src="assets/customer-insight-ui.png" alt="Customer Insight UI mock" />
+          <div class="cap">Illustrative UI mock · replace with: assets/proof-customer-insight.png</div>
+        </div>
+        <div>
+          <ul class="small">
+            <li>Phone search entry</li>
+            <li>Loyalty badge + lifetime total</li>
+            <li>Invoice history + spend chart</li>
+            <li>Contacted control</li>
+          </ul>
+          <div class="drop-slot" style="margin-top:14px">
+            <strong>Drop real screenshot here</strong>
+            Save as <code>assets/proof-customer-insight.png</code>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13 OSF content -->
+    <section class="slide">
+      <h2>3. OSF Supplier Orders</h2>
+      <p class="subtitle">Spec 031 · Shipped Aug 4</p>
+      <ul class="small">
+        <li>New tool in OSF hub — allocate reorder qty across suppliers</li>
+        <li>Filters: priority / newly added / VAT / brand + SKU search</li>
+        <li>Partial allocation OK · Generate → zip of supplier Excels</li>
+        <li>Draft kept on same browser until cleared</li>
+      </ul>
+    </section>
+
+    <!-- 14 OSF process -->
+    <section class="slide wide">
+      <h2>OSF Supplier Orders — how to navigate</h2>
+      <div class="nav-path">
+        <span>Purchasing / OSF</span><span class="sep">→</span>
+        <span>Supplier Orders</span><span class="sep">→</span>
+        <span>Filter &amp; add SKUs</span><span class="sep">→</span>
+        <span>Allocate qty</span><span class="sep">→</span>
+        <span>Generate zip</span>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><div class="num">1</div><div class="t">Open tool</div><div class="d">OSF → Supplier Orders</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">2</div><div class="t">Find items</div><div class="d">Brand / priority / SKU</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">3</div><div class="t">Add to table</div><div class="d">See reorder qty</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">4</div><div class="t">Split qty</div><div class="d">Across suppliers</div></div>
+        <div class="flow-arrow">›</div>
+        <div class="flow-step"><div class="num">5</div><div class="t">Generate</div><div class="d">Excel zip download</div></div>
+      </div>
+    </section>
+
+    <!-- 15 OSF UI -->
+    <section class="slide wide">
+      <h2>OSF Supplier Orders — UI proof</h2>
+      <div class="split-img">
+        <div class="figure">
+          <img src="assets/osf-supplier-orders-ui.png" alt="OSF Supplier Orders UI mock" />
+          <div class="cap">Illustrative UI mock · replace with: assets/proof-osf-supplier-orders.png</div>
+        </div>
+        <div>
+          <ul class="small">
+            <li>Brand / priority filters</li>
+            <li>SKU search list</li>
+            <li>Supplier qty columns</li>
+            <li>Generate Excel action</li>
+          </ul>
+          <div class="drop-slot" style="margin-top:14px">
+            <strong>Drop real screenshot here</strong>
+            Save as <code>assets/proof-osf-supplier-orders.png</code>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 16 Other features -->
+    <section class="slide">
+      <h2>4–7. Dashboard, rider, abandoned, fixes</h2>
+      <div class="grid">
+        <div class="card"><h3>Dashboard filters</h3><p>Sales date-type filters + clearer summaries (030).</p></div>
+        <div class="card"><h3>Rider incentives</h3><p>Pay-period performance from shipping costs (#734).</p></div>
+        <div class="card"><h3>Sample cron</h3><p>Auto-advance due “send later” samples.</p></div>
+        <div class="card"><h3>Abandoned sync</h3><p>Schedule + follow-up form improvements.</p></div>
+        <div class="card"><h3>Sticker pricing</h3><p>Standard Selling for non-LWK stickers.</p></div>
+        <div class="card"><h3>Payments</h3><p>City Pak MOP · payment method labels.</p></div>
+      </div>
+    </section>
+
+    <!-- 17 Timeline -->
+    <section class="slide">
+      <h2>Timeline (Aug 1–8)</h2>
+      <ul class="small">
+        <li><strong>Aug 3</strong> — Rider performance; Book Notes + City Pak; sample cron; bulk invoice</li>
+        <li><strong>Aug 4</strong> — OSF Supplier Orders; dashboard filters; sticker Standard Selling</li>
+        <li><strong>Aug 5</strong> — Customer Insight launch; phone search; build unblock</li>
+        <li><strong>Aug 7</strong> — Insight allocation/loyalty; abandoned sync/follow-up</li>
+        <li><strong>Aug 8</strong> — Payment method change + fulfillment panel</li>
+      </ul>
+    </section>
+
+    <!-- 18 Impact -->
+    <section class="slide">
+      <h2>Business impact</h2>
+      <div class="grid">
+        <div class="card"><h3>Finance / shops</h3><p>Digital daily book + ERP verify for outlet reconciliation.</p></div>
+        <div class="card"><h3>Merchants / CRM</h3><p>Controlled loyalty insight without full contact export.</p></div>
+        <div class="card"><h3>Purchasing</h3><p>Faster multi-supplier order Excels from OSF.</p></div>
+        <div class="card"><h3>Riders / ops</h3><p>Incentive visibility + sample automation.</p></div>
+      </div>
+    </section>
+
+    <!-- 19 Screenshot checklist -->
+    <section class="slide">
+      <h2>Real photo proof checklist</h2>
+      <p class="subtitle">Capture these in Cosmo OS and drop into <code style="color:var(--accent)">docs/monthly-meetings/assets/</code></p>
+      <div class="grid-3">
+        <div class="drop-slot"><strong>Book Notes</strong><code>proof-book-notes.png</code></div>
+        <div class="drop-slot"><strong>Customer Insight</strong><code>proof-customer-insight.png</code></div>
+        <div class="drop-slot"><strong>OSF Supplier Orders</strong><code>proof-osf-supplier-orders.png</code></div>
+        <div class="drop-slot"><strong>Dashboard filters</strong><code>proof-dashboard-filters.png</code></div>
+        <div class="drop-slot"><strong>Abandoned Orders</strong><code>proof-abandoned.png</code></div>
+        <div class="drop-slot"><strong>Rider performance</strong><code>proof-rider-performance.png</code></div>
+      </div>
+      <div class="note"><strong>Tip:</strong> Win+Shift+S → snip → save PNG with those names. Tell me when done and I can wire the real images into the slides.</div>
+    </section>
+
+    <!-- 20 Next -->
+    <section class="slide">
+      <h2>Rest of August</h2>
+      <ul>
+        <li>Iterate Customer Insight from merchant feedback</li>
+        <li>Harden Book Notes ERP verification edge cases</li>
+        <li>OSF supplier-order polish from purchasing users</li>
+        <li>Add real screenshots + Aug 9–31 commits before September meeting</li>
+      </ul>
+    </section>
+
+    <!-- 21 Thanks -->
+    <section class="slide cover">
+      <div class="badge">Thank you</div>
+      <h1>Questions?</h1>
+      <p class="subtitle">Sasida D. Wijenandana</p>
+      <p class="meta">August 2026 · Cosmo OS<br />Work log: docs/monthly-meetings/2026-08-sasida-work-log.md</p>
+    </section>
+
+  </div>
+
+  <div class="footer">
+    <span id="page">1 / 21</span>
+    <span>← → · F fullscreen</span>
+    <span>
+      <button type="button" id="prev">Previous</button>
+      <button type="button" id="next">Next</button>
+    </span>
+  </div>
+
+  <script>
+    const slides = [...document.querySelectorAll(".slide")];
+    let i = 0;
+    function show(n) {
+      i = Math.max(0, Math.min(slides.length - 1, n));
+      slides.forEach((s, idx) => s.classList.toggle("active", idx === i));
+      document.getElementById("page").textContent = (i + 1) + " / " + slides.length;
+    }
+    document.getElementById("prev").onclick = () => show(i - 1);
+    document.getElementById("next").onclick = () => show(i + 1);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); show(i + 1); }
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); show(i - 1); }
+      if (e.key === "Home") show(0);
+      if (e.key === "End") show(slides.length - 1);
+      if (e.key === "f" || e.key === "F") {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+        else document.exitFullscreen?.();
+      }
+    });
+  </script>
+</body>
+</html>
