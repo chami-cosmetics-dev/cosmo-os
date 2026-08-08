@@ -95,6 +95,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
   const canViewPurchasing = canViewOsf || canViewPurchasingTools;
+  const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -534,6 +535,19 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {canViewStoreAllocation && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Store</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <NavItem
+                href="/dashboard/store/allocation"
+                icon={Store}
+                label="Location allocation"
+                isActive={pathname === "/dashboard/store/allocation"}
+              />
             </SidebarGroupContent>
           </SidebarGroup>
         )}

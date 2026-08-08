@@ -8,6 +8,7 @@ import {
 } from "@/lib/merchant-dashboard/cheer";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { isMerchantRoleName } from "@/lib/merchant-role";
+import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
 import { fetchMerchantUserSales, fetchMerchantTopCustomersBySales, fetchMerchantReturnStats } from "@/lib/page-data/merchant-dashboard-sales";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
@@ -98,6 +99,15 @@ export type MerchantDashboardPageData = {
     purchaseDays: number;
   }>;
   topCustomersTodayYmd: string;
+  nearestBirthdays: Array<{
+    contactId: string;
+    name: string;
+    phoneNumber: string | null;
+    birthMonth: number;
+    birthDay: number | null;
+    daysUntil: number;
+    assignedMerchant: string | null;
+  }>;
   returns: {
     returnOrderCount: number;
     orderCount: number;
@@ -270,47 +280,52 @@ export async function getMerchantDashboardPageData(input: {
 
   const displayName = getMerchantDisplayName(profileUser);
 
-  const [sales, targetRow, historyEvents, overviewSales, topCustomersSplit] = await Promise.all([
-    fetchMerchantUserSales(input.companyId, selectedMerchantId, {
-      fromYmd,
-      toYmd: rangeToYmd,
-      dateType: "all_orders",
-    }),
-    loadTargetRow(input.companyId, selectedMerchantId, yearMonth),
-    prisma.merchantMonthlyTargetHistory.findMany({
-      where: { companyId: input.companyId, userId: selectedMerchantId },
-      orderBy: [{ yearMonth: "desc" }, { createdAt: "desc" }],
-      take: 24,
-      select: {
-        id: true,
-        yearMonth: true,
-        targetAmount: true,
-        action: true,
-        createdAt: true,
-        assignedBy: {
-          select: { knownName: true, name: true, email: true },
+  const [sales, targetRow, historyEvents, overviewSales, topCustomersSplit, nearestBirthdays] =
+    await Promise.all([
+      fetchMerchantUserSales(input.companyId, selectedMerchantId, {
+        fromYmd,
+        toYmd: rangeToYmd,
+        dateType: "all_orders",
+      }),
+      loadTargetRow(input.companyId, selectedMerchantId, yearMonth),
+      prisma.merchantMonthlyTargetHistory.findMany({
+        where: { companyId: input.companyId, userId: selectedMerchantId },
+        orderBy: [{ yearMonth: "desc" }, { createdAt: "desc" }],
+        take: 24,
+        select: {
+          id: true,
+          yearMonth: true,
+          targetAmount: true,
+          action: true,
+          createdAt: true,
+          assignedBy: {
+            select: { knownName: true, name: true, email: true },
+          },
         },
-      },
-    }),
-    input.viewerIsAdmin
-      ? Promise.all(
-          merchants.map(async (m) => {
-            const [mtd, tgt] = await Promise.all([
-              fetchMerchantUserSales(input.companyId, m.id, {
-                fromYmd,
-                toYmd: rangeToYmd,
-                dateType: "all_orders",
-              }),
-              loadTargetRow(input.companyId, m.id, yearMonth),
-            ]);
-            return { merchant: m, mtd, tgt };
-          }),
-        )
-      : Promise.resolve(null),
-    fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
-      limit: 25,
-    }),
-  ]);
+      }),
+      input.viewerIsAdmin
+        ? Promise.all(
+            merchants.map(async (m) => {
+              const [mtd, tgt] = await Promise.all([
+                fetchMerchantUserSales(input.companyId, m.id, {
+                  fromYmd,
+                  toYmd: rangeToYmd,
+                  dateType: "all_orders",
+                }),
+                loadTargetRow(input.companyId, m.id, yearMonth),
+              ]);
+              return { merchant: m, mtd, tgt };
+            }),
+          )
+        : Promise.resolve(null),
+      fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
+        limit: 25,
+      }),
+      fetchMerchantNearestBirthdays(input.companyId, profileUser, {
+        limit: 15,
+        withinDays: 45,
+      }),
+    ]);
 
   const returns = await fetchMerchantReturnStats(
     input.companyId,
@@ -429,6 +444,7 @@ export async function getMerchantDashboardPageData(input: {
     topCustomersToday: topCustomersSplit.today,
     topCustomersLifetime: topCustomersSplit.lifetime,
     topCustomersTodayYmd: topCustomersSplit.todayYmd,
+    nearestBirthdays,
     returns,
   };
 }
