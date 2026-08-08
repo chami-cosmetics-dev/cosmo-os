@@ -70,9 +70,6 @@ function formatPayment(raw: string | null) {
   }
   if (normalized.includes("koko")) return "KOKO";
   if (normalized.includes("bank")) return "BANK TRANSFER";
-  if (normalized.includes("webxpay") || normalized.includes("shopify payments") || normalized === "paid") {
-    return "ONLINE PAID";
-  }
   return raw.replace(/[_-]+/g, " ").toUpperCase();
 }
 

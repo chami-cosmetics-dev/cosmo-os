@@ -6,7 +6,10 @@ import {
 } from "@/lib/payment-method-label";
 
 describe("canRequestPaymentMethodChange", () => {
-  it("allows COD", () => {
+  it("allows COD (labeled Cash after main rename)", () => {
+    expect(
+      getPaymentMethodInfo({ paymentGatewayPrimary: "Cash on Delivery (COD)" }),
+    ).toEqual({ label: "Cash", variant: "cash" });
     expect(
       canRequestPaymentMethodChange({ paymentGatewayPrimary: "Cash on Delivery (COD)" }),
     ).toBe(true);

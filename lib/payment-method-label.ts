@@ -27,13 +27,16 @@ export function getPaymentMethodInfo(input?: {
     return { label: "Bank Transfer", variant: "bank" };
   }
   if (normalized === "cod" || normalized.includes("cash on delivery")) {
-    return { label: "COD", variant: "cod" };
+    return { label: "Cash", variant: "cash" };
   }
   if (normalized.includes("card payment on delivery") || normalized.includes("card on delivery")) {
     return { label: "Card on Delivery", variant: "card" };
   }
   if (normalized === "cash") {
     return { label: "Cash", variant: "cash" };
+  }
+  if (normalized === "koko") {
+    return { label: "KOKO", variant: "paid" };
   }
   if (normalized === "cc" || normalized === "cc checkout" || normalized === "cc_checkout" || normalized === "cc-checkout") {
     return { label: "CC Checkout", variant: "card" };
@@ -75,8 +78,8 @@ export function canRequestPaymentMethodChange(input?: {
   const info = getPaymentMethodInfo(input);
   if (info.variant === "cod" || info.variant === "cash") return true;
 
-  const financialNorm = input?.financialStatus?.toLowerCase().trim() ?? "";
-  if (financialNorm === "pending" && (info.variant === "other" || info.label === "—")) {
+  const pendingFinancial = input?.financialStatus?.toLowerCase().trim() ?? "";
+  if (pendingFinancial === "pending" && (info.variant === "other" || info.label === "—")) {
     return true;
   }
   return false;
