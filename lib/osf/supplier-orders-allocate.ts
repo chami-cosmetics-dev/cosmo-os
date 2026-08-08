@@ -9,10 +9,15 @@ export function rowAllocatedSum(row: WorkingOrderRow): number {
   return sum;
 }
 
-/** True when reorderQty > 0 and positive allocations exceed reorderQty. */
+/** True when reorderQty > 0 and positive allocations exceed reorderQty (warning only — generate still allowed). */
 export function isRowOverAllocated(row: WorkingOrderRow): boolean {
   if (row.reorderQty <= 0) return false;
   return rowAllocatedSum(row) > row.reorderQty;
+}
+
+/** SKUs where allocated qty exceeds OSF reorder qty (for UI / soft warnings). */
+export function overAllocatedSkus(rows: WorkingOrderRow[]): string[] {
+  return rows.filter(isRowOverAllocated).map((row) => row.sku);
 }
 
 export type ValidateDraftForGenerateResult =
@@ -20,27 +25,16 @@ export type ValidateDraftForGenerateResult =
   | { ok: false; error: string; skus?: string[] };
 
 /**
- * Validate a draft before generate: require ≥1 positive allocation; block over-allocation.
- * Ignores allocations with qty ≤ 0.
+ * Validate a draft before generate: require ≥1 positive allocation.
+ * Over-ROP allocations are allowed (callers may warn via `overAllocatedSkus` / `isRowOverAllocated`).
  */
 export function validateDraftForGenerate(
   rows: WorkingOrderRow[],
 ): ValidateDraftForGenerateResult {
   let hasPositive = false;
-  const overAllocated: string[] = [];
 
   for (const row of rows) {
-    const sum = rowAllocatedSum(row);
-    if (sum > 0) hasPositive = true;
-    if (isRowOverAllocated(row)) overAllocated.push(row.sku);
-  }
-
-  if (overAllocated.length > 0) {
-    return {
-      ok: false,
-      error: "One or more rows are over-allocated",
-      skus: overAllocated,
-    };
+    if (rowAllocatedSum(row) > 0) hasPositive = true;
   }
 
   if (!hasPositive) {

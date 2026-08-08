@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import {
   isRowOverAllocated,
+  overAllocatedSkus,
   rowAllocatedSum,
   validateDraftForGenerate,
 } from "@/lib/osf/supplier-orders-allocate";
@@ -373,6 +374,12 @@ export function OsfSupplierOrdersPanel() {
       );
       return;
     }
+    const overSkus = overAllocatedSkus(rows);
+    if (overSkus.length > 0) {
+      notify.info(
+        `Warning: allocated above reorder qty for ${overSkus.join(", ")} — generate will continue`,
+      );
+    }
     setGenerating(true);
     try {
       const res = await fetch("/api/admin/osf/supplier-orders/generate", {
@@ -562,11 +569,11 @@ export function OsfSupplierOrdersPanel() {
                             {suppliers ? "Refresh suppliers" : "Load suppliers"}
                           </Button>
                           <span
-                            className={`text-xs ${over ? "text-destructive" : "text-muted-foreground"}`}
+                            className={`text-xs ${over ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}
                           >
                             Allocated {allocated}
                             {row.reorderQty > 0 ? ` / ${row.reorderQty}` : ""}
-                            {over ? " (over)" : ""}
+                            {over ? " (over ROP — allowed)" : ""}
                           </span>
                         </div>
                         {suppliers && suppliers.length === 0 && (
