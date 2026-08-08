@@ -79,14 +79,25 @@ export type MerchantDashboardPageData = {
   target: MerchantDashboardTargetDto;
   history: MerchantDashboardHistoryRow[];
   overview: MerchantDashboardOverviewRow[] | null;
-  topCustomers: Array<{
+  topCustomersToday: Array<{
     key: string;
     name: string;
     phone: string | null;
     email: string | null;
     total: number;
     orderCount: number;
+    purchaseDays: number;
   }>;
+  topCustomersLifetime: Array<{
+    key: string;
+    name: string;
+    phone: string | null;
+    email: string | null;
+    total: number;
+    orderCount: number;
+    purchaseDays: number;
+  }>;
+  topCustomersTodayYmd: string;
   returns: {
     returnOrderCount: number;
     orderCount: number;
@@ -259,7 +270,7 @@ export async function getMerchantDashboardPageData(input: {
 
   const displayName = getMerchantDisplayName(profileUser);
 
-  const [sales, targetRow, historyEvents, overviewSales, topCustomers] = await Promise.all([
+  const [sales, targetRow, historyEvents, overviewSales, topCustomersSplit] = await Promise.all([
     fetchMerchantUserSales(input.companyId, selectedMerchantId, {
       fromYmd,
       toYmd: rangeToYmd,
@@ -415,7 +426,9 @@ export async function getMerchantDashboardPageData(input: {
     target,
     history,
     overview,
-    topCustomers,
+    topCustomersToday: topCustomersSplit.today,
+    topCustomersLifetime: topCustomersSplit.lifetime,
+    topCustomersTodayYmd: topCustomersSplit.todayYmd,
     returns,
   };
 }

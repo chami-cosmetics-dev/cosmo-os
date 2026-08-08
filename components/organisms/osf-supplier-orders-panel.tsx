@@ -54,6 +54,8 @@ export function OsfSupplierOrdersPanel() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Skip priority→brands refetch on the initial bootstrap load. */
+  const skipPriorityBrandRefreshRef = useRef(true);
 
   useEffect(() => {
     fetch("/api/admin/osf/supplier-orders/page-data")
@@ -107,6 +109,41 @@ export function OsfSupplierOrdersPanel() {
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
+
+  // Cascade brand options from selected priority; reset invalid brand selection.
+  useEffect(() => {
+    if (!bootstrapped) return;
+    if (skipPriorityBrandRefreshRef.current) {
+      skipPriorityBrandRefreshRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams();
+        if (priority.trim()) params.set("priority", priority.trim());
+        const qs = params.toString();
+        const res = await fetch(
+          qs
+            ? `/api/admin/osf/supplier-orders/page-data?${qs}`
+            : "/api/admin/osf/supplier-orders/page-data",
+        );
+        if (!res.ok) throw new Error("Failed to load brands");
+        const data = (await res.json()) as { brands?: Brand[] };
+        if (cancelled) return;
+        const nextBrands = Array.isArray(data.brands) ? data.brands : [];
+        setBrands(nextBrands);
+        setVendorId((prev) =>
+          prev && !nextBrands.some((b) => b.id === prev) ? "" : prev,
+        );
+      } catch {
+        if (!cancelled) notify.error("Could not refresh brands for priority");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [priority, bootstrapped]);
 
   async function fetchItems(opts: { page: number; append?: boolean; query?: string }) {
     setSearchLoading(true);
@@ -272,8 +309,11 @@ export function OsfSupplierOrdersPanel() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+      // Clear working table + draft only after successful generate (FR-001).
+      clearAll();
       notify.success("Supplier order zip downloaded");
     } catch (err) {
+      // Leave rows/draft intact on failure (FR-002).
       notify.error(err instanceof Error ? err.message : "Generate failed");
     } finally {
       setGenerating(false);
