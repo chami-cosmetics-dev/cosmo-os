@@ -308,7 +308,7 @@ export async function getMerchantDashboardPageData(input: {
         )
       : Promise.resolve(null),
     fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
-      limit: 10,
+      limit: 25,
     }),
   ]);
 

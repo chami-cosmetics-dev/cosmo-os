@@ -49,8 +49,13 @@ export function OsfSupplierOrdersPanel() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [rows, setRows] = useState<WorkingOrderRow[]>([]);
   const [suppliersBySku, setSuppliersBySku] = useState<Record<string, SupplierOption[]>>({});
-  /** Per-SKU: show full allowlist (not just recent). */
-  const [showAllSuppliersBySku, setShowAllSuppliersBySku] = useState<Record<string, boolean>>({});
+  /** Per-SKU supplier keys manually picked via “Choose another supplier”. */
+  const [addedSupplierKeysBySku, setAddedSupplierKeysBySku] = useState<Record<string, string[]>>(
+    {},
+  );
+  /** Per-SKU: picker list open for selecting one more supplier. */
+  const [pickerOpenBySku, setPickerOpenBySku] = useState<Record<string, boolean>>({});
+  const [pickerQueryBySku, setPickerQueryBySku] = useState<Record<string, string>>({});
   /** Per-SKU: compact to suppliers that already have qty allocated. */
   const [compactSuppliersBySku, setCompactSuppliersBySku] = useState<Record<string, boolean>>({});
   const [loadingSuppliers, setLoadingSuppliers] = useState<string | null>(null);
@@ -286,26 +291,19 @@ export function OsfSupplierOrdersPanel() {
     return s.supplierId || s.supplierName;
   }
 
-  /** Visible suppliers for a row: compact → allocated only; else recent (+ allocated others); optional full list. */
+  /** Visible allocation rows: compact → allocated only; else recent + manually added + any with qty. */
   function visibleSuppliersForRow(row: WorkingOrderRow, suppliers: SupplierOption[]): SupplierOption[] {
     const compact = Boolean(compactSuppliersBySku[row.sku]);
     if (compact) {
       return suppliers.filter((s) => allocationQtyFor(row, s) > 0);
     }
-    if (showAllSuppliersBySku[row.sku]) {
-      return suppliers;
-    }
+    const added = new Set(addedSupplierKeysBySku[row.sku] ?? []);
     const recent = suppliers.filter((s) => s.sortGroup === "sku_recent");
-    const allocatedOther = suppliers.filter(
-      (s) => s.sortGroup !== "sku_recent" && allocationQtyFor(row, s) > 0,
-    );
-    if (recent.length === 0 && allocatedOther.length === 0) {
-      // No SKU history — show nothing until user opens “Choose another supplier”
-      return [];
-    }
+    const picked = suppliers.filter((s) => added.has(supplierKey(s)));
+    const withQty = suppliers.filter((s) => allocationQtyFor(row, s) > 0);
     const seen = new Set<string>();
     const out: SupplierOption[] = [];
-    for (const s of [...recent, ...allocatedOther]) {
+    for (const s of [...recent, ...picked, ...withQty]) {
       const k = supplierKey(s);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -314,8 +312,34 @@ export function OsfSupplierOrdersPanel() {
     return out;
   }
 
-  function setShowAllSuppliers(sku: string, open: boolean) {
-    setShowAllSuppliersBySku((prev) => ({ ...prev, [sku]: open }));
+  /** Suppliers not yet on the allocation list — for the picker. */
+  function pickerCandidatesForRow(
+    row: WorkingOrderRow,
+    suppliers: SupplierOption[],
+  ): SupplierOption[] {
+    const visibleKeys = new Set(visibleSuppliersForRow(row, suppliers).map(supplierKey));
+    const q = (pickerQueryBySku[row.sku] ?? "").trim().toLowerCase();
+    return suppliers.filter((s) => {
+      if (visibleKeys.has(supplierKey(s))) return false;
+      if (!q) return true;
+      return s.supplierName.toLowerCase().includes(q);
+    });
+  }
+
+  function addSupplierToRow(sku: string, supplier: SupplierOption) {
+    const key = supplierKey(supplier);
+    setAddedSupplierKeysBySku((prev) => {
+      const cur = prev[sku] ?? [];
+      if (cur.includes(key)) return prev;
+      return { ...prev, [sku]: [...cur, key] };
+    });
+    setPickerOpenBySku((prev) => ({ ...prev, [sku]: false }));
+    setPickerQueryBySku((prev) => ({ ...prev, [sku]: "" }));
+    setCompactSuppliersBySku((prev) => ({ ...prev, [sku]: false }));
+  }
+
+  function setPickerOpen(sku: string, open: boolean) {
+    setPickerOpenBySku((prev) => ({ ...prev, [sku]: open }));
     if (open) {
       setCompactSuppliersBySku((prev) => ({ ...prev, [sku]: false }));
     }
@@ -324,7 +348,7 @@ export function OsfSupplierOrdersPanel() {
   function setCompactSuppliers(sku: string, compact: boolean) {
     setCompactSuppliersBySku((prev) => ({ ...prev, [sku]: compact }));
     if (compact) {
-      setShowAllSuppliersBySku((prev) => ({ ...prev, [sku]: false }));
+      setPickerOpenBySku((prev) => ({ ...prev, [sku]: false }));
     }
   }
 
@@ -500,11 +524,11 @@ export function OsfSupplierOrdersPanel() {
                 const allocated = rowAllocatedSum(row);
                 const over = isRowOverAllocated(row);
                 const suppliers = suppliersBySku[row.sku];
-                const showAll = Boolean(showAllSuppliersBySku[row.sku]);
+                const pickerOpen = Boolean(pickerOpenBySku[row.sku]);
                 const compact = Boolean(compactSuppliersBySku[row.sku]);
                 const recentCount = suppliers?.filter((s) => s.sortGroup === "sku_recent").length ?? 0;
-                const otherCount = suppliers?.filter((s) => s.sortGroup !== "sku_recent").length ?? 0;
                 const visible = suppliers ? visibleSuppliersForRow(row, suppliers) : [];
+                const pickerCandidates = suppliers ? pickerCandidatesForRow(row, suppliers) : [];
                 const hasPositiveAlloc = row.allocations.some((a) => a.qty > 0);
                 return (
                   <tr key={row.sku} className="border-t align-top">
@@ -540,11 +564,12 @@ export function OsfSupplierOrdersPanel() {
                           <div className="space-y-2">
                             {!compact && (
                               <p className="text-xs text-muted-foreground">
-                                {showAll
-                                  ? `All suppliers (${suppliers.length})`
-                                  : recentCount > 0
-                                    ? `Recent for this SKU (${recentCount})`
-                                    : "No recent suppliers for this SKU — choose another below"}
+                                {recentCount > 0
+                                  ? `Recent for this SKU (${recentCount})`
+                                  : "No recent suppliers for this SKU — choose another below"}
+                                {visible.length > recentCount
+                                  ? ` · ${visible.length} on list`
+                                  : ""}
                               </p>
                             )}
                             {compact && (
@@ -581,33 +606,76 @@ export function OsfSupplierOrdersPanel() {
                                 ))}
                               </div>
                             ) : (
-                              !compact &&
-                              !showAll && (
+                              !compact && (
                                 <p className="text-xs text-muted-foreground">
-                                  Use “Choose another supplier” to pick from the full list.
+                                  Use “Choose another supplier” to pick one for this SKU.
                                 </p>
                               )
                             )}
+                            {!compact && pickerOpen && (
+                              <div className="rounded-md border bg-background p-2 space-y-2 max-w-md">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-medium">Select a supplier to add</p>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setPickerOpen(row.sku, false)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                                <Input
+                                  className="h-8"
+                                  placeholder="Filter suppliers…"
+                                  value={pickerQueryBySku[row.sku] ?? ""}
+                                  onChange={(e) =>
+                                    setPickerQueryBySku((prev) => ({
+                                      ...prev,
+                                      [row.sku]: e.target.value,
+                                    }))
+                                  }
+                                />
+                                <ul className="max-h-48 overflow-y-auto divide-y rounded-md border">
+                                  {pickerCandidates.length === 0 ? (
+                                    <li className="px-2 py-2 text-xs text-muted-foreground">
+                                      No more suppliers to add
+                                      {(pickerQueryBySku[row.sku] ?? "").trim()
+                                        ? " for this filter"
+                                        : ""}
+                                      .
+                                    </li>
+                                  ) : (
+                                    pickerCandidates.map((s) => (
+                                      <li key={supplierKey(s)}>
+                                        <button
+                                          type="button"
+                                          className="flex w-full px-2 py-1.5 text-left text-xs hover:bg-muted/60"
+                                          onClick={() => addSupplierToRow(row.sku, s)}
+                                        >
+                                          {s.supplierName}
+                                        </button>
+                                      </li>
+                                    ))
+                                  )}
+                                </ul>
+                              </div>
+                            )}
                             <div className="flex flex-wrap gap-2">
-                              {!compact && !showAll && otherCount > 0 && (
+                              {!compact && !pickerOpen && pickerCandidates.length > 0 && (
                                 <Button
                                   type="button"
                                   size="sm"
                                   variant="secondary"
-                                  onClick={() => setShowAllSuppliers(row.sku, true)}
+                                  onClick={() => setPickerOpen(row.sku, true)}
                                 >
-                                  Choose another supplier ({otherCount})
+                                  Choose another supplier ({pickerCandidates.length})
                                 </Button>
                               )}
-                              {showAll && !compact && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setShowAllSuppliers(row.sku, false)}
-                                >
-                                  Show recent only
-                                </Button>
+                              {!compact && !pickerOpen && pickerCandidates.length === 0 && visible.length > 0 && (
+                                <span className="text-xs text-muted-foreground self-center">
+                                  All suppliers already on the list
+                                </span>
                               )}
                               {!compact && hasPositiveAlloc && (
                                 <Button

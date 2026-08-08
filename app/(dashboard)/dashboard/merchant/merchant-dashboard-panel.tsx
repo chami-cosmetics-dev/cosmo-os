@@ -68,6 +68,8 @@ function MerchantChartTooltip({
 }
 
 const PIE_COLORS = ["#0d9488", "#f59e0b", "#6366f1", "#ef4444", "#14b8a6", "#a855f7"];
+/** Preview size for ranked customer lists; View more reveals the rest. */
+const TOP_CUSTOMERS_PREVIEW = 5;
 
 type Props = {
   initialData: MerchantDashboardPageData;
@@ -82,6 +84,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       : "",
   );
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [showAllToday, setShowAllToday] = useState(false);
+  const [showAllLifetime, setShowAllLifetime] = useState(false);
   const [isPending, startTransition] = useTransition();
   const isBusy = busyKey !== null || isPending;
 
@@ -93,6 +97,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         ? String(Math.round(initialData.target.targetAmount))
         : "",
     );
+    setShowAllToday(false);
+    setShowAllLifetime(false);
   }, [initialData]);
 
   async function reload(nextMerchantId: string) {
@@ -116,6 +122,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             ? String(Math.round(json.target.targetAmount))
             : "",
         );
+        setShowAllToday(false);
+        setShowAllLifetime(false);
       });
     } catch {
       notify.error("Failed to load merchant dashboard");
@@ -558,46 +566,65 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 No purchases attributed to this merchant today.
               </p>
             ) : (
-              <ul className="space-y-2">
-                {data.topCustomersToday.map((customer, index) => {
-                  const maxTotal = Math.max(1, data.topCustomersToday[0]?.total || 1);
-                  const share = Math.min(100, (customer.total / maxTotal) * 100);
-                  return (
-                    <li
-                      key={`today-${customer.key}`}
-                      className="rounded-xl border border-border/60 px-3 py-2.5"
-                    >
-                      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
-                            {index + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{customer.name}</p>
-                            <p className="text-muted-foreground truncate text-xs">
-                              {customer.phone || customer.email || "—"}
+              <>
+                <ul className="space-y-2">
+                  {(showAllToday
+                    ? data.topCustomersToday
+                    : data.topCustomersToday.slice(0, TOP_CUSTOMERS_PREVIEW)
+                  ).map((customer, index) => {
+                    const maxTotal = Math.max(1, data.topCustomersToday[0]?.total || 1);
+                    const share = Math.min(100, (customer.total / maxTotal) * 100);
+                    return (
+                      <li
+                        key={`today-${customer.key}`}
+                        className="rounded-xl border border-border/60 px-3 py-2.5"
+                      >
+                        <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{customer.name}</p>
+                              <p className="text-muted-foreground truncate text-xs">
+                                {customer.phone || customer.email || "—"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right text-sm">
+                            <p className="font-semibold tabular-nums">
+                              {formatMoney(customer.total)}
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              {customer.orderCount} orders today
                             </p>
                           </div>
                         </div>
-                        <div className="text-right text-sm">
-                          <p className="font-semibold tabular-nums">
-                            {formatMoney(customer.total)}
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            {customer.orderCount} orders today
-                          </p>
+                        <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+                          <div
+                            className="h-full rounded-full bg-sky-500"
+                            style={{ width: `${share}%` }}
+                          />
                         </div>
-                      </div>
-                      <div className="bg-muted h-1.5 overflow-hidden rounded-full">
-                        <div
-                          className="h-full rounded-full bg-sky-500"
-                          style={{ width: `${share}%` }}
-                        />
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {data.topCustomersToday.length > TOP_CUSTOMERS_PREVIEW && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-3 w-full"
+                    disabled={isBusy}
+                    onClick={() => setShowAllToday((v) => !v)}
+                  >
+                    {showAllToday
+                      ? "Show less"
+                      : `View more (${data.topCustomersToday.length - TOP_CUSTOMERS_PREVIEW} more)`}
+                  </Button>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -616,52 +643,71 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 No attributed customer purchases found for this merchant yet.
               </p>
             ) : (
-              <ul className="space-y-2">
-                {data.topCustomersLifetime.map((customer, index) => {
-                  const maxDays = Math.max(
-                    1,
-                    data.topCustomersLifetime[0]?.purchaseDays || 1,
-                  );
-                  const share = Math.min(
-                    100,
-                    (customer.purchaseDays / maxDays) * 100,
-                  );
-                  return (
-                    <li
-                      key={`life-${customer.key}`}
-                      className="rounded-xl border border-border/60 px-3 py-2.5"
-                    >
-                      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
-                            {index + 1}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{customer.name}</p>
-                            <p className="text-muted-foreground truncate text-xs">
-                              {customer.phone || customer.email || "—"}
+              <>
+                <ul className="space-y-2">
+                  {(showAllLifetime
+                    ? data.topCustomersLifetime
+                    : data.topCustomersLifetime.slice(0, TOP_CUSTOMERS_PREVIEW)
+                  ).map((customer, index) => {
+                    const maxDays = Math.max(
+                      1,
+                      data.topCustomersLifetime[0]?.purchaseDays || 1,
+                    );
+                    const share = Math.min(
+                      100,
+                      (customer.purchaseDays / maxDays) * 100,
+                    );
+                    return (
+                      <li
+                        key={`life-${customer.key}`}
+                        className="rounded-xl border border-border/60 px-3 py-2.5"
+                      >
+                        <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                              {index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{customer.name}</p>
+                              <p className="text-muted-foreground truncate text-xs">
+                                {customer.phone || customer.email || "—"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right text-sm">
+                            <p className="font-semibold tabular-nums">
+                              {customer.purchaseDays} purchase days
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              {customer.orderCount} orders · {formatMoney(customer.total)}
                             </p>
                           </div>
                         </div>
-                        <div className="text-right text-sm">
-                          <p className="font-semibold tabular-nums">
-                            {customer.purchaseDays} purchase days
-                          </p>
-                          <p className="text-muted-foreground text-xs">
-                            {customer.orderCount} orders · {formatMoney(customer.total)}
-                          </p>
+                        <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+                          <div
+                            className="h-full rounded-full bg-teal-500"
+                            style={{ width: `${share}%` }}
+                          />
                         </div>
-                      </div>
-                      <div className="bg-muted h-1.5 overflow-hidden rounded-full">
-                        <div
-                          className="h-full rounded-full bg-teal-500"
-                          style={{ width: `${share}%` }}
-                        />
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {data.topCustomersLifetime.length > TOP_CUSTOMERS_PREVIEW && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-3 w-full"
+                    disabled={isBusy}
+                    onClick={() => setShowAllLifetime((v) => !v)}
+                  >
+                    {showAllLifetime
+                      ? "Show less"
+                      : `View more (${data.topCustomersLifetime.length - TOP_CUSTOMERS_PREVIEW} more)`}
+                  </Button>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
