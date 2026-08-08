@@ -203,13 +203,10 @@ export function OsfSupplierOrdersPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when filters change while open
   }, [vendorId, priority]);
 
-  function focusSearch(opts?: { open?: boolean; clearQuery?: boolean }) {
-    if (opts?.clearQuery) setQ("");
-    if (opts?.open) {
-      setSearchOpen(true);
-      void fetchItems({ page: 1, query: opts.clearQuery ? "" : q });
-    }
-    // Keep viewport on the search box so a long table doesn’t leave the user scrolled down.
+  function focusSearch() {
+    setQ("");
+    setSearchOpen(true);
+    void fetchItems({ page: 1, query: "" });
     requestAnimationFrame(() => {
       searchInputRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       searchInputRef.current?.focus({ preventScroll: true });
@@ -233,8 +230,6 @@ export function OsfSupplierOrdersPanel() {
       ];
     });
     setSearchOpen(false);
-    setQ("");
-    focusSearch();
   }
 
   function removeRow(sku: string) {
@@ -739,7 +734,7 @@ export function OsfSupplierOrdersPanel() {
               type="button"
               size="sm"
               variant="secondary"
-              onClick={() => focusSearch({ open: true, clearQuery: true })}
+              onClick={() => focusSearch()}
             >
               Add another item
             </Button>
