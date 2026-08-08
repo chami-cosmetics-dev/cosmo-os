@@ -165,6 +165,22 @@ function pickEmailMatchForIdentity(emailMatches: IdentityContact[], phoneNumber:
   );
 }
 
+/**
+ * Secondary ContactPhone rows can falsely link unrelated numbers onto one contact.
+ * Only treat a phone match as identity when the contact's primary phone is blank or compatible.
+ */
+function pickPhoneMatchForIdentity(phoneMatches: IdentityContact[], phoneNumber: string | null) {
+  if (phoneMatches.length === 0) return null;
+  if (phoneMatches.length > 1) return null;
+  const match = phoneMatches[0] ?? null;
+  if (!match) return null;
+  if (!phoneNumber) return match;
+  if (!match.phoneNumber || phonesCompatible(match.phoneNumber, phoneNumber)) {
+    return match;
+  }
+  return null;
+}
+
 async function updatePurchaseSnapshotForContacts(input: {
   contactIds: string[];
   occurredAt: Date;
@@ -303,7 +319,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   }
 
   const emailMatch = pickEmailMatchForIdentity(emailMatches, phoneNumber);
-  const phoneMatch = phoneMatches[0] ?? null;
+  const phoneMatch = pickPhoneMatchForIdentity(phoneMatches, phoneNumber);
 
   const identity = resolveIdentityMatch(emailMatch, phoneMatch, phoneNumber);
   if (identity.status === "conflict") {
@@ -343,7 +359,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
         return { status: "conflict" as const };
       }
       const recheckedEmail = pickEmailMatchForIdentity(recheckedEmailMatches, phoneNumber);
-      const recheckedPhone = recheckedPhoneMatches[0] ?? null;
+      const recheckedPhone = pickPhoneMatchForIdentity(recheckedPhoneMatches, phoneNumber);
       const recheckedIdentity = resolveIdentityMatch(recheckedEmail, recheckedPhone, phoneNumber);
       if (recheckedIdentity.status === "conflict") {
         return { status: "conflict" as const };
@@ -464,7 +480,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   }
 
   const emailMatch = pickEmailMatchForIdentity(emailMatches, phoneNumber);
-  const phoneMatch = phoneMatches[0] ?? null;
+  const phoneMatch = pickPhoneMatchForIdentity(phoneMatches, phoneNumber);
 
   const identity = resolveIdentityMatch(emailMatch, phoneMatch, phoneNumber);
   if (identity.status === "conflict") {
@@ -481,7 +497,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
       }
 
       const recheckedEmailMatch = pickEmailMatchForIdentity(rechecked.emailMatches, phoneNumber);
-      const recheckedPhoneMatch = rechecked.phoneMatches[0] ?? null;
+      const recheckedPhoneMatch = pickPhoneMatchForIdentity(rechecked.phoneMatches, phoneNumber);
       const recheckedIdentity = resolveIdentityMatch(
         recheckedEmailMatch,
         recheckedPhoneMatch,
@@ -565,13 +581,17 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   }
 
   const safeEmail = emailSafeForContact(email, matchedContact, emailMatch, emailMatches.length);
+  const safePhone =
+    !matchedContact.phoneNumber || phonesCompatible(matchedContact.phoneNumber, phoneNumber)
+      ? phoneNumber
+      : null;
 
   await ensureSecondaryContactIdentifiers({
     contactId: matchedContact.id,
     primaryEmail: matchedContact.email,
     primaryPhoneNumber: matchedContact.phoneNumber,
     email: safeEmail,
-    phoneNumber,
+    phoneNumber: safePhone,
   });
 
   const updateData: {
