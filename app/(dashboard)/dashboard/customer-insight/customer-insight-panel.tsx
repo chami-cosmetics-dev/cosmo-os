@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -113,6 +114,43 @@ function truncateLabel(value: string, max = 18) {
   const t = value.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
+}
+
+function InsightChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    value?: number | string;
+    name?: string;
+    payload?: Record<string, unknown>;
+  }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload ?? {};
+  const title =
+    (typeof row.name === "string" && row.name) ||
+    (typeof row.month === "string" && formatMonthLabel(row.month)) ||
+    String(label ?? "");
+  const spend = Number(payload[0]?.value ?? row.spend ?? 0);
+  const quantity = typeof row.quantity === "number" ? row.quantity : null;
+  const orderCount = typeof row.orderCount === "number" ? row.orderCount : null;
+
+  return (
+    <div className="max-w-[220px] rounded-md border border-border bg-popover px-2.5 py-2 text-xs shadow-md">
+      <p className="font-medium leading-snug text-popover-foreground break-words">{title}</p>
+      <p className="mt-1 tabular-nums text-muted-foreground">
+        {formatMoney(spend)}
+        {quantity != null ? ` · qty ${quantity}` : null}
+        {orderCount != null
+          ? ` · ${orderCount} invoice${orderCount === 1 ? "" : "s"}`
+          : null}
+      </p>
+    </div>
+  );
 }
 
 type ProfileForm = {
@@ -852,11 +890,11 @@ export function CustomerInsightPanel({
                       No purchased items yet.
                     </p>
                   ) : (
-                    <div className="h-[280px] w-full">
+                    <div className="h-[300px] w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={topItemsChart}
-                          margin={{ top: 8, right: 8, left: 0, bottom: 48 }}
+                          margin={{ top: 22, right: 8, left: 0, bottom: 48 }}
                         >
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
                           <XAxis
@@ -877,15 +915,8 @@ export function CustomerInsightPanel({
                             width={42}
                           />
                           <Tooltip
-                            formatter={(value, _name, item) => {
-                              const row = item?.payload as
-                                | { name?: string; quantity?: number }
-                                | undefined;
-                              return [
-                                `${formatMoney(Number(value ?? 0))} · qty ${row?.quantity ?? 0}`,
-                                row?.name ?? "Spend",
-                              ];
-                            }}
+                            content={<InsightChartTooltip />}
+                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
                           />
                           <Bar
                             dataKey="spend"
@@ -902,7 +933,17 @@ export function CustomerInsightPanel({
                                   : null;
                               if (name) focusInvoicesForItem(name);
                             }}
-                          />
+                          >
+                            <LabelList
+                              dataKey="quantity"
+                              position="top"
+                              className="fill-foreground"
+                              fontSize={11}
+                              formatter={(value) =>
+                                value == null || value === "" ? "" : String(value)
+                              }
+                            />
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -942,17 +983,8 @@ export function CustomerInsightPanel({
                             width={42}
                           />
                           <Tooltip
-                            formatter={(value) => [
-                              formatMoney(Number(value ?? 0), insight.loyalty.currency),
-                              "Spend",
-                            ]}
-                            labelFormatter={(_, payload) => {
-                              const row = payload?.[0]?.payload as
-                                | { month?: string; orderCount?: number }
-                                | undefined;
-                              if (!row?.month) return "";
-                              return `${formatMonthLabel(row.month)} · ${row.orderCount ?? 0} invoice(s)`;
-                            }}
+                            content={<InsightChartTooltip />}
+                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
                           />
                           <Bar dataKey="spend" fill={CHART_BLUE} radius={[4, 4, 0, 0]} />
                         </BarChart>

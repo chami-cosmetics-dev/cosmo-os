@@ -131,119 +131,223 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     value: row.total,
     fill: PIE_COLORS[i % PIE_COLORS.length],
   }));
-  const overviewChart =
-    data.overview?.map((row) => ({
-      name: row.displayName,
-      target: row.targetAmount ?? 0,
-      sales: row.mtdSales,
-    })) ?? [];
+  const overviewRows = [...(data.overview ?? [])].sort(
+    (a, b) => b.mtdSales - a.mtdSales,
+  );
+  const maxMtd = Math.max(1, ...overviewRows.map((row) => row.mtdSales));
+  const hasAnyTarget = overviewRows.some(
+    (row) => row.targetAmount != null && row.targetAmount > 0,
+  );
+  const overviewChart = overviewRows.map((row) => ({
+    name: row.displayName,
+    sales: row.mtdSales,
+    ...(hasAnyTarget ? { target: row.targetAmount ?? 0 } : {}),
+  }));
 
   return (
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-[linear-gradient(135deg,#0f766e22,#134e4a33,#042f2e11)] p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-muted-foreground text-xs font-semibold tracking-[0.2em] uppercase">
-              Merchant dashboard
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-              {data.profile.displayName}
-            </h1>
-            <p className="text-sm text-foreground/80">
-              {data.yearMonth} · {data.sales.orderCount} orders ·{" "}
-              {formatMoney(data.sales.total)} MTD
-            </p>
-            {data.profile.email && (
-              <p className="text-muted-foreground text-xs">{data.profile.email}</p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-muted-foreground text-xs font-semibold tracking-[0.2em] uppercase">
+                Merchant dashboard
+              </p>
+              <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                {data.profile.displayName}
+              </h1>
+              <p className="text-sm text-foreground/80">
+                {data.yearMonth} · {data.sales.orderCount} orders ·{" "}
+                {formatMoney(data.sales.total)} MTD
+              </p>
+              {data.profile.email && (
+                <p className="text-muted-foreground text-xs">{data.profile.email}</p>
+              )}
+            </div>
+            {data.viewerIsAdmin && (
+              <div className="w-full max-w-xs space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">
+                  View merchant
+                </label>
+                <Select
+                  value={merchantId}
+                  disabled={isBusy || data.merchants.length === 0}
+                  onValueChange={(value) => {
+                    setMerchantId(value);
+                    void reload(value);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select merchant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {data.merchants.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.displayName}
+                        {m.roleNames[0] ? ` (${m.roleNames[0]})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             )}
           </div>
-          {data.viewerIsAdmin && (
-            <div className="w-full max-w-xs space-y-1">
-              <label className="text-muted-foreground text-xs font-medium">
-                View merchant
-              </label>
-              <Select
-                value={merchantId}
-                disabled={isBusy || data.merchants.length === 0}
-                onValueChange={(value) => {
-                  setMerchantId(value);
-                  void reload(value);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select merchant" />
-                </SelectTrigger>
-                <SelectContent>
-                  {data.merchants.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.displayName}
-                      {m.roleNames[0] ? ` (${m.roleNames[0]})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+          {data.canManageTargets && (
+            <div className="rounded-xl border border-white/15 bg-black/10 p-3 backdrop-blur-sm dark:bg-white/5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="flex-1 space-y-1">
+                  <label className="text-muted-foreground text-xs font-medium">
+                    Assign monthly target (LKR) — {data.profile.displayName} · {data.yearMonth}
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1000}
+                    disabled={isBusy}
+                    value={targetInput}
+                    onChange={(e) => setTargetInput(e.target.value)}
+                    placeholder="e.g. 500000"
+                    className="bg-background/80"
+                  />
+                </div>
+                <Button disabled={isBusy} onClick={() => void saveTarget()}>
+                  {busyKey === "save-target" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Target aria-hidden />
+                      Save target
+                    </>
+                  )}
+                </Button>
+              </div>
+              {data.target.assignedByName && (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  Last assigned by {data.target.assignedByName}
+                  {data.target.assignedAt
+                    ? ` · ${new Date(data.target.assignedAt).toLocaleString()}`
+                    : ""}
+                </p>
+              )}
             </div>
           )}
         </div>
       </section>
 
-      {data.viewerIsAdmin && data.overview && data.overview.length > 0 && (
+      {data.viewerIsAdmin && overviewRows.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">All merchants — targets vs MTD sales</CardTitle>
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-base">All merchants — MTD performance</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              {hasAnyTarget
+                ? "Bars show progress toward each merchant’s monthly target. Click a row to open that merchant."
+                : "No targets set yet — bars compare MTD sales to the top merchant this month. Use Assign monthly target at the top after selecting a merchant."}
+            </p>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="h-64 w-full">
+          <CardContent className="space-y-5">
+            <div
+              className="w-full"
+              style={{ height: Math.max(220, overviewRows.length * 28) }}
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={overviewChart} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={60} />
-                  <YAxis tick={{ fontSize: 11 }} />
+                <BarChart
+                  data={overviewChart}
+                  margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
+                  layout="vertical"
+                >
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={88}
+                    tick={{ fontSize: 11 }}
+                  />
                   <Tooltip
                     formatter={(value: number) => formatMoney(value)}
                     contentStyle={{ fontSize: 12 }}
                   />
-                  <Bar dataKey="target" name="Target" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="sales" name="MTD sales" fill="#0d9488" radius={[4, 4, 0, 0]} />
+                  {hasAnyTarget && (
+                    <Bar dataKey="target" name="Target" fill="#64748b" radius={[0, 4, 4, 0]} />
+                  )}
+                  <Bar dataKey="sales" name="MTD sales" fill="#14b8a6" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-muted-foreground border-b text-left">
-                    <th className="py-2 pr-3 font-medium">Merchant</th>
-                    <th className="py-2 pr-3 font-medium">Target</th>
-                    <th className="py-2 pr-3 font-medium">MTD</th>
-                    <th className="py-2 pr-3 font-medium">%</th>
-                    <th className="py-2 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.overview.map((row) => (
-                    <tr
-                      key={row.merchantId}
-                      className="hover:bg-muted/40 cursor-pointer border-b border-border/60"
+
+            <ul className="space-y-3">
+              {overviewRows.map((row, index) => {
+                const hasTarget = row.targetAmount != null && row.targetAmount > 0;
+                const towardTarget = hasTarget
+                  ? Math.min(100, Math.round((row.mtdSales / (row.targetAmount as number)) * 1000) / 10)
+                  : null;
+                const relativeShare = Math.round((row.mtdSales / maxMtd) * 1000) / 10;
+                const barPct = hasTarget ? Math.min(100, towardTarget ?? 0) : relativeShare;
+                const barColor =
+                  hasTarget && (towardTarget ?? 0) >= 100
+                    ? "bg-emerald-500"
+                    : hasTarget && (towardTarget ?? 0) >= 80
+                      ? "bg-teal-500"
+                      : hasTarget && (towardTarget ?? 0) >= 50
+                        ? "bg-amber-500"
+                        : hasTarget
+                          ? "bg-sky-500"
+                          : "bg-teal-500";
+
+                return (
+                  <li key={row.merchantId}>
+                    <button
+                      type="button"
+                      disabled={isBusy}
                       onClick={() => {
-                        if (isBusy) return;
                         setMerchantId(row.merchantId);
                         void reload(row.merchantId);
                       }}
+                      className="hover:bg-muted/40 w-full rounded-xl border border-border/60 px-3 py-3 text-left transition-colors disabled:opacity-60"
                     >
-                      <td className="py-2 pr-3 font-medium">{row.displayName}</td>
-                      <td className="py-2 pr-3">
-                        {row.targetAmount != null ? formatMoney(row.targetAmount) : "—"}
-                      </td>
-                      <td className="py-2 pr-3">{formatMoney(row.mtdSales)}</td>
-                      <td className="py-2 pr-3">
-                        {row.percent != null ? `${row.percent}%` : "—"}
-                      </td>
-                      <td className="py-2 capitalize">{row.status.replace("_", " ")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+                            {index + 1}
+                          </span>
+                          <span className="truncate font-medium">{row.displayName}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm">
+                          <span className="font-semibold tabular-nums">
+                            {formatMoney(row.mtdSales)}
+                          </span>
+                          {hasTarget ? (
+                            <span className="text-muted-foreground tabular-nums">
+                              / {formatMoney(row.targetAmount as number)} ·{" "}
+                              <span className="text-foreground font-medium">
+                                {towardTarget}%
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">No target</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="bg-muted h-2.5 overflow-hidden rounded-full">
+                        <div
+                          className={`h-full rounded-full transition-all ${barColor}`}
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                      {!hasTarget && row.mtdSales > 0 && (
+                        <p className="text-muted-foreground mt-1.5 text-[11px]">
+                          {relativeShare}% of top MTD this month
+                        </p>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </CardContent>
         </Card>
       )}
@@ -274,44 +378,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 />
               </div>
             </div>
-            {data.target.assignedByName && (
+            {data.target.assignedByName && !data.canManageTargets && (
               <p className="text-muted-foreground text-xs">
                 Last assigned by {data.target.assignedByName}
                 {data.target.assignedAt
                   ? ` · ${new Date(data.target.assignedAt).toLocaleString()}`
                   : ""}
               </p>
-            )}
-            {data.canManageTargets && (
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <div className="flex-1 space-y-1">
-                  <label className="text-muted-foreground text-xs font-medium">
-                    Set target (LKR)
-                  </label>
-                  <Input
-                    type="number"
-                    min={1}
-                    step={1000}
-                    disabled={isBusy}
-                    value={targetInput}
-                    onChange={(e) => setTargetInput(e.target.value)}
-                    placeholder="e.g. 500000"
-                  />
-                </div>
-                <Button disabled={isBusy} onClick={() => void saveTarget()}>
-                  {busyKey === "save-target" ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Target aria-hidden />
-                      Save target
-                    </>
-                  )}
-                </Button>
-              </div>
             )}
           </CardContent>
         </Card>
