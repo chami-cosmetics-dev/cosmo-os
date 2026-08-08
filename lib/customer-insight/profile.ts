@@ -11,6 +11,9 @@ export type ProfilePatchInput = {
   email?: string | null;
   /** New primary phone; previous primary is kept as secondary for history/search. */
   addPhoneNumber?: string;
+  gender?: string | null;
+  language?: string | null;
+  address?: string | null;
   birthYear?: number | null;
   birthMonth?: number | null;
   birthDay?: number | null;
@@ -36,6 +39,9 @@ export async function updateContactInsightProfile(input: {
     name?: string;
     email?: string | null;
     phoneNumber?: string | null;
+    gender?: string | null;
+    language?: string | null;
+    address?: string | null;
     birthYear?: number | null;
     birthMonth?: number | null;
     birthDay?: number | null;
@@ -47,6 +53,11 @@ export async function updateContactInsightProfile(input: {
   if (input.patch.name !== undefined) data.name = input.patch.name;
   if (input.patch.email !== undefined) {
     data.email = input.patch.email === null ? null : normalizeContactEmail(input.patch.email);
+  }
+  if (input.patch.gender !== undefined) data.gender = input.patch.gender;
+  if (input.patch.language !== undefined) data.language = input.patch.language;
+  if (input.patch.address !== undefined) {
+    data.address = input.patch.address?.trim() ? input.patch.address.trim() : null;
   }
   if (input.patch.birthYear !== undefined) data.birthYear = input.patch.birthYear;
   if (input.patch.birthMonth !== undefined) data.birthMonth = input.patch.birthMonth;
@@ -76,6 +87,9 @@ export async function updateContactInsightProfile(input: {
       name: true,
       email: true,
       phoneNumber: true,
+      gender: true,
+      language: true,
+      address: true,
       birthYear: true,
       birthMonth: true,
       birthDay: true,
@@ -84,7 +98,6 @@ export async function updateContactInsightProfile(input: {
     },
   });
 
-  // Keep previous primary as secondary so purchase history + search still match it.
   if (phoneToPromote && previousPhone) {
     await ensureSecondaryContactIdentifiers({
       contactId: updated.id,

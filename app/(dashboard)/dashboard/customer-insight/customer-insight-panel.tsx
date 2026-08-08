@@ -38,6 +38,10 @@ import type {
   SeriesPointDto,
   TopItemDto,
 } from "@/lib/customer-insight/types";
+import {
+  CONTACT_GENDER_OPTIONS,
+  CONTACT_LANGUAGE_OPTIONS,
+} from "@/lib/customer-insight/contact-profile-options";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
@@ -159,6 +163,9 @@ type ProfileForm = {
   name: string;
   email: string;
   addPhoneNumber: string;
+  gender: string;
+  language: string;
+  address: string;
   birthDate: string;
 };
 
@@ -305,6 +312,9 @@ export function CustomerInsightPanel({
           name: next.contact.name,
           email: next.contact.email ?? "",
           addPhoneNumber: "",
+          gender: next.contact.gender ?? "",
+          language: next.contact.language ?? "",
+          address: next.contact.address ?? "",
           birthDate: dobPartsToInputValue(
             next.contact.birthYear,
             next.contact.birthMonth,
@@ -331,6 +341,9 @@ export function CustomerInsightPanel({
       const body: Record<string, unknown> = {
         name: profileForm.name.trim(),
         email: profileForm.email.trim() || null,
+        gender: profileForm.gender || null,
+        language: profileForm.language || null,
+        address: profileForm.address.trim() || null,
         birthYear: dob.birthYear,
         birthMonth: dob.birthMonth,
         birthDay: dob.birthDay,
@@ -814,6 +827,16 @@ export function CustomerInsightPanel({
                             insight.contact.birthDay
                           )}
                         </span>
+                        <span className="text-foreground/80">
+                          Gender: {insight.contact.gender ?? "—"}
+                          {" · "}
+                          Language: {insight.contact.language ?? "—"}
+                        </span>
+                        {insight.contact.address ? (
+                          <span className="text-foreground/80">
+                            Address: {insight.contact.address}
+                          </span>
+                        ) : null}
                       </div>
                       {insight.canEditProfile ? (
                         <Button
@@ -886,6 +909,46 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                       />
                     </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Gender</span>
+                      <select
+                        className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                        value={profileForm.gender}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, gender: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      >
+                        <option value="">Select gender</option>
+                        {CONTACT_GENDER_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Language</span>
+                      <select
+                        className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                        value={profileForm.language}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, language: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      >
+                        <option value="">Select language</option>
+                        {CONTACT_LANGUAGE_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <label className="space-y-1 text-sm sm:col-span-2">
                       <span className="text-muted-foreground">Birth date</span>
                       <Input
@@ -899,6 +962,21 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                         max="2100-12-31"
                         min="1900-01-01"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm sm:col-span-2">
+                      <span className="text-muted-foreground">Address</span>
+                      <textarea
+                        className="border-input bg-background flex min-h-[72px] w-full rounded-md border px-3 py-2 text-sm"
+                        value={profileForm.address}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, address: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        maxLength={500}
+                        placeholder="Customer address"
                       />
                     </label>
                     <div className="space-y-2 rounded-md border border-border/70 p-3 sm:col-span-2">
