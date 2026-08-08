@@ -3,12 +3,14 @@ import {
   normalizeContactEmail,
   normalizeContactPhone,
 } from "@/lib/contact-identifiers";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 
 export type ProfilePatchInput = {
   name?: string;
   email?: string | null;
-  phoneNumber?: string | null;
+  /** New primary phone; previous primary is kept as secondary for history/search. */
+  addPhoneNumber?: string;
   birthYear?: number | null;
   birthMonth?: number | null;
   birthDay?: number | null;
@@ -21,7 +23,12 @@ export async function updateContactInsightProfile(input: {
 }) {
   const existing = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
-    select: { id: true, email: true, phoneNumber: true },
+    select: {
+      id: true,
+      email: true,
+      phoneNumber: true,
+      phones: { select: { phoneNumber: true } },
+    },
   });
   if (!existing) return null;
 
@@ -41,15 +48,25 @@ export async function updateContactInsightProfile(input: {
   if (input.patch.email !== undefined) {
     data.email = input.patch.email === null ? null : normalizeContactEmail(input.patch.email);
   }
-  if (input.patch.phoneNumber !== undefined) {
-    data.phoneNumber =
-      input.patch.phoneNumber === null
-        ? null
-        : normalizeContactPhone(input.patch.phoneNumber);
-  }
   if (input.patch.birthYear !== undefined) data.birthYear = input.patch.birthYear;
   if (input.patch.birthMonth !== undefined) data.birthMonth = input.patch.birthMonth;
   if (input.patch.birthDay !== undefined) data.birthDay = input.patch.birthDay;
+
+  let phoneToPromote: string | null = null;
+  if (input.patch.addPhoneNumber !== undefined) {
+    const nextPhone = normalizeContactPhone(input.patch.addPhoneNumber);
+    if (!nextPhone) {
+      throw new Error("Phone number is required");
+    }
+    const nextVariants = new Set(buildPhoneLookupVariants(nextPhone));
+    const alreadyPrimary =
+      previousPhone != null &&
+      buildPhoneLookupVariants(previousPhone).some((v) => nextVariants.has(v));
+    if (!alreadyPrimary) {
+      phoneToPromote = nextPhone;
+      data.phoneNumber = nextPhone;
+    }
+  }
 
   const updated = await prisma.contactMaster.update({
     where: { id: input.contactId },
@@ -63,22 +80,19 @@ export async function updateContactInsightProfile(input: {
       birthMonth: true,
       birthDay: true,
       assignedMerchant: true,
+      phones: { select: { phoneNumber: true }, orderBy: { createdAt: "asc" } },
     },
   });
 
-  // Keep prior phone/email as secondary so purchase lookup still finds history.
-  if (
-    input.patch.phoneNumber !== undefined &&
-    previousPhone &&
-    updated.phoneNumber &&
-    normalizeContactPhone(previousPhone) !== normalizeContactPhone(updated.phoneNumber)
-  ) {
+  // Keep previous primary as secondary so purchase history + search still match it.
+  if (phoneToPromote && previousPhone) {
     await ensureSecondaryContactIdentifiers({
       contactId: updated.id,
-      primaryPhoneNumber: updated.phoneNumber,
+      primaryPhoneNumber: phoneToPromote,
       phoneNumber: previousPhone,
     });
   }
+
   if (
     input.patch.email !== undefined &&
     previousEmail &&

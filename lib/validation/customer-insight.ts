@@ -45,18 +45,40 @@ export const customerInsightProfilePatchSchema = z
       .union([emailSchema, z.literal(""), z.null()])
       .optional()
       .transform((v) => (v === "" ? null : v)),
-    phoneNumber: z
+    /**
+     * Add a new primary phone while keeping the previous primary as secondary
+     * (purchase history + search still match both).
+     */
+    addPhoneNumber: z
       .string()
       .trim()
+      .min(1)
       .max(LIMITS.mobile.max)
-      .optional()
-      .nullable(),
+      .optional(),
     birthYear: z.coerce.number().int().min(1900).max(2100).optional().nullable(),
     birthMonth: z.coerce.number().int().min(1).max(12).optional().nullable(),
     birthDay: z.coerce.number().int().min(1).max(31).optional().nullable(),
   })
+  .superRefine((data, ctx) => {
+    if (data.addPhoneNumber) {
+      const digits = phoneDigitsOnly(data.addPhoneNumber);
+      if (digits.length < 7) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Phone number must have at least 7 digits",
+          path: ["addPhoneNumber"],
+        });
+      }
+    }
+  })
   .refine(
-    (data) => Object.keys(data).length > 0,
+    (data) =>
+      data.name !== undefined ||
+      data.email !== undefined ||
+      data.addPhoneNumber !== undefined ||
+      data.birthYear !== undefined ||
+      data.birthMonth !== undefined ||
+      data.birthDay !== undefined,
     { message: "At least one profile field is required" }
   );
 

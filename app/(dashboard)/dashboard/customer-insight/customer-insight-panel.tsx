@@ -158,11 +158,39 @@ function InsightChartTooltip({
 type ProfileForm = {
   name: string;
   email: string;
-  phoneNumber: string;
-  birthYear: string;
-  birthMonth: string;
-  birthDay: string;
+  addPhoneNumber: string;
+  birthDate: string;
 };
+
+function dobPartsToInputValue(
+  year: number | null | undefined,
+  month: number | null | undefined,
+  day: number | null | undefined
+) {
+  if (year == null || month == null || day == null) return "";
+  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function birthDateInputToParts(value: string): {
+  birthYear: number | null;
+  birthMonth: number | null;
+  birthDay: number | null;
+} {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { birthYear: null, birthMonth: null, birthDay: null };
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) {
+    return { birthYear: null, birthMonth: null, birthDay: null };
+  }
+  return {
+    birthYear: Number(match[1]),
+    birthMonth: Number(match[2]),
+    birthDay: Number(match[3]),
+  };
+}
 
 export function CustomerInsightPanel({
   canFilterAllContacts = false,
@@ -276,11 +304,12 @@ export function CustomerInsightPanel({
         setProfileForm({
           name: next.contact.name,
           email: next.contact.email ?? "",
-          phoneNumber: next.contact.phoneNumber ?? "",
-          birthYear: next.contact.birthYear != null ? String(next.contact.birthYear) : "",
-          birthMonth:
-            next.contact.birthMonth != null ? String(next.contact.birthMonth) : "",
-          birthDay: next.contact.birthDay != null ? String(next.contact.birthDay) : "",
+          addPhoneNumber: "",
+          birthDate: dobPartsToInputValue(
+            next.contact.birthYear,
+            next.contact.birthMonth,
+            next.contact.birthDay
+          ),
         });
       } else {
         setProfileForm(null);
@@ -297,19 +326,24 @@ export function CustomerInsightPanel({
     if (!selectedContactId || !profileForm) return;
     setBusyKey("profile");
     try {
+      const dob = birthDateInputToParts(profileForm.birthDate);
+      const addPhone = profileForm.addPhoneNumber.trim();
+      const body: Record<string, unknown> = {
+        name: profileForm.name.trim(),
+        email: profileForm.email.trim() || null,
+        birthYear: dob.birthYear,
+        birthMonth: dob.birthMonth,
+        birthDay: dob.birthDay,
+      };
+      if (addPhone) {
+        body.addPhoneNumber = addPhone;
+      }
       const res = await fetch(
         `/api/admin/customer-insight/${encodeURIComponent(selectedContactId)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: profileForm.name.trim(),
-            email: profileForm.email.trim() || null,
-            phoneNumber: profileForm.phoneNumber.trim() || null,
-            birthYear: profileForm.birthYear ? Number(profileForm.birthYear) : null,
-            birthMonth: profileForm.birthMonth ? Number(profileForm.birthMonth) : null,
-            birthDay: profileForm.birthDay ? Number(profileForm.birthDay) : null,
-          }),
+          body: JSON.stringify(body),
         }
       );
       const data = await res.json().catch(() => ({}));
@@ -317,7 +351,11 @@ export function CustomerInsightPanel({
         notify.error(data.error ?? "Failed to save profile.");
         return;
       }
-      notify.success("Profile updated.");
+      notify.success(
+        addPhone
+          ? "Profile updated. New phone is primary; old number kept for search and purchase history."
+          : "Profile updated."
+      );
       setEditing(false);
       await loadInsight(selectedContactId, invoicePage);
     } catch {
@@ -724,11 +762,37 @@ export function CustomerInsightPanel({
                         {insight.contact.name}
                       </h2>
                       <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Phone className="size-3.5 shrink-0" aria-hidden />
-                          {insight.contact.phoneNumber ??
-                            insight.contact.phones[0] ??
-                            "No phone"}
+                        <span className="inline-flex items-start gap-1.5">
+                          <Phone className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                          <span className="min-w-0">
+                            {(insight.contact.phones?.length
+                              ? insight.contact.phones
+                              : [
+                                  insight.contact.phoneNumber,
+                                ].filter(Boolean) as string[]
+                            ).length > 0 ? (
+                              <span className="flex flex-col gap-0.5">
+                                {(insight.contact.phones?.length
+                                  ? insight.contact.phones
+                                  : ([insight.contact.phoneNumber].filter(
+                                      Boolean
+                                    ) as string[])
+                                ).map((p, idx) => (
+                                  <span key={`${p}-${idx}`}>
+                                    {p}
+                                    {idx === 0 ? (
+                                      <span className="text-muted-foreground/80">
+                                        {" "}
+                                        (primary)
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                ))}
+                              </span>
+                            ) : (
+                              "No phone"
+                            )}
+                          </span>
                         </span>
                         {formatMemberSince(insight.frequency?.firstOrderAt) ? (
                           <span className="inline-flex items-center gap-1.5">
@@ -797,29 +861,89 @@ export function CustomerInsightPanel({
 
                 {editing && profileForm ? (
                   <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
-                    {(
-                      [
-                        ["name", "Name"],
-                        ["email", "Email"],
-                        ["phoneNumber", "Phone"],
-                        ["birthYear", "Birth year"],
-                        ["birthMonth", "Birth month"],
-                        ["birthDay", "Birth day"],
-                      ] as const
-                    ).map(([key, label]) => (
-                      <label key={key} className="space-y-1 text-sm">
-                        <span className="text-muted-foreground">{label}</span>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Name</span>
+                      <Input
+                        value={profileForm.name}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, name: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Email</span>
+                      <Input
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, email: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm sm:col-span-2">
+                      <span className="text-muted-foreground">Birth date</span>
+                      <Input
+                        type="date"
+                        value={profileForm.birthDate}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, birthDate: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        max="2100-12-31"
+                        min="1900-01-01"
+                      />
+                    </label>
+                    <div className="space-y-2 rounded-md border border-border/70 p-3 sm:col-span-2">
+                      <p className="text-sm font-medium">Phone numbers</p>
+                      <p className="text-xs text-muted-foreground">
+                        Current numbers stay linked for purchase history and search. Adding a
+                        new number makes it primary and keeps the old one.
+                      </p>
+                      <ul className="space-y-1 text-sm">
+                        {(insight.contact.phones?.length
+                          ? insight.contact.phones
+                          : ([insight.contact.phoneNumber].filter(Boolean) as string[])
+                        ).map((p, idx) => (
+                          <li key={`${p}-${idx}`} className="flex items-center gap-2">
+                            <Phone className="size-3.5 text-muted-foreground" aria-hidden />
+                            <span>{p}</span>
+                            {idx === 0 ? (
+                              <span className="text-xs text-muted-foreground">(primary)</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">(previous)</span>
+                            )}
+                          </li>
+                        ))}
+                        {(insight.contact.phones?.length
+                          ? insight.contact.phones
+                          : [insight.contact.phoneNumber]
+                        ).filter(Boolean).length === 0 ? (
+                          <li className="text-muted-foreground">No phone on file</li>
+                        ) : null}
+                      </ul>
+                      <label className="mt-2 block space-y-1 text-sm">
+                        <span className="text-muted-foreground">Add new phone number</span>
                         <Input
-                          value={profileForm[key]}
+                          value={profileForm.addPhoneNumber}
                           onChange={(e) =>
                             setProfileForm((prev) =>
-                              prev ? { ...prev, [key]: e.target.value } : prev
+                              prev ? { ...prev, addPhoneNumber: e.target.value } : prev
                             )
                           }
+                          placeholder="e.g. 0771234567"
                           disabled={isBusy}
+                          inputMode="tel"
                         />
                       </label>
-                    ))}
+                    </div>
                     <div className="sm:col-span-2">
                       <Button
                         type="button"
