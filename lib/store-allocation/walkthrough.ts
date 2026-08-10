@@ -1,4 +1,22 @@
-import type { SessionItem, WalkthroughStep } from "@/lib/store-allocation/session-types";
+import type { SessionItem, WalkthroughLine, WalkthroughStep } from "@/lib/store-allocation/session-types";
+
+function lineForItemAtLocation(
+  item: SessionItem,
+  columnKey: string,
+): WalkthroughLine | null {
+  const row = item.locations.find((l) => l.columnKey === columnKey);
+  if (!row || row.qty <= 0) return null;
+  return {
+    sku: item.sku,
+    description: item.description,
+    locationRop: row.locationRop,
+    stock: row.stock,
+    need: row.need,
+    sales90d: row.sales90d,
+    suggestedQty: row.suggestedQty,
+    qty: row.qty,
+  };
+}
 
 /**
  * Build location walkthrough steps: one step per location that has at least one
@@ -19,16 +37,8 @@ export function buildNonEmptyLocationSteps(items: SessionItem[]): WalkthroughSte
 
   for (const loc of orderSource) {
     const lines = included
-      .map((item) => {
-        const row = item.locations.find((l) => l.columnKey === loc.columnKey);
-        const qty = row?.qty ?? 0;
-        return {
-          sku: item.sku,
-          description: item.description,
-          qty,
-        };
-      })
-      .filter((line) => line.qty > 0);
+      .map((item) => lineForItemAtLocation(item, loc.columnKey))
+      .filter((line): line is WalkthroughLine => line != null);
 
     if (lines.length === 0) continue;
 
@@ -39,18 +49,13 @@ export function buildNonEmptyLocationSteps(items: SessionItem[]): WalkthroughSte
     });
   }
 
-  // Include any columnKeys present on later items but missing from the first item's order
   const seen = new Set(steps.map((s) => s.columnKey));
   for (const item of included.slice(1)) {
     for (const loc of item.locations) {
       if (seen.has(loc.columnKey)) continue;
       const lines = included
-        .map((it) => {
-          const row = it.locations.find((l) => l.columnKey === loc.columnKey);
-          const qty = row?.qty ?? 0;
-          return { sku: it.sku, description: it.description, qty };
-        })
-        .filter((line) => line.qty > 0);
+        .map((it) => lineForItemAtLocation(it, loc.columnKey))
+        .filter((line): line is WalkthroughLine => line != null);
       if (lines.length === 0) continue;
       seen.add(loc.columnKey);
       steps.push({

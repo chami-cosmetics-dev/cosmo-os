@@ -32,10 +32,10 @@ export function StoreAllocationLocationStep({
           </p>
           <h2 className="text-lg font-semibold tracking-tight">{step.label}</h2>
           <p className="text-sm text-muted-foreground">
-            Qtys for this location across scanned items. Use ← → when not editing a field.
+            Items for this location with ROP, stock, need, and sales. Use ← → when not editing.
           </p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex shrink-0 gap-1">
           <Button type="button" size="icon" variant="outline" disabled={!canPrev} onClick={onPrev}>
             <ChevronLeft className="size-4" />
           </Button>
@@ -46,22 +46,34 @@ export function StoreAllocationLocationStep({
       </div>
 
       <div className="overflow-x-auto rounded-md border">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[40rem] text-sm">
           <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
             <tr>
               <th className="p-2">SKU</th>
               <th className="p-2">Description</th>
+              <th className="p-2">ROP</th>
+              <th className="p-2">Stock</th>
+              <th className="p-2">Need</th>
+              <th className="p-2">Sales 90d</th>
+              <th className="p-2">Suggested</th>
               <th className="p-2">Qty</th>
             </tr>
           </thead>
           <tbody>
             {step.lines.map((line) => (
               <tr key={line.sku} className="border-t">
-                <td className="p-2 font-medium">{line.sku}</td>
-                <td className="p-2 text-muted-foreground line-clamp-2">{line.description || "—"}</td>
+                <td className="p-2 font-medium whitespace-nowrap">{line.sku}</td>
+                <td className="p-2 text-muted-foreground max-w-[12rem]">
+                  <span className="line-clamp-2">{line.description || "—"}</span>
+                </td>
+                <td className="p-2 tabular-nums">{line.locationRop}</td>
+                <td className="p-2 tabular-nums">{line.stock}</td>
+                <td className="p-2 tabular-nums">{line.need}</td>
+                <td className="p-2 tabular-nums">{line.sales90d}</td>
+                <td className="p-2 tabular-nums">{line.suggestedQty}</td>
                 <td className="p-2">
                   <Input
-                    className="h-8 w-24"
+                    className="h-8 w-20"
                     type="number"
                     min={0}
                     value={line.qty || ""}
