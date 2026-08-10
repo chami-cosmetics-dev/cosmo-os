@@ -81,6 +81,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Edit SKU reorder threshold % and purchasing tool settings",
   },
   {
+    key: "store.allocation.read",
+    description: "Use store location allocation advisor (SKU/barcode take-qty split)",
+  },
+  {
     key: "academy.learn",
     description: "View Cosmo Academy lessons and update own learning progress",
   },
@@ -815,11 +819,9 @@ export async function ensureDefaultRbacSetup() {
       });
     }
 
-    // Remove stale permissions no longer in DEFAULT_PERMISSIONS (cascades to RolePermission)
-    const validKeys = DEFAULT_PERMISSIONS.map((p) => p.key);
-    await prisma.permission.deleteMany({
-      where: { key: { notIn: validKeys } },
-    });
+    // Do not auto-delete Permission rows missing from DEFAULT_PERMISSIONS.
+    // An older app process (pre-new-permission deploy) calling this would wipe
+    // newer keys and cascade-remove RolePermission grants on custom roles.
   } catch (error) {
     if (isMissingRbacTableError(error)) {
       throw new Error(
