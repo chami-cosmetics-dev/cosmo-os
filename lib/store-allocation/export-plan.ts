@@ -22,7 +22,7 @@ export function buildMultiStoreAllocationWorkbookBuffer(
 ): Buffer {
   const wb = XLSX.utils.book_new();
 
-  const byLocationRows: Array<[string, string, number]> = [["Location", "SKU", "Qty"]];
+  const byLocationRows: Array<Array<string | number>> = [["Location", "SKU", "Qty"]];
   const locationTotals = new Map<string, number>();
   for (const item of items) {
     for (const loc of item.locations) {
