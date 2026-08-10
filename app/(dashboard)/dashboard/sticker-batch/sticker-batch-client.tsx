@@ -291,6 +291,7 @@ export function StickerBatchClient({
   const initialBatchAppliedRef = useRef(false);
   const skipNextDraftPersistRef = useRef(false);
   const skipNextBatchReloadRef = useRef(false);
+  const [batchLoadNonce, setBatchLoadNonce] = useState(0);
   const canSaveBatch = supplierId.trim() !== "" && batchName.trim() !== "";
   const canAddRows = selectedBatchId.trim() !== "";
   const allRowsComplete = useMemo(
@@ -621,8 +622,21 @@ export function StickerBatchClient({
           row.id === selectedBatchId ? { ...row, itemCount: validRows.length } : row
         )
       );
-      clearLoadedBatchItems();
-      notify.success("Sticker batch items saved.");
+      setLoadedSnapshot({
+        batchId: selectedBatchId,
+        locationId: selectedLocationId,
+        mode: "multiple",
+        rows: validRows.map((row) => ({
+          locationId: row.locationId.trim(),
+          itemCode: row.itemCode.trim(),
+          itemName: row.itemName.trim(),
+          unitPrice: row.unitPrice.trim(),
+          quantity: row.quantity.trim(),
+          manufactureDate: row.manufactureDate.trim(),
+          expireDate: row.expireDate.trim(),
+        })),
+      });
+      notify.success(`Saved ${validRows.length} sticker batch items.`);
     } catch {
       notify.error("Failed to save sticker batch items");
     } finally {
@@ -867,9 +881,59 @@ export function StickerBatchClient({
     );
   }
 
+  function readDraftRowsForBatch(batchId: string): ItemRow[] | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = window.localStorage.getItem(ITEMS_DRAFT_STORAGE_KEY);
+      if (!raw) return null;
+      const draft = JSON.parse(raw) as {
+        savedDateKey?: string;
+        selectedBatchId?: string;
+        rows?: ItemRow[];
+        nextRowId?: number;
+      };
+      if (draft.savedDateKey !== getColomboDateKey()) return null;
+      if ((draft.selectedBatchId ?? "").trim() !== batchId) return null;
+      const restoredRows = Array.isArray(draft.rows)
+        ? draft.rows
+            .map((row, index) => {
+              const manufactureDate = (row.manufactureDate ?? "").trim();
+              const expireDate = (row.expireDate ?? "").trim();
+              return {
+                ...createEmptyRow(String(index + 1)),
+                ...row,
+                id: row.id ? String(row.id) : String(index + 1),
+                locationId: row.locationId ?? "",
+                manufactureDate,
+                expireDate,
+                age: computeAge(manufactureDate, expireDate),
+              };
+            })
+            .filter(
+              (row) =>
+                row.itemCode.trim() ||
+                row.itemName.trim() ||
+                row.quantity.trim() ||
+                row.unitPrice.trim()
+            )
+        : [];
+      return restoredRows.length > 0 ? restoredRows : null;
+    } catch {
+      return null;
+    }
+  }
+
   function handleLoadBatchFromHistory(batchId: string) {
+    const id = batchId.trim();
+    if (!id) return;
     setActiveTab("batch");
-    setSelectedBatchId(batchId);
+    skipNextBatchReloadRef.current = false;
+    if (selectedBatchId === id) {
+      // Force reload even when the same batch is already selected.
+      setBatchLoadNonce((n) => n + 1);
+    } else {
+      setSelectedBatchId(id);
+    }
     if (typeof window !== "undefined") {
       window.setTimeout(() => {
         const target = document.getElementById("sticker-batch-items-section");
@@ -1019,6 +1083,47 @@ export function StickerBatchClient({
         if (!active) return;
         const items = Array.isArray(data.items) ? data.items : [];
         if (items.length === 0) {
+          const draftRows = readDraftRowsForBatch(selectedBatchId);
+          if (draftRows && draftRows.length > 0) {
+            setRows(draftRows);
+            setActiveRowId(null);
+            setIsPreviewLifted(false);
+            nextRowIdRef.current = draftRows.length + 1;
+            setPreviewMeta({
+              supplierName: data.supplierName ?? "",
+              supplierCode: data.supplierCode ?? "",
+              companyName: data.companyName?.trim() || companyName,
+              companyAddress: companyAddress || data.companyAddress || "",
+              locationReference: "",
+              locationAddress: "",
+              locationPhone: "",
+            });
+            const uniqueLocationIds = new Set(
+              draftRows.map((row) => row.locationId.trim()).filter(Boolean)
+            );
+            setSelectedLocationId(
+              uniqueLocationIds.size === 1 ? [...uniqueLocationIds][0] : ""
+            );
+            setLoadedSnapshot({
+              batchId: selectedBatchId,
+              locationId: uniqueLocationIds.size === 1 ? [...uniqueLocationIds][0] : "",
+              mode: "multiple",
+              rows: draftRows.map((row) => ({
+                locationId: row.locationId.trim(),
+                itemCode: row.itemCode.trim(),
+                itemName: row.itemName.trim(),
+                unitPrice: row.unitPrice.trim(),
+                quantity: row.quantity.trim(),
+                manufactureDate: row.manufactureDate.trim(),
+                expireDate: row.expireDate.trim(),
+              })),
+            });
+            notify.info(
+              "This batch has no saved items on the server. Restored unsaved draft rows — click Save Batch Items to keep them."
+            );
+            return;
+          }
+
           setRows([]);
           setActiveRowId(null);
           setIsPreviewLifted(false);
@@ -1038,9 +1143,14 @@ export function StickerBatchClient({
             mode: "multiple",
             rows: [],
           });
+          notify.info(
+            "This batch has no saved items. Add rows, then click Save Batch Items."
+          );
           return;
         }
 
+        // Server has items — apply them
+        notify.success(`Loaded ${items.length} sticker item(s).`);
         const firstItem = items[0];
         const locationId = firstItem?.locationId?.trim() ?? "";
         const locationReference = firstItem?.locationReference?.trim() ?? "";
@@ -1132,7 +1242,7 @@ export function StickerBatchClient({
     return () => {
       active = false;
     };
-  }, [selectedBatchId, locations]);
+  }, [selectedBatchId, locations, batchLoadNonce]);
 
   // Restore unfinished Sticker Batch Items draft when page is revisited.
   useEffect(() => {
