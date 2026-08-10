@@ -66,12 +66,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     roleNames.includes("super_admin") ||
     roleNames.includes("admin") ||
     permissionKeys.includes(permission);
-  const canViewDashboard = hasSidebarPermission("dashboard.view");
+  const isMerchantUser = roleNames.some((name) => isMerchantRoleName(name));
+  // Merchants use Merchant Dashboard only — hide the company-wide overview.
+  const canViewDashboard = hasSidebarPermission("dashboard.view") && !isMerchantUser;
   const canViewMerchantDashboard =
     roleNames.includes("super_admin") ||
     roleNames.includes("admin") ||
     hasSidebarPermission("dashboard.merchant_view") ||
-    roleNames.some((name) => isMerchantRoleName(name));
+    isMerchantUser;
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
