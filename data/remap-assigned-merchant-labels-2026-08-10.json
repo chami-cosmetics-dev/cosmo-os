@@ -1,0 +1,78 @@
+{
+  "companyId": "cmn2xcas1002crl5xtgoq28f5",
+  "dryRun": false,
+  "results": [
+    {
+      "from": "Kaushalya",
+      "to": "Kaushallya",
+      "email": "kiribathgodapos1@gmail.com",
+      "userFound": true,
+      "userKnownNameBefore": "Kaushallya",
+      "userName": "Ms Kaushallya sewwandhi",
+      "contactsMatchedBefore": 1977,
+      "contactsUpdated": 1977,
+      "knownNameUpdated": false,
+      "contactsWithToLabelAfter": 1977
+    },
+    {
+      "from": "Semini",
+      "to": "Sanda/semini",
+      "email": "ogfpos2@gmail.com",
+      "userFound": true,
+      "userKnownNameBefore": "Sanda/semini",
+      "userName": "Sandali Semini",
+      "contactsMatchedBefore": 1285,
+      "contactsUpdated": 1285,
+      "knownNameUpdated": false,
+      "contactsWithToLabelAfter": 1285
+    },
+    {
+      "from": "Sadali",
+      "to": "sandali",
+      "email": "sandali.cosmetics@outlook.com",
+      "userFound": true,
+      "userKnownNameBefore": "sandali",
+      "userName": "Sadali Navodya",
+      "contactsMatchedBefore": 586,
+      "contactsUpdated": 586,
+      "knownNameUpdated": false,
+      "contactsWithToLabelAfter": 586
+    },
+    {
+      "from": "Samadi",
+      "to": "Samadhi",
+      "email": "coolplanetpos2@gmail.com",
+      "userFound": true,
+      "userKnownNameBefore": "Samadhi",
+      "userName": "Samadhi Perera",
+      "contactsMatchedBefore": 285,
+      "contactsUpdated": 285,
+      "knownNameUpdated": false,
+      "contactsWithToLabelAfter": 285
+    },
+    {
+      "from": "Maheshi",
+      "to": "Mashi",
+      "email": "ogfpos1@gmail.com",
+      "userFound": true,
+      "userKnownNameBefore": "Mashi",
+      "userName": "Maheshi Ishanka",
+      "contactsMatchedBefore": 54,
+      "contactsUpdated": 54,
+      "knownNameUpdated": false,
+      "contactsWithToLabelAfter": 54
+    },
+    {
+      "from": "Imandi",
+      "to": "Imandi",
+      "email": "imandicosmetics@gmail.com",
+      "userFound": true,
+      "userKnownNameBefore": null,
+      "userName": "imandi nisithma",
+      "contactsMatchedBefore": 1283,
+      "contactsUpdated": 1283,
+      "knownNameUpdated": true,
+      "contactsWithToLabelAfter": 1283
+    }
+  ]
+}

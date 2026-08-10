@@ -1,0 +1,1438 @@
+{
+  "companyId": "cmn2xcas1002crl5xtgoq28f5",
+  "dryRun": false,
+  "ambiguousPhones": 68,
+  "ambiguousContactsUpdated": 69,
+  "ambiguousDetails": [
+    {
+      "phone": "94753340771",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmozfq52y000vjm048a7uhtwj",
+          "name": "Shenali",
+          "phone": "+94753340771",
+          "from": null,
+          "to": "Naduni"
+        },
+        {
+          "id": "cms78oavg000pwca4o302gqmg",
+          "name": "Shenali",
+          "phone": "0753340771",
+          "from": null,
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94123455555",
+      "merchant": "Semini",
+      "contacts": [
+        {
+          "id": "cmp0r74ye00g7l604iuo7l6g0",
+          "name": "Foreign Customer",
+          "phone": "+94123455555",
+          "from": null,
+          "to": "Semini"
+        },
+        {
+          "id": "cms78gex10001wca44gx5a5zo",
+          "name": "Foreign Customer",
+          "phone": "0123455555",
+          "from": null,
+          "to": "Semini"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94719099616",
+      "merchant": "Maheshi Priyadarshani",
+      "contacts": [
+        {
+          "id": "cmp0s09oj00k7l604ngqys5xz",
+          "name": "Udari",
+          "phone": "+94719099616",
+          "from": null,
+          "to": "Maheshi Priyadarshani"
+        },
+        {
+          "id": "cms79v97v001pwcggx1in9dvk",
+          "name": "Udari",
+          "phone": "0719099616",
+          "from": null,
+          "to": "Maheshi Priyadarshani"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94710553552",
+      "merchant": "Samadi",
+      "contacts": [
+        {
+          "id": "cmp26of0k003rlb04u39e5k5s",
+          "name": "Kawindu",
+          "phone": "+94710553552",
+          "from": null,
+          "to": "Samadi"
+        },
+        {
+          "id": "cms79gxfi0011wcgg0ekjehbw",
+          "name": "Kawindu",
+          "phone": "0710553552",
+          "from": null,
+          "to": "Samadi"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94770271960",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmp29h0fa006bjr04am9s6jn4",
+          "name": "Bimsara Imalka",
+          "phone": "+94770271960",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cms7a0348001rwcggq3v6zalb",
+          "name": "Bimsara Imalka",
+          "phone": "0770271960",
+          "from": null,
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94712847794",
+      "merchant": "Nimesha",
+      "contacts": [
+        {
+          "id": "cmp2f6tzz0009kz042nk59wks",
+          "name": "Lakmali Dahanayake",
+          "phone": "+94712847794",
+          "from": null,
+          "to": "Nimesha"
+        },
+        {
+          "id": "cms798lpv000nwcggumhkaxx7",
+          "name": "Lakmali Dahanayake",
+          "phone": "0712847794",
+          "from": null,
+          "to": "Nimesha"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94763310913",
+      "merchant": "Kaushalya",
+      "contacts": [
+        {
+          "id": "cmp2ifdx10057kz04elen8rf1",
+          "name": "Ayesh",
+          "phone": "+94763310913",
+          "from": null,
+          "to": "Kaushalya"
+        },
+        {
+          "id": "cms78lilq000fwca455ecu05a",
+          "name": "Ayesh",
+          "phone": "0763310913",
+          "from": null,
+          "to": "Kaushalya"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94770252964",
+      "merchant": "Kaushalya",
+      "contacts": [
+        {
+          "id": "cmp3nzcdr0043jw04ie3p656p",
+          "name": "Jinushan",
+          "phone": "+94770252964",
+          "from": null,
+          "to": "Kaushalya"
+        },
+        {
+          "id": "cms78mr0g000jwca41tahfmdn",
+          "name": "Jinushan",
+          "phone": "0770252964",
+          "from": null,
+          "to": "Kaushalya"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94768952806",
+      "merchant": "Kanchana",
+      "contacts": [
+        {
+          "id": "cmp3o2po8006rjw04s69z7qwh",
+          "name": "Swetha Divyangi Jayasooriya",
+          "phone": "+94768952806",
+          "from": null,
+          "to": "Kanchana"
+        },
+        {
+          "id": "cms795ynf000hwcggxd3pe3v9",
+          "name": "Swetha Divyangi Jayasooriya",
+          "phone": "0768952806",
+          "from": null,
+          "to": "Kanchana"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94760655372",
+      "merchant": "Nimesha",
+      "contacts": [
+        {
+          "id": "cmp3t66dp0025if045lr1xv4c",
+          "name": "Surangi",
+          "phone": "+94760655372",
+          "from": null,
+          "to": "Nimesha"
+        },
+        {
+          "id": "cms79tp41001nwcggf73plyl2",
+          "name": "Surangi",
+          "phone": "0760655372",
+          "from": null,
+          "to": "Nimesha"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94711091012",
+      "merchant": "Maheshi Priyadarshani",
+      "contacts": [
+        {
+          "id": "cmp40qbv30093k004irygp5d2",
+          "name": "Nisansala Gunathilaka",
+          "phone": "+94711091012",
+          "from": null,
+          "to": "Maheshi Priyadarshani"
+        },
+        {
+          "id": "cms78nnfa000lwca4npoz3yqh",
+          "name": "Nisansala Gunathilaka",
+          "phone": "0711091012",
+          "from": null,
+          "to": "Maheshi Priyadarshani"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94779384331",
+      "merchant": "STAFF SALES",
+      "contacts": [
+        {
+          "id": "cmp40u0ke009vk004ua7fa86k",
+          "name": "Unknown Customer",
+          "phone": "+94779384331",
+          "from": null,
+          "to": "STAFF SALES"
+        },
+        {
+          "id": "cms79lit1001dwcgghdlys1xy",
+          "name": "Unknown Customer",
+          "phone": "0779384331",
+          "from": null,
+          "to": "STAFF SALES"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94762591881",
+      "merchant": "Ridmi",
+      "contacts": [
+        {
+          "id": "cmp6t8bmk00evld04le600k0b",
+          "name": "Miss Dasuni",
+          "phone": "+94762591881",
+          "from": null,
+          "to": "Ridmi"
+        },
+        {
+          "id": "cms798axk000lwcgg0frg4ehn",
+          "name": "Miss Dasuni",
+          "phone": "0762591881",
+          "from": null,
+          "to": "Ridmi"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "726304957",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmp9i712d004bjs04v3hfs5n8",
+          "name": "Ayshanie Senavirathna",
+          "phone": "0726304957",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cmr11bfsh00fxjp04a55t33ya",
+          "name": "Ayshanie Senavirathna",
+          "phone": "+94726304957",
+          "from": null,
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94777415426",
+      "merchant": "Maheshi Priyadarshani",
+      "contacts": [
+        {
+          "id": "cmp9in3ko0005l8041o21tcap",
+          "name": "Ishani",
+          "phone": "+94777415426",
+          "from": null,
+          "to": "Maheshi Priyadarshani"
+        },
+        {
+          "id": "cms78zz9q0009wcggqhcxucyf",
+          "name": "Ishani",
+          "phone": "0777415426",
+          "from": null,
+          "to": "Maheshi Priyadarshani"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94770361881",
+      "merchant": "Nimesha",
+      "contacts": [
+        {
+          "id": "cmp9lb7ik0045l804nx73mjrh",
+          "name": "Madhushani",
+          "phone": "+94770361881",
+          "from": null,
+          "to": "Nimesha"
+        },
+        {
+          "id": "cms78gtp90003wca4ja4ip44m",
+          "name": "Madhushani",
+          "phone": "0770361881",
+          "from": null,
+          "to": "Nimesha"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94752532985",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmpb82oe4001vi904xi80uac9",
+          "name": "Chamudi Praveena",
+          "phone": "+94752532985",
+          "from": null,
+          "to": "Naduni"
+        },
+        {
+          "id": "cms78im6h0009wca4f66vo5j1",
+          "name": "Chamudi Praveena",
+          "phone": "0752532985",
+          "from": null,
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94711680796",
+      "merchant": "Samadi",
+      "contacts": [
+        {
+          "id": "cmpca7gbh0025if04331o2cq2",
+          "name": "Thilini Weerasuriya",
+          "phone": "+94711680796",
+          "from": null,
+          "to": "Samadi"
+        },
+        {
+          "id": "cms79iqcj0015wcgg5v37b6tt",
+          "name": "Thilini Weerasuriya",
+          "phone": "0711680796",
+          "from": null,
+          "to": "Samadi"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94719089023",
+      "merchant": "Kaushalya",
+      "contacts": [
+        {
+          "id": "cmpcml50300b5lb04rn11luh6",
+          "name": "Sanjaya",
+          "phone": "+94719089023",
+          "from": null,
+          "to": "Kaushalya"
+        },
+        {
+          "id": "cms78l9cf000dwca4bt1w0k6q",
+          "name": "Sanjaya",
+          "phone": "0719089023",
+          "from": null,
+          "to": "Kaushalya"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94772354058",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cmpe2gxi6000jl504q1ho3alg",
+          "name": "Vasheesha Siriwardhana",
+          "phone": "+94772354058",
+          "from": null,
+          "to": "Ishadi"
+        },
+        {
+          "id": "cms78hbnl0005wca4jgqc3rgn",
+          "name": "Vasheesha Siriwardhana",
+          "phone": "0772354058",
+          "from": null,
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94707633699",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmpjaabh70023jp04nsn8obgf",
+          "name": "Dinusha",
+          "phone": "+94707633699",
+          "from": null,
+          "to": "Naduni"
+        },
+        {
+          "id": "cms78lpya000hwca4ax1vb94c",
+          "name": "Dinusha",
+          "phone": "0707633699",
+          "from": null,
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94777760725",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmpjbhc35003ljp04qvfiumz3",
+          "name": "Ms Poornika",
+          "phone": "+94777760725",
+          "from": null,
+          "to": "Naduni"
+        },
+        {
+          "id": "cmpjbsvj10009jp04ye8elu1u",
+          "name": "Ms Poornika",
+          "phone": "0777760725",
+          "from": null,
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "777760725",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmpjbhc35003ljp04qvfiumz3",
+          "name": "Ms Poornika",
+          "phone": "+94777760725",
+          "from": "Naduni",
+          "to": "Naduni"
+        },
+        {
+          "id": "cmpjbsvj10009jp04ye8elu1u",
+          "name": "Ms Poornika",
+          "phone": "0777760725",
+          "from": "Naduni",
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "94777576373",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cmpl2jo4h00plib04swkkxmee",
+          "name": "C K Mendis",
+          "phone": "+94777576373",
+          "from": null,
+          "to": "Ishadi"
+        },
+        {
+          "id": "cmscy0xgx05stwcbsag61rzjk",
+          "name": "Samantha Mendis-Wedage",
+          "phone": "0773405154",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "94770408399",
+      "merchant": "Nirukshi",
+      "contacts": [
+        {
+          "id": "cmplfcy0h0005l704697hk6tp",
+          "name": "Shalani Nishara",
+          "phone": "+94770408399",
+          "from": null,
+          "to": "Nirukshi"
+        },
+        {
+          "id": "cms79cdyj000twcggqk3i9cpz",
+          "name": "Shalani Nishara",
+          "phone": "0770408399",
+          "from": null,
+          "to": "Nirukshi"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94714772085",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmpli06jq0017js04bhjm27af",
+          "name": "Ishara Madubashini",
+          "phone": "+94714772085",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cms7962za000jwcggsht89t1h",
+          "name": "Ishara Madubashini",
+          "phone": "0714772085",
+          "from": null,
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94726304957",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmp9i712d004bjs04v3hfs5n8",
+          "name": "Ayshanie Senavirathna",
+          "phone": "0726304957",
+          "from": "DM - General",
+          "to": "DM - General"
+        },
+        {
+          "id": "cmr11bfsh00fxjp04a55t33ya",
+          "name": "Ayshanie Senavirathna",
+          "phone": "+94726304957",
+          "from": "DM - General",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "94778343990",
+      "merchant": "Venushka",
+      "contacts": [
+        {
+          "id": "cmr58haiy000xjp04oa2o18jb",
+          "name": "Archana Sayanthan",
+          "phone": "+94778343990",
+          "from": null,
+          "to": "Venushka"
+        },
+        {
+          "id": "cms79tdpg001lwcgg5iqq8bie",
+          "name": "Archana Sayanthan",
+          "phone": "0778343990",
+          "from": null,
+          "to": "Venushka"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94767652576",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmrhdv1i900lbl7049f6lt17k",
+          "name": "Mr nisaka",
+          "phone": "+94767652576",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cms79mu0e001fwcggr8aw1nc6",
+          "name": "Mr nisaka",
+          "phone": "0767652576",
+          "from": null,
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94713751493",
+      "merchant": "Kanchana",
+      "contacts": [
+        {
+          "id": "cmrz2u4s3001lkw04fuof99eo",
+          "name": "Se Pamesha Prasangi",
+          "phone": "+94713751493",
+          "from": null,
+          "to": "Kanchana"
+        },
+        {
+          "id": "cms79alny000pwcgg1zpy2obn",
+          "name": "Se Pamesha Prasangi",
+          "phone": "0713751493",
+          "from": null,
+          "to": "Kanchana"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94770765901",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cms470wxz002pl204wtuop6ci",
+          "name": "Nimalka sandamali",
+          "phone": "+94770765901",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cms793bq9000dwcgg0m1mf1gq",
+          "name": "Nimalka Sandamali",
+          "phone": "0770765901",
+          "from": null,
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "94760628027",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cms4bwary000xl804nygiqnkt",
+          "name": "Pushpika Somapala",
+          "phone": "+94760628027",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cms793fm2000fwcggjlue4qma",
+          "name": "Pushpika Somapala",
+          "phone": "0760628027",
+          "from": null,
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "123455555",
+      "merchant": "Semini",
+      "contacts": [
+        {
+          "id": "cmp0r74ye00g7l604iuo7l6g0",
+          "name": "Foreign Customer",
+          "phone": "+94123455555",
+          "from": "Semini",
+          "to": "Semini"
+        },
+        {
+          "id": "cms78gex10001wca44gx5a5zo",
+          "name": "Foreign Customer",
+          "phone": "0123455555",
+          "from": "Semini",
+          "to": "Semini"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "770361881",
+      "merchant": "Nimesha",
+      "contacts": [
+        {
+          "id": "cmp9lb7ik0045l804nx73mjrh",
+          "name": "Madhushani",
+          "phone": "+94770361881",
+          "from": "Nimesha",
+          "to": "Nimesha"
+        },
+        {
+          "id": "cms78gtp90003wca4ja4ip44m",
+          "name": "Madhushani",
+          "phone": "0770361881",
+          "from": "Nimesha",
+          "to": "Nimesha"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "772354058",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cmpe2gxi6000jl504q1ho3alg",
+          "name": "Vasheesha Siriwardhana",
+          "phone": "+94772354058",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        },
+        {
+          "id": "cms78hbnl0005wca4jgqc3rgn",
+          "name": "Vasheesha Siriwardhana",
+          "phone": "0772354058",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "752532985",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmpb82oe4001vi904xi80uac9",
+          "name": "Chamudi Praveena",
+          "phone": "+94752532985",
+          "from": "Naduni",
+          "to": "Naduni"
+        },
+        {
+          "id": "cms78im6h0009wca4f66vo5j1",
+          "name": "Chamudi Praveena",
+          "phone": "0752532985",
+          "from": "Naduni",
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "719089023",
+      "merchant": "Kaushalya",
+      "contacts": [
+        {
+          "id": "cmpcml50300b5lb04rn11luh6",
+          "name": "Sanjaya",
+          "phone": "+94719089023",
+          "from": "Kaushalya",
+          "to": "Kaushalya"
+        },
+        {
+          "id": "cms78l9cf000dwca4bt1w0k6q",
+          "name": "Sanjaya",
+          "phone": "0719089023",
+          "from": "Kaushalya",
+          "to": "Kaushalya"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "763310913",
+      "merchant": "Kaushalya",
+      "contacts": [
+        {
+          "id": "cmp2ifdx10057kz04elen8rf1",
+          "name": "Ayesh",
+          "phone": "+94763310913",
+          "from": "Kaushalya",
+          "to": "Kaushalya"
+        },
+        {
+          "id": "cms78lilq000fwca455ecu05a",
+          "name": "Ayesh",
+          "phone": "0763310913",
+          "from": "Kaushalya",
+          "to": "Kaushalya"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "707633699",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmpjaabh70023jp04nsn8obgf",
+          "name": "Dinusha",
+          "phone": "+94707633699",
+          "from": "Naduni",
+          "to": "Naduni"
+        },
+        {
+          "id": "cms78lpya000hwca4ax1vb94c",
+          "name": "Dinusha",
+          "phone": "0707633699",
+          "from": "Naduni",
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "770252964",
+      "merchant": "Kaushalya",
+      "contacts": [
+        {
+          "id": "cmp3nzcdr0043jw04ie3p656p",
+          "name": "Jinushan",
+          "phone": "+94770252964",
+          "from": "Kaushalya",
+          "to": "Kaushalya"
+        },
+        {
+          "id": "cms78mr0g000jwca41tahfmdn",
+          "name": "Jinushan",
+          "phone": "0770252964",
+          "from": "Kaushalya",
+          "to": "Kaushalya"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "711091012",
+      "merchant": "Maheshi Priyadarshani",
+      "contacts": [
+        {
+          "id": "cmp40qbv30093k004irygp5d2",
+          "name": "Nisansala Gunathilaka",
+          "phone": "+94711091012",
+          "from": "Maheshi Priyadarshani",
+          "to": "Maheshi Priyadarshani"
+        },
+        {
+          "id": "cms78nnfa000lwca4npoz3yqh",
+          "name": "Nisansala Gunathilaka",
+          "phone": "0711091012",
+          "from": "Maheshi Priyadarshani",
+          "to": "Maheshi Priyadarshani"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "753340771",
+      "merchant": "Naduni",
+      "contacts": [
+        {
+          "id": "cmozfq52y000vjm048a7uhtwj",
+          "name": "Shenali",
+          "phone": "+94753340771",
+          "from": "Naduni",
+          "to": "Naduni"
+        },
+        {
+          "id": "cms78oavg000pwca4o302gqmg",
+          "name": "Shenali",
+          "phone": "0753340771",
+          "from": "Naduni",
+          "to": "Naduni"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "777415426",
+      "merchant": "Maheshi Priyadarshani",
+      "contacts": [
+        {
+          "id": "cmp9in3ko0005l8041o21tcap",
+          "name": "Ishani",
+          "phone": "+94777415426",
+          "from": "Maheshi Priyadarshani",
+          "to": "Maheshi Priyadarshani"
+        },
+        {
+          "id": "cms78zz9q0009wcggqhcxucyf",
+          "name": "Ishani",
+          "phone": "0777415426",
+          "from": "Maheshi Priyadarshani",
+          "to": "Maheshi Priyadarshani"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "770765901",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cms470wxz002pl204wtuop6ci",
+          "name": "Nimalka sandamali",
+          "phone": "+94770765901",
+          "from": "DM - General",
+          "to": "DM - General"
+        },
+        {
+          "id": "cms793bq9000dwcgg0m1mf1gq",
+          "name": "Nimalka Sandamali",
+          "phone": "0770765901",
+          "from": "DM - General",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "760628027",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cms4bwary000xl804nygiqnkt",
+          "name": "Pushpika Somapala",
+          "phone": "+94760628027",
+          "from": "DM - General",
+          "to": "DM - General"
+        },
+        {
+          "id": "cms793fm2000fwcggjlue4qma",
+          "name": "Pushpika Somapala",
+          "phone": "0760628027",
+          "from": "DM - General",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "768952806",
+      "merchant": "Kanchana",
+      "contacts": [
+        {
+          "id": "cmp3o2po8006rjw04s69z7qwh",
+          "name": "Swetha Divyangi Jayasooriya",
+          "phone": "+94768952806",
+          "from": "Kanchana",
+          "to": "Kanchana"
+        },
+        {
+          "id": "cms795ynf000hwcggxd3pe3v9",
+          "name": "Swetha Divyangi Jayasooriya",
+          "phone": "0768952806",
+          "from": "Kanchana",
+          "to": "Kanchana"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "714772085",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmpli06jq0017js04bhjm27af",
+          "name": "Ishara Madubashini",
+          "phone": "+94714772085",
+          "from": "DM - General",
+          "to": "DM - General"
+        },
+        {
+          "id": "cms7962za000jwcggsht89t1h",
+          "name": "Ishara Madubashini",
+          "phone": "0714772085",
+          "from": "DM - General",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "762591881",
+      "merchant": "Ridmi",
+      "contacts": [
+        {
+          "id": "cmp6t8bmk00evld04le600k0b",
+          "name": "Miss Dasuni",
+          "phone": "+94762591881",
+          "from": "Ridmi",
+          "to": "Ridmi"
+        },
+        {
+          "id": "cms798axk000lwcgg0frg4ehn",
+          "name": "Miss Dasuni",
+          "phone": "0762591881",
+          "from": "Ridmi",
+          "to": "Ridmi"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "712847794",
+      "merchant": "Nimesha",
+      "contacts": [
+        {
+          "id": "cmp2f6tzz0009kz042nk59wks",
+          "name": "Lakmali Dahanayake",
+          "phone": "+94712847794",
+          "from": "Nimesha",
+          "to": "Nimesha"
+        },
+        {
+          "id": "cms798lpv000nwcggumhkaxx7",
+          "name": "Lakmali Dahanayake",
+          "phone": "0712847794",
+          "from": "Nimesha",
+          "to": "Nimesha"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "713751493",
+      "merchant": "Kanchana",
+      "contacts": [
+        {
+          "id": "cmrz2u4s3001lkw04fuof99eo",
+          "name": "Se Pamesha Prasangi",
+          "phone": "+94713751493",
+          "from": "Kanchana",
+          "to": "Kanchana"
+        },
+        {
+          "id": "cms79alny000pwcgg1zpy2obn",
+          "name": "Se Pamesha Prasangi",
+          "phone": "0713751493",
+          "from": "Kanchana",
+          "to": "Kanchana"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "770408399",
+      "merchant": "Nirukshi",
+      "contacts": [
+        {
+          "id": "cmplfcy0h0005l704697hk6tp",
+          "name": "Shalani Nishara",
+          "phone": "+94770408399",
+          "from": "Nirukshi",
+          "to": "Nirukshi"
+        },
+        {
+          "id": "cms79cdyj000twcggqk3i9cpz",
+          "name": "Shalani Nishara",
+          "phone": "0770408399",
+          "from": "Nirukshi",
+          "to": "Nirukshi"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "710553552",
+      "merchant": "Samadi",
+      "contacts": [
+        {
+          "id": "cmp26of0k003rlb04u39e5k5s",
+          "name": "Kawindu",
+          "phone": "+94710553552",
+          "from": "Samadi",
+          "to": "Samadi"
+        },
+        {
+          "id": "cms79gxfi0011wcgg0ekjehbw",
+          "name": "Kawindu",
+          "phone": "0710553552",
+          "from": "Samadi",
+          "to": "Samadi"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "711680796",
+      "merchant": "Samadi",
+      "contacts": [
+        {
+          "id": "cmpca7gbh0025if04331o2cq2",
+          "name": "Thilini Weerasuriya",
+          "phone": "+94711680796",
+          "from": "Samadi",
+          "to": "Samadi"
+        },
+        {
+          "id": "cms79iqcj0015wcgg5v37b6tt",
+          "name": "Thilini Weerasuriya",
+          "phone": "0711680796",
+          "from": "Samadi",
+          "to": "Samadi"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "779384331",
+      "merchant": "STAFF SALES",
+      "contacts": [
+        {
+          "id": "cmp40u0ke009vk004ua7fa86k",
+          "name": "Unknown Customer",
+          "phone": "+94779384331",
+          "from": "STAFF SALES",
+          "to": "STAFF SALES"
+        },
+        {
+          "id": "cms79lit1001dwcgghdlys1xy",
+          "name": "Unknown Customer",
+          "phone": "0779384331",
+          "from": "STAFF SALES",
+          "to": "STAFF SALES"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "767652576",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmrhdv1i900lbl7049f6lt17k",
+          "name": "Mr nisaka",
+          "phone": "+94767652576",
+          "from": "DM - General",
+          "to": "DM - General"
+        },
+        {
+          "id": "cms79mu0e001fwcggr8aw1nc6",
+          "name": "Mr nisaka",
+          "phone": "0767652576",
+          "from": "DM - General",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "778343990",
+      "merchant": "Venushka",
+      "contacts": [
+        {
+          "id": "cmr58haiy000xjp04oa2o18jb",
+          "name": "Archana Sayanthan",
+          "phone": "+94778343990",
+          "from": "Venushka",
+          "to": "Venushka"
+        },
+        {
+          "id": "cms79tdpg001lwcgg5iqq8bie",
+          "name": "Archana Sayanthan",
+          "phone": "0778343990",
+          "from": "Venushka",
+          "to": "Venushka"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "760655372",
+      "merchant": "Nimesha",
+      "contacts": [
+        {
+          "id": "cmp3t66dp0025if045lr1xv4c",
+          "name": "Surangi",
+          "phone": "+94760655372",
+          "from": "Nimesha",
+          "to": "Nimesha"
+        },
+        {
+          "id": "cms79tp41001nwcggf73plyl2",
+          "name": "Surangi",
+          "phone": "0760655372",
+          "from": "Nimesha",
+          "to": "Nimesha"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "719099616",
+      "merchant": "Maheshi Priyadarshani",
+      "contacts": [
+        {
+          "id": "cmp0s09oj00k7l604ngqys5xz",
+          "name": "Udari",
+          "phone": "+94719099616",
+          "from": "Maheshi Priyadarshani",
+          "to": "Maheshi Priyadarshani"
+        },
+        {
+          "id": "cms79v97v001pwcggx1in9dvk",
+          "name": "Udari",
+          "phone": "0719099616",
+          "from": "Maheshi Priyadarshani",
+          "to": "Maheshi Priyadarshani"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "770271960",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmp29h0fa006bjr04am9s6jn4",
+          "name": "Bimsara Imalka",
+          "phone": "+94770271960",
+          "from": "DM - General",
+          "to": "DM - General"
+        },
+        {
+          "id": "cms7a0348001rwcggq3v6zalb",
+          "name": "Bimsara Imalka",
+          "phone": "0770271960",
+          "from": "DM - General",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 0
+    },
+    {
+      "phone": "773150518",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cms8vntne0009wc10ik9m00wp",
+          "name": "W.M.C Sandamalie Ferando",
+          "phone": "0773150518",
+          "from": null,
+          "to": "Ishadi"
+        },
+        {
+          "id": "cms8vsg2w0123wc10n10m8fff",
+          "name": "Ms. Hansanie",
+          "phone": "0717384963",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "775754178",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cms8vo871003rwc10yo4vrvt7",
+          "name": "Ms Karunasena",
+          "phone": "0775754178",
+          "from": null,
+          "to": "Ishadi"
+        },
+        {
+          "id": "cmscxjlh801t3wcbssk5gkgg3",
+          "name": "miss CHITHRA",
+          "phone": "0112938625",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "782924030",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cms8vpheo00ejwc101nbp1or1",
+          "name": "Asanga Kumara",
+          "phone": "0773934970",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        },
+        {
+          "id": "cms8vrv0700wdwc10vsqpk28d",
+          "name": "Ms. Nilusha Lakmalie",
+          "phone": "0782924030",
+          "from": null,
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "769232708",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cms8vryev00xbwc10488tljh8",
+          "name": "Mrs.Sujeewa Wirasinghe",
+          "phone": "0771344843",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        },
+        {
+          "id": "cms8vrzrw00xrwc10y5qm1hrf",
+          "name": "Ms.Senali Gallage",
+          "phone": "0769232708",
+          "from": null,
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "777581472",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cmscxo8me02vpwcbsdy3f2pim",
+          "name": "Thilini Ganepala",
+          "phone": "0778581472",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        },
+        {
+          "id": "cmscxunf904gtwcbspi4bps5b",
+          "name": "Thilini Ganepala",
+          "phone": "0777581472",
+          "from": null,
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "776323380",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cmscy5g2j06qjwcbsiui5qwew",
+          "name": "Shaneendra Amarasinghe",
+          "phone": "0776323380",
+          "from": null,
+          "to": "Ishadi"
+        },
+        {
+          "id": "cmscyyz3r0dblwcbs94rkkdfc",
+          "name": "Suneetha Fernando",
+          "phone": "0710708716",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "714728496",
+      "merchant": "Ishadi",
+      "contacts": [
+        {
+          "id": "cmscyglg50955wcbst0r03n53",
+          "name": "Imara Chandani",
+          "phone": "0714728496",
+          "from": null,
+          "to": "Ishadi"
+        },
+        {
+          "id": "cmsd0sc2y0s5hwcbsagl4vqn5",
+          "name": "Ravishan Dias",
+          "phone": "0716858226",
+          "from": "Ishadi",
+          "to": "Ishadi"
+        }
+      ],
+      "updateCount": 1
+    },
+    {
+      "phone": "714461425",
+      "merchant": "DM - General",
+      "contacts": [
+        {
+          "id": "cmsczpip00jepwcbstkexgfhg",
+          "name": "Saliya perera",
+          "phone": "0714461425",
+          "from": null,
+          "to": "DM - General"
+        },
+        {
+          "id": "cmsd0liqx0qmnwcbsqpxqtuyr",
+          "name": "Saliya perera",
+          "phone": "0713010425",
+          "from": "Ishadi",
+          "to": "DM - General"
+        }
+      ],
+      "updateCount": 2
+    },
+    {
+      "phone": "741897355",
+      "merchant": "Kanchana",
+      "contacts": [
+        {
+          "id": "cmsd1g7r20xqtwcbsndwkz0dh",
+          "name": "Amila Eranda",
+          "phone": "0741897355",
+          "from": null,
+          "to": "Kanchana"
+        },
+        {
+          "id": "cmsd2e73t15q3wcbszua0gpz5",
+          "name": "Amila Eranda",
+          "phone": "0761958698",
+          "from": "Kanchana",
+          "to": "Kanchana"
+        }
+      ],
+      "updateCount": 1
+    }
+  ],
+  "exportedUnallocatedWithPhone": 2510,
+  "exportPath": "./data/cosmo-unallocated-with-phone-2026-08-10.xlsx"
+}

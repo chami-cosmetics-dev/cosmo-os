@@ -121,6 +121,15 @@ export function parseAppCalendarDayStart(
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/** YYYY-MM-DD → end of that calendar day in Asia/Colombo (inclusive). */
+export function parseAppCalendarDayEnd(
+  ymd: string | null | undefined,
+): Date | null {
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const date = new Date(`${ymd}T23:59:59.999+05:30`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 /**
  * YYYY-MM-DD for date-only DB fields (UTC midnight / calendar day).
  * Use for HTML date inputs and exports of returnDate, DOB, batchDate, etc.
