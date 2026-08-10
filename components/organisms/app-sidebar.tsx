@@ -45,7 +45,6 @@ import {
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
-import { isMerchantRoleName } from "@/lib/merchant-role";
 import { ALL_REPORT_DUMP_PERMISSIONS, REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { APP_INITIALS, APP_NAME } from "@/lib/branding";
 
@@ -67,11 +66,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     roleNames.includes("admin") ||
     permissionKeys.includes(permission);
   const canViewDashboard = hasSidebarPermission("dashboard.view");
-  const canViewMerchantDashboard =
-    roleNames.includes("super_admin") ||
-    roleNames.includes("admin") ||
-    hasSidebarPermission("dashboard.merchant_view") ||
-    roleNames.some((name) => isMerchantRoleName(name));
+  const canViewMerchantDashboard = hasSidebarPermission("dashboard.merchant_view");
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
@@ -95,6 +90,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
   const canViewPurchasing = canViewOsf || canViewPurchasingTools;
+  const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -534,6 +530,19 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
               {canViewPurchasingTools && (
                 <NavItem href="/dashboard/purchasing/calculator" icon={Calculator} label="SKU Calculator" isActive={pathname === "/dashboard/purchasing/calculator"} />
               )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+        {canViewStoreAllocation && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Store</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <NavItem
+                href="/dashboard/store/allocation"
+                icon={Store}
+                label="Location allocation"
+                isActive={pathname === "/dashboard/store/allocation"}
+              />
             </SidebarGroupContent>
           </SidebarGroup>
         )}

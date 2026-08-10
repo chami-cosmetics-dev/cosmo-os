@@ -19,6 +19,9 @@ export function serializeContactInsight(input: {
   phoneNumber: string | null;
   phones: string[];
   email: string | null;
+  gender?: string | null;
+  language?: string | null;
+  address?: string | null;
   birthYear?: number | null;
   birthMonth?: number | null;
   birthDay?: number | null;
@@ -30,6 +33,9 @@ export function serializeContactInsight(input: {
     phoneNumber: input.phoneNumber,
     phones: input.phones,
     email: input.email,
+    gender: input.gender ?? null,
+    language: input.language ?? null,
+    address: input.address ?? null,
     birthYear: input.birthYear ?? null,
     birthMonth: input.birthMonth ?? null,
     birthDay: input.birthDay ?? null,

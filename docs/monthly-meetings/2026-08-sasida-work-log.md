@@ -1,7 +1,7 @@
 # August 2026 Work Log — Sasida D. Wijenandana
 
 **Period:** 1 – 31 August 2026  
-**Last updated:** 8 August 2026  
+**Last updated:** 8 August 2026, 11:22  
 **Presentation:** [2026-08-sasida-monthly-presentation.html](./2026-08-sasida-monthly-presentation.html)  
 **Repo activity source:** git commits + merged PRs authored by Sasida on `cosmo-os`
 
@@ -13,14 +13,33 @@
 
 | Metric | Value |
 |--------|-------|
-| Feature commits (no merges) | 30 |
-| Feature PRs merged (excl. pure “Dev to main” releases) | ~25 |
-| Major feature specs delivered | 029, 030, 031, 032, 033 (+ rider performance merge) |
-| Working days with commits | Aug 3, 4, 5, 7, 8 |
+| Feature commits (no merges) | 41 |
+| Feature PRs merged (excl. pure “Dev to main” releases) | ~30 |
+| Major features | Book Notes, Insight, OSF Supplier Orders, Dashboard filters, Rider, **Merchant Dashboard** |
+| Specs touched | 029–034 (+ rider performance) |
+| Working days with commits | Aug 3, 4, 5, 7, 8 (13 commits on Aug 8 alone) |
 
 ---
 
 ## Major features
+
+### 0. Merchant Dashboard — Aug 8 (NEW)
+
+**Why:** Merchants need a home view for MTD progress vs monthly targets, contacted customers, returns, and top buyers.
+
+**What shipped:**
+- New **Merchant** dashboard page + page-data / targets APIs
+- RBAC + merchant-role access checks; sidebar entry
+- **Monthly targets (LKR)** assign + progress bars
+- MTD sales, contacted metrics, return metrics
+- Daily top customers with purchase detail tooltips
+- Contacts / dashboard export path enhancements
+- Cheer helpers for performance messaging
+- Prisma migration `merchant_monthly_targets` (note: deploy had a syntax issue on cosmo-dev — needs fix before all DBs apply)
+
+**Key commits / PRs:** `0ea1533`, `2066da3`, `d03b741`, #786
+
+---
 
 ### 1. Merchant Daily Book Notes (Spec 029) — Aug 3–5
 
@@ -57,8 +76,11 @@
 - Auto-allocate new customers to recently purchased merchant when unallocated
 - Brand-aware filtering and contact brand-id page-data work
 - Phone suffix / lookup improvements for search reliability
+- **Aug 8:** chart tooltips, contact detail formatting, loyalty tier / push-band threshold updates
+  - Tiers: Gold ≥ 100k, Platinum ≥ 250k
+  - Push: Gold ≥ 75k (&lt; 200k), Platinum ≥ 200k
 
-**Key PRs:** #767, #769, #771, #777, #780, #783
+**Key PRs:** #767, #769, #771, #777, #780, #783, #793
 
 ---
 
@@ -74,8 +96,9 @@
 - Draft persistence on same browser/device
 - Supporting allocate / draft / export / reorder libs + tests
 - Related OSF workbook updates
+- **Aug 8 (Spec 034):** clear working table after successful zip generate; priority → brand → products cascade filters
 
-**Key PRs:** #758, #763
+**Key PRs:** #758, #763 (+ Aug 8 cascade/clear commits)
 
 ---
 
@@ -142,7 +165,7 @@
 | 2026-08-04 | Book Notes errors/ERP; dashboard sales filters; ExcelJS / OSF; sticker Standard Selling; main company shops; OSF Supplier Orders; Book Notes dates |
 | 2026-08-05 | Customer Insight; Book Notes panel; TS build unblock; phone suffix; Insight invoice handling |
 | 2026-08-07 | Abandoned sync; contact allocation / Insight filters; follow-up form; bugs |
-| 2026-08-08 | Payment method change logic + fulfillment panel |
+| 2026-08-08 | Payment method labels; Merchant Dashboard + targets; Insight charts/thresholds; merchant role; OSF cascade/clear; top customers |
 
 ---
 
@@ -170,11 +193,11 @@ Put live Cosmo OS captures in `docs/monthly-meetings/assets/`:
 
 | File | Screen |
 |------|--------|
+| `proof-merchant-dashboard.png` | Merchant Dashboard |
 | `proof-book-notes.png` | Book Notes page |
 | `proof-customer-insight.png` | Customer Insight |
 | `proof-osf-supplier-orders.png` | OSF Supplier Orders |
 | `proof-dashboard-filters.png` | Dashboard filters |
 | `proof-abandoned.png` | Abandoned Orders |
-| `proof-rider-performance.png` | Rider performance |
 
-Illustrative mocks already in deck: `book-notes-ui.png`, `customer-insight-ui.png`, `osf-supplier-orders-ui.png`.
+Illustrative mocks in deck: `merchant-dashboard-ui.png`, `book-notes-ui.png`, `customer-insight-ui.png`, `osf-supplier-orders-ui.png`.

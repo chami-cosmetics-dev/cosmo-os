@@ -48,7 +48,7 @@ describe("isRowOverAllocated", () => {
     ).toBe(false);
   });
 
-  it("blocks over-allocation when reorderQty > 0", () => {
+  it("detects over-allocation when reorderQty > 0", () => {
     expect(
       isRowOverAllocated(
         row({
@@ -89,7 +89,7 @@ describe("validateDraftForGenerate", () => {
     ).toEqual({ ok: true });
   });
 
-  it("blocks over-allocation and returns skus", () => {
+  it("allows over-allocation (over ROP is a warning only)", () => {
     const result = validateDraftForGenerate([
       row({
         sku: "A_1",
@@ -102,11 +102,7 @@ describe("validateDraftForGenerate", () => {
         allocations: [{ supplierName: "S2", qty: 3 }],
       }),
     ]);
-    expect(result).toEqual({
-      ok: false,
-      error: "One or more rows are over-allocated",
-      skus: ["A_1"],
-    });
+    expect(result).toEqual({ ok: true });
   });
 
   it("skips empty/zero allocations when checking positives", () => {

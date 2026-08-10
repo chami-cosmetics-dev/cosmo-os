@@ -125,25 +125,34 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     );
   }
 
-  const updated = await updateContactInsightProfile({
-    companyId,
-    contactId: contact.id,
-    patch: parsed.data,
-  });
-  if (!updated) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
-  }
+  try {
+    const updated = await updateContactInsightProfile({
+      companyId,
+      contactId: contact.id,
+      patch: parsed.data,
+    });
+    if (!updated) {
+      return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    }
 
-  return NextResponse.json({
-    contact: {
-      id: updated.id,
-      name: updated.name,
-      email: updated.email,
-      phoneNumber: updated.phoneNumber,
-      birthYear: updated.birthYear,
-      birthMonth: updated.birthMonth,
-      birthDay: updated.birthDay,
-      assignedMerchant: updated.assignedMerchant,
-    },
-  });
+    return NextResponse.json({
+      contact: {
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        phoneNumber: updated.phoneNumber,
+        phones: updated.phones?.map((p) => p.phoneNumber) ?? [],
+        gender: updated.gender,
+        language: updated.language,
+        address: updated.address,
+        birthYear: updated.birthYear,
+        birthMonth: updated.birthMonth,
+        birthDay: updated.birthDay,
+        assignedMerchant: updated.assignedMerchant,
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to update profile";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 }

@@ -67,17 +67,18 @@ function hasContactMatch(
   emailSet: Set<string>,
   phoneVariantSet: Set<string>
 ) {
+  // Phone is primary. Shared checkout emails must not hide unique phones from backfill.
+  const phone = normalizePhone(order.customerPhone);
+  if (phone) {
+    return buildPhoneLookupVariants(phone).some((variant) => phoneVariantSet.has(variant));
+  }
+
   const email = normalizeEmail(order.customerEmail);
   if (email && emailSet.has(email)) {
     return true;
   }
 
-  const phone = normalizePhone(order.customerPhone);
-  if (!phone) {
-    return false;
-  }
-
-  return buildPhoneLookupVariants(phone).some((variant) => phoneVariantSet.has(variant));
+  return false;
 }
 
 async function loadBackfillCandidates(companyId: string, scanLimit: number, batchLimit: number) {
@@ -173,7 +174,7 @@ export async function previewContactBackfill(companyId: string): Promise<Contact
     missingCandidates: missingCandidates.length,
     batchLimit: CONTACT_BACKFILL_BATCH_LIMIT,
     scanLimit: CONTACT_BACKFILL_SCAN_LIMIT,
-    sample: missingCandidates.slice(0, 10).map(toPreviewSample),
+    sample: missingCandidates.slice(0, 50).map(toPreviewSample),
   };
 }
 

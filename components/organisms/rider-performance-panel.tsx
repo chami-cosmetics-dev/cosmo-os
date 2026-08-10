@@ -32,10 +32,9 @@ export function RiderPerformancePanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const fromIso = new Date(`${from}T00:00:00`).toISOString();
-      const toIso = new Date(`${to}T00:00:00`).toISOString();
+      // Send calendar days (YYYY-MM-DD); API interprets them as Asia/Colombo bounds.
       const res = await fetch(
-        `/api/admin/riders/performance?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+        `/api/admin/riders/performance?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

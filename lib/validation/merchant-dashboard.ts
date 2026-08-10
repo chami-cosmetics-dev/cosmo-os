@@ -21,3 +21,11 @@ export const merchantMonthlyTargetUpsertSchema = z.object({
     .max(1_000_000_000),
   note: trimmedString(0, LIMITS.description.max).nullable().optional(),
 });
+
+export const birthdayWishSendSchema = z.object({
+  contactId: cuidSchema,
+  discountPercent: z.number().int().min(0).max(50),
+  discountCode: trimmedString(0, 32).nullable().optional(),
+  phoneNumber: trimmedString(0, LIMITS.mobile.max).optional(),
+  message: trimmedString(1, 480).optional(),
+});

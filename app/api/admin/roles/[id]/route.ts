@@ -86,8 +86,18 @@ export async function PUT(
 
   const permissions = await prisma.permission.findMany({
     where: { key: { in: uniquePermissionKeys } },
-    select: { id: true },
+    select: { id: true, key: true },
   });
+  if (permissions.length !== uniquePermissionKeys.length) {
+    const found = new Set(permissions.map((p) => p.key));
+    const missing = uniquePermissionKeys.filter((key) => !found.has(key));
+    return NextResponse.json(
+      {
+        error: `Unknown permission key(s): ${missing.join(", ")}. Sync permissions and try again.`,
+      },
+      { status: 400 }
+    );
+  }
   const permissionIds = permissions.map((p) => p.id);
 
   await prisma.$transaction(async (tx) => {

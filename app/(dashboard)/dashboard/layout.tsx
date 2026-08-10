@@ -32,19 +32,24 @@ export default async function DashboardSegmentLayout({
   const roleNames = (context?.roleNames ?? []) as string[];
   const effectivePermissionKeys =
     roleNames.includes("super_admin") || roleNames.includes("admin")
-      ? Array.from(new Set([
-          ...permissionKeys,
-          "dashboard.date_type.placed_all",
-          "dashboard.date_type.placed_breakdown",
-          "dashboard.date_type.other_clocks",
-        ]))
+      ? Array.from(
+          new Set([
+            ...permissionKeys,
+            "dashboard.date_type.placed_all",
+            "dashboard.date_type.placed_breakdown",
+            "dashboard.date_type.other_clocks",
+          ])
+        )
       : permissionKeys;
   const defaultDateType = getDefaultDashboardDateType(effectivePermissionKeys);
 
   let initialOverviewState = null;
   if (companyId && isOverviewRoute && canViewDashboard && defaultDateType) {
     try {
-      initialOverviewState = await getDefaultDashboardOverviewInitialState(companyId, defaultDateType);
+      initialOverviewState = await getDefaultDashboardOverviewInitialState(
+        companyId,
+        defaultDateType
+      );
       perf.mark("preload-overview");
     } catch (error) {
       console.error("Failed to preload dashboard overview:", error);

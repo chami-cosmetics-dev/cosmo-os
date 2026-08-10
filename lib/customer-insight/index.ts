@@ -60,6 +60,10 @@ export {
   getLastContactedAt,
   CONTACTED_ALLOCATION_CATEGORY,
 } from "@/lib/customer-insight/contacted";
+export {
+  CONTACT_GENDER_OPTIONS,
+  CONTACT_LANGUAGE_OPTIONS,
+} from "@/lib/customer-insight/contact-profile-options";
 export type * from "@/lib/customer-insight/types";
 export {
   CUSTOMER_INSIGHT_CHART_MIN_DOCS,

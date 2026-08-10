@@ -5,12 +5,13 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { Check, Crown, Loader2, Search, X } from "lucide-react";
+import { Calendar, Check, Crown, Loader2, Phone, Search, ShieldCheck, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import {
+  LOYALTY_GOLD_MIN,
   LOYALTY_PLATINUM_MIN,
 } from "@/lib/customer-insight/loyalty-tier";
 import {
@@ -36,6 +38,10 @@ import type {
   SeriesPointDto,
   TopItemDto,
 } from "@/lib/customer-insight/types";
+import {
+  CONTACT_GENDER_OPTIONS,
+  CONTACT_LANGUAGE_OPTIONS,
+} from "@/lib/customer-insight/contact-profile-options";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
@@ -103,20 +109,95 @@ function initialFromName(name: string | null | undefined) {
   return trimmed.charAt(0).toUpperCase();
 }
 
+function formatMemberSince(iso: string | null | undefined) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-LK", { month: "short", year: "numeric" });
+}
+
 function truncateLabel(value: string, max = 18) {
   const t = value.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
 }
 
+function InsightChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    value?: number | string;
+    name?: string;
+    payload?: Record<string, unknown>;
+  }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload ?? {};
+  const title =
+    (typeof row.name === "string" && row.name) ||
+    (typeof row.month === "string" && formatMonthLabel(row.month)) ||
+    String(label ?? "");
+  const spend = Number(payload[0]?.value ?? row.spend ?? 0);
+  const quantity = typeof row.quantity === "number" ? row.quantity : null;
+  const orderCount = typeof row.orderCount === "number" ? row.orderCount : null;
+
+  return (
+    <div className="max-w-[220px] rounded-md border border-border bg-popover px-2.5 py-2 text-xs shadow-md">
+      <p className="font-medium leading-snug text-popover-foreground break-words">{title}</p>
+      <p className="mt-1 tabular-nums text-muted-foreground">
+        {formatMoney(spend)}
+        {quantity != null ? ` · qty ${quantity}` : null}
+        {orderCount != null
+          ? ` · ${orderCount} invoice${orderCount === 1 ? "" : "s"}`
+          : null}
+      </p>
+    </div>
+  );
+}
+
 type ProfileForm = {
   name: string;
   email: string;
-  phoneNumber: string;
-  birthYear: string;
-  birthMonth: string;
-  birthDay: string;
+  addPhoneNumber: string;
+  gender: string;
+  language: string;
+  address: string;
+  birthDate: string;
 };
+
+function dobPartsToInputValue(
+  year: number | null | undefined,
+  month: number | null | undefined,
+  day: number | null | undefined
+) {
+  if (year == null || month == null || day == null) return "";
+  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function birthDateInputToParts(value: string): {
+  birthYear: number | null;
+  birthMonth: number | null;
+  birthDay: number | null;
+} {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { birthYear: null, birthMonth: null, birthDay: null };
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) {
+    return { birthYear: null, birthMonth: null, birthDay: null };
+  }
+  return {
+    birthYear: Number(match[1]),
+    birthMonth: Number(match[2]),
+    birthDay: Number(match[3]),
+  };
+}
 
 export function CustomerInsightPanel({
   canFilterAllContacts = false,
@@ -230,11 +311,15 @@ export function CustomerInsightPanel({
         setProfileForm({
           name: next.contact.name,
           email: next.contact.email ?? "",
-          phoneNumber: next.contact.phoneNumber ?? "",
-          birthYear: next.contact.birthYear != null ? String(next.contact.birthYear) : "",
-          birthMonth:
-            next.contact.birthMonth != null ? String(next.contact.birthMonth) : "",
-          birthDay: next.contact.birthDay != null ? String(next.contact.birthDay) : "",
+          addPhoneNumber: "",
+          gender: next.contact.gender ?? "",
+          language: next.contact.language ?? "",
+          address: next.contact.address ?? "",
+          birthDate: dobPartsToInputValue(
+            next.contact.birthYear,
+            next.contact.birthMonth,
+            next.contact.birthDay
+          ),
         });
       } else {
         setProfileForm(null);
@@ -251,19 +336,27 @@ export function CustomerInsightPanel({
     if (!selectedContactId || !profileForm) return;
     setBusyKey("profile");
     try {
+      const dob = birthDateInputToParts(profileForm.birthDate);
+      const addPhone = profileForm.addPhoneNumber.trim();
+      const body: Record<string, unknown> = {
+        name: profileForm.name.trim(),
+        email: profileForm.email.trim() || null,
+        gender: profileForm.gender || null,
+        language: profileForm.language || null,
+        address: profileForm.address.trim() || null,
+        birthYear: dob.birthYear,
+        birthMonth: dob.birthMonth,
+        birthDay: dob.birthDay,
+      };
+      if (addPhone) {
+        body.addPhoneNumber = addPhone;
+      }
       const res = await fetch(
         `/api/admin/customer-insight/${encodeURIComponent(selectedContactId)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: profileForm.name.trim(),
-            email: profileForm.email.trim() || null,
-            phoneNumber: profileForm.phoneNumber.trim() || null,
-            birthYear: profileForm.birthYear ? Number(profileForm.birthYear) : null,
-            birthMonth: profileForm.birthMonth ? Number(profileForm.birthMonth) : null,
-            birthDay: profileForm.birthDay ? Number(profileForm.birthDay) : null,
-          }),
+          body: JSON.stringify(body),
         }
       );
       const data = await res.json().catch(() => ({}));
@@ -271,7 +364,11 @@ export function CustomerInsightPanel({
         notify.error(data.error ?? "Failed to save profile.");
         return;
       }
-      notify.success("Profile updated.");
+      notify.success(
+        addPhone
+          ? "Profile updated. New phone is primary; old number kept for search and purchase history."
+          : "Profile updated."
+      );
       setEditing(false);
       await loadInsight(selectedContactId, invoicePage);
     } catch {
@@ -432,8 +529,8 @@ export function CustomerInsightPanel({
                 disabled={isBusy}
               >
                 <option value="">None</option>
-                <option value="gold">Push to Gold (≥75k ≤100k)</option>
-                <option value="platinum">Push to Platinum (≥150k ≤200k)</option>
+                <option value="gold">Push to Gold (≥75k &lt;100k)</option>
+                <option value="platinum">Push to Platinum (≥200k &lt;250k)</option>
               </select>
             </label>
             <label className="space-y-1 text-sm">
@@ -664,343 +761,425 @@ export function CustomerInsightPanel({
             </Card>
           )}
 
-          {/* Owner profile — screenshot-style */}
+          {/* Owner contact details + progress (screenshot layout) */}
           {isOwner && insight.contact && (
-            <Card>
-              <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
-                    {initialFromName(insight.contact.name)}
-                  </div>
-                  <div className="space-y-1">
-                    <CardTitle className="text-xl">{insight.contact.name}</CardTitle>
-                    <CardDescription className="space-y-0.5">
-                      <span className="block">
-                        {insight.contact.phoneNumber ??
-                          insight.contact.phones[0] ??
-                          "No phone"}
-                      </span>
-                      {insight.contact.email ? (
-                        <span className="block">{insight.contact.email}</span>
+            <Card className="overflow-hidden">
+              <CardContent className="space-y-5 p-5 sm:p-6">
+                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
+                      {initialFromName(insight.contact.name)}
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <h2 className="text-xl font-semibold tracking-tight">
+                        {insight.contact.name}
+                      </h2>
+                      <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+                        <span className="inline-flex items-start gap-1.5">
+                          <Phone className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                          <span className="min-w-0">
+                            {(insight.contact.phones?.length
+                              ? insight.contact.phones
+                              : [
+                                  insight.contact.phoneNumber,
+                                ].filter(Boolean) as string[]
+                            ).length > 0 ? (
+                              <span className="flex flex-col gap-0.5">
+                                {(insight.contact.phones?.length
+                                  ? insight.contact.phones
+                                  : ([insight.contact.phoneNumber].filter(
+                                      Boolean
+                                    ) as string[])
+                                ).map((p, idx) => (
+                                  <span key={`${p}-${idx}`}>
+                                    {p}
+                                    {idx === 0 ? (
+                                      <span className="text-muted-foreground/80">
+                                        {" "}
+                                        (primary)
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                ))}
+                              </span>
+                            ) : (
+                              "No phone"
+                            )}
+                          </span>
+                        </span>
+                        {formatMemberSince(insight.frequency?.firstOrderAt) ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Calendar className="size-3.5 shrink-0" aria-hidden />
+                            Member since{" "}
+                            {formatMemberSince(insight.frequency?.firstOrderAt)}
+                          </span>
+                        ) : null}
+                        {insight.contact.email ? (
+                          <span className="truncate">{insight.contact.email}</span>
+                        ) : null}
+                        <span className="text-foreground/80">
+                          Allocated: {insight.assignedMerchant ?? "—"}
+                          {" · "}
+                          DOB:{" "}
+                          {formatDob(
+                            insight.contact.birthYear,
+                            insight.contact.birthMonth,
+                            insight.contact.birthDay
+                          )}
+                        </span>
+                        <span className="text-foreground/80">
+                          Gender: {insight.contact.gender ?? "—"}
+                          {" · "}
+                          Language: {insight.contact.language ?? "—"}
+                        </span>
+                        {insight.contact.address ? (
+                          <span className="text-foreground/80">
+                            Address: {insight.contact.address}
+                          </span>
+                        ) : null}
+                      </div>
+                      {insight.canEditProfile ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="mt-1 w-fit"
+                          disabled={isBusy}
+                          onClick={() => setEditing((v) => !v)}
+                        >
+                          {editing ? "Cancel edit" : "Edit profile"}
+                        </Button>
                       ) : null}
-                      <span className="block font-medium text-foreground">
-                        Allocated: {insight.assignedMerchant ?? "—"}
-                      </span>
-                      <span className="block">
-                        DOB:{" "}
-                        {formatDob(
-                          insight.contact.birthYear,
-                          insight.contact.birthMonth,
-                          insight.contact.birthDay
-                        )}
-                      </span>
-                    </CardDescription>
+                    </div>
                   </div>
-                </div>
-                <div className="flex flex-wrap items-start gap-6 sm:justify-end">
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground">Loyalty Tier</p>
-                    <span
-                      className={`inline-flex whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
-                    >
-                      {insight.loyalty.label}
-                      {insight.loyalty.code ? ` (${insight.loyalty.code})` : ""}
-                    </span>
-                  </div>
-                  <div className="space-y-1 sm:text-right">
-                    <p className="text-xs text-muted-foreground">Lifetime Total Spend</p>
-                    <p className="text-xl font-semibold tabular-nums tracking-tight">
-                      {formatMoney(insight.loyalty.lifetimeTotal, insight.loyalty.currency)}
-                    </p>
-                    {insight.frequency ? (
-                      <p className="text-xs text-muted-foreground">
-                        Across {insight.frequency.orderCount} order
-                        {insight.frequency.orderCount === 1 ? "" : "s"}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {insight.canEditProfile ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={isBusy}
-                        onClick={() => setEditing((v) => !v)}
+
+                  <div className="flex flex-wrap items-start gap-8 lg:justify-end">
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">Loyalty Tier</p>
+                      <span
+                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
                       >
-                        {editing ? "Cancel edit" : "Edit profile"}
-                      </Button>
-                    ) : null}
+                        <ShieldCheck className="size-3.5" aria-hidden />
+                        {insight.loyalty.label}
+                        {insight.loyalty.code ? ` (${insight.loyalty.code})` : ""}
+                      </span>
+                    </div>
+                    <div className="space-y-1 lg:text-right">
+                      <p className="text-xs text-muted-foreground">Lifetime Total Spend</p>
+                      <p className="text-2xl font-semibold tabular-nums tracking-tight">
+                        {formatMoney(
+                          insight.loyalty.lifetimeTotal,
+                          insight.loyalty.currency
+                        )}
+                      </p>
+                      {insight.frequency ? (
+                        <p className="text-xs text-muted-foreground">
+                          Across {insight.frequency.orderCount} order
+                          {insight.frequency.orderCount === 1 ? "" : "s"}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </CardHeader>
-              {editing && profileForm ? (
-                <CardContent className="grid gap-3 sm:grid-cols-2">
-                  {(
-                    [
-                      ["name", "Name"],
-                      ["email", "Email"],
-                      ["phoneNumber", "Phone"],
-                      ["birthYear", "Birth year"],
-                      ["birthMonth", "Birth month"],
-                      ["birthDay", "Birth day"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label key={key} className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">{label}</span>
+
+                {editing && profileForm ? (
+                  <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Name</span>
                       <Input
-                        value={profileForm[key]}
+                        value={profileForm.name}
                         onChange={(e) =>
                           setProfileForm((prev) =>
-                            prev ? { ...prev, [key]: e.target.value } : prev
+                            prev ? { ...prev, name: e.target.value } : prev
                           )
                         }
                         disabled={isBusy}
                       />
                     </label>
-                  ))}
-                  <div className="sm:col-span-2">
-                    <Button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => void saveProfile()}
-                    >
-                      Save profile
-                    </Button>
-                  </div>
-                </CardContent>
-              ) : null}
-            </Card>
-          )}
-
-          {/* Progress — screenshot-style */}
-          {isOwner && insight.progressBar && (
-            <Card>
-              <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                  <Crown className="size-5" aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {insight.loyalty.key === "platinum"
-                          ? "Platinum reached"
-                          : `Progress to ${nextTierLabel}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {insight.progressBar.amountToNext > 0
-                          ? `Spend ${formatMoney(insight.progressBar.amountToNext, insight.loyalty.currency)} more to reach ${nextTierLabel} tier`
-                          : "Highest loyalty milestone reached."}
-                      </p>
-                    </div>
-                    <p className="text-sm font-medium tabular-nums text-muted-foreground">
-                      {progressPct}%
-                    </p>
-                  </div>
-                  <div className="relative h-2.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                    <div
-                      className="absolute inset-y-0 w-0.5 bg-amber-500"
-                      style={{ left: `${Math.round(goldMilestoneRatio() * 100)}%` }}
-                      title="Gold"
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs tabular-nums text-muted-foreground">
-                    <span>
-                      {formatMoney(
-                        insight.progressBar.currentTotal,
-                        insight.loyalty.currency
-                      )}
-                    </span>
-                    <span>
-                      {formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Invoice history (unchanged content) + Monthly spend chart */}
-          <div className="grid gap-4 xl:grid-cols-5">
-            <Card ref={invoicesRef} className="xl:col-span-3">
-              <CardHeader className="pb-2">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <CardTitle className="text-base">Invoice history</CardTitle>
-                    <CardDescription>
-                      {insight.invoicePagination.total} order(s).
-                      {!isOwner
-                        ? " Headers only — line items hidden for non-allocated merchants."
-                        : " Cosmo invoices open with View Invoice; Adapt is view-only in the table."}
-                    </CardDescription>
-                  </div>
-                  {itemFilter && isOwner ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setItemFilter(null)}
-                    >
-                      <X className="size-4" aria-hidden />
-                      Clear item filter
-                    </Button>
-                  ) : null}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {insight.invoices.length === 0 ? (
-                  <div className="rounded-md border border-dashed py-10 text-center">
-                    <p className="text-sm font-medium">No purchases found</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-xl border border-border/70">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
-                          <th className="px-4 py-2 text-left font-medium">Order</th>
-                          {isOwner ? (
-                            <th className="px-4 py-2 text-left font-medium">Items</th>
-                          ) : null}
-                          <th className="px-4 py-2 text-left font-medium">Date</th>
-                          <th className="px-4 py-2 text-right font-medium">Total</th>
-                          <th className="px-4 py-2 text-left font-medium">Status</th>
-                          {isOwner ? (
-                            <th className="px-4 py-2 text-left font-medium">Invoice</th>
-                          ) : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleInvoices.map((order) => (
-                          <tr
-                            key={order.id}
-                            className="border-b last:border-0 hover:bg-secondary/10"
-                          >
-                            <td className="px-4 py-2 align-top">
-                              <p className="font-medium">{order.reference}</p>
-                              <p className="text-muted-foreground text-xs">
-                                {order.secondaryLabel ??
-                                  (order.source === "adapt" ? "Adapt" : "N/A")}
-                              </p>
-                            </td>
-                            {isOwner ? (
-                              <td className="px-4 py-2 align-top">
-                                {order.lineItems.length > 0 ? (
-                                  <div className="space-y-2">
-                                    {order.lineItems.map((item) => (
-                                      <div
-                                        key={item.id}
-                                        className="rounded-md border border-dashed border-border/70 px-3 py-2"
-                                      >
-                                        <p className="font-medium leading-snug">
-                                          {item.productTitle}
-                                        </p>
-                                        <p className="text-muted-foreground text-xs">
-                                          {[
-                                            item.variantTitle,
-                                            item.sku ? `SKU: ${item.sku}` : null,
-                                            item.brand ? `Brand: ${item.brand}` : null,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" • ") || "Standard item"}
-                                        </p>
-                                        <p className="mt-1 text-xs">
-                                          Qty {item.quantity}
-                                          <span className="text-muted-foreground">
-                                            {" "}
-                                            • {formatAmount(item.price, order.currency)} each
-                                          </span>
-                                        </p>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="text-muted-foreground text-xs">
-                                    {order.source === "adapt"
-                                      ? "Adapt history (no line items)"
-                                      : "No items"}
-                                  </span>
-                                )}
-                              </td>
-                            ) : null}
-                            <td className="px-4 py-2 align-top text-muted-foreground whitespace-nowrap">
-                              {formatAppDateTime(order.date, "N/A")}
-                            </td>
-                            <td className="px-4 py-2 align-top text-right whitespace-nowrap">
-                              {formatAmount(order.amount, order.currency)}
-                              {!order.includedInLoyaltyTotal ? (
-                                <p className="text-muted-foreground text-[10px]">
-                                  Excluded from loyalty total
-                                </p>
-                              ) : null}
-                            </td>
-                            <td className="px-4 py-2 align-top text-xs text-muted-foreground">
-                              {order.source === "adapt"
-                                ? `${order.financialStatus ?? "Adapt"} / ${order.fulfillmentStatus ?? "—"}`
-                                : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`}
-                            </td>
-                            {isOwner ? (
-                              <td className="px-4 py-2 align-top">
-                                {order.source === "adapt" || !order.orderId ? (
-                                  <span className="text-muted-foreground text-xs">
-                                    Adapt (view only)
-                                  </span>
-                                ) : (
-                                  <a
-                                    href={`/api/admin/orders/${order.orderId}/invoice`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-primary underline-offset-4 hover:underline"
-                                  >
-                                    View Invoice
-                                  </a>
-                                )}
-                              </td>
-                            ) : null}
-                          </tr>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Email</span>
+                      <Input
+                        type="email"
+                        value={profileForm.email}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, email: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Gender</span>
+                      <select
+                        className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                        value={profileForm.gender}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, gender: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      >
+                        <option value="">Select gender</option>
+                        {CONTACT_GENDER_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {insight.invoicePagination.total > insight.invoicePagination.pageSize &&
-                  contactIdForPaging && (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">Language</span>
+                      <select
+                        className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                        value={profileForm.language}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, language: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                      >
+                        <option value="">Select language</option>
+                        {CONTACT_LANGUAGE_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1 text-sm sm:col-span-2">
+                      <span className="text-muted-foreground">Birth date</span>
+                      <Input
+                        type="date"
+                        value={profileForm.birthDate}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, birthDate: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        max="2100-12-31"
+                        min="1900-01-01"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm sm:col-span-2">
+                      <span className="text-muted-foreground">Address</span>
+                      <textarea
+                        className="border-input bg-background flex min-h-[72px] w-full rounded-md border px-3 py-2 text-sm"
+                        value={profileForm.address}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, address: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        maxLength={500}
+                        placeholder="Customer address"
+                      />
+                    </label>
+                    <div className="space-y-2 rounded-md border border-border/70 p-3 sm:col-span-2">
+                      <p className="text-sm font-medium">Phone numbers</p>
                       <p className="text-xs text-muted-foreground">
-                        Page {invoicePage} of {totalPages}
+                        Current numbers stay linked for purchase history and search. Adding a
+                        new number makes it primary and keeps the old one.
                       </p>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isBusy || invoicePage <= 1}
-                          onClick={() => void loadInsight(contactIdForPaging, invoicePage - 1)}
-                        >
-                          Previous
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={isBusy || invoicePage >= totalPages}
-                          onClick={() => void loadInsight(contactIdForPaging, invoicePage + 1)}
-                        >
-                          Next
-                        </Button>
+                      <ul className="space-y-1 text-sm">
+                        {(insight.contact.phones?.length
+                          ? insight.contact.phones
+                          : ([insight.contact.phoneNumber].filter(Boolean) as string[])
+                        ).map((p, idx) => (
+                          <li key={`${p}-${idx}`} className="flex items-center gap-2">
+                            <Phone className="size-3.5 text-muted-foreground" aria-hidden />
+                            <span>{p}</span>
+                            {idx === 0 ? (
+                              <span className="text-xs text-muted-foreground">(primary)</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">(previous)</span>
+                            )}
+                          </li>
+                        ))}
+                        {(insight.contact.phones?.length
+                          ? insight.contact.phones
+                          : [insight.contact.phoneNumber]
+                        ).filter(Boolean).length === 0 ? (
+                          <li className="text-muted-foreground">No phone on file</li>
+                        ) : null}
+                      </ul>
+                      <label className="mt-2 block space-y-1 text-sm">
+                        <span className="text-muted-foreground">Add new phone number</span>
+                        <Input
+                          value={profileForm.addPhoneNumber}
+                          onChange={(e) =>
+                            setProfileForm((prev) =>
+                              prev ? { ...prev, addPhoneNumber: e.target.value } : prev
+                            )
+                          }
+                          placeholder="e.g. 0771234567"
+                          disabled={isBusy}
+                          inputMode="tel"
+                        />
+                      </label>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Button
+                        type="button"
+                        disabled={isBusy}
+                        onClick={() => void saveProfile()}
+                      >
+                        Save profile
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {insight.progressBar ? (
+                  <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                      <Crown className="size-5" aria-hidden />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {insight.loyalty.key === "platinum"
+                              ? "Platinum reached"
+                              : `Progress to ${nextTierLabel}`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {insight.progressBar.amountToNext > 0
+                              ? `Spend ${formatMoney(insight.progressBar.amountToNext, insight.loyalty.currency)} more to reach ${nextTierLabel} tier`
+                              : "Highest loyalty milestone reached."}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm font-semibold tabular-nums text-muted-foreground sm:pt-0.5">
+                          {progressPct}%
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="relative h-2.5 rounded-full bg-muted">
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                          {/* Gold @ 100,000 */}
+                          <div
+                            className="absolute top-1/2 z-[1] h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400 shadow-[0_0_0_2px_rgba(15,23,42,0.35)]"
+                            style={{ left: `${goldMilestoneRatio() * 100}%` }}
+                            title={`Gold ${formatMoney(LOYALTY_GOLD_MIN, insight.loyalty.currency)}`}
+                          />
+                          {/* Platinum @ 250,000 (end of bar) */}
+                          <div
+                            className="absolute top-1/2 right-0 z-[1] h-4 w-0.5 -translate-y-1/2 rounded-full bg-violet-400 shadow-[0_0_0_2px_rgba(15,23,42,0.35)]"
+                            title={`Platinum ${formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}`}
+                          />
+                        </div>
+                        <div className="relative h-4 text-[10px] tabular-nums text-muted-foreground">
+                          <span className="absolute left-0">0</span>
+                          <span
+                            className="absolute -translate-x-1/2 font-medium text-amber-600 dark:text-amber-400"
+                            style={{ left: `${goldMilestoneRatio() * 100}%` }}
+                          >
+                            Gold {formatMoney(LOYALTY_GOLD_MIN, insight.loyalty.currency)}
+                          </span>
+                          <span className="absolute right-0 font-medium text-violet-600 dark:text-violet-400">
+                            Platinum {formatMoney(LOYALTY_PLATINUM_MIN, insight.loyalty.currency)}
+                          </span>
+                        </div>
+                        <p className="text-xs tabular-nums text-muted-foreground">
+                          Now:{" "}
+                          {formatMoney(
+                            insight.progressBar.currentTotal,
+                            insight.loyalty.currency
+                          )}
+                        </p>
                       </div>
                     </div>
-                  )}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
+          )}
 
-            {isOwner ? (
-              <Card className="xl:col-span-2">
+          {/* Charts side-by-side; invoice history stays full-width below */}
+          {isOwner ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Top Items Overview</CardTitle>
+                  <CardDescription>
+                    Highest spend items. Click a bar to filter invoice history to that item.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {topItemsChart.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-muted-foreground">
+                      No purchased items yet.
+                    </p>
+                  ) : (
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={topItemsChart}
+                          margin={{ top: 22, right: 8, left: 0, bottom: 48 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={10}
+                            interval={0}
+                            angle={-28}
+                            textAnchor="end"
+                            height={60}
+                          />
+                          <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={11}
+                            tickFormatter={formatChartAxis}
+                            width={42}
+                          />
+                          <Tooltip
+                            content={<InsightChartTooltip />}
+                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
+                          />
+                          <Bar
+                            dataKey="spend"
+                            fill={CHART_BLUE}
+                            radius={[4, 4, 0, 0]}
+                            cursor="pointer"
+                            onClick={(data) => {
+                              const name =
+                                data &&
+                                typeof data === "object" &&
+                                "name" in data &&
+                                typeof (data as { name?: unknown }).name === "string"
+                                  ? (data as { name: string }).name
+                                  : null;
+                              if (name) focusInvoicesForItem(name);
+                            }}
+                          >
+                            <LabelList
+                              dataKey="quantity"
+                              position="top"
+                              className="fill-foreground"
+                              fontSize={11}
+                              formatter={(value: unknown) =>
+                                value == null || value === "" ? "" : String(value)
+                              }
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Monthly Spend Overview</CardTitle>
                   <CardDescription>Last 12 months of loyalty-eligible spend.</CardDescription>
@@ -1032,17 +1211,8 @@ export function CustomerInsightPanel({
                             width={42}
                           />
                           <Tooltip
-                            formatter={(value) => [
-                              formatMoney(Number(value ?? 0), insight.loyalty.currency),
-                              "Spend",
-                            ]}
-                            labelFormatter={(_, payload) => {
-                              const row = payload?.[0]?.payload as
-                                | { month?: string; orderCount?: number }
-                                | undefined;
-                              if (!row?.month) return "";
-                              return `${formatMonthLabel(row.month)} · ${row.orderCount ?? 0} invoice(s)`;
-                            }}
+                            content={<InsightChartTooltip />}
+                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
                           />
                           <Bar dataKey="spend" fill={CHART_BLUE} radius={[4, 4, 0, 0]} />
                         </BarChart>
@@ -1051,82 +1221,181 @@ export function CustomerInsightPanel({
                   )}
                 </CardContent>
               </Card>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
-          {/* Top items graph (replaces old list; same style as monthly spend) */}
-          {isOwner ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Top Items Overview</CardTitle>
-                <CardDescription>
-                  Highest spend items. Click a bar to filter invoice history to that item.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {topItemsChart.length === 0 ? (
-                  <p className="py-10 text-center text-sm text-muted-foreground">
-                    No purchased items yet.
-                  </p>
-                ) : (
-                  <div className="h-[320px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={topItemsChart}
-                        margin={{ top: 8, right: 8, left: 0, bottom: 48 }}
+          {/* Invoice history — full width, same as before */}
+          <Card ref={invoicesRef}>
+            <CardHeader className="pb-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="text-base">Invoice history</CardTitle>
+                  <CardDescription>
+                    {insight.invoicePagination.total} order(s).
+                    {!isOwner
+                      ? " Headers only — line items hidden for non-allocated merchants."
+                      : " Cosmo invoices open with View Invoice; Adapt is view-only in the table."}
+                  </CardDescription>
+                </div>
+                {itemFilter && isOwner ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setItemFilter(null)}
+                  >
+                    <X className="size-4" aria-hidden />
+                    Clear item filter
+                  </Button>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {insight.invoices.length === 0 ? (
+                <div className="rounded-md border border-dashed py-10 text-center">
+                  <p className="text-sm font-medium">No purchases found</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-border/70">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
+                        <th className="px-4 py-2 text-left font-medium">Order</th>
+                        {isOwner ? (
+                          <th className="px-4 py-2 text-left font-medium">Items</th>
+                        ) : null}
+                        <th className="px-4 py-2 text-left font-medium">Date</th>
+                        <th className="px-4 py-2 text-right font-medium">Total</th>
+                        <th className="px-4 py-2 text-left font-medium">Status</th>
+                        {isOwner ? (
+                          <th className="px-4 py-2 text-left font-medium">Invoice</th>
+                        ) : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleInvoices.map((order) => (
+                        <tr
+                          key={order.id}
+                          className="border-b last:border-0 hover:bg-secondary/10"
+                        >
+                          <td className="px-4 py-2 align-top">
+                            <p className="font-medium">{order.reference}</p>
+                            <p className="text-muted-foreground text-xs">
+                              {order.secondaryLabel ??
+                                (order.source === "adapt" ? "Adapt" : "N/A")}
+                            </p>
+                          </td>
+                          {isOwner ? (
+                            <td className="px-4 py-2 align-top">
+                              {order.lineItems.length > 0 ? (
+                                <div className="space-y-2">
+                                  {order.lineItems.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="rounded-md border border-dashed border-border/70 px-3 py-2"
+                                    >
+                                      <p className="font-medium leading-snug">
+                                        {item.productTitle}
+                                      </p>
+                                      <p className="text-muted-foreground text-xs">
+                                        {[
+                                          item.variantTitle,
+                                          item.sku ? `SKU: ${item.sku}` : null,
+                                          item.brand ? `Brand: ${item.brand}` : null,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" • ") || "Standard item"}
+                                      </p>
+                                      <p className="mt-1 text-xs">
+                                        Qty {item.quantity}
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          • {formatAmount(item.price, order.currency)} each
+                                        </span>
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">
+                                  {order.source === "adapt"
+                                    ? "Adapt history (no line items)"
+                                    : "No items"}
+                                </span>
+                              )}
+                            </td>
+                          ) : null}
+                          <td className="px-4 py-2 align-top text-muted-foreground whitespace-nowrap">
+                            {formatAppDateTime(order.date, "N/A")}
+                          </td>
+                          <td className="px-4 py-2 align-top text-right whitespace-nowrap">
+                            {formatAmount(order.amount, order.currency)}
+                            {!order.includedInLoyaltyTotal ? (
+                              <p className="text-muted-foreground text-[10px]">
+                                Excluded from loyalty total
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-2 align-top text-xs text-muted-foreground">
+                            {order.source === "adapt"
+                              ? `${order.financialStatus ?? "Adapt"} / ${order.fulfillmentStatus ?? "—"}`
+                              : `${order.financialStatus ?? "N/A"} / ${order.fulfillmentStatus ?? "N/A"}`}
+                          </td>
+                          {isOwner ? (
+                            <td className="px-4 py-2 align-top">
+                              {order.source === "adapt" || !order.orderId ? (
+                                <span className="text-muted-foreground text-xs">
+                                  Adapt (view only)
+                                </span>
+                              ) : (
+                                <a
+                                  href={`/api/admin/orders/${order.orderId}/invoice`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline-offset-4 hover:underline"
+                                >
+                                  View Invoice
+                                </a>
+                              )}
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {insight.invoicePagination.total > insight.invoicePagination.pageSize &&
+                contactIdForPaging && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Page {invoicePage} of {totalPages}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isBusy || invoicePage <= 1}
+                        onClick={() => void loadInsight(contactIdForPaging, invoicePage - 1)}
                       >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={10}
-                          interval={0}
-                          angle={-28}
-                          textAnchor="end"
-                          height={60}
-                        />
-                        <YAxis
-                          tickLine={false}
-                          axisLine={false}
-                          fontSize={11}
-                          tickFormatter={formatChartAxis}
-                          width={42}
-                        />
-                        <Tooltip
-                          formatter={(value, _name, item) => {
-                            const row = item?.payload as
-                              | { name?: string; quantity?: number }
-                              | undefined;
-                            return [
-                              `${formatMoney(Number(value ?? 0))} · qty ${row?.quantity ?? 0}`,
-                              row?.name ?? "Spend",
-                            ];
-                          }}
-                        />
-                        <Bar
-                          dataKey="spend"
-                          fill={CHART_BLUE}
-                          radius={[4, 4, 0, 0]}
-                          cursor="pointer"
-                          onClick={(data) => {
-                            const name =
-                              data &&
-                              typeof data === "object" &&
-                              "name" in data &&
-                              typeof (data as { name?: unknown }).name === "string"
-                                ? (data as { name: string }).name
-                                : null;
-                            if (name) focusInvoicesForItem(name);
-                          }}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
+                        Previous
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isBusy || invoicePage >= totalPages}
+                        onClick={() => void loadInsight(contactIdForPaging, invoicePage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          ) : null}
+            </CardContent>
+          </Card>
 
           {/* Contacted footer */}
           {isOwner ? (

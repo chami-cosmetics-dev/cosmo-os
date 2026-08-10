@@ -15,10 +15,10 @@ describe("matchesBirthdayThisMonth", () => {
 describe("filter push bands (via loyalty helpers)", () => {
   it("aligns with Push Gold / Platinum", () => {
     expect(isPushToGold(75_000)).toBe(true);
-    expect(isPushToGold(100_000)).toBe(true);
-    expect(isPushToGold(100_001)).toBe(false);
-    expect(isPushToPlatinum(150_000)).toBe(true);
+    expect(isPushToGold(99_999)).toBe(true);
+    expect(isPushToGold(100_000)).toBe(false);
     expect(isPushToPlatinum(200_000)).toBe(true);
-    expect(isPushToPlatinum(200_001)).toBe(false);
+    expect(isPushToPlatinum(249_999)).toBe(true);
+    expect(isPushToPlatinum(250_000)).toBe(false);
   });
 });
