@@ -72,6 +72,13 @@ function resolveAmountFromShippingLines(lines: ShippingLineRow[]): string | null
   return total > 0 ? total.toFixed(2) : null;
 }
 
+export function normalizeZeroValueShippingLabel(label: string | null): string | null {
+  if (!label) return null;
+  if (/free\s*ship(?:ping)?|freeship(?:ping)?/i.test(label)) return "FREESHIP";
+  if (/\bpick\s*up\b|\bpickup\b/i.test(label)) return "Pick Up";
+  return null;
+}
+
 function extractErpShippingFromPayload(rawPayload: unknown): OrderShippingDisplay {
   const payload = unwrapErpPayload(rawPayload);
   if (!payload) return { label: null, amount: null };
@@ -111,7 +118,7 @@ export function resolveOrderShippingDisplay(input: {
   discountCodes?: unknown;
 }): OrderShippingDisplay {
   if (orderHasFreeShippingCoupon(input.discountCodes)) {
-    return { label: null, amount: null };
+    return { label: "FREESHIP", amount: null };
   }
 
   const lines = readShippingLines(input.shippingLines);
@@ -119,7 +126,7 @@ export function resolveOrderShippingDisplay(input: {
     const primary = lines[0];
     const label = (primary.title ?? primary.code ?? "").trim() || null;
     const lineAmount = resolveAmountFromShippingLines(lines);
-    if (!lineAmount) return { label: null, amount: null };
+    if (!lineAmount) return { label: normalizeZeroValueShippingLabel(label), amount: null };
     return { label, amount: lineAmount };
   }
 
@@ -311,3 +318,6 @@ export async function resolveOrderShippingDisplayForOrder(input: {
   const live = await fetchErpInvoiceShippingDisplay(creds, invoiceRef);
   return mergeOrderShippingDisplay(stored, live);
 }
+
+
+
