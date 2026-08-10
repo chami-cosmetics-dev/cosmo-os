@@ -41,8 +41,9 @@ describe("userHasMerchantRole / admin / access", () => {
     expect(isCompanyAdminRole(["manager"])).toBe(false);
   });
 
-  it("allows merchant dashboard for merchants and admins", () => {
-    expect(canAccessMerchantDashboard(["Merchant 02"])).toBe(true);
+  it("allows merchant dashboard for admins only (not merchant-level users)", () => {
+    expect(canAccessMerchantDashboard(["Merchant 02"])).toBe(false);
+    expect(canAccessMerchantDashboard(["merchant-level-01"])).toBe(false);
     expect(canAccessMerchantDashboard(["admin"])).toBe(true);
     expect(canAccessMerchantDashboard(["viewer"])).toBe(false);
   });

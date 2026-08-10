@@ -21,7 +21,7 @@ export function isCompanyAdminRole(roleNames: string[] | null | undefined): bool
   return names.includes("super_admin") || names.includes("admin");
 }
 
-/** Merchant dashboard access: merchant role user or company admin. */
+/** Merchant dashboard access via role: company admins only (not merchant-level users). */
 export function canAccessMerchantDashboard(roleNames: string[] | null | undefined): boolean {
-  return isCompanyAdminRole(roleNames) || userHasMerchantRole(roleNames);
+  return isCompanyAdminRole(roleNames);
 }

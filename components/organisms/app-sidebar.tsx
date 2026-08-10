@@ -45,7 +45,6 @@ import {
 } from "@/components/ui/sidebar";
 import { NavItem } from "@/components/molecules/nav-item";
 import { UserMenu } from "@/components/molecules/user-menu";
-import { isMerchantRoleName } from "@/lib/merchant-role";
 import { ALL_REPORT_DUMP_PERMISSIONS, REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { APP_INITIALS, APP_NAME } from "@/lib/branding";
 
@@ -66,14 +65,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     roleNames.includes("super_admin") ||
     roleNames.includes("admin") ||
     permissionKeys.includes(permission);
-  const isMerchantUser = roleNames.some((name) => isMerchantRoleName(name));
-  // Merchants use Merchant Dashboard only — hide the company-wide overview.
-  const canViewDashboard = hasSidebarPermission("dashboard.view") && !isMerchantUser;
-  const canViewMerchantDashboard =
-    roleNames.includes("super_admin") ||
-    roleNames.includes("admin") ||
-    hasSidebarPermission("dashboard.merchant_view") ||
-    isMerchantUser;
+  const canViewDashboard = hasSidebarPermission("dashboard.view");
+  const canViewMerchantDashboard = hasSidebarPermission("dashboard.merchant_view");
   const canViewUsers = hasSidebarPermission("users.read");
   const canViewStaff = hasSidebarPermission("staff.read");
   const canViewOrders = hasSidebarPermission("orders.read");
