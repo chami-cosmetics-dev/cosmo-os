@@ -8,6 +8,8 @@ import {
   formatAppIsoDateTime,
   formatAppIsoTime,
   formatAppStoredDateTime,
+  parseAppCalendarDayEnd,
+  parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
 
 describe("format-datetime", () => {
@@ -32,5 +34,14 @@ describe("format-datetime", () => {
     const formatted = formatAppStoredDateTime("2026-07-20T00:00:00.000Z");
     expect(formatted).toContain("2026");
     expect(formatted).not.toMatch(/5:30/);
+  });
+
+  it("parses Asia/Colombo calendar day bounds", () => {
+    expect(parseAppCalendarDayStart("2026-08-10")?.toISOString()).toBe(
+      "2026-08-09T18:30:00.000Z",
+    );
+    expect(parseAppCalendarDayEnd("2026-08-10")?.toISOString()).toBe(
+      "2026-08-10T18:29:59.999Z",
+    );
   });
 });
