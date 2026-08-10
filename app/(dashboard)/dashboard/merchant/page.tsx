@@ -5,7 +5,6 @@ import { PermissionDeniedCard } from "@/components/molecules/permission-denied-c
 import {
   canAccessMerchantDashboard,
   isCompanyAdminRole,
-  userHasMerchantRole,
 } from "@/lib/merchant-role";
 import { getMerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -50,7 +49,7 @@ export default async function MerchantDashboardPage({
   });
 
   if ("error" in data) {
-    if (data.status === 403 && !userHasMerchantRole(roleNames) && !viewerIsAdmin) {
+    if (data.status === 403) {
       return <PermissionDeniedCard />;
     }
     return (
