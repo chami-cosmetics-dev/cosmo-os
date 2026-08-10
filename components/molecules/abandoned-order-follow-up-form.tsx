@@ -38,8 +38,11 @@ export function AbandonedOrderFollowUpForm({
   }) => Promise<void>;
 }) {
   const [followUpStatus, setFollowUpStatus] = useState<FollowUpStatus>(initialFollowUpStatus);
-  const [customerResponse, setCustomerResponse] = useState<CustomerResponse | null>(
-    initialCustomerResponse
+  const [customerResponse, setCustomerResponse] = useState<CustomerResponse | null>(() =>
+    initialCustomerResponse &&
+    (MANUAL_CUSTOMER_RESPONSES as readonly string[]).includes(initialCustomerResponse)
+      ? initialCustomerResponse
+      : null
   );
   const [remarkTemplateId, setRemarkTemplateId] = useState<RemarkTemplateId>(() =>
     matchRemarkTemplateId(initialRemark)
@@ -110,8 +113,7 @@ export function AbandonedOrderFollowUpForm({
             onValueChange={(v) => {
               const next = v as CustomerResponse;
               setCustomerResponse(next);
-              // Keep remark in sync when staff pick a matching reason (unless already custom text).
-              if (next !== "recovered_sale" && (remarkTemplateId !== "custom" || !remark.trim())) {
+              if (remarkTemplateId !== "custom" || !remark.trim()) {
                 applyRemarkTemplate(next as RemarkTemplateId);
               }
             }}
@@ -125,9 +127,6 @@ export function AbandonedOrderFollowUpForm({
                   {CUSTOMER_RESPONSE_LABELS[key]}
                 </SelectItem>
               ))}
-              <SelectItem value="recovered_sale">
-                {CUSTOMER_RESPONSE_LABELS.recovered_sale}
-              </SelectItem>
             </SelectContent>
           </Select>
         </div>
