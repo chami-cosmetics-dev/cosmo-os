@@ -6,7 +6,7 @@ import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/
 import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
 import { allocateTakeQty } from "@/lib/store-allocation/allocate";
 import { requireStoreAllocationAccess } from "@/lib/store-allocation/auth";
-import { salesByOsfColumnLast30d } from "@/lib/store-allocation/location-sales";
+import { salesByOsfColumnLast90d } from "@/lib/store-allocation/location-sales";
 import { prisma } from "@/lib/prisma";
 import { storeAllocationPlanQuerySchema } from "@/lib/validation/store-allocation";
 
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     prisma.productOsfRop.findMany({
       where: { companyId: auth.companyId, sku },
     }),
-    salesByOsfColumnLast30d(auth.companyId, sku, columns),
+    salesByOsfColumnLast90d(auth.companyId, sku, columns),
   ]);
 
   const ropByKey = new Map(ropRows.map((r) => [r.columnKey, r.ropQty]));
@@ -99,20 +99,20 @@ export async function GET(request: NextRequest) {
     const stockRaw = stockForColumn(binMap, col.warehouses, sku);
     const stock = stockRaw != null && Number.isFinite(stockRaw) ? stockRaw : 0;
     const need = Math.max(0, Math.floor(rop) - Math.floor(stock));
-    const sales30d = salesMap.get(col.key) ?? 0;
+    const sales90d = salesMap.get(col.key) ?? 0;
     return {
       columnKey: col.key,
       label: col.label,
       locationRop: rop,
       stock,
       need,
-      sales30d,
+      sales90d,
     };
   });
 
   const suggestions = allocateTakeQty(
     takeQty,
-    allocateInputs.map((r) => ({ key: r.columnKey, need: r.need, sales: r.sales30d })),
+    allocateInputs.map((r) => ({ key: r.columnKey, need: r.need, sales: r.sales90d })),
   );
   const suggestedByKey = new Map(suggestions.map((s) => [s.key, s.qty]));
 
