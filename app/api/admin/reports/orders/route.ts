@@ -26,7 +26,7 @@ import {
 import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
-import { resolveOrderShippingDisplay } from "@/lib/order-shipping-display";
+import { normalizeZeroValueShippingLabel, resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
@@ -69,6 +69,30 @@ function getRangeBounds(range: RangeKind, year: number | null) {
   };
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+
+  return results;
+}
+
+function shippingRuleFallbackFromOrder(order: { dispatchedToCustomer?: boolean | null }, shippingAddress: string): string | null {
+  if (order.dispatchedToCustomer) return "Pick Up";
+  return normalizeZeroValueShippingLabel(shippingAddress);
+}
 function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
 }
@@ -514,7 +538,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const rows = orders.map((order) => {
+  const rows = await mapWithConcurrency(orders, 4, async (order) => {
     const customerName =
       getCustomerName(order.shippingAddress) ||
       getCustomerName(order.billingAddress) ||
@@ -545,12 +569,17 @@ export async function GET(request: NextRequest) {
       shopifyUserIdToEmail,
       erpnextUsernameToEmail,
     });
-    const shippingRule = resolveOrderShippingDisplay({
+    const shippingAddress = formatAddress(order.shippingAddress);
+    const shippingRule = (await resolveOrderShippingDisplayForOrder({
       totalShipping: decimalToString(order.totalShipping),
       shippingLines: order.shippingLines,
       rawPayload: order.rawPayload,
       sourceName: order.sourceName,
-    }).label;
+      name: order.name,
+      erpnextInvoiceId: order.erpnextInvoiceId,
+      erpnextInstance: order.companyLocation.erpnextInstance,
+      discountCodes: order.discountCodes,
+    })).label ?? shippingRuleFallbackFromOrder(order, shippingAddress);
 
     return createOrderInvoiceRow({
       invoiceNo,
@@ -571,7 +600,7 @@ export async function GET(request: NextRequest) {
       customerEmail: order.customerEmail,
       customerPhone: resolveCustomerPhone(order) ?? null,
       billingAddress: formatAddress(order.billingAddress),
-      shippingAddress: formatAddress(order.shippingAddress),
+      shippingAddress,
       financialStatus: order.financialStatus,
       fulfillmentStatus: order.fulfillmentStatus,
       paymentGateway,
@@ -620,3 +649,7 @@ export async function GET(request: NextRequest) {
     },
   });
 }
+
+
+
+

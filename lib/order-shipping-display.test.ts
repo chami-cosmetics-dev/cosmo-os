@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildErpOrderShippingFields,
   mergeOrderShippingDisplay,
   resolveOrderDisplayTotal,
   resolveOrderShippingDisplay,
+  resolveOrderShippingDisplayForOrder,
 } from "@/lib/order-shipping-display";
 
 describe("resolveOrderShippingDisplay", () => {
@@ -41,7 +42,25 @@ describe("resolveOrderShippingDisplay", () => {
     expect(display).toEqual({ label: "Standard Shipping", amount: "350.00" });
   });
 
-  it("hides shipping when FREESP zeroes discounted_price", () => {
+  it("normalizes zero-value pickup shipping label", () => {
+    const display = resolveOrderShippingDisplay({
+      sourceName: "web",
+      shippingLines: [{ title: "Store Pick Up", price: "0.00" }],
+    });
+
+    expect(display).toEqual({ label: "Pick Up", amount: null });
+  });
+
+  it("normalizes zero-value freeship shipping label", () => {
+    const display = resolveOrderShippingDisplay({
+      sourceName: "web",
+      shippingLines: [{ title: "free shipping", price: "0.00" }],
+    });
+
+    expect(display).toEqual({ label: "FREESHIP", amount: null });
+  });
+
+  it("shows FREESHIP when FREESP zeroes discounted_price", () => {
     const display = resolveOrderShippingDisplay({
       sourceName: "web",
       totalShipping: "400",
@@ -59,7 +78,46 @@ describe("resolveOrderShippingDisplay", () => {
       ],
     });
 
-    expect(display).toEqual({ label: null, amount: null });
+    expect(display).toEqual({ label: "FREESHIP", amount: null });
+  });
+});
+
+describe("resolveOrderShippingDisplayForOrder", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches a missing ERP shipping rule from the linked Sales Invoice", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        data: {
+          shipping_rule: "Colombo 14 - DTD",
+          total_taxes_and_charges: 300,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const display = await resolveOrderShippingDisplayForOrder({
+      totalShipping: null,
+      shippingLines: null,
+      rawPayload: { name: "010-0020" },
+      sourceName: "erpnext",
+      name: "010-0020",
+      erpnextInvoiceId: "010-0020",
+      erpnextInstance: {
+        baseUrl: "https://erp.example.test",
+        apiKey: "key",
+        apiSecret: "secret",
+      },
+      discountCodes: [{ code: "MER97-Sachini" }],
+    });
+
+    expect(display).toEqual({ label: "Colombo 14 - DTD", amount: "300.00" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/resource/Sales Invoice/010-0020"),
+      expect.objectContaining({ headers: { Authorization: "token key:secret" } }),
+    );
   });
 });
 
@@ -133,3 +191,5 @@ describe("resolveOrderDisplayTotal", () => {
     ).toBe("10800.00");
   });
 });
+
+
