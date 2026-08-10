@@ -32,6 +32,11 @@ export type SessionItem = {
 export type WalkthroughLine = {
   sku: string;
   description: string;
+  locationRop: number;
+  stock: number;
+  need: number;
+  sales90d: number;
+  suggestedQty: number;
   qty: number;
 };
 

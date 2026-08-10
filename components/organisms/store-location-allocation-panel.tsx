@@ -558,7 +558,7 @@ export function StoreLocationAllocationPanel() {
       <Sheet open={walkOpen} onOpenChange={setWalkOpen}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-lg overflow-y-auto"
+          className="w-full sm:max-w-3xl overflow-y-auto"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <SheetHeader>
