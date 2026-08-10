@@ -29,6 +29,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type SyncInfo = {
   lastSyncedAt: string | null;
@@ -247,46 +254,47 @@ export function AbandonedOrdersPanel({
               <label className="text-sm font-medium" htmlFor="abandoned-filter-status">
                 Follow-up status
               </label>
-              <select
-                id="abandoned-filter-status"
-                className="border-input bg-transparent flex h-9 w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none"
-                value={status}
-                onChange={(e) => {
+              <Select
+                value={status || "__active__"}
+                onValueChange={(v) => {
                   setPage(1);
-                  setStatus(e.target.value);
+                  setStatus(v === "__active__" ? "" : v);
                 }}
               >
-                <option value="">Active (Pending + Follow up)</option>
-                <option value="pending">Pending</option>
-                <option value="follow_up">Follow up</option>
-                <option value="closed">Closed</option>
-              </select>
+                <SelectTrigger id="abandoned-filter-status" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__active__">Active (Pending + Follow up)</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="follow_up">Follow up</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="abandoned-filter-response">
                 Customer response
               </label>
-              <select
-                id="abandoned-filter-response"
-                className="border-input bg-transparent flex h-9 w-full rounded-md border px-3 py-2 text-sm shadow-xs outline-none"
-                value={response}
-                onChange={(e) => {
+              <Select
+                value={response || "__any__"}
+                onValueChange={(v) => {
                   setPage(1);
-                  setResponse(e.target.value);
+                  setResponse(v === "__any__" ? "" : v);
                 }}
               >
-                <option value="">Any</option>
-                {MANUAL_CUSTOMER_RESPONSES.map((key) => (
-                  <option key={key} value={key}>
-                    {CUSTOMER_RESPONSE_LABELS[key]}
-                  </option>
-                ))}
-                <option value="recovered_sale">{CUSTOMER_RESPONSE_LABELS.recovered_sale}</option>
-                <option value="no_more_interest">No more interest (legacy)</option>
-                <option value="purchased_elsewhere">Purchased elsewhere (legacy)</option>
-                <option value="changed_my_mind">Changed my mind (legacy)</option>
-                <option value="no_response">No response (legacy)</option>
-              </select>
+                <SelectTrigger id="abandoned-filter-response" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any__">Any</SelectItem>
+                  {MANUAL_CUSTOMER_RESPONSES.map((key) => (
+                    <SelectItem key={key} value={key}>
+                      {CUSTOMER_RESPONSE_LABELS[key]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex items-end gap-2">

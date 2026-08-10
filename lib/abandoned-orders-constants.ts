@@ -46,11 +46,11 @@ export const CUSTOMER_RESPONSE_LABELS: Record<CustomerResponse, string> = {
   unable_to_contact: "Unable to contact",
   internal_staff: "Internal staff",
   customer_doesnt_want_order: "Customer doesn't want the order",
-  already_placed_order: "Already placed an order",
+  already_placed_order: "Already placed an order by another merchant",
   recovered_sale: "Recovered sale",
 };
 
-/** Responses shown in filters / close form (exclude system-only recovered_sale from manual pick? keep it — useful). */
+/** Staff-facing responses only (filters + close form). recovered_sale stays system-only. */
 export const MANUAL_CUSTOMER_RESPONSES = CUSTOMER_RESPONSES.filter(
   (r) => r !== "recovered_sale"
 ) as Exclude<CustomerResponse, "recovered_sale">[];
@@ -85,7 +85,7 @@ export const REMARK_TEMPLATES = [
   },
   {
     id: "already_placed_order",
-    label: "Already placed an order",
+    label: "Already placed an order by another merchant",
   },
   {
     id: "custom",
@@ -95,9 +95,14 @@ export const REMARK_TEMPLATES = [
 
 export type RemarkTemplateId = (typeof REMARK_TEMPLATES)[number]["id"];
 
+const REMARK_TEMPLATE_ALIASES: Record<string, RemarkTemplateId> = {
+  "Already placed an order": "already_placed_order",
+};
+
 export function matchRemarkTemplateId(remark: string | null | undefined): RemarkTemplateId {
   const trimmed = remark?.trim() ?? "";
   if (!trimmed) return "custom";
   const hit = REMARK_TEMPLATES.find((t) => t.id !== "custom" && t.label === trimmed);
-  return hit?.id ?? "custom";
+  if (hit) return hit.id;
+  return REMARK_TEMPLATE_ALIASES[trimmed] ?? "custom";
 }
