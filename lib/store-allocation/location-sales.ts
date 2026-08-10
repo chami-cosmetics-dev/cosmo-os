@@ -4,18 +4,25 @@ import { osfCompletedSalesOrderWhere } from "@/lib/osf/assist-sales";
 import type { OsfResolvedColumn } from "@/lib/osf/column-config";
 import { prisma } from "@/lib/prisma";
 
-function colomboRangeLast30Days(now = new Date()): { start: Date; endExclusive: Date } {
+/** Cosmo completed sales lookback for location allocation weighting. */
+export const STORE_ALLOCATION_SALES_LOOKBACK_DAYS = 90;
+
+function colomboRangeLastDays(
+  days: number,
+  now = new Date(),
+): { start: Date; endExclusive: Date } {
   const endExclusive = now;
-  const start = new Date(now.getTime() - 30 * 86_400_000);
+  const start = new Date(now.getTime() - days * 86_400_000);
   return { start, endExclusive };
 }
 
 /**
- * Cosmo completed sales units for one SKU in the last 30 days, keyed by OSF column key.
+ * Cosmo completed sales units for one SKU in the last 90 days (3 months),
+ * keyed by OSF column key.
  * Attribution: Order.companyLocationId → OsfColumnConfig.companyLocationId.
  * Columns without a mapped location get 0.
  */
-export async function salesByOsfColumnLast30d(
+export async function salesByOsfColumnLast90d(
   companyId: string,
   sku: string,
   columns: OsfResolvedColumn[],
@@ -35,7 +42,7 @@ export async function salesByOsfColumnLast30d(
   }
   if (locationToColumns.size === 0) return result;
 
-  const { start, endExclusive } = colomboRangeLast30Days();
+  const { start, endExclusive } = colomboRangeLastDays(STORE_ALLOCATION_SALES_LOOKBACK_DAYS);
   const lines = await prisma.orderLineItem.findMany({
     where: {
       order: {

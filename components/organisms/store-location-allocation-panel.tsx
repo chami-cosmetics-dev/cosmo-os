@@ -22,7 +22,7 @@ type PlanLocation = {
   locationRop: number;
   stock: number;
   need: number;
-  sales30d: number;
+  sales90d: number;
   suggestedQty: number;
   qty: number;
 };
@@ -338,7 +338,7 @@ export function StoreLocationAllocationPanel() {
                       <th className="p-2">ROP</th>
                       <th className="p-2">Stock</th>
                       <th className="p-2">Need</th>
-                      <th className="p-2">Sales 30d</th>
+                      <th className="p-2">Sales 90d</th>
                       <th className="p-2">Suggested</th>
                       <th className="p-2">Qty</th>
                     </tr>
@@ -350,7 +350,7 @@ export function StoreLocationAllocationPanel() {
                         <td className="p-2 tabular-nums">{l.locationRop}</td>
                         <td className="p-2 tabular-nums">{l.stock}</td>
                         <td className="p-2 tabular-nums">{l.need}</td>
-                        <td className="p-2 tabular-nums">{l.sales30d}</td>
+                        <td className="p-2 tabular-nums">{l.sales90d}</td>
                         <td className="p-2 tabular-nums">{l.suggestedQty}</td>
                         <td className="p-2">
                           <Input
