@@ -6,6 +6,7 @@ import { fetchBinActualQty, getAllOsfErpInstances, stockForColumn } from "@/lib/
 import { computeTotalOrderQtyForSkus } from "@/lib/osf/supplier-orders-reorder";
 import { allocateTakeQty } from "@/lib/store-allocation/allocate";
 import { requireStoreAllocationAccess } from "@/lib/store-allocation/auth";
+import { filterStoreAllocationColumns } from "@/lib/store-allocation/osf-columns";
 import { salesByOsfColumnLast90d } from "@/lib/store-allocation/location-sales";
 import { prisma } from "@/lib/prisma";
 import { storeAllocationPlanQuerySchema } from "@/lib/validation/store-allocation";
@@ -48,9 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "SKU not found" }, { status: 404 });
   }
 
-  const columns = (await resolveOsfColumns(auth.companyId)).filter(
-    (c) => c.active && c.includeInRop,
-  );
+  const columns = filterStoreAllocationColumns(await resolveOsfColumns(auth.companyId));
 
   const [qtyMap, ropRows, salesMap] = await Promise.all([
     computeTotalOrderQtyForSkus(auth.companyId, [sku]),

@@ -41,6 +41,8 @@ export async function GET(request: NextRequest) {
       productTitle: true,
       erp1ProductPriority: true,
       erp2ProductPriority: true,
+      itemStatusCategory: true,
+      itemStatusLabel: true,
     },
   });
 
@@ -54,6 +56,8 @@ export async function GET(request: NextRequest) {
         priorityErp1: exactBarcode.erp1ProductPriority,
         priorityErp2: exactBarcode.erp2ProductPriority,
         companyReorderQty: qtyMap.get(exactBarcode.sku) ?? 0,
+        itemStatusCategory: exactBarcode.itemStatusCategory,
+        itemStatusLabel: exactBarcode.itemStatusLabel,
       },
       matches: [],
     });
@@ -67,6 +71,8 @@ export async function GET(request: NextRequest) {
       productTitle: true,
       erp1ProductPriority: true,
       erp2ProductPriority: true,
+      itemStatusCategory: true,
+      itemStatusLabel: true,
     },
   });
 
@@ -80,6 +86,8 @@ export async function GET(request: NextRequest) {
         priorityErp1: exactSku.erp1ProductPriority,
         priorityErp2: exactSku.erp2ProductPriority,
         companyReorderQty: qtyMap.get(exactSku.sku) ?? 0,
+        itemStatusCategory: exactSku.itemStatusCategory,
+        itemStatusLabel: exactSku.itemStatusLabel,
       },
       matches: [],
     });
@@ -102,6 +110,8 @@ export async function GET(request: NextRequest) {
       productTitle: true,
       erp1ProductPriority: true,
       erp2ProductPriority: true,
+      itemStatusCategory: true,
+      itemStatusLabel: true,
     },
   });
 
@@ -113,6 +123,8 @@ export async function GET(request: NextRequest) {
       description: p.productTitle ?? "",
       priorityErp1: p.erp1ProductPriority,
       priorityErp2: p.erp2ProductPriority,
+      itemStatusCategory: p.itemStatusCategory,
+      itemStatusLabel: p.itemStatusLabel,
     }));
 
   if (matches.length === 1) {

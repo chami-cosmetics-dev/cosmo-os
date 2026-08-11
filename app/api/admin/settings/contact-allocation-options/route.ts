@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { ensureDefaultCallCenterCategories } from "@/lib/contact-call-center-categories-server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema, LIMITS, trimmedString } from "@/lib/validation";
@@ -44,6 +45,8 @@ export async function GET() {
       { status: 404 }
     );
   }
+
+  await ensureDefaultCallCenterCategories(companyId);
 
   const items = await prisma.contactAllocationOption.findMany({
     where: { companyId },

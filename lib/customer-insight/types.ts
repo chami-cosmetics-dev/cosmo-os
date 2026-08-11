@@ -38,6 +38,7 @@ export type ContactInsightDto = {
   birthMonth: number | null;
   birthDay: number | null;
   assignedMerchant: string | null;
+  category: string | null;
 };
 
 export type FrequencyDto = {

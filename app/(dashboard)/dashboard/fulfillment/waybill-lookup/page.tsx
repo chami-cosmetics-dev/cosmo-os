@@ -26,7 +26,6 @@ export default async function WaybillLookupPage() {
         page: 1,
         limit: 50,
         canImport: canImportWaybills,
-        rematch: true,
       })
     : null;
 

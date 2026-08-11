@@ -35,6 +35,8 @@ export type FilterQueryInput = {
   minTotal?: number;
   maxTotal?: number;
   birthdayThisMonth?: boolean;
+  /** No purchase in the last N months (3 or 6). Uses ContactMaster.lastPurchaseAt. */
+  noPurchaseMonths?: 3 | 6;
   page: number;
   pageSize: number;
 };
@@ -49,6 +51,31 @@ export function matchesBirthdayThisMonth(
 ): boolean {
   if (birthMonth == null || birthMonth < 1 || birthMonth > 12) return false;
   return birthMonth === now.getMonth() + 1;
+}
+
+/** Cutoff instant: purchases strictly before this count as outside the window. */
+export function noPurchaseCutoff(months: 3 | 6, now = new Date()): Date {
+  const d = new Date(now.getTime());
+  d.setMonth(d.getMonth() - months);
+  return d;
+}
+
+/**
+ * True when contact has never purchased, or last purchase is older than `months`.
+ * Relies on ContactMaster.lastPurchaseAt (synced from orders / Adapt).
+ */
+export function hasNoPurchaseWithinMonths(
+  lastPurchaseAt: Date | string | null | undefined,
+  months: 3 | 6,
+  now = new Date()
+): boolean {
+  if (lastPurchaseAt == null || lastPurchaseAt === "") return true;
+  const last =
+    lastPurchaseAt instanceof Date
+      ? lastPurchaseAt
+      : new Date(lastPurchaseAt);
+  if (Number.isNaN(last.getTime())) return true;
+  return last.getTime() < noPurchaseCutoff(months, now).getTime();
 }
 
 async function lifetimeTotalForContact(
@@ -123,6 +150,19 @@ function buildAllocationWhere(input: FilterQueryInput): {
 
   if (input.birthdayThisMonth) {
     where.birthMonth = currentMonth;
+  }
+
+  if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
+    const cutoff = noPurchaseCutoff(input.noPurchaseMonths);
+    const inactivity = {
+      OR: [{ lastPurchaseAt: null }, { lastPurchaseAt: { lt: cutoff } }],
+    };
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, inactivity];
   }
 
   return { empty: false, where };

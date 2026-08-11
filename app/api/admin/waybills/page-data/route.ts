@@ -31,14 +31,13 @@ export async function GET(request: NextRequest) {
   }
 
   const canImport = hasPermission(auth.context, "fulfillment.waybill_lookup.import");
-  // Light automatic rematch on every load (capped) so newly created orders link without re-upload.
-  // Explicit rematch=1 uses the same path (same cap).
+  // Page open is read-only. Rematch only when rematch=1 (or via POST /rematch / after import flows).
   const data = await getWaybillLookupPageData({
     companyId,
     page: parsed.data.page,
     limit: parsed.data.limit,
     canImport,
-    rematch: true,
+    rematch: parsed.data.rematch === true,
   });
 
   return NextResponse.json(data);

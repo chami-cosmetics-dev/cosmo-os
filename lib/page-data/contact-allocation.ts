@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 
+import { ensureDefaultCallCenterCategories } from "@/lib/contact-call-center-categories-server";
 import { prisma } from "@/lib/prisma";
 
 const PREVIEW_LIMIT = 200;
@@ -238,6 +239,7 @@ async function fetchAssignedMerchantOptions(companyId: string) {
 }
 
 async function fetchConfiguredAllocationOptions(companyId: string) {
+  const categories = await ensureDefaultCallCenterCategories(companyId);
   const rows = await prisma.contactAllocationOption.findMany({
     where: { companyId },
     orderBy: { value: "asc" },
@@ -249,7 +251,7 @@ async function fetchConfiguredAllocationOptions(companyId: string) {
     districts: [] as string[],
     towns: [] as string[],
     origins: [] as string[],
-    categories: [] as string[],
+    categories,
     customerTypes: [] as string[],
   };
 
@@ -258,7 +260,6 @@ async function fetchConfiguredAllocationOptions(companyId: string) {
     if (row.type === "district") grouped.districts.push(row.value);
     if (row.type === "town") grouped.towns.push(row.value);
     if (row.type === "origin") grouped.origins.push(row.value);
-    if (row.type === "category") grouped.categories.push(row.value);
     if (row.type === "customerType") grouped.customerTypes.push(row.value);
   }
 

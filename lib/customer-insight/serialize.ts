@@ -26,6 +26,7 @@ export function serializeContactInsight(input: {
   birthMonth?: number | null;
   birthDay?: number | null;
   assignedMerchant?: string | null;
+  category?: string | null;
 }): ContactInsightDto {
   return {
     id: input.id,
@@ -40,6 +41,7 @@ export function serializeContactInsight(input: {
     birthMonth: input.birthMonth ?? null,
     birthDay: input.birthDay ?? null,
     assignedMerchant: input.assignedMerchant ?? null,
+    category: input.category ?? null,
   };
 }
 

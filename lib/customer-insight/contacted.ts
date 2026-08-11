@@ -1,6 +1,11 @@
+import {
+  isCallCenterCategory,
+  type CallCenterCategory,
+} from "@/lib/contact-call-center-categories";
 import { writeAuditLog } from "@/lib/audit-log";
 import { prisma } from "@/lib/prisma";
 
+/** Legacy Insight marker — still counts as last-contacted, excluded from chart. */
 export const CONTACTED_ALLOCATION_CATEGORY = "Contacted";
 
 export async function getLastContactedAt(input: {
@@ -11,7 +16,7 @@ export async function getLastContactedAt(input: {
     where: {
       companyId: input.companyId,
       contactId: input.contactId,
-      category: CONTACTED_ALLOCATION_CATEGORY,
+      NOT: { category: "allocation" },
     },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true },
@@ -24,8 +29,11 @@ export async function markContactInsightContacted(input: {
   contactId: string;
   actorUserId: string | null | undefined;
   merchantName: string | null;
+  category: CallCenterCategory;
   note?: string | null;
-}): Promise<{ lastContactedAt: string } | null> {
+}): Promise<{ lastContactedAt: string; category: string } | null> {
+  if (!isCallCenterCategory(input.category)) return null;
+
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
     select: {
@@ -47,13 +55,17 @@ export async function markContactInsightContacted(input: {
     "Unknown";
 
   await prisma.$transaction(async (tx) => {
+    await tx.contactMaster.update({
+      where: { id: contact.id },
+      data: { category: input.category },
+    });
     await tx.contactAllocationUpdate.create({
       data: {
         companyId: input.companyId,
         contactId: contact.id,
         merchantId: input.actorUserId ?? null,
         merchantName,
-        category: CONTACTED_ALLOCATION_CATEGORY,
+        category: input.category,
       },
     });
   });
@@ -65,9 +77,10 @@ export async function markContactInsightContacted(input: {
     action: "contact_follow_up_contacted",
     entityType: "ContactMaster",
     entityId: contact.id,
-    summary: `Marked ${contact.name} as contacted (Customer Insight)`,
+    summary: `Marked ${contact.name} as ${input.category} (Customer Insight)`,
     metadata: {
       note: input.note?.trim() || null,
+      category: input.category,
       phoneNumber: contact.phoneNumber,
       email: contact.email,
       lastPurchaseAt: contact.lastPurchaseAt,
@@ -77,5 +90,5 @@ export async function markContactInsightContacted(input: {
     },
   });
 
-  return { lastContactedAt: now.toISOString() };
+  return { lastContactedAt: now.toISOString(), category: input.category };
 }

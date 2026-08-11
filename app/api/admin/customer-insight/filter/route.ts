@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     minTotal: sp.get("minTotal") ?? undefined,
     maxTotal: sp.get("maxTotal") ?? undefined,
     birthdayThisMonth: sp.get("birthdayThisMonth") ?? undefined,
+    noPurchaseMonths: sp.get("noPurchaseMonths") ?? undefined,
     page: sp.get("page") ?? undefined,
     pageSize: sp.get("pageSize") ?? undefined,
   });
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
     minTotal: parsed.data.minTotal,
     maxTotal: parsed.data.maxTotal,
     birthdayThisMonth: parsed.data.birthdayThisMonth,
+    noPurchaseMonths: parsed.data.noPurchaseMonths,
     page: parsed.data.page,
     pageSize: parsed.data.pageSize,
   });
