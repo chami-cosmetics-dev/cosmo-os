@@ -593,124 +593,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
-            <CardTitle className="text-base">Daily sales invoices</CardTitle>
-            <p className="text-muted-foreground text-xs">
-              Invoices attributed to you (order-placed merchant). Allocated
-              merchant is shown from Contact Master when the customer is assigned.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              type="date"
-              value={invoiceDay}
-              disabled={isBusy}
-              className="w-auto"
-              onChange={(e) => {
-                const next = e.target.value;
-                if (next) void loadDailyInvoices(next);
-              }}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={isBusy || dailyInvoices.length === 0}
-              onClick={exportDailyInvoicesCsv}
-              className="gap-2"
-            >
-              <Download aria-hidden />
-              Export CSV
-            </Button>
-            {busyKey === "daily-invoices" ? (
-              <Loader2 className="text-muted-foreground size-4 animate-spin" aria-hidden />
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            <p>
-              <span className="text-muted-foreground">Day total:</span>{" "}
-              <span className="font-medium tabular-nums">
-                {formatMoney(dailyInvoicesTotal)}
-              </span>
-            </p>
-            <p className="text-muted-foreground">
-              {dailyInvoicesOrderCount} invoice
-              {dailyInvoicesOrderCount === 1 ? "" : "s"} · {invoiceDay}
-            </p>
-          </div>
-          {busyKey === "daily-invoices" ? (
-            <p className="text-muted-foreground flex items-center gap-2 text-sm">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Loading invoices...
-            </p>
-          ) : dailyInvoices.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No sales invoices for this day.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-muted-foreground border-b text-left">
-                    <th className="py-2 pr-3 font-medium">Time</th>
-                    <th className="py-2 pr-3 font-medium">Invoice</th>
-                    <th className="py-2 pr-3 font-medium">Customer</th>
-                    <th className="py-2 pr-3 font-medium">Phone</th>
-                    <th className="py-2 pr-3 font-medium">Amount</th>
-                    <th className="py-2 pr-3 font-medium">Location</th>
-                    <th className="py-2 font-medium">Allocated merchant</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dailyInvoices.map((row) => (
-                    <tr key={row.orderId} className="border-b border-border/60">
-                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
-                        {formatAppTime(row.createdAt)}
-                      </td>
-                      <td className="py-2 pr-3 font-medium whitespace-nowrap">
-                        {row.invoiceLabel}
-                      </td>
-                      <td className="py-2 pr-3">{row.customerName}</td>
-                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
-                        {row.customerPhone ?? "—"}
-                      </td>
-                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
-                        {formatMoney(row.amount)}
-                      </td>
-                      <td className="py-2 pr-3">{row.locationName}</td>
-                      <td className="py-2">
-                        {row.allocatedMerchant ? (
-                          <span
-                            className={
-                              row.allocationMismatch
-                                ? "text-amber-700 dark:text-amber-400"
-                                : undefined
-                            }
-                          >
-                            {row.allocatedMerchant}
-                            {row.allocationMismatch ? (
-                              <span className="text-muted-foreground ml-1 text-xs">
-                                (other)
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
             <CardTitle className="text-base">Peer comparison</CardTitle>
             <p className="text-sm text-foreground/90">{activePeerBoard.cheerMessage}</p>
             <p className="text-muted-foreground text-xs">
@@ -938,50 +820,103 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-base">Your sales by outlet</CardTitle>
+            <CardTitle className="text-base">Nearest birthdays</CardTitle>
             <p className="text-muted-foreground text-xs">
-              This merchant’s MTD total only — not company-wide sales. Split by
-              location/outlet.
+              Allocated customers with birthdays in the next 45 days. Wish them with
+              an SMS (editable) and optional discount.
             </p>
           </CardHeader>
           <CardContent>
-            {locationPie.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No sales in this month yet.</p>
+            {(data.nearestBirthdays ?? []).length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No upcoming birthdays among allocated customers (need birth month on
+                contact + matching assigned merchant name).
+              </p>
             ) : (
-              <div className="mx-auto h-52 w-full max-w-[240px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={locationPie}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={45}
-                      outerRadius={75}
-                      paddingAngle={2}
+              <ul className="max-h-72 space-y-2 overflow-y-auto">
+                {(data.nearestBirthdays ?? []).map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full">
+                        <Cake className="size-4" aria-hidden />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{row.name}</p>
+                        <p className="text-muted-foreground text-xs">
+                          {row.daysUntil === 0
+                            ? "Birthday today"
+                            : `In ${row.daysUntil} day${row.daysUntil === 1 ? "" : "s"}`}
+                          {" · "}
+                          {row.birthMonth}/{row.birthDay ?? "—"}
+                          {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={isBusy || !row.phoneNumber}
+                      onClick={() => openWish(row)}
                     >
-                      {locationPie.map((entry) => (
-                        <Cell key={entry.name} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      content={<MerchantChartTooltip />}
-                      cursor={{ fill: "rgba(148, 163, 184, 0.12)" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+                      Wish them
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             )}
-            <ul className="mt-2 space-y-1 text-sm">
-              {data.sales.byLocation.map((row) => (
-                <li key={row.locationId} className="flex justify-between gap-2">
-                  <span className="truncate">{row.locationName}</span>
-                  <span className="shrink-0 font-medium">{formatMoney(row.total)}</span>
-                </li>
-              ))}
-            </ul>
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base">Your sales by outlet</CardTitle>
+          <p className="text-muted-foreground text-xs">
+            This merchant’s MTD total only — not company-wide sales. Split by
+            location/outlet.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {locationPie.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No sales in this month yet.</p>
+          ) : (
+            <div className="mx-auto h-52 w-full max-w-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={locationPie}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={45}
+                    outerRadius={75}
+                    paddingAngle={2}
+                  >
+                    {locationPie.map((entry) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={<MerchantChartTooltip />}
+                    cursor={{ fill: "rgba(148, 163, 184, 0.12)" }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <ul className="mt-2 space-y-1 text-sm">
+            {data.sales.byLocation.map((row) => (
+              <li key={row.locationId} className="flex justify-between gap-2">
+                <span className="truncate">{row.locationName}</span>
+                <span className="shrink-0 font-medium">{formatMoney(row.total)}</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1555,59 +1490,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-base">Nearest birthdays</CardTitle>
-          <p className="text-muted-foreground text-xs">
-            Allocated customers with birthdays in the next 45 days. Wish them with
-            an SMS (editable) and optional discount.
-          </p>
-        </CardHeader>
-        <CardContent>
-          {(data.nearestBirthdays ?? []).length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              No upcoming birthdays among allocated customers (need birth month on
-              contact + matching assigned merchant name).
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {(data.nearestBirthdays ?? []).map((row) => (
-                <li
-                  key={row.contactId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full">
-                      <Cake className="size-4" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{row.name}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {row.daysUntil === 0
-                          ? "Birthday today"
-                          : `In ${row.daysUntil} day${row.daysUntil === 1 ? "" : "s"}`}
-                        {" · "}
-                        {row.birthMonth}/{row.birthDay ?? "—"}
-                        {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={isBusy || !row.phoneNumber}
-                    onClick={() => openWish(row)}
-                  >
-                    Wish them
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
       <Dialog
         open={wishContact != null}
         onOpenChange={(open) => {
@@ -1748,6 +1630,124 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         {row.assignedAt
                           ? new Date(row.assignedAt).toLocaleString()
                           : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Daily sales invoices</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              Invoices attributed to you (order-placed merchant). Allocated
+              merchant is shown from Contact Master when the customer is assigned.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="date"
+              value={invoiceDay}
+              disabled={isBusy}
+              className="w-auto"
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next) void loadDailyInvoices(next);
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isBusy || dailyInvoices.length === 0}
+              onClick={exportDailyInvoicesCsv}
+              className="gap-2"
+            >
+              <Download aria-hidden />
+              Export CSV
+            </Button>
+            {busyKey === "daily-invoices" ? (
+              <Loader2 className="text-muted-foreground size-4 animate-spin" aria-hidden />
+            ) : null}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <p>
+              <span className="text-muted-foreground">Day total:</span>{" "}
+              <span className="font-medium tabular-nums">
+                {formatMoney(dailyInvoicesTotal)}
+              </span>
+            </p>
+            <p className="text-muted-foreground">
+              {dailyInvoicesOrderCount} invoice
+              {dailyInvoicesOrderCount === 1 ? "" : "s"} · {invoiceDay}
+            </p>
+          </div>
+          {busyKey === "daily-invoices" ? (
+            <p className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading invoices...
+            </p>
+          ) : dailyInvoices.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No sales invoices for this day.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-muted-foreground border-b text-left">
+                    <th className="py-2 pr-3 font-medium">Time</th>
+                    <th className="py-2 pr-3 font-medium">Invoice</th>
+                    <th className="py-2 pr-3 font-medium">Customer</th>
+                    <th className="py-2 pr-3 font-medium">Phone</th>
+                    <th className="py-2 pr-3 font-medium">Amount</th>
+                    <th className="py-2 pr-3 font-medium">Location</th>
+                    <th className="py-2 font-medium">Allocated merchant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyInvoices.map((row) => (
+                    <tr key={row.orderId} className="border-b border-border/60">
+                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
+                        {formatAppTime(row.createdAt)}
+                      </td>
+                      <td className="py-2 pr-3 font-medium whitespace-nowrap">
+                        {row.invoiceLabel}
+                      </td>
+                      <td className="py-2 pr-3">{row.customerName}</td>
+                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
+                        {row.customerPhone ?? "—"}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
+                        {formatMoney(row.amount)}
+                      </td>
+                      <td className="py-2 pr-3">{row.locationName}</td>
+                      <td className="py-2">
+                        {row.allocatedMerchant ? (
+                          <span
+                            className={
+                              row.allocationMismatch
+                                ? "text-amber-700 dark:text-amber-400"
+                                : undefined
+                            }
+                          >
+                            {row.allocatedMerchant}
+                            {row.allocationMismatch ? (
+                              <span className="text-muted-foreground ml-1 text-xs">
+                                (other)
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
