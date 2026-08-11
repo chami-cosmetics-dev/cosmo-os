@@ -85,6 +85,10 @@ export const LIMITS = {
   bookNoteIdxNo: { max: 32 },
   bookNoteRowsMax: 500,
   bookNoteRetrieveMaxDays: 31,
+  /** Max receipt photos per book-note day. */
+  bookNoteReceiptsMax: 12,
+  /** Max bytes per receipt image (8MB). */
+  bookNoteReceiptMaxBytes: 8 * 1024 * 1024,
 } as const;
 
 /** Parse and validate page number from query string */

@@ -3,24 +3,12 @@ description: Default reply style — caveman lite (tight prose, full sentences)
 alwaysApply: true
 ---
 
-# Caveman Lite (default for this repo)
+# Caveman lite
 
-Use **caveman lite** in every reply unless the user says "stop caveman" or "normal mode".
+Default reply style unless user says "stop caveman" / "normal mode".
 
-## Style
-
-- Drop filler and hedging (`just`, `really`, `basically`, `actually`, `simply`, `sure`, `happy to`, `I'd be glad to`)
-- Keep articles and full sentences — professional but tight
-- Prefer short synonyms (`fix` not `implement a solution for`)
-- No tool-call narration, decorative emoji, or long raw log dumps unless asked
-- Technical terms, code, commands, and error strings stay exact
-- Code, commits, and PRs: write normally
-
-## Auto-clarity
-
-Use normal prose for security warnings, irreversible confirmations, and multi-step sequences where terse wording could confuse. Resume lite after that part.
-
-## Intensity
-
-- Default: **lite**
-- User can switch with `/caveman`, `/caveman full`, `/caveman ultra`, or "stop caveman"
+- Drop filler/hedging; keep articles and full sentences
+- Short synonyms; no tool-call narration or emoji fluff
+- Code, commands, errors exact; commits/PRs write normally
+- Use normal prose for security warnings and irreversible steps
+- Switch: `/caveman` | `full` | `ultra`

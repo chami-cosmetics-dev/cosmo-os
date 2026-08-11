@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { ImagePlus, Loader2, Plus, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,9 +17,11 @@ import type {
   BookNoteHistoryItem,
   BookNoteLocationOption,
   BookNoteOrderSuggestion,
+  BookNoteReceiptDto,
 } from "@/lib/book-notes/types";
 import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
 import { notify } from "@/lib/notify";
+import { LIMITS } from "@/lib/validation";
 
 type LedgerRow = {
   key: string;
@@ -101,9 +103,11 @@ export function BookNotesPanel({
   const [statusLine, setStatusLine] = useState("");
   const [lastError, setLastError] = useState<string | null>(null);
   const [history, setHistory] = useState<BookNoteHistoryItem[]>(initialHistory);
+  const [receipts, setReceipts] = useState<BookNoteReceiptDto[]>([]);
   const [suggestForKey, setSuggestForKey] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<BookNoteOrderSuggestion[]>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
 
   const isBusy = busyKey !== null;
@@ -127,6 +131,7 @@ export function BookNotesPanel({
       const nextRows = dayToRows(day);
       setRows(nextRows);
       setRowCountInput(String(nextRows.length));
+      setReceipts(day?.receipts ?? []);
       setLocked(Boolean(day?.locked) || isBookNoteDayLocked(date));
       setHistory((data.history as BookNoteHistoryItem[]) ?? []);
       setStatusLine(day ? `Loaded ${day.rows.length} row(s)` : "No saved rows for this day");
@@ -312,9 +317,93 @@ export function BookNotesPanel({
     const day = data as BookNoteDayDto;
     setRows(dayToRows(day));
     setRowCountInput(String(day.rows.length));
+    setReceipts(day.receipts ?? []);
     setLocked(day.locked);
     await refreshHistory();
     return day;
+  }
+
+  async function uploadReceiptFiles(fileList: FileList | null) {
+    if (!fileList?.length || !companyLocationId || readOnly) return;
+    const files = Array.from(fileList);
+    const remaining = LIMITS.bookNoteReceiptsMax - receipts.length;
+    if (remaining <= 0) {
+      notify.error(`Maximum ${LIMITS.bookNoteReceiptsMax} receipt images per day`);
+      return;
+    }
+    const toUpload = files.slice(0, remaining);
+    if (files.length > remaining) {
+      notify.error(`Only ${remaining} more image(s) allowed for this day`);
+    }
+
+    setBusyKey("receipt-upload");
+    clearError();
+    try {
+      for (const file of toUpload) {
+        const body = new FormData();
+        body.append("file", file);
+        body.append("companyLocationId", companyLocationId);
+        body.append("postingDate", postingDate);
+        const res = await fetch("/api/admin/book-notes/receipts", {
+          method: "POST",
+          body,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showError(data.error ?? "Receipt upload failed");
+          return;
+        }
+        if (data.day) {
+          const day = data.day as BookNoteDayDto;
+          setReceipts(day.receipts ?? []);
+          setStatusLine(`Receipts: ${(day.receipts ?? []).length} image(s)`);
+        } else if (data.receipt) {
+          setReceipts((prev) => {
+            const next = [...prev, data.receipt as BookNoteReceiptDto];
+            setStatusLine(`Receipts: ${next.length} image(s)`);
+            return next;
+          });
+        }
+      }
+      notify.success(
+        toUpload.length === 1
+          ? "Receipt image added"
+          : `Added ${toUpload.length} receipt images`,
+      );
+    } catch (err) {
+      showError(
+        err instanceof Error ? err.message : "Receipt upload failed",
+      );
+    } finally {
+      setBusyKey(null);
+      if (receiptInputRef.current) receiptInputRef.current.value = "";
+    }
+  }
+
+  async function removeReceipt(receiptId: string) {
+    if (readOnly) return;
+    setBusyKey(`receipt-del:${receiptId}`);
+    clearError();
+    try {
+      const res = await fetch(`/api/admin/book-notes/receipts/${receiptId}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showError(
+          typeof data.error === "string" ? data.error : "Failed to remove receipt",
+        );
+        return;
+      }
+      setReceipts((prev) => prev.filter((r) => r.id !== receiptId));
+      notify.success("Receipt removed");
+    } catch (err) {
+      showError(
+        err instanceof Error ? err.message : "Failed to remove receipt",
+      );
+    } finally {
+      setBusyKey(null);
+    }
   }
 
   async function sendDayToErp(
@@ -365,9 +454,24 @@ export function BookNotesPanel({
       not_found_count?: number;
       total_rows?: number;
     } | null;
-    const line = s
+    const receiptUpload = data.receiptUpload as {
+      uploaded?: number;
+      failed?: number;
+      receiptCount?: number;
+      bookNoteCount?: number;
+      errors?: string[];
+    } | null;
+    let line = s
       ? `ERP ${dateYmd}: ${s.verified_count ?? 0} verified, ${s.mismatch_count ?? 0} mismatch, ${s.not_found_count ?? 0} not found (of ${s.total_rows ?? 0})`
       : `Sent ${dateYmd} to ERP`;
+    if (receiptUpload && (receiptUpload.receiptCount ?? 0) > 0) {
+      line += ` · receipts ${receiptUpload.uploaded ?? 0} uploaded`;
+      if ((receiptUpload.failed ?? 0) > 0) {
+        line += `, ${receiptUpload.failed} failed`;
+        const firstErr = receiptUpload.errors?.[0];
+        if (firstErr) line += ` (${firstErr})`;
+      }
+    }
     setStatusLine(line);
     notify.success(line);
     return true;
@@ -720,6 +824,103 @@ export function BookNotesPanel({
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      <div className="bg-card space-y-3 rounded-lg border p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">
+              Day receipts
+            </h2>
+            <p className="text-muted-foreground mt-1 text-xs">
+              One photo set for this whole day (card/KOKO slips, etc.). Sent to
+              ERP with the ledger so finance can open them from bank recon INFO.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              ref={receiptInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              className="sr-only"
+              disabled={isBusy || readOnly || !companyLocationId}
+              onChange={(e) => void uploadReceiptFiles(e.target.files)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={
+                isBusy ||
+                readOnly ||
+                !companyLocationId ||
+                receipts.length >= LIMITS.bookNoteReceiptsMax
+              }
+              onClick={() => receiptInputRef.current?.click()}
+            >
+              {busyKey === "receipt-upload" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <ImagePlus className="h-4 w-4" />
+                  Add photos
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+        {receipts.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            No receipt photos yet
+            {readOnly ? "." : " — add images before Send to ERP."}
+          </p>
+        ) : (
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+            {receipts.map((r) => (
+              <li
+                key={r.id}
+                className="bg-muted/30 relative overflow-hidden rounded-md border"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={r.url}
+                  alt={r.fileName}
+                  className="h-28 w-full object-cover"
+                />
+                <div className="flex items-center justify-between gap-1 px-2 py-1">
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {r.fileName}
+                  </span>
+                  {!readOnly ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      disabled={isBusy}
+                      aria-label={`Remove ${r.fileName}`}
+                      onClick={() => void removeReceipt(r.id)}
+                    >
+                      {busyKey === `receipt-del:${r.id}` ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <X className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-muted-foreground text-[11px]">
+          {receipts.length}/{LIMITS.bookNoteReceiptsMax} images · JPEG/PNG/WebP/GIF
+          · max {Math.round(LIMITS.bookNoteReceiptMaxBytes / (1024 * 1024))}MB each
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
