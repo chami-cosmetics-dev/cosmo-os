@@ -36,14 +36,14 @@ function buildWhere({
 }): Prisma.ShopifyAbandonedCheckoutWhereInput {
   const search = filters.search?.trim();
 
-  const followUpStatus: string[] = filters.followUpStatus?.length
-    ? [...filters.followUpStatus]
-    : ["pending", "follow_up"];
-
   const where: Prisma.ShopifyAbandonedCheckoutWhereInput = {
     companyId,
-    followUpStatus: { in: followUpStatus },
   };
+
+  // No status filter → include all (pending, follow_up, closed).
+  if (filters.followUpStatus?.length) {
+    where.followUpStatus = { in: [...filters.followUpStatus] };
+  }
 
   if (filters.from || filters.to) {
     where.abandonedAt = {};

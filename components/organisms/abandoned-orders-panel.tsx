@@ -65,7 +65,7 @@ export function AbandonedOrdersPanel({
 
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
-  const [status, setStatus] = useState<string>(""); // empty = default pending+follow_up (backend default)
+  const [status, setStatus] = useState<string>(""); // empty = all statuses
   const [response, setResponse] = useState<string>("");
   const [search, setSearch] = useState<string>("");
 
@@ -255,17 +255,18 @@ export function AbandonedOrdersPanel({
                 Follow-up status
               </label>
               <Select
-                value={status || "__active__"}
+                value={status || "__all__"}
                 onValueChange={(v) => {
                   setPage(1);
-                  setStatus(v === "__active__" ? "" : v);
+                  setStatus(v === "__all__" ? "" : v);
                 }}
               >
                 <SelectTrigger id="abandoned-filter-status" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__active__">Active (Pending + Follow up)</SelectItem>
+                  <SelectItem value="__all__">All statuses</SelectItem>
+                  <SelectItem value="pending,follow_up">Active (Pending + Follow up)</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="follow_up">Follow up</SelectItem>
                   <SelectItem value="closed">Closed</SelectItem>
