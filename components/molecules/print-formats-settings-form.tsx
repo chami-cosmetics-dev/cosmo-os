@@ -88,6 +88,8 @@ const VARIABLES = [
   "location.name, location.logoUrl, location.invoicePhone",
   "order.invoiceNumber, order.invoiceDate, order.paymentMethod",
   "customer.name, customer.phones, customer.shippingAddress",
+  "customer.billingName, customer.billingPhone, customer.shippingName, customer.shippingPhone",
+  "orderData.billingAddress.name, orderData.billingAddress.phone, orderData.shippingAddress.name, orderData.shippingAddress.phone",
   "totals.productTotalFormatted, totals.shippingTotalFormatted, totals.grandTotalFormatted",
   "lineItems loop: {{#each lineItems}} {{sku}} {{description}} {{quantity}} {{lineTotalFormatted}} {{/each}}",
   "files loop: {{#each files}} {{fileName}} {{{url}}} {{/each}}",
