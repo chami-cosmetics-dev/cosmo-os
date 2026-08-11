@@ -392,7 +392,7 @@ export const waybillLookupPageDataQuerySchema = z.object({
     .transform((s) => s === "1" || s?.toLowerCase() === "true"),
 });
 
-/** Explicit rematch POST body. */
+/** Explicit rematch POST body. Default batch is 50; max 500 per request. */
 export const waybillRematchBodySchema = z.object({
   limit: z
     .number()

@@ -27,6 +27,7 @@ const sampleOwner: CustomerInsightDto = {
     birthMonth: 8,
     birthDay: 1,
     assignedMerchant: "Dinuli",
+    category: "Interested",
   },
   frequency: {
     orderCount: 2,

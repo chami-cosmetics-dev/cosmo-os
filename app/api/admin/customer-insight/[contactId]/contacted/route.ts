@@ -68,6 +68,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     contactId: contact.id,
     actorUserId: user.id,
     merchantName: getMerchantDisplayName(user) ?? contact.assignedMerchant,
+    category: parsed.data.category,
     note: parsed.data.note,
   });
   if (!result) {

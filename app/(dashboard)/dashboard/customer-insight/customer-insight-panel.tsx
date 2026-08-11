@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Calendar, Check, Crown, Loader2, Phone, Search, ShieldCheck, X } from "lucide-react";
+import { Calendar, Check, Crown, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +42,7 @@ import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
+import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 
@@ -120,6 +121,35 @@ function truncateLabel(value: string, max = 18) {
   const t = value.trim();
   if (t.length <= max) return t;
   return `${t.slice(0, max - 1)}…`;
+}
+
+function DetailField({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </p>
+      <div className="mt-1 text-sm font-medium text-foreground break-words">
+        {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+function contactPhoneList(contact: {
+  phoneNumber: string | null;
+  phones?: string[] | null;
+}) {
+  if (contact.phones?.length) return contact.phones;
+  return [contact.phoneNumber].filter(Boolean) as string[];
 }
 
 function InsightChartTooltip({
@@ -220,12 +250,14 @@ export function CustomerInsightPanel({
   const [filterBrand, setFilterBrand] = useState("");
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [filterBirthday, setFilterBirthday] = useState(false);
+  const [filterNoPurchase, setFilterNoPurchase] = useState<"" | "3" | "6">("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
     null
   );
   const [filterTotal, setFilterTotal] = useState(0);
+  const [callOutcome, setCallOutcome] = useState<string>("Interested");
   const invoicesRef = useRef<HTMLDivElement>(null);
 
   const isBusy = busyKey !== null;
@@ -380,6 +412,10 @@ export function CustomerInsightPanel({
 
   async function markContacted() {
     if (!selectedContactId) return;
+    if (!callOutcome.trim()) {
+      notify.error("Select a call outcome.");
+      return;
+    }
     setBusyKey("contacted");
     try {
       const res = await fetch(
@@ -387,22 +423,31 @@ export function CustomerInsightPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ category: callOutcome }),
         }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        notify.error(data.error ?? "Failed to mark contacted.");
+        notify.error(data.error ?? "Failed to save call outcome.");
         return;
       }
-      notify.success("Marked as contacted.");
+      notify.success(`Saved outcome: ${data.category ?? callOutcome}`);
       setInsight((prev) =>
         prev
-          ? { ...prev, lastContactedAt: data.lastContactedAt ?? new Date().toISOString() }
+          ? {
+              ...prev,
+              lastContactedAt: data.lastContactedAt ?? new Date().toISOString(),
+              contact: prev.contact
+                ? {
+                    ...prev.contact,
+                    category: data.category ?? callOutcome,
+                  }
+                : prev.contact,
+            }
           : prev
       );
     } catch {
-      notify.error("Failed to mark contacted.");
+      notify.error("Failed to save call outcome.");
     } finally {
       setBusyKey(null);
     }
@@ -417,6 +462,9 @@ export function CustomerInsightPanel({
       if (filterLoyalty) params.set("loyalty", filterLoyalty);
       if (filterBrand.trim()) params.set("brand", filterBrand.trim());
       if (filterBirthday) params.set("birthdayThisMonth", "true");
+      if (filterNoPurchase === "3" || filterNoPurchase === "6") {
+        params.set("noPurchaseMonths", filterNoPurchase);
+      }
       if (filterMin.trim()) params.set("minTotal", filterMin.trim());
       if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
       params.set("page", "1");
@@ -590,6 +638,21 @@ export function CustomerInsightPanel({
               />
               Birthday this month
             </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">No purchase</span>
+              <select
+                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                value={filterNoPurchase}
+                onChange={(e) =>
+                  setFilterNoPurchase(e.target.value as "" | "3" | "6")
+                }
+                disabled={isBusy}
+              >
+                <option value="">Any</option>
+                <option value="3">No purchase in last 3 months</option>
+                <option value="6">No purchase in last 6 months</option>
+              </select>
+            </label>
           </div>
           <Button type="button" disabled={isBusy} onClick={() => void runFilters()}>
             {busyKey === "filter" ? (
@@ -761,89 +824,116 @@ export function CustomerInsightPanel({
             </Card>
           )}
 
-          {/* Owner contact details + progress (screenshot layout) */}
+          {/* Owner contact details + progress */}
           {isOwner && insight.contact && (
             <Card className="overflow-hidden">
               <CardContent className="space-y-5 p-5 sm:p-6">
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex min-w-0 flex-1 items-start gap-4">
                     <div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
                       {initialFromName(insight.contact.name)}
                     </div>
-                    <div className="min-w-0 space-y-1.5">
-                      <h2 className="text-xl font-semibold tracking-tight">
-                        {insight.contact.name}
-                      </h2>
-                      <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                        <span className="inline-flex items-start gap-1.5">
-                          <Phone className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                          <span className="min-w-0">
-                            {(insight.contact.phones?.length
-                              ? insight.contact.phones
-                              : [
-                                  insight.contact.phoneNumber,
-                                ].filter(Boolean) as string[]
-                            ).length > 0 ? (
-                              <span className="flex flex-col gap-0.5">
-                                {(insight.contact.phones?.length
-                                  ? insight.contact.phones
-                                  : ([insight.contact.phoneNumber].filter(
-                                      Boolean
-                                    ) as string[])
-                                ).map((p, idx) => (
-                                  <span key={`${p}-${idx}`}>
-                                    {p}
-                                    {idx === 0 ? (
-                                      <span className="text-muted-foreground/80">
-                                        {" "}
-                                        (primary)
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                ))}
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div className="space-y-1.5">
+                        <h2 className="text-xl font-semibold tracking-tight">
+                          {insight.contact.name}
+                        </h2>
+                        <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+                          {contactPhoneList(insight.contact).length > 0 ? (
+                            contactPhoneList(insight.contact).map((p, idx) => (
+                              <span
+                                key={`${p}-${idx}`}
+                                className="inline-flex flex-wrap items-center gap-1.5"
+                              >
+                                <Phone className="size-3.5 shrink-0" aria-hidden />
+                                <span className="text-foreground">{p}</span>
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide">
+                                  {idx === 0 ? "Primary" : "Previous"}
+                                </span>
                               </span>
-                            ) : (
-                              "No phone"
-                            )}
-                          </span>
-                        </span>
-                        {formatMemberSince(insight.frequency?.firstOrderAt) ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <Calendar className="size-3.5 shrink-0" aria-hidden />
-                            Member since{" "}
-                            {formatMemberSince(insight.frequency?.firstOrderAt)}
-                          </span>
-                        ) : null}
-                        {insight.contact.email ? (
-                          <span className="truncate">{insight.contact.email}</span>
-                        ) : null}
-                        <span className="text-foreground/80">
-                          Allocated: {insight.assignedMerchant ?? "—"}
-                          {" · "}
-                          DOB:{" "}
-                          {formatDob(
+                            ))
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Phone className="size-3.5 shrink-0" aria-hidden />
+                              No phone
+                            </span>
+                          )}
+                          {insight.contact.email ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Mail className="size-3.5 shrink-0" aria-hidden />
+                              <span className="truncate text-foreground">
+                                {insight.contact.email}
+                              </span>
+                            </span>
+                          ) : null}
+                          {formatMemberSince(insight.frequency?.firstOrderAt) ? (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Calendar className="size-3.5 shrink-0" aria-hidden />
+                              Member since{" "}
+                              {formatMemberSince(insight.frequency?.firstOrderAt)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 rounded-lg border border-border/70 bg-muted/25 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                        <DetailField
+                          label="Allocated to"
+                          value={insight.assignedMerchant ?? "—"}
+                        />
+                        <DetailField
+                          label="Date of birth"
+                          value={formatDob(
                             insight.contact.birthYear,
                             insight.contact.birthMonth,
                             insight.contact.birthDay
                           )}
-                        </span>
-                        <span className="text-foreground/80">
-                          Gender: {insight.contact.gender ?? "—"}
-                          {" · "}
-                          Language: {insight.contact.language ?? "—"}
-                        </span>
-                        {insight.contact.address ? (
-                          <span className="text-foreground/80">
-                            Address: {insight.contact.address}
-                          </span>
-                        ) : null}
+                        />
+                        <DetailField
+                          label="Gender"
+                          value={
+                            insight.contact.gender ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <UserRound
+                                  className="size-3.5 text-muted-foreground"
+                                  aria-hidden
+                                />
+                                {insight.contact.gender}
+                              </span>
+                            ) : (
+                              "—"
+                            )
+                          }
+                        />
+                        <DetailField
+                          label="Language"
+                          value={insight.contact.language ?? "—"}
+                        />
+                        <DetailField
+                          label="Address"
+                          className="sm:col-span-2"
+                          value={
+                            insight.contact.address ? (
+                              <span className="inline-flex items-start gap-1.5">
+                                <MapPin
+                                  className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+                                  aria-hidden
+                                />
+                                <span>{insight.contact.address}</span>
+                              </span>
+                            ) : (
+                              "—"
+                            )
+                          }
+                        />
                       </div>
+
                       {insight.canEditProfile ? (
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                          className="mt-1 w-fit"
+                          className="w-fit"
                           disabled={isBusy}
                           onClick={() => setEditing((v) => !v)}
                         >
@@ -853,8 +943,8 @@ export function CustomerInsightPanel({
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-start gap-8 lg:justify-end">
-                    <div className="space-y-1.5">
+                  <div className="flex shrink-0 flex-wrap items-start gap-6 lg:flex-col lg:items-end lg:gap-4">
+                    <div className="space-y-1.5 lg:text-right">
                       <p className="text-xs text-muted-foreground">Loyalty Tier</p>
                       <span
                         className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
@@ -1400,14 +1490,41 @@ export function CustomerInsightPanel({
           {/* Contacted footer */}
           {isOwner ? (
             <Card>
-              <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm">
-                  <p className="text-muted-foreground">Last Contacted</p>
-                  <p className="font-medium">
-                    {insight.lastContactedAt
-                      ? formatAppDateTime(insight.lastContactedAt)
-                      : "—"}
-                  </p>
+              <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-end sm:justify-between">
+                <div className="space-y-3 sm:flex-1">
+                  <div className="text-sm">
+                    <p className="text-muted-foreground">Last Contacted</p>
+                    <p className="font-medium">
+                      {insight.lastContactedAt
+                        ? formatAppDateTime(insight.lastContactedAt)
+                        : "—"}
+                    </p>
+                    {insight.contact?.category ? (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        Current status:{" "}
+                        <span className="text-foreground font-medium">
+                          {insight.contact.category}
+                        </span>
+                      </p>
+                    ) : null}
+                  </div>
+                  {insight.canMarkContacted ? (
+                    <label className="block max-w-sm space-y-1 text-sm">
+                      <span className="text-muted-foreground">Call outcome</span>
+                      <select
+                        className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                        value={callOutcome}
+                        disabled={isBusy}
+                        onChange={(e) => setCallOutcome(e.target.value)}
+                      >
+                        {CALL_CENTER_CATEGORY_VALUES.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                 </div>
                 {insight.canMarkContacted ? (
                   <Button
@@ -1421,7 +1538,7 @@ export function CustomerInsightPanel({
                     ) : (
                       <Check className="size-4" aria-hidden />
                     )}
-                    Contacted
+                    Save outcome
                   </Button>
                 ) : null}
               </CardContent>

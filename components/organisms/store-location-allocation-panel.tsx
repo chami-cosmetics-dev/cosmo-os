@@ -30,6 +30,8 @@ type LookupItem = {
   priorityErp1?: string | null;
   priorityErp2?: string | null;
   companyReorderQty?: number;
+  itemStatusCategory?: string | null;
+  itemStatusLabel?: string | null;
 };
 
 function priorityLabel(item: SessionItem) {
@@ -49,9 +51,10 @@ export function StoreLocationAllocationPanel() {
   const [matches, setMatches] = useState<LookupItem[]>([]);
   const [items, setItems] = useState<SessionItem[]>([]);
   const [focusSku, setFocusSku] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
+  const [continuingSku, setContinuingSku] = useState<string | null>(null);
   const [walkOpen, setWalkOpen] = useState(false);
   const [walkIndex, setWalkIndex] = useState(0);
+  const [exporting, setExporting] = useState(false);
   const lastScanAt = useRef(0);
   const planTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const rowRefs = useRef<Map<string, HTMLDivElement | null>>(new Map());
@@ -89,6 +92,9 @@ export function StoreLocationAllocationPanel() {
 
   function addOrFocusItem(raw: LookupItem) {
     const companyReorderQty = raw.companyReorderQty ?? 0;
+    const itemStatusCategory = raw.itemStatusCategory ?? "UNCATEGORIZED";
+    const itemStatusLabel = raw.itemStatusLabel ?? null;
+    const needsContinue = itemStatusCategory === "DISCONTINUE";
     setItems((prev) => {
       const existing = prev.find((p) => p.sku === raw.sku);
       if (existing) {
@@ -107,6 +113,9 @@ export function StoreLocationAllocationPanel() {
         priorityErp1: raw.priorityErp1,
         priorityErp2: raw.priorityErp2,
         companyReorderQty,
+        itemStatusCategory,
+        itemStatusLabel,
+        needsContinue,
         takeQty: null,
         locations: [],
         shortShipment: false,
@@ -118,6 +127,43 @@ export function StoreLocationAllocationPanel() {
     });
     setMatches([]);
     setQ("");
+  }
+
+  async function continueDiscontinued(sku: string) {
+    setContinuingSku(sku);
+    try {
+      const res = await fetch("/api/admin/store-allocation/continue-discontinued", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sku }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? "Could not continue item");
+      }
+      const data = (await res.json()) as {
+        itemStatusCategory: string;
+        itemStatusLabel: string | null;
+      };
+      setItems((prev) =>
+        prev.map((item) =>
+          item.sku === sku
+            ? {
+                ...item,
+                needsContinue: false,
+                itemStatusCategory: data.itemStatusCategory,
+                itemStatusLabel: data.itemStatusLabel,
+              }
+            : item,
+        ),
+      );
+      notify.success("Status set to Newly Added — enter take qty");
+      setFocusSku(sku);
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : "Could not continue item");
+    } finally {
+      setContinuingSku(null);
+    }
   }
 
   async function runLookup(raw: string) {
@@ -443,44 +489,80 @@ export function StoreLocationAllocationPanel() {
               const takeSafe = item.takeQty ?? 0;
               const allocatedSum = item.locations.reduce((s, l) => s + l.qty, 0);
               const sumOk = itemSumOk(item);
+              const isDiscontinueGate = item.needsContinue;
+
               return (
                 <div
                   key={item.sku}
                   ref={(el) => {
                     rowRefs.current.set(item.sku, el);
                   }}
-                  className={`rounded-md border p-3 text-sm space-y-3 ${
-                    focusSku === item.sku ? "ring-2 ring-primary/40" : ""
+                  className={`rounded-xl border p-3 text-sm space-y-3 ${
+                    isDiscontinueGate
+                      ? "border-red-500 bg-red-50 text-red-950 ring-1 ring-red-500/30 dark:bg-red-950/45 dark:text-red-50 dark:ring-red-500/40"
+                      : focusSku === item.sku
+                        ? "ring-2 ring-primary/40"
+                        : ""
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="grid gap-1 sm:grid-cols-2 flex-1 min-w-[12rem]">
                       <div>
-                        <p className="text-xs text-muted-foreground">SKU</p>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          SKU
+                        </p>
                         <p className="font-medium">{item.sku}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Priority</p>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          Priority
+                        </p>
                         <p className="font-medium">{priorityLabel(item)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Barcode</p>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          Barcode
+                        </p>
                         <p className="font-medium">{item.barcode || "—"}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">TOTAL ORDER QTY</p>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          TOTAL ORDER QTY
+                        </p>
                         <p className="font-medium tabular-nums">{item.companyReorderQty}</p>
                       </div>
                       <div className="sm:col-span-2">
-                        <p className="text-xs text-muted-foreground">Description</p>
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          Description
+                        </p>
                         <p className="font-medium">{item.description || "—"}</p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <p
+                          className={`text-xs ${isDiscontinueGate ? "text-red-700/80 dark:text-red-200/80" : "text-muted-foreground"}`}
+                        >
+                          Status
+                        </p>
+                        <p className="font-medium">
+                          {item.itemStatusLabel ?? item.itemStatusCategory}
+                        </p>
                       </div>
                     </div>
                     <Button
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="print:hidden"
+                      className={`print:hidden ${isDiscontinueGate ? "text-red-800 hover:bg-red-100 hover:text-red-950 dark:text-red-100 dark:hover:bg-red-900/50 dark:hover:text-white" : ""}`}
                       onClick={() => removeItem(item.sku)}
                       aria-label={`Remove ${item.sku}`}
                     >
@@ -488,46 +570,66 @@ export function StoreLocationAllocationPanel() {
                     </Button>
                   </div>
 
-                  <div className="flex flex-wrap items-end gap-3 print:hidden">
-                    <label className="space-y-1 text-sm">
-                      <span className="text-muted-foreground">Take qty</span>
-                      <Input
-                        className="w-28"
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={item.takeQty == null ? "" : item.takeQty}
-                        placeholder="0"
-                        onChange={(e) => setTakeQty(item.sku, e.target.value)}
-                      />
-                    </label>
-                    {takeSafe > item.companyReorderQty && item.companyReorderQty > 0 && (
-                      <p className="text-sm text-amber-700 dark:text-amber-400">
-                        Above TOTAL ORDER QTY ({item.companyReorderQty})
+                  {isDiscontinueGate ? (
+                    <div className="flex flex-wrap items-center gap-3 print:hidden">
+                      <p className="text-sm text-red-800/90 dark:text-red-100/90">
+                        Discontinued — continue to allocate as Newly Added
                       </p>
-                    )}
-                    {item.shortShipment && (
-                      <p className="text-sm text-muted-foreground">Short shipment</p>
-                    )}
-                    {!item.erpAvailable && item.planStatus === "ready" && (
-                      <p className="text-sm text-destructive">ERP stock unavailable</p>
-                    )}
-                    {item.planStatus === "loading" && (
-                      <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Loader2 className="size-3 animate-spin" /> Planning…
-                      </span>
-                    )}
-                    {item.planStatus === "error" && (
-                      <p className="text-sm text-destructive">Plan failed</p>
-                    )}
-                    {item.planStatus === "ready" && (
-                      <p
-                        className={`text-sm ${sumOk ? "text-muted-foreground" : "text-destructive"}`}
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-red-600 text-white hover:bg-red-500"
+                        disabled={continuingSku === item.sku}
+                        onClick={() => void continueDiscontinued(item.sku)}
                       >
-                        Allocated {allocatedSum} / take {takeSafe}
-                      </p>
-                    )}
-                  </div>
+                        {continuingSku === item.sku ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : null}
+                        Continue
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-end gap-3 print:hidden">
+                      <label className="space-y-1 text-sm">
+                        <span className="text-muted-foreground">Take qty</span>
+                        <Input
+                          className="w-28"
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={item.takeQty == null ? "" : item.takeQty}
+                          placeholder="0"
+                          onChange={(e) => setTakeQty(item.sku, e.target.value)}
+                        />
+                      </label>
+                      {takeSafe > item.companyReorderQty && item.companyReorderQty > 0 && (
+                        <p className="text-sm text-amber-700 dark:text-amber-400">
+                          Above TOTAL ORDER QTY ({item.companyReorderQty})
+                        </p>
+                      )}
+                      {item.shortShipment && (
+                        <p className="text-sm text-muted-foreground">Short shipment</p>
+                      )}
+                      {!item.erpAvailable && item.planStatus === "ready" && (
+                        <p className="text-sm text-destructive">ERP stock unavailable</p>
+                      )}
+                      {item.planStatus === "loading" && (
+                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Loader2 className="size-3 animate-spin" /> Planning…
+                        </span>
+                      )}
+                      {item.planStatus === "error" && (
+                        <p className="text-sm text-destructive">Plan failed</p>
+                      )}
+                      {item.planStatus === "ready" && (
+                        <p
+                          className={`text-sm ${sumOk ? "text-muted-foreground" : "text-destructive"}`}
+                        >
+                          Allocated {allocatedSum} / take {takeSafe}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { ensureDefaultCallCenterCategories } from "@/lib/contact-call-center-categories-server";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -16,6 +17,8 @@ export async function GET() {
       { status: 404 }
     );
   }
+
+  const categoryDefaults = await ensureDefaultCallCenterCategories(companyId);
 
   const rows = await prisma.contactAllocationOption.findMany({
     where: { companyId },
@@ -37,6 +40,11 @@ export async function GET() {
       grouped[row.type]!.push(row.value);
     }
   }
+
+  // Prefer stable template order for call-outcome categories.
+  grouped.category = categoryDefaults.length
+    ? categoryDefaults
+    : grouped.category;
 
   return NextResponse.json(grouped);
 }

@@ -10,7 +10,10 @@ import type {
 } from "@/lib/page-data/waybill-lookup-types";
 import { prisma } from "@/lib/prisma";
 
-export const WAYBILL_REMATCH_DEFAULT_LIMIT = 500;
+/** Default batch size for interactive rematch (button / optional rematch=1). */
+export const WAYBILL_REMATCH_DEFAULT_LIMIT = 50;
+/** Hard cap for a single rematch run (API body may request up to this). */
+export const WAYBILL_REMATCH_MAX_LIMIT = 500;
 export const WAYBILL_UPLOAD_HISTORY_TAKE = 50;
 
 export type OrderWaybillLookupResult = {
@@ -482,7 +485,7 @@ export async function rematchUnmatchedWaybills(
 ): Promise<WaybillRematchSummary> {
   const limit = Math.min(
     Math.max(options?.limit ?? WAYBILL_REMATCH_DEFAULT_LIMIT, 1),
-    WAYBILL_REMATCH_DEFAULT_LIMIT
+    WAYBILL_REMATCH_MAX_LIMIT
   );
 
   const unmatched = await prisma.$queryRaw<

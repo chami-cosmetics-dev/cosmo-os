@@ -21,6 +21,10 @@ export type SessionItem = {
   priorityErp1?: string | null;
   priorityErp2?: string | null;
   companyReorderQty: number;
+  itemStatusCategory: string;
+  itemStatusLabel: string | null;
+  /** Discontinue items stay locked until Continue flips status to Newly Added. */
+  needsContinue: boolean;
   /** null = blank; 0 = explicit zero (no plan). */
   takeQty: number | null;
   locations: SessionLocationQty[];

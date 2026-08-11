@@ -102,6 +102,16 @@ export const customerInsightProfilePatchSchema = z
   );
 
 export const customerInsightContactedBodySchema = z.object({
+  category: z.enum([
+    "N/A",
+    "Interested",
+    "Not Interested",
+    "Not Responding",
+    "Wrong Number",
+    "Black List",
+    "Busy",
+    "Interested-SMS",
+  ]),
   note: z.string().trim().max(500).optional().nullable(),
 });
 
@@ -123,6 +133,14 @@ export const customerInsightFilterQuerySchema = z
       .enum(["true", "1", "false", "0"])
       .optional()
       .transform((v) => v === "true" || v === "1"),
+    noPurchaseMonths: z
+      .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
+      .optional()
+      .transform((v) => {
+        if (v === "3" || v === 3) return 3 as const;
+        if (v === "6" || v === 6) return 6 as const;
+        return undefined;
+      }),
     page: z.coerce
       .number()
       .int()
