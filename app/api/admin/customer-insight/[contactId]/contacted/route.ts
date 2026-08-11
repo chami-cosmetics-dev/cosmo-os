@@ -49,6 +49,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     name: user.name ?? null,
     email: user.email ?? null,
     roleNames: (auth.context!.roleNames as string[]) ?? [],
+    couponCodes: (await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { couponCodes: true },
+    }))?.couponCodes,
   };
   if (!isAllocatedOwner(viewer, contact.assignedMerchant)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

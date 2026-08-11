@@ -10,6 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import {
+  riderTaskMatchesFr003Filter,
+  summarizeRiderTaskStatuses,
+} from "@/lib/rider-ops-filter";
 
 type RiderRosterItem = {
   id: string;
@@ -155,12 +159,6 @@ function formatDate(value: string | null | undefined) {
   return `${shortDate}, ${timeLabel}`;
 }
 
-function getOrderDateKey(row: RiderOrdersData["rows"][number]) {
-  const value = row.completedAt ?? row.failedAt ?? row.assignedAt;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("en-CA", { timeZone: APP_TIME_ZONE });
-}
 
 function toAmount(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
@@ -251,28 +249,14 @@ export function RiderOperationsPanel({
     return (ordersData?.rows ?? []).filter((row) => {
       const rowLocation = row.locationName ?? "Unknown location";
       if (locationFilter !== "all" && rowLocation !== locationFilter) return false;
-
-      const dateKey = getOrderDateKey(row);
-      if (fromDate && (!dateKey || dateKey < fromDate)) return false;
-      if (toDate && (!dateKey || dateKey > toDate)) return false;
-      return true;
+      return riderTaskMatchesFr003Filter(row, fromDate, toDate);
     });
   }, [fromDate, locationFilter, ordersData, toDate]);
 
-  const filteredStatusSummary = useMemo(() => {
-    return filteredRows.reduce(
-      (acc, row) => {
-        const status = row.status.toLowerCase();
-        acc.total += 1;
-        if (status === "assigned") acc.assigned += 1;
-        if (status === "completed") acc.completed += 1;
-        if (status === "failed") acc.failed += 1;
-        if (status === "accepted" || status === "arrived") acc.inProgress += 1;
-        return acc;
-      },
-      { total: 0, assigned: 0, inProgress: 0, completed: 0, failed: 0 }
-    );
-  }, [filteredRows]);
+  const filteredStatusSummary = useMemo(
+    () => summarizeRiderTaskStatuses(filteredRows),
+    [filteredRows]
+  );
 
   const filteredLocationSummary = useMemo(() => {
     const totals = new Map<
@@ -288,7 +272,8 @@ export function RiderOperationsPanel({
       }
     >();
 
-    for (const row of filteredRows) {
+    // Payment totals: completed tasks in the FR-003 date scope only.
+    for (const row of filteredRows.filter((item) => item.status.toLowerCase() === "completed")) {
       const locationName = row.locationName ?? "Unknown location";
       const amount = toAmount(row.collectedAmount ?? row.expectedAmount);
       const current = totals.get(locationName) ?? {

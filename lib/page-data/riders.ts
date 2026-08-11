@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
+import {
+  riderTaskMatchesFr003Filter,
+  summarizeRiderTaskStatuses,
+} from "@/lib/rider-ops-filter";
 
 type RiderRosterItem = {
   id: string;
@@ -121,7 +125,8 @@ export async function fetchRiderRoster(companyId: string | null): Promise<RiderR
 
 export async function fetchRiderOrdersData(
   companyId: string | null,
-  riderId: string
+  riderId: string,
+  options?: { from?: string | null; to?: string | null }
 ): Promise<RiderOrdersData> {
   const rider = await prisma.user.findFirst({
     where: {
@@ -237,20 +242,17 @@ export async function fetchRiderOrdersData(
     };
   });
 
-  const statusSummary = rows.reduce(
-    (acc, row) => {
-      acc.total += 1;
-      if (row.status === "assigned") acc.assigned += 1;
-      if (row.status === "accepted" || row.status === "arrived") acc.inProgress += 1;
-      if (row.status === "completed") acc.completed += 1;
-      if (row.status === "failed") acc.failed += 1;
-      return acc;
-    },
-    { total: 0, assigned: 0, inProgress: 0, completed: 0, failed: 0 }
-  );
+  const from = options?.from ?? null;
+  const to = options?.to ?? null;
+  const scopedRows =
+    from || to
+      ? rows.filter((row) => riderTaskMatchesFr003Filter(row, from, to))
+      : rows;
+
+  const statusSummary = summarizeRiderTaskStatuses(scopedRows);
 
   const locationMap = new Map<string, RiderLocationSummary>();
-  for (const row of rows.filter((item) => item.status === "completed")) {
+  for (const row of scopedRows.filter((item) => item.status === "completed")) {
     const key = row.locationName ?? "Unassigned location";
     const current = locationMap.get(key) ?? {
       locationName: key,
@@ -305,7 +307,7 @@ export async function fetchRiderOrdersData(
       status: rider.employeeProfile?.status ?? null,
       locationName: rider.employeeProfile?.location?.name ?? null,
     },
-    rows,
+    rows: scopedRows,
     statusSummary,
     locationSummary: [...locationMap.values()].sort((a, b) =>
       a.locationName.localeCompare(b.locationName)

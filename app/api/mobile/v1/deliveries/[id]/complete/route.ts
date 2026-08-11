@@ -3,11 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRiderMobileSession, mobileError } from "@/lib/mobile/api";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { riderDeliveryCompleteSchema, mobileRouteIdSchema } from "@/lib/mobile/validation";
-import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
-import { orderStageUpdate } from "@/lib/order-stage-timing";
+import { completeRiderDeliveryTask } from "@/lib/complete-rider-delivery";
 
 export async function POST(
   request: NextRequest,
@@ -55,47 +54,33 @@ export async function POST(
   const acceptedAt = parsed.data.acceptedAt ? new Date(parsed.data.acceptedAt) : task.acceptedAt ?? now;
   const arrivedAt = parsed.data.arrivedAt ? new Date(parsed.data.arrivedAt) : task.arrivedAt ?? now;
 
-  const updated = await prisma.$transaction(async (tx) => {
-    await tx.riderDeliveryTask.update({
-      where: { id: task.id },
-      data: {
-        status: "completed",
-        acceptedAt,
-        arrivedAt,
-        completedAt: now,
-        failedAt: null,
-        failureReason: null,
-        oldItemCollectionStatus,
-        oldItemCollectionRemark,
-        latestSyncAt: now,
-      },
-    });
-
-    return tx.order.update({
-      where: { id: task.orderId },
-      data: {
-        ...orderStageUpdate("delivery_complete", now),
-        deliveryCompleteAt: now,
-        deliveryCompleteById: auth.session.userId,
-        deliveryOutcome: "delivered",
-        deliveryFailedReason: null,
-        lastRiderUpdateAt: now,
-        riderDeliveryToken: null,
-      },
-      include: { companyLocation: true },
-    });
+  const result = await completeRiderDeliveryTask({
+    taskId: task.id,
+    riderId: auth.session.userId,
+    now,
+    acceptedAt,
+    arrivedAt,
+    oldItemCollectionStatus,
+    oldItemCollectionRemark,
   });
 
+  if (!result.success) {
+    return mobileError(result.error, result.status);
+  }
+  if (result.alreadyCompleted) {
+    return NextResponse.json({ success: true, alreadyCompleted: true });
+  }
+
   void triggerDeliveryPaymentApprovalIfNeeded({
-    companyId: updated.companyId,
-    orderId: updated.id,
+    companyId: result.order.companyId,
+    orderId: result.order.id,
     requestedById: auth.session.userId,
   }).catch((err) => console.error("[Mobile delivery] payment approval failed:", err));
 
-  void sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
-    orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
-    customerPhone: resolveCustomerPhone(updated),
-    locationName: updated.companyLocation?.name ?? undefined,
+  void sendOrderSms(result.order.companyId, result.order.id, "delivery_complete", {
+    orderNumber: result.order.orderNumber ?? result.order.name ?? result.order.shopifyOrderId,
+    customerPhone: resolveCustomerPhone(result.order),
+    locationName: result.order.companyLocation?.name ?? undefined,
   }).catch((err) => console.error("[Mobile delivery] delivery_complete SMS failed:", err));
 
   return NextResponse.json({ success: true });

@@ -36,6 +36,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const dbUser = await prisma.user.findUnique({
+    where: { id: context.user.id },
+    select: { couponCodes: true },
+  });
+  const couponCodes = dbUser?.couponCodes ?? null;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -73,6 +79,7 @@ export async function POST(request: NextRequest) {
         name: context.user.name,
         email: context.user.email,
         roleNames,
+        couponCodes,
       },
       contact.assignedMerchant,
     )

@@ -32,6 +32,12 @@ type SyncContactMasterInput = {
   phoneNumber?: string | null;
   name?: string | null;
   recentMerchant?: string | null;
+  /**
+   * When provided explicitly, `assignedMerchant` auto-allocation uses this MER code.
+   * - `assignedMerchantMer === null` means: do not allocate (keep unassigned).
+   * - `assignedMerchantMer === undefined` means legacy behavior: allocate using `recentMerchant`.
+   */
+  assignedMerchantMer?: string | null;
   auditBehavior?: "full" | "summary_only";
 };
 
@@ -185,6 +191,7 @@ async function updatePurchaseSnapshotForContacts(input: {
   contactIds: string[];
   occurredAt: Date;
   recentMerchant: string | null;
+  assignedMerchantMer?: string | null;
 }) {
   const uniqueIds = [...new Set(input.contactIds)];
   if (uniqueIds.length === 0) return 0;
@@ -203,32 +210,39 @@ async function updatePurchaseSnapshotForContacts(input: {
     },
   });
 
-  if (!input.recentMerchant) {
-    return purchaseDateResult.count;
+  // MER allocation can be disabled explicitly by passing assignedMerchantMer === null.
+  const allocationValue =
+    input.assignedMerchantMer === undefined ? input.recentMerchant : input.assignedMerchantMer;
+
+  let merchantResultCount = 0;
+  if (input.recentMerchant) {
+    const merchantResult = await prisma.contactMaster.updateMany({
+      where: {
+        id: { in: uniqueIds },
+        recentMerchant: null,
+      },
+      data: {
+        recentMerchant: input.recentMerchant,
+      },
+    });
+    merchantResultCount = merchantResult.count;
   }
 
-  const merchantResult = await prisma.contactMaster.updateMany({
-    where: {
-      id: { in: uniqueIds },
-      recentMerchant: null,
-    },
-    data: {
-      recentMerchant: input.recentMerchant,
-    },
-  });
+  let allocateResultCount = 0;
+  if (allocationValue) {
+    const allocateResult = await prisma.contactMaster.updateMany({
+      where: {
+        id: { in: uniqueIds },
+        OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+      },
+      data: {
+        assignedMerchant: allocationValue,
+      },
+    });
+    allocateResultCount = allocateResult.count;
+  }
 
-  // Auto-allocate only when assignedMerchant is empty (never overwrite).
-  const allocateResult = await prisma.contactMaster.updateMany({
-    where: {
-      id: { in: uniqueIds },
-      OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
-    },
-    data: {
-      assignedMerchant: input.recentMerchant,
-    },
-  });
-
-  return purchaseDateResult.count + merchantResult.count + allocateResult.count;
+  return purchaseDateResult.count + merchantResultCount + allocateResultCount;
 }
 
 function pickBestCustomerName(order: ShopifyOrderWebhookPayload) {
@@ -285,6 +299,12 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
 
   const name = normalizeName(input.name ?? null);
   const recentMerchant = normalizeMerchant(input.recentMerchant);
+  const assignedMerchantMer =
+    input.assignedMerchantMer === undefined
+      ? undefined
+      : normalizeMerchant(input.assignedMerchantMer);
+  const allocationMerchantLabel =
+    input.assignedMerchantMer === undefined ? recentMerchant : assignedMerchantMer ?? null;
   const source = normalizeSource(input.source);
 
   const candidates = await prisma.contactMaster.findMany({
@@ -370,7 +390,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
 
       const autoAssigned = resolveAutoAllocateMerchant({
         assignedMerchant: null,
-        purchaseMerchantLabel: recentMerchant,
+        purchaseMerchantLabel: allocationMerchantLabel,
       });
 
       const created = await tx.contactMaster.create({
@@ -412,7 +432,7 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   }
   const autoAssigned = resolveAutoAllocateMerchant({
     assignedMerchant: matchedContact.assignedMerchant,
-    purchaseMerchantLabel: recentMerchant,
+    purchaseMerchantLabel: allocationMerchantLabel,
   });
   if (autoAssigned) updateData.assignedMerchant = autoAssigned;
 
@@ -439,6 +459,12 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
   const name = normalizeName(input.name ?? null);
   const recentMerchant = normalizeMerchant(input.recentMerchant);
+  const assignedMerchantMer =
+    input.assignedMerchantMer === undefined
+      ? undefined
+      : normalizeMerchant(input.assignedMerchantMer);
+  const allocationMerchantLabel =
+    input.assignedMerchantMer === undefined ? recentMerchant : assignedMerchantMer ?? null;
   const source = normalizeSource(input.source);
   const orderLabel = buildSourceLabel(input.sourceId, input.orderNumber);
   const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
@@ -452,6 +478,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
       contactIds: purchaseSnapshotContactIds,
       occurredAt: input.occurredAt,
       recentMerchant,
+      assignedMerchantMer,
     });
 
     if (auditBehavior === "full") {
@@ -512,7 +539,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
 
       const autoAssigned = resolveAutoAllocateMerchant({
         assignedMerchant: null,
-        purchaseMerchantLabel: recentMerchant,
+        purchaseMerchantLabel: allocationMerchantLabel,
       });
 
       const createdEmail = emailForCreate(
@@ -624,7 +651,7 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   }
   const autoAssigned = resolveAutoAllocateMerchant({
     assignedMerchant: matchedContact.assignedMerchant,
-    purchaseMerchantLabel: recentMerchant,
+    purchaseMerchantLabel: allocationMerchantLabel,
   });
   if (autoAssigned) {
     updateData.assignedMerchant = autoAssigned;

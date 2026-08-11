@@ -48,6 +48,21 @@ describe("isAllocatedOwner", () => {
     ).toBe(false);
   });
 
+  it("matches assignedMerchant to MER code from couponCodes", () => {
+    expect(
+      isAllocatedOwner(
+        { roleNames: ["merchant"], couponCodes: ["MER56-Kaushalya"] },
+        "MER56"
+      )
+    ).toBe(true);
+    expect(
+      isAllocatedOwner(
+        { roleNames: ["merchant"], couponCodes: ["MER56-Kaushalya"] },
+        "MER99"
+      )
+    ).toBe(false);
+  });
+
   it("admins always own", () => {
     expect(
       isAllocatedOwner({ knownName: "Alice", roleNames: ["admin"] }, "Bob")

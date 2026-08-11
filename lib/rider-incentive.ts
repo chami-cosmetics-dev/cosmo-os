@@ -6,6 +6,8 @@ export type RiderIncentiveInputRow = {
   knownName: string | null;
   /** Pre-resolved rider pay for this delivery (from delivery-charge rules). */
   incentiveAmount: Prisma.Decimal | number | string | null;
+  /** False when no shipping-rule charge matched (incentive is 0). */
+  matched?: boolean;
   financialStatus: string | null;
 };
 
@@ -41,6 +43,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
   knownName: string | null;
   completedCount: number;
   incentiveTotal: string;
+  unmatchedCount: number;
 }> {
   const map = new Map<
     string,
@@ -50,6 +53,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
       knownName: string | null;
       completedCount: number;
       incentiveTotal: Prisma.Decimal;
+      unmatchedCount: number;
     }
   >();
 
@@ -63,9 +67,13 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
         knownName: row.knownName,
         completedCount: 0,
         incentiveTotal: new Prisma.Decimal(0),
+        unmatchedCount: 0,
       };
     existing.completedCount += 1;
     existing.incentiveTotal = existing.incentiveTotal.add(normalizeIncentiveAmount(row.incentiveAmount));
+    if (row.matched === false) {
+      existing.unmatchedCount += 1;
+    }
     map.set(row.riderId, existing);
   }
 
@@ -76,6 +84,7 @@ export function aggregateRiderIncentives(rows: RiderIncentiveInputRow[]): Array<
       knownName: row.knownName,
       completedCount: row.completedCount,
       incentiveTotal: row.incentiveTotal.toFixed(2),
+      unmatchedCount: row.unmatchedCount,
     }))
     .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
 }

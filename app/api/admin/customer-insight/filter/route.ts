@@ -6,6 +6,7 @@ import {
   isAdminOrSuperAdmin,
 } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
+import { prisma } from "@/lib/prisma";
 import { customerInsightFilterQuerySchema } from "@/lib/validation/customer-insight";
 
 export async function GET(request: NextRequest) {
@@ -45,11 +46,16 @@ export async function GET(request: NextRequest) {
 
   const roleNames = (auth.context!.roleNames as string[]) ?? [];
   const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { couponCodes: true },
+  });
   const viewer = {
     knownName: user.knownName ?? null,
     name: user.name ?? null,
     email: user.email ?? null,
     roleNames,
+    couponCodes: dbUser?.couponCodes ?? null,
   };
 
   const scopeAllContacts = canFilterAllInsightContacts({

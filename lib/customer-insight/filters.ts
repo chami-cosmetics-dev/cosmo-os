@@ -9,7 +9,7 @@ import {
   loyaltyCode,
   loyaltyLabel,
 } from "@/lib/customer-insight/loyalty-tier";
-import { normalizeMerchantLabel, viewerMerchantLabels } from "@/lib/customer-insight/ownership";
+import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import type {
   AllocatedFilterResultDto,
   LoyaltyTierKey,
@@ -23,6 +23,7 @@ export type FilterQueryInput = {
     knownName?: string | null;
     name?: string | null;
     email?: string | null;
+    couponCodes?: string[] | null;
     roleNames?: string[];
   };
   isAdmin: boolean;
@@ -126,7 +127,7 @@ function buildAllocationWhere(input: FilterQueryInput): {
   empty: boolean;
   where: Record<string, unknown>;
 } {
-  const labels = viewerMerchantLabels(input.viewer);
+  const labels = merchantMatchKeysForUser(input.viewer);
   const currentMonth = new Date().getMonth() + 1;
   const scopeAll = Boolean(input.scopeAllContacts ?? input.isAdmin);
 
@@ -316,5 +317,4 @@ export async function filterAllocatedContacts(
   };
 }
 
-/** Exported for tests — label equality helper */
-export { normalizeMerchantLabel };
+// (no exports)

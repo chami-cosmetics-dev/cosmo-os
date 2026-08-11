@@ -60,7 +60,31 @@ describe("aggregateRiderIncentives", () => {
         knownName: null,
         completedCount: 2,
         incentiveTotal: "700.00",
+        unmatchedCount: 0,
       },
     ]);
+  });
+
+  it("counts unmatched deliveries when matched is false", () => {
+    const rows = aggregateRiderIncentives([
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 0,
+        matched: false,
+        financialStatus: "paid",
+      },
+      {
+        riderId: "r1",
+        riderName: "A",
+        knownName: null,
+        incentiveAmount: 300,
+        matched: true,
+        financialStatus: "paid",
+      },
+    ]);
+    expect(rows[0]?.unmatchedCount).toBe(1);
+    expect(rows[0]?.incentiveTotal).toBe("300.00");
   });
 });

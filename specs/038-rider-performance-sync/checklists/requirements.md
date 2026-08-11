@@ -33,3 +33,4 @@
 
 - Validated 2026-08-11: defaults documented for chart set, sheet column semantics, Colombo dates, and out-of-scope historical user-id remap.
 - Shipping sheet reference: user-provided `Shipping Rule New.xlsx` (~3223 labels; rider charge column distinct from shipping amount).
+- Clarifications session 2026-08-11: upsert import; link-without-task = order only; blank rider charges = non-rider areas (skip on import); unmatched UI badges; open tasks always visible on Riders page.

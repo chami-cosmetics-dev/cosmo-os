@@ -13,22 +13,32 @@ import {
 
 type Params = { params: Promise<{ contactId: string }> };
 
-function viewerFromAuth(auth: {
+async function viewerFromAuth(auth: {
   context?: {
     user?: {
       knownName?: string | null;
       name?: string | null;
       email?: string | null;
+      id?: string;
     } | null;
     roleNames?: string[];
   } | null;
 }) {
   const user = auth.context?.user;
+  const dbUser =
+    user?.id
+      ? await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { couponCodes: true },
+        })
+      : null;
+
   return {
     knownName: user?.knownName ?? null,
     name: user?.name ?? null,
     email: user?.email ?? null,
     roleNames: (auth.context?.roleNames as string[]) ?? [],
+    couponCodes: dbUser?.couponCodes ?? null,
   };
 }
 
@@ -71,7 +81,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     contactId: idParsed.data.contactId,
     invoicesPage: queryParsed.data.invoicesPage,
     invoicesPageSize: queryParsed.data.invoicesPageSize,
-    viewer: viewerFromAuth(auth),
+    viewer: await viewerFromAuth(auth),
   });
   if (!insight) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
@@ -111,7 +121,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  const viewer = viewerFromAuth(auth);
+  const viewer = await viewerFromAuth(auth);
   if (!isAllocatedOwner(viewer, contact.assignedMerchant)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

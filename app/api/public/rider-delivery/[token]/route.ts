@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  completeRiderDeliveryByToken,
+} from "@/lib/complete-rider-delivery";
+import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
-import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
 
 export async function GET(
   _request: NextRequest,
@@ -53,15 +56,40 @@ export async function POST(
 
   const body = await request.json().catch(() => ({}));
   const confirmed = body.confirmed === true;
-  const failureReason = typeof body.failureReason === "string" ? body.failureReason.trim() : null;
+  const failureReason =
+    typeof body.failureReason === "string" ? body.failureReason.trim() : null;
 
   if (!confirmed && !failureReason) {
     return NextResponse.json({ error: "Cancellation reason is required" }, { status: 400 });
   }
 
+  if (confirmed) {
+    const result = await completeRiderDeliveryByToken({ token });
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+    if (result.alreadyCompleted) {
+      return NextResponse.json({ success: true, message: "Already confirmed" });
+    }
+
+    void triggerDeliveryPaymentApprovalIfNeeded({
+      companyId: result.order.companyId,
+      orderId: result.order.id,
+      requestedById: result.riderId,
+    }).catch((err) => console.error("[Rider delivery] payment approval failed:", err));
+
+    void sendOrderSms(result.order.companyId, result.order.id, "delivery_complete", {
+      orderNumber: result.order.orderNumber ?? result.order.name ?? result.order.shopifyOrderId,
+      customerPhone: resolveCustomerPhone(result.order),
+      locationName: result.order.companyLocation?.name ?? undefined,
+    }).catch((err) => console.error("[Rider delivery] SMS failed:", err));
+
+    return NextResponse.json({ success: true });
+  }
+
   const order = await prisma.order.findFirst({
     where: { riderDeliveryToken: token },
-    include: { company: true },
+    select: { id: true, fulfillmentStage: true },
   });
 
   if (!order) {
@@ -73,76 +101,37 @@ export async function POST(
   }
 
   const now = new Date();
-
-  if (confirmed) {
-    const updated = await prisma.$transaction(async (tx) => {
-      await tx.riderDeliveryTask.updateMany({
-        where: { orderId: order.id },
-        data: {
-          status: "completed",
-          completedAt: now,
-          failedAt: null,
-          failureReason: null,
-          latestSyncAt: now,
-        },
-      });
-      return tx.order.update({
-        where: { id: order.id },
-        data: {
-          fulfillmentStage: "delivery_complete",
-          deliveryCompleteAt: now,
-          deliveryOutcome: "delivered",
-          deliveryFailedReason: null,
-          lastRiderUpdateAt: now,
-          riderDeliveryToken: null,
-        },
-        include: { companyLocation: true },
-      });
+  await prisma.$transaction(async (tx) => {
+    await tx.riderDeliveryTask.updateMany({
+      where: { orderId: order.id },
+      data: {
+        status: "failed",
+        failedAt: now,
+        failureReason,
+        completedAt: null,
+        latestSyncAt: now,
+      },
     });
-    void triggerDeliveryPaymentApprovalIfNeeded({
-      companyId: updated.companyId,
-      orderId: updated.id,
-      requestedById: null,
-    }).catch((err) => console.error("[Rider delivery] payment approval failed:", err));
-    sendOrderSms(updated.companyId, updated.id, "delivery_complete", {
-      orderNumber: updated.orderNumber ?? updated.name ?? updated.shopifyOrderId,
-      customerPhone: resolveCustomerPhone(updated),
-      locationName: updated.companyLocation?.name ?? undefined,
-    }).catch((err) => console.error("[Rider delivery] SMS failed:", err));
-  } else {
-    // Rider could not deliver — record reason and return order to store
-    await prisma.$transaction(async (tx) => {
-      await tx.riderDeliveryTask.updateMany({
-        where: { orderId: order.id },
-        data: {
-          status: "failed",
-          failedAt: now,
-          failureReason: failureReason,
-          completedAt: null,
-          latestSyncAt: now,
-        },
-      });
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          fulfillmentStage: "returned_to_store",
-          fulfillmentStatus: "unfulfilled",
-          packageReadyAt: null,
-          packageReadyById: null,
-          packageOnHoldAt: null,
-          packageHoldReasonId: null,
-          dispatchedAt: null,
-          dispatchedById: null,
-          dispatchedByRiderId: null,
-          dispatchedByCourierServiceId: null,
-          deliveryOutcome: "failed",
-          deliveryFailedReason: failureReason,
-          lastRiderUpdateAt: now,
-          riderDeliveryToken: null,
-        },
-      });
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        fulfillmentStage: "returned_to_store",
+        fulfillmentStatus: "unfulfilled",
+        packageReadyAt: null,
+        packageReadyById: null,
+        packageOnHoldAt: null,
+        packageHoldReasonId: null,
+        dispatchedAt: null,
+        dispatchedById: null,
+        dispatchedByRiderId: null,
+        dispatchedByCourierServiceId: null,
+        deliveryOutcome: "failed",
+        deliveryFailedReason: failureReason,
+        lastRiderUpdateAt: now,
+        riderDeliveryToken: null,
+      },
     });
-  }
+  });
 
   return NextResponse.json({ success: true });
 }
