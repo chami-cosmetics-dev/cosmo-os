@@ -1987,20 +1987,21 @@ model RiderDeliveryChargeRule {
 
 /// Merchant daily book note — one ledger per location + Colombo calendar sales date.
 model BookNoteDay {
-  id                 String          @id @default(cuid())
+  id                 String            @id @default(cuid())
   companyId          String
   companyLocationId  String
   /// Calendar posting date stored as UTC midnight (YYYY-MM-DD).
   postingDate        DateTime
   createdByUserId    String?
   updatedByUserId    String?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  company            Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation    CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-  createdBy          User?           @relation("BookNoteDayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy          User?           @relation("BookNoteDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation    CompanyLocation   @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  createdBy          User?             @relation("BookNoteDayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy          User?             @relation("BookNoteDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   rows               BookNoteRow[]
+  receipts           BookNoteReceipt[]
 
   @@unique([companyLocationId, postingDate])
   @@index([companyId, postingDate])
@@ -2022,4 +2023,20 @@ model BookNoteRow {
 
   @@index([bookNoteDayId, sortOrder])
   @@index([salesInvoice])
+}
+
+/// Day-level payment receipt photos (one set for the whole book-note day).
+/// Pushed to ERP Book Note Entry via upload_file on Send to ERP.
+model BookNoteReceipt {
+  id            String      @id @default(cuid())
+  bookNoteDayId String
+  fileName      String
+  blobUrl       String
+  fileSize      Int?
+  mimeType      String?
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  bookNoteDay   BookNoteDay @relation(fields: [bookNoteDayId], references: [id], onDelete: Cascade)
+
+  @@index([bookNoteDayId, sortOrder])
 }

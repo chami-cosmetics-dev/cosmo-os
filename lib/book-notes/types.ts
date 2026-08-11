@@ -17,6 +17,18 @@ export type BookNoteRowDto = {
   orderId?: string | null;
 };
 
+/** Day-level receipt photo (whole-day set, not per invoice row). */
+export type BookNoteReceiptDto = {
+  id: string;
+  fileName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  /** Authenticated Cosmo proxy URL for preview. */
+  url: string;
+  sortOrder: number;
+  createdAt: string;
+};
+
 export type BookNoteDayDto = {
   id: string;
   companyLocationId: string;
@@ -25,6 +37,7 @@ export type BookNoteDayDto = {
   posting_date: string;
   locked: boolean;
   rows: BookNoteRowDto[];
+  receipts: BookNoteReceiptDto[];
 };
 
 export type BookNoteOrderSuggestion = {

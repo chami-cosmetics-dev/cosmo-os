@@ -4,6 +4,7 @@ export type {
   BookNoteLocationOption,
   BookNoteOrderSuggestion,
   BookNotePaymentColumns,
+  BookNoteReceiptDto,
   BookNoteRowDto,
 } from "@/lib/book-notes/types";
 
@@ -46,3 +47,9 @@ export {
   getBookNoteVerifyMethod,
   sendBookNoteRowsToErp,
 } from "@/lib/book-notes/erp-verify";
+
+export {
+  BOOK_NOTE_RECEIPT_MIME_TYPES,
+  collectBookNoteNamesFromVerifyRows,
+  pushDayReceiptsToErp,
+} from "@/lib/book-notes/receipts";

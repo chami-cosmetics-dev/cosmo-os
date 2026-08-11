@@ -19,6 +19,14 @@ function money(value: unknown): number {
   return Math.round(n * 100) / 100;
 }
 
+const dayInclude = {
+  companyLocation: {
+    select: { name: true, erpnextCompany: true, companyId: true },
+  },
+  rows: { orderBy: { sortOrder: "asc" as const } },
+  receipts: { orderBy: { sortOrder: "asc" as const } },
+};
+
 export async function loadBookNoteDayDto(input: {
   companyId: string;
   companyLocationId: string;
@@ -33,12 +41,7 @@ export async function loadBookNoteDayDto(input: {
         postingDate,
       },
     },
-    include: {
-      companyLocation: {
-        select: { name: true, erpnextCompany: true, companyId: true },
-      },
-      rows: { orderBy: { sortOrder: "asc" } },
-    },
+    include: dayInclude,
   });
 
   if (!day || day.companyId !== input.companyId) return null;
@@ -49,6 +52,7 @@ export async function loadBookNoteDayDto(input: {
     postingDate: day.postingDate,
     location: day.companyLocation,
     rows: day.rows,
+    receipts: day.receipts,
     now: input.now,
   });
 }
@@ -73,6 +77,7 @@ export async function loadBookNoteDaysInRange(input: {
         select: { name: true, erpnextCompany: true },
       },
       rows: { orderBy: { sortOrder: "asc" } },
+      receipts: { orderBy: { sortOrder: "asc" } },
     },
     orderBy: { postingDate: "asc" },
   });
@@ -84,6 +89,7 @@ export async function loadBookNoteDaysInRange(input: {
       postingDate: day.postingDate,
       location: day.companyLocation,
       rows: day.rows,
+      receipts: day.receipts,
       now: input.now,
     }),
   );

@@ -1,5 +1,9 @@
 import { isBookNoteDayLocked } from "@/lib/book-notes/lock";
-import type { BookNoteDayDto, BookNoteRowDto } from "@/lib/book-notes/types";
+import type {
+  BookNoteDayDto,
+  BookNoteReceiptDto,
+  BookNoteRowDto,
+} from "@/lib/book-notes/types";
 
 function money(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
@@ -63,6 +67,28 @@ export function serializeBookNoteRow(row: {
   };
 }
 
+export function serializeBookNoteReceipt(receipt: {
+  id: string;
+  fileName: string;
+  mimeType?: string | null;
+  fileSize?: number | null;
+  sortOrder: number;
+  createdAt: Date | string;
+}): BookNoteReceiptDto {
+  return {
+    id: receipt.id,
+    fileName: receipt.fileName,
+    mimeType: receipt.mimeType ?? null,
+    fileSize: receipt.fileSize ?? null,
+    url: `/api/admin/book-notes/receipts/${receipt.id}`,
+    sortOrder: receipt.sortOrder,
+    createdAt:
+      receipt.createdAt instanceof Date
+        ? receipt.createdAt.toISOString()
+        : String(receipt.createdAt),
+  };
+}
+
 export function serializeBookNoteDay(input: {
   id: string;
   companyLocationId: string;
@@ -77,6 +103,14 @@ export function serializeBookNoteDay(input: {
     bankTransfer: unknown;
     orderId?: string | null;
   }>;
+  receipts?: Array<{
+    id: string;
+    fileName: string;
+    mimeType?: string | null;
+    fileSize?: number | null;
+    sortOrder: number;
+    createdAt: Date | string;
+  }>;
   now?: Date;
 }): BookNoteDayDto {
   const posting_date = postingDateYmd(input.postingDate);
@@ -88,6 +122,7 @@ export function serializeBookNoteDay(input: {
     posting_date,
     locked: isBookNoteDayLocked(posting_date, input.now),
     rows: input.rows.map(serializeBookNoteRow),
+    receipts: (input.receipts ?? []).map(serializeBookNoteReceipt),
   };
 }
 
