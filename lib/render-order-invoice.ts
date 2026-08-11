@@ -81,6 +81,14 @@ function getCity(addr: unknown): string {
   return typeof a.city === "string" ? a.city : "";
 }
 
+function getPhoneFromAddress(addr: unknown): string {
+  if (!addr || typeof addr !== "object") return "";
+  const a = addr as Record<string, unknown>;
+  if (typeof a.phone === "string" && a.phone.trim()) return a.phone.trim();
+  if (typeof a.phone === "number" && Number.isFinite(a.phone)) return String(a.phone);
+  return "";
+}
+
 function addUniquePhoneForInvoice(phones: string[], seenVariants: Set<string>, value?: string | null) {
   const phone = value?.trim();
   if (!phone) return;
@@ -132,6 +140,32 @@ function formatInvoiceMoney(val: string | number): string {
   const n = typeof val === "string" ? parseFloat(val) : val;
   if (Number.isNaN(n)) return String(val);
   return `Rs ${n.toLocaleString("en-LK", { minimumFractionDigits: 2 })}`;
+}
+
+function toPrintContextValue(value: unknown): unknown {
+  if (value == null) return value;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map((item) => toPrintContextValue(item));
+  if (typeof (value as { toJSON?: unknown }).toJSON === "function") {
+    return (value as { toJSON: () => unknown }).toJSON();
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, toPrintContextValue(entry)]),
+  );
+}
+
+function buildOrderDataForPrint(order: unknown): Record<string, unknown> {
+  const orderData = toPrintContextValue(order) as Record<string, unknown>;
+  const companyLocation = orderData.companyLocation;
+  if (companyLocation && typeof companyLocation === "object") {
+    const safeCompanyLocation = { ...(companyLocation as Record<string, unknown>) };
+    delete safeCompanyLocation.erpnextInstance;
+    orderData.companyLocation = safeCompanyLocation;
+  }
+  return orderData;
 }
 
 /**
@@ -255,6 +289,10 @@ export async function renderOrderInvoice(input: {
   const customerName = stripManualInvoiceNumberAsName(order, customerNameRaw);
   const billingAddr = formatAddress(order.billingAddress);
   const shippingAddr = formatAddress(order.shippingAddress);
+  const billingName = stripManualInvoiceNumberAsName(order, pickAddrName(order.billingAddress));
+  const shippingName = stripManualInvoiceNumberAsName(order, pickAddrName(order.shippingAddress));
+  const billingPhone = getPhoneFromAddress(order.billingAddress);
+  const shippingPhone = getPhoneFromAddress(order.shippingAddress);
   const shippingCity = getCity(order.shippingAddress);
   const shippingDisplay = await resolveOrderShippingDisplayForOrder({
     totalShipping: order.totalShipping?.toString() ?? null,
@@ -451,11 +489,16 @@ export async function renderOrderInvoice(input: {
       sourceName: order.sourceName,
       erpnextInvoiceId: order.erpnextInvoiceId ?? "",
     },
+    orderData: buildOrderDataForPrint(order),
     customer: {
       name: customerName || "-",
       email: order.customerEmail ?? "",
       phone: order.customerPhone ?? "",
       phones: customerPhoneDisplay,
+      billingName,
+      billingPhone,
+      shippingName,
+      shippingPhone,
       billingAddress: billingAddr,
       shippingAddress: shippingAddr,
       shippingCity,
