@@ -29,6 +29,7 @@ type ErpInstance = {
   bankTransferMop: string | null;
   kokoMop: string | null;
   webxpayMop: string | null;
+  mintpayMop: string | null;
   citypakMop: string | null;
   taxesAndCharges: string | null;
   shippingRule: string | null;
@@ -50,6 +51,7 @@ type InstanceForm = {
   bankTransferMop: string;
   kokoMop: string;
   webxpayMop: string;
+  mintpayMop: string;
   citypakMop: string;
   taxesAndCharges: string;
   shippingRule: string;
@@ -69,6 +71,7 @@ const emptyForm = (): InstanceForm => ({
   bankTransferMop: "Wire Transfer",
   kokoMop: "Koko",
   webxpayMop: "",
+  mintpayMop: "Mintpay",
   citypakMop: "City Pak",
   taxesAndCharges: "",
   shippingRule: "",
@@ -105,6 +108,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
     form.bankTransferMop.trim() !== savedForm.bankTransferMop.trim() ||
     form.kokoMop.trim() !== savedForm.kokoMop.trim() ||
     form.webxpayMop.trim() !== savedForm.webxpayMop.trim() ||
+    form.mintpayMop.trim() !== savedForm.mintpayMop.trim() ||
     form.citypakMop.trim() !== savedForm.citypakMop.trim() ||
     form.taxesAndCharges.trim() !== savedForm.taxesAndCharges.trim() ||
     form.shippingRule.trim() !== savedForm.shippingRule.trim() ||
@@ -157,6 +161,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
       bankTransferMop: instance.bankTransferMop ?? "Wire Transfer",
       kokoMop: instance.kokoMop ?? "Koko",
       webxpayMop: instance.webxpayMop ?? "",
+      mintpayMop: instance.mintpayMop ?? "Mintpay",
       citypakMop: instance.citypakMop ?? "City Pak",
       taxesAndCharges: instance.taxesAndCharges ?? "",
       shippingRule: instance.shippingRule ?? "",
@@ -194,6 +199,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
         bankTransferMop: form.bankTransferMop.trim() || null,
         kokoMop: form.kokoMop.trim() || null,
         webxpayMop: form.webxpayMop.trim() || null,
+        mintpayMop: form.mintpayMop.trim() || null,
         citypakMop: form.citypakMop.trim() || null,
         taxesAndCharges: form.taxesAndCharges.trim() || null,
         shippingRule: form.shippingRule.trim() || null,
@@ -449,6 +455,7 @@ export function ErpInstancesSettingsForm({ canEdit }: ErpInstancesSettingsFormPr
                   { key: "bankTransferMop", label: "Bank Transfer" },
                   { key: "kokoMop", label: "Koko" },
                   { key: "webxpayMop", label: "WebXPay" },
+                  { key: "mintpayMop", label: "Mintpay" },
                   { key: "citypakMop", label: "City Pak" },
                 ] as { key: keyof InstanceForm; label: string }[]
               ).map(({ key, label }) => (

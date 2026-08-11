@@ -131,6 +131,8 @@ model ErpnextInstance {
   bankTransferMop       String?
   kokoMop               String?
   webxpayMop            String?
+  /// ERP Mode of Payment for Mintpay BNPL (e.g. "Mintpay").
+  mintpayMop            String?
   /// ERP Mode of Payment for Citypak/City Pack courier collections (e.g. "City Pak").
   citypakMop            String?
   taxesAndCharges       String?

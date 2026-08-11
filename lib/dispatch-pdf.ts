@@ -69,6 +69,7 @@ function formatPayment(raw: string | null) {
     return "CARD ON DEL";
   }
   if (normalized.includes("koko")) return "KOKO";
+  if (normalized.includes("mintpay")) return "MINTPAY";
   if (normalized.includes("bank")) return "BANK TRANSFER";
   return raw.replace(/[_-]+/g, " ").toUpperCase();
 }

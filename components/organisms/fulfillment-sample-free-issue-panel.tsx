@@ -139,6 +139,8 @@ export function FulfillmentSampleFreeIssuePanel({
   const [bankTransferBusy, setBankTransferBusy] = useState(false);
   const [showKokoDialog, setShowKokoDialog] = useState(false);
   const [kokoBusy, setKokoBusy] = useState(false);
+  const [showMintpayDialog, setShowMintpayDialog] = useState(false);
+  const [mintpayBusy, setMintpayBusy] = useState(false);
   const isBusy = busyKey !== null;
 
   useEffect(() => {
@@ -404,7 +406,7 @@ export function FulfillmentSampleFreeIssuePanel({
       detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
       ...(detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? []),
     ].map((g) => g?.toLowerCase().trim() ?? "").filter(Boolean);
-    return gateways.some((g) => g.includes("koko") || g.includes("bank"));
+    return gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"));
   }, [detail, order]);
 
   async function handleConfirmBankTransfer() {
@@ -451,6 +453,29 @@ export function FulfillmentSampleFreeIssuePanel({
       notify.error("Failed to request KOKO payment change");
     } finally {
       setKokoBusy(false);
+    }
+  }
+  async function handleRequestMintpayChange() {
+    if (!orderId) return;
+    setMintpayBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPaymentMethod: "mintpay" }),
+      });
+      const data = (await res.json()) as { error?: string; pendingApproval?: boolean };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to request Mintpay payment change");
+        return;
+      }
+      notify.success("Mintpay payment change request sent to finance for approval.");
+      setShowMintpayDialog(false);
+      onRefresh(false);
+    } catch {
+      notify.error("Failed to request Mintpay payment change");
+    } finally {
+      setMintpayBusy(false);
     }
   }
 
@@ -533,6 +558,15 @@ export function FulfillmentSampleFreeIssuePanel({
                         className="h-6 px-2 text-xs border-emerald-500 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:border-emerald-400 dark:text-emerald-400 dark:hover:bg-emerald-950"
                       >
                         KOKO
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowMintpayDialog(true)}
+                        className="h-6 px-2 text-xs border-violet-500 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-400 dark:text-violet-400 dark:hover:bg-violet-950"
+                      >
+                        Mintpay
                       </Button>
                     </>
                   )}
@@ -970,6 +1004,31 @@ export function FulfillmentSampleFreeIssuePanel({
           <AlertDialogCancel disabled={kokoBusy}>Cancel</AlertDialogCancel>
           <Button disabled={kokoBusy} onClick={() => void handleRequestKokoChange()}>
             {kokoBusy ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
+            ) : (
+              "Send for Approval"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog
+      open={showMintpayDialog}
+      onOpenChange={(open) => { if (!open) setShowMintpayDialog(false); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Change to Mintpay</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will send a payment method change request to the finance team for approval.
+            Once approved, the payment type will be changed to Mintpay and the ERP payment entry will be created under Mintpay.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mintpayBusy}>Cancel</AlertDialogCancel>
+          <Button disabled={mintpayBusy} onClick={() => void handleRequestMintpayChange()}>
+            {mintpayBusy ? (
               <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
             ) : (
               "Send for Approval"

@@ -568,6 +568,9 @@ export async function PATCH(
   const isBankTransferApproval =
     approval.type === PAYMENT_METHOD_CHANGE_APPROVAL &&
     (approval.requestNote?.toLowerCase().startsWith("bank transfer") ?? false);
+  const isMintpayApproval =
+    approval.type === PAYMENT_METHOD_CHANGE_APPROVAL &&
+    (approval.requestNote?.toLowerCase().includes("mintpay") ?? false);
   const isPaymentReapproval =
     nextStatus === "approved" &&
     approval.orderId != null &&
@@ -682,8 +685,12 @@ export async function PATCH(
           },
         });
       } else if (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) {
-        // COD → KOKO or COD → Bank Transfer approved by finance: switch gateway, mark paid.
-        const gateway = isBankTransferApproval ? "bank_transfer" : "koko";
+        // COD → KOKO / Mintpay / Bank Transfer approved by finance: switch gateway, mark paid.
+        const gateway = isBankTransferApproval
+          ? "bank_transfer"
+          : isMintpayApproval
+            ? "mintpay"
+            : "koko";
         const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },
           select: { fulfillmentStage: true },

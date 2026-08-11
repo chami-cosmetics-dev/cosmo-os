@@ -67,6 +67,7 @@ export function isPrePaidGateway(gateway: string): boolean {
   const g = normalizePaymentGatewayKey(gateway);
   return (
     g.includes("koko") ||
+    g.includes("mintpay") ||
     g.includes("bank") ||
     g.includes("webxpay") ||
     isCcCheckoutGateway(gateway)

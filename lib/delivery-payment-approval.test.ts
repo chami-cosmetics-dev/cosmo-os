@@ -51,6 +51,7 @@ describe("isEarlyFinancialInvoiceCompleteGateway", () => {
     expect(isEarlyFinancialInvoiceCompleteGateway("CC CHECKOUT")).toBe(true);
     expect(isEarlyFinancialInvoiceCompleteGateway("WebXPay")).toBe(true);
     expect(isEarlyFinancialInvoiceCompleteGateway("KOKO")).toBe(false);
+    expect(isEarlyFinancialInvoiceCompleteGateway("Mintpay")).toBe(false);
     expect(isEarlyFinancialInvoiceCompleteGateway("bank_transfer")).toBe(false);
     expect(isEarlyFinancialInvoiceCompleteGateway("cod")).toBe(false);
   });
@@ -68,8 +69,10 @@ describe("orderHasEarlyFinancialInvoiceCompleteGateway", () => {
 });
 
 describe("isPrePaidGateway", () => {
-  it("detects koko, bank, and cc checkout", () => {
+  it("detects koko, mintpay, bank, and cc checkout", () => {
     expect(isPrePaidGateway("KOKO")).toBe(true);
+    expect(isPrePaidGateway("Mintpay")).toBe(true);
+    expect(isPrePaidGateway("mintpay")).toBe(true);
     expect(isPrePaidGateway("bank_transfer")).toBe(true);
     expect(isPrePaidGateway("cc_checkout")).toBe(true);
     expect(isPrePaidGateway("cod")).toBe(false);
@@ -82,6 +85,15 @@ describe("shouldSkipDeliveryPaymentApproval", () => {
       shouldSkipDeliveryPaymentApproval({
         paymentGatewayPrimary: "KOKO",
         paymentGatewayNames: ["cod", "KOKO"],
+      }),
+    ).toBe(true);
+  });
+
+  it("skips when primary is Mintpay", () => {
+    expect(
+      shouldSkipDeliveryPaymentApproval({
+        paymentGatewayPrimary: "Mintpay",
+        paymentGatewayNames: ["cod", "Mintpay"],
       }),
     ).toBe(true);
   });

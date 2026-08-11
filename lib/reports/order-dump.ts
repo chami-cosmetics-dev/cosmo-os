@@ -23,6 +23,7 @@ function summarizePaymentGateway(value: string) {
   const normalized = trimmed.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
 
   if (normalized.includes("koko")) return "KOKO Payment";
+  if (normalized.includes("mintpay")) return "Mintpay Payment";
   if (normalized.includes("webxpay") || normalized.includes("web x pay")) return "WEBXPAY";
   if (normalized.includes("bank")) return "Bank Transfer";
   if (

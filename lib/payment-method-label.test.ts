@@ -20,9 +20,17 @@ describe("canRequestPaymentMethodChange", () => {
     expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "Cash" })).toBe(true);
   });
 
-  it("blocks bank transfer and card", () => {
+  it("blocks bank transfer, card, and Mintpay", () => {
     expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "bank_transfer" })).toBe(false);
     expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "cc_checkout" })).toBe(false);
+    expect(canRequestPaymentMethodChange({ paymentGatewayPrimary: "mintpay" })).toBe(false);
+  });
+
+  it("labels Mintpay as paid", () => {
+    expect(getPaymentMethodInfo({ paymentGatewayPrimary: "Mintpay" })).toEqual({
+      label: "Mintpay",
+      variant: "paid",
+    });
   });
 
   it("allows pending with no gateway", () => {

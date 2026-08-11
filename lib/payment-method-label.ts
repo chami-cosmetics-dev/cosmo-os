@@ -38,6 +38,9 @@ export function getPaymentMethodInfo(input?: {
   if (normalized === "koko") {
     return { label: "KOKO", variant: "paid" };
   }
+  if (normalized === "mintpay" || normalized.includes("mintpay")) {
+    return { label: "Mintpay", variant: "paid" };
+  }
   if (normalized === "cc" || normalized === "cc checkout" || normalized === "cc_checkout" || normalized === "cc-checkout") {
     return { label: "CC Checkout", variant: "card" };
   }

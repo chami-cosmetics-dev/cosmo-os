@@ -162,12 +162,12 @@ export function isOrderPaymentRequiresApproval(order: {
   // which causes false positives (e.g. "Bank Deposit" alongside a COD order).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
-    return g.includes("koko") || g.includes("bank");
+    return g.includes("koko") || g.includes("mintpay") || g.includes("bank");
   }
   const gateways = order.paymentGatewayNames
     .map((g) => g.toLowerCase().trim())
     .filter(Boolean);
-  return gateways.some((g) => g.includes("koko") || g.includes("bank"));
+  return gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"));
 }
 
 export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
@@ -268,13 +268,13 @@ export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyI
       if (!row.order) return false;
       if (isOrderPaymentRequiresApproval(row.order)) return true;
       const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
-      if (primary.includes("koko") || primary.includes("bank") || primary.includes("webxpay")) {
+      if (primary.includes("koko") || primary.includes("mintpay") || primary.includes("bank") || primary.includes("webxpay")) {
         return true;
       }
       if (!primary) {
         return row.order.paymentGatewayNames.some((g) => {
           const n = g.toLowerCase().trim();
-          return n.includes("koko") || n.includes("bank") || n.includes("webxpay");
+          return n.includes("koko") || n.includes("mintpay") || n.includes("bank") || n.includes("webxpay");
         });
       }
       // Finance already confirmed / queued order payment — drop duplicate door collection.

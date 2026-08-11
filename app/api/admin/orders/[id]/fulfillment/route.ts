@@ -1306,6 +1306,7 @@ export async function PATCH(
       const gateway = (order.paymentGatewayPrimary ?? "").toLowerCase().trim();
       const isPaidCancelableGateway =
         gateway.includes("koko") ||
+        gateway.includes("mintpay") ||
         gateway.includes("bank") ||
         gateway === "cc" ||
         gateway === "cc checkout" ||

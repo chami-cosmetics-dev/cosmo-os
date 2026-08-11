@@ -1624,7 +1624,7 @@ export function OrderInvoiceViewModal({
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? ""}</AlertDialogTitle>
           <AlertDialogDescription>
-            {orderDetail && ["koko", "bank_transfer", "cc_checkout"].some((g) => orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g))
+            {orderDetail && ["koko", "mintpay", "bank_transfer", "cc_checkout"].some((g) => orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g))
               ? "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
               : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
           </AlertDialogDescription>
