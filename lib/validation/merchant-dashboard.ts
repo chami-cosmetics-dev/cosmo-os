@@ -11,6 +11,15 @@ export const merchantDashboardPageDataQuerySchema = z.object({
   yearMonth: merchantDashboardYearMonthSchema.optional(),
 });
 
+export const merchantDashboardDayYmdSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid day (YYYY-MM-DD)");
+
+export const merchantDashboardDailyInvoicesQuerySchema = z.object({
+  merchantUserId: cuidSchema.optional(),
+  day: merchantDashboardDayYmdSchema,
+});
+
 export const merchantMonthlyTargetUpsertSchema = z.object({
   merchantUserId: cuidSchema,
   yearMonth: merchantDashboardYearMonthSchema,

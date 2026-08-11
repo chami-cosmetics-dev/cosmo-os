@@ -23,9 +23,11 @@ import {
   fetchMerchantCohortSales,
 } from "@/lib/page-data/merchant-dashboard-peers";
 import {
+  fetchMerchantDailyInvoices,
   fetchMerchantTopCustomersBySales,
   fetchMerchantReturnStats,
   fetchMerchantUserSales,
+  type MerchantDailyInvoiceRow,
 } from "@/lib/page-data/merchant-dashboard-sales";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
@@ -135,6 +137,11 @@ export type MerchantDashboardPageData = {
   locationShare: LocationShareBundle;
   /** Day/month attributed sales history (not target-assignment audit). */
   salesHistory: SalesHistoryDto;
+  /** Order-placed invoices for selected Colombo day (default today). */
+  dailyInvoicesYmd: string;
+  dailyInvoices: MerchantDailyInvoiceRow[];
+  dailyInvoicesTotal: number;
+  dailyInvoicesOrderCount: number;
 };
 
 function currentYearMonth(now = new Date()): string {
@@ -321,6 +328,7 @@ export async function getMerchantDashboardPageData(input: {
     historyEvents,
     topCustomersSplit,
     nearestBirthdays,
+    dailyInvoicesResult,
   ] = await Promise.all([
     fetchMerchantCohortSales(input.companyId, cohortInputs, {
       fromYmd,
@@ -358,6 +366,10 @@ export async function getMerchantDashboardPageData(input: {
     fetchMerchantNearestBirthdays(input.companyId, profileUser, {
       limit: 15,
       withinDays: 45,
+    }),
+    fetchMerchantDailyInvoices(input.companyId, selectedMerchantId, {
+      dayYmd: todayYmd,
+      dateType: "all_orders",
     }),
   ]);
 
@@ -542,6 +554,10 @@ export async function getMerchantDashboardPageData(input: {
     peerBoards,
     locationShare,
     salesHistory,
+    dailyInvoicesYmd: dailyInvoicesResult.dayYmd,
+    dailyInvoices: dailyInvoicesResult.rows,
+    dailyInvoicesTotal: dailyInvoicesResult.total,
+    dailyInvoicesOrderCount: dailyInvoicesResult.orderCount,
   };
 }
 

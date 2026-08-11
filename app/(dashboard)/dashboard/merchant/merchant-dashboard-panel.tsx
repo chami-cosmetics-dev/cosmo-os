@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { Cake, Crown, Loader2, Target } from "lucide-react";
+import { Cake, Crown, Download, Loader2, Target } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -34,9 +34,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { formatAppTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
+import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-LK", {
@@ -44,6 +46,11 @@ function formatMoney(value: number) {
     currency: "LKR",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function csvEscape(value: string | number | boolean | null | undefined) {
+  const safe = value == null ? "" : String(value);
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 function MerchantChartTooltip({
@@ -135,6 +142,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [wishDiscount, setWishDiscount] = useState("10");
   const [wishCode, setWishCode] = useState("");
   const [wishMessage, setWishMessage] = useState("");
+  const [invoiceDay, setInvoiceDay] = useState(initialData.dailyInvoicesYmd);
+  const [dailyInvoices, setDailyInvoices] = useState<MerchantDailyInvoiceRow[]>(
+    initialData.dailyInvoices,
+  );
+  const [dailyInvoicesTotal, setDailyInvoicesTotal] = useState(
+    initialData.dailyInvoicesTotal,
+  );
+  const [dailyInvoicesOrderCount, setDailyInvoicesOrderCount] = useState(
+    initialData.dailyInvoicesOrderCount,
+  );
   const [isPending, startTransition] = useTransition();
   const isBusy = busyKey !== null || isPending;
 
@@ -148,6 +165,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     );
     setShowAllToday(false);
     setShowAllLifetime(false);
+    setInvoiceDay(initialData.dailyInvoicesYmd);
+    setDailyInvoices(initialData.dailyInvoices);
+    setDailyInvoicesTotal(initialData.dailyInvoicesTotal);
+    setDailyInvoicesOrderCount(initialData.dailyInvoicesOrderCount);
   }, [initialData]);
 
   async function reload(nextMerchantId: string) {
@@ -173,12 +194,92 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         );
         setShowAllToday(false);
         setShowAllLifetime(false);
+        setInvoiceDay(json.dailyInvoicesYmd);
+        setDailyInvoices(json.dailyInvoices);
+        setDailyInvoicesTotal(json.dailyInvoicesTotal);
+        setDailyInvoicesOrderCount(json.dailyInvoicesOrderCount);
       });
     } catch {
       notify.error("Failed to load merchant dashboard");
     } finally {
       setBusyKey(null);
     }
+  }
+
+  async function loadDailyInvoices(day: string, nextMerchantId = merchantId) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      notify.error("Pick a valid date");
+      return;
+    }
+    setBusyKey("daily-invoices");
+    setInvoiceDay(day);
+    try {
+      const params = new URLSearchParams({
+        day,
+        merchantUserId: nextMerchantId,
+      });
+      const res = await fetch(
+        `/api/admin/merchant-dashboard/daily-invoices?${params}`,
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        notify.error(json.error ?? "Failed to load daily invoices");
+        return;
+      }
+      setDailyInvoices(json.rows ?? []);
+      setDailyInvoicesTotal(Number(json.total ?? 0));
+      setDailyInvoicesOrderCount(Number(json.orderCount ?? 0));
+      setInvoiceDay(json.dayYmd ?? day);
+    } catch {
+      notify.error("Failed to load daily invoices");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function exportDailyInvoicesCsv() {
+    if (dailyInvoices.length === 0) {
+      notify.error("No invoices to export for this day");
+      return;
+    }
+    const header = [
+      "Time",
+      "Invoice",
+      "Customer",
+      "Phone",
+      "Amount",
+      "Location",
+      "Allocated merchant",
+      "Allocation mismatch",
+    ];
+    const lines = [
+      header.map((item) => csvEscape(item)).join(","),
+      ...dailyInvoices.map((row) =>
+        [
+          formatAppTime(row.createdAt),
+          row.invoiceLabel,
+          row.customerName,
+          row.customerPhone,
+          row.amount,
+          row.locationName,
+          row.allocatedMerchant,
+          row.allocationMismatch ? "yes" : "no",
+        ]
+          .map((item) => csvEscape(item))
+          .join(","),
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `merchant-invoices-${invoiceDay}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   async function saveTarget() {
@@ -488,6 +589,124 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Daily sales invoices</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              Invoices attributed to you (order-placed merchant). Allocated
+              merchant is shown from Contact Master when the customer is assigned.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="date"
+              value={invoiceDay}
+              disabled={isBusy}
+              className="w-auto"
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next) void loadDailyInvoices(next);
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isBusy || dailyInvoices.length === 0}
+              onClick={exportDailyInvoicesCsv}
+              className="gap-2"
+            >
+              <Download aria-hidden />
+              Export CSV
+            </Button>
+            {busyKey === "daily-invoices" ? (
+              <Loader2 className="text-muted-foreground size-4 animate-spin" aria-hidden />
+            ) : null}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <p>
+              <span className="text-muted-foreground">Day total:</span>{" "}
+              <span className="font-medium tabular-nums">
+                {formatMoney(dailyInvoicesTotal)}
+              </span>
+            </p>
+            <p className="text-muted-foreground">
+              {dailyInvoicesOrderCount} invoice
+              {dailyInvoicesOrderCount === 1 ? "" : "s"} · {invoiceDay}
+            </p>
+          </div>
+          {busyKey === "daily-invoices" ? (
+            <p className="text-muted-foreground flex items-center gap-2 text-sm">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Loading invoices...
+            </p>
+          ) : dailyInvoices.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No sales invoices for this day.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-muted-foreground border-b text-left">
+                    <th className="py-2 pr-3 font-medium">Time</th>
+                    <th className="py-2 pr-3 font-medium">Invoice</th>
+                    <th className="py-2 pr-3 font-medium">Customer</th>
+                    <th className="py-2 pr-3 font-medium">Phone</th>
+                    <th className="py-2 pr-3 font-medium">Amount</th>
+                    <th className="py-2 pr-3 font-medium">Location</th>
+                    <th className="py-2 font-medium">Allocated merchant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyInvoices.map((row) => (
+                    <tr key={row.orderId} className="border-b border-border/60">
+                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
+                        {formatAppTime(row.createdAt)}
+                      </td>
+                      <td className="py-2 pr-3 font-medium whitespace-nowrap">
+                        {row.invoiceLabel}
+                      </td>
+                      <td className="py-2 pr-3">{row.customerName}</td>
+                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
+                        {row.customerPhone ?? "—"}
+                      </td>
+                      <td className="py-2 pr-3 tabular-nums whitespace-nowrap">
+                        {formatMoney(row.amount)}
+                      </td>
+                      <td className="py-2 pr-3">{row.locationName}</td>
+                      <td className="py-2">
+                        {row.allocatedMerchant ? (
+                          <span
+                            className={
+                              row.allocationMismatch
+                                ? "text-amber-700 dark:text-amber-400"
+                                : undefined
+                            }
+                          >
+                            {row.allocatedMerchant}
+                            {row.allocationMismatch ? (
+                              <span className="text-muted-foreground ml-1 text-xs">
+                                (other)
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -857,8 +1076,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     <div>
                       <p className="font-medium">{loc.locationName}</p>
                       <p className="text-muted-foreground text-xs">
-                        Outlet total {formatMoney(loc.locationTotal)} · you{" "}
-                        {loc.selfOrderCount} order
+                        You {loc.selfOrderCount} order
                         {loc.selfOrderCount === 1 ? "" : "s"}
                       </p>
                     </div>
