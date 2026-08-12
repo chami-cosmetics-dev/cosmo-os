@@ -768,6 +768,7 @@ async function ensureCustomer(
       ...(canonicalMobile ? { name: canonicalMobile } : {}),
       customer_name: displayName,
       customer_type: "Individual",
+      // New ERP customers only. Never PATCH customer_group from OS loyalty.
       customer_group: "Individual",
       territory: "All Territories",
       default_company: erpnextCompany,

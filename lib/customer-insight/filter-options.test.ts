@@ -26,6 +26,27 @@ describe("isNonProductInsightItem", () => {
     expect(isNonProductInsightItem({ title: "104523", sku: "ABC" })).toBe(true);
   });
 
+  it("drops fee / % off / nose-ear trimmer junk", () => {
+    expect(
+      isNonProductInsightItem({
+        title: "15% off for NDB credit and debit cards",
+        sku: "fee",
+      })
+    ).toBe(true);
+    expect(
+      isNonProductInsightItem({
+        title: "3 IN 1 NOSE AND EAR TRIMMER",
+        sku: "SF-1994NEHT",
+      })
+    ).toBe(true);
+    expect(
+      isNonProductInsightItem({
+        title: "3 IN 1 NOSE AND EAR TRIMMER 2 WATTS*OI",
+        sku: "SF1994NEHT*OI",
+      })
+    ).toBe(true);
+  });
+
   it("keeps real catalog products", () => {
     expect(
       isNonProductInsightItem({
@@ -69,6 +90,25 @@ describe("rankInsightItemOptions", () => {
       ],
       "ord"
     );
-    expect(ranked.map((i) => i.sku)).toEqual(["ORD01_1", "XORD99", "PAD01", "TO01_1"]);
+    expect(ranked.map((i) => i.sku)).toEqual(["ORD01_1", "XORD99", "PAD01"]);
+  });
+
+  it("does not rank Extraordinary for ordinary", () => {
+    const ranked = rankInsightItemOptions(
+      [
+        {
+          value: "Loreal Elvive Extraordinary Oil",
+          label: "Loreal Elvive Extraordinary Oil",
+          sku: "LOR01",
+        },
+        {
+          value: "The Ordinary Niacinamide",
+          label: "The Ordinary Niacinamide",
+          sku: "TO01_1",
+        },
+      ],
+      "ordinary"
+    );
+    expect(ranked.map((i) => i.sku)).toEqual(["TO01_1"]);
   });
 });

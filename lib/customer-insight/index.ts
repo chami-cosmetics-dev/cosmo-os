@@ -53,6 +53,8 @@ export {
   brandFromVendorName,
   brandFromAdaptLineItem,
   brandsMatch,
+  lineMatchesBrand,
+  textContainsBrandWord,
 } from "@/lib/customer-insight/brand";
 export { cityForDisplay, extractCityFromAddress, recognizedCity } from "@/lib/customer-insight/city";
 export { filterAllocatedContacts, matchesBirthdayRange, matchesBirthdayThisMonth, hasNoPurchaseWithinMonths, hasNoPurchaseInDateRange } from "@/lib/customer-insight/filters";

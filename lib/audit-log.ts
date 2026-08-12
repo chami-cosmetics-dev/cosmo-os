@@ -50,6 +50,7 @@ export const AUDIT_LOG_ACTIONS = [
   "contact_auto_sync_conflict",
   "contact_backfill_run",
   "contact_email_cleared",
+  "contact_allocation_imported",
   "setting_created",
   "setting_updated",
   "setting_deleted",
@@ -85,6 +86,7 @@ export const AUDIT_LOG_ACTION_GROUPS = [
       "contact_auto_sync_conflict",
       "contact_backfill_run",
       "contact_email_cleared",
+      "contact_allocation_imported",
     ],
   },
   {

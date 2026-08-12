@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
-import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import { suggestedLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
+import { loyaltyExternalTargets } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
@@ -11,6 +12,7 @@ export async function GET() {
   const auth = await requireAnyPermission([
     "contacts.master.read",
     "contacts.master.manage",
+    "dashboard.merchant_admin_view",
   ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -49,8 +51,13 @@ export async function GET() {
     const [orders, adaptRows] = await Promise.all([
       orderLookupOr.length > 0
         ? prisma.order.findMany({
-            where: { companyId, OR: orderLookupOr },
-            select: { totalPrice: true, cancelledAt: true },
+            where: { companyId, OR: orderLookupOr, ...customerLifetimeTotalOrderWhere() },
+            select: {
+              totalPrice: true,
+              cancelledAt: true,
+              financialStatus: true,
+              fulfillmentStage: true,
+            },
           })
         : Promise.resolve([]),
       prisma.adaptPurchaseHistory.findMany({
@@ -62,15 +69,22 @@ export async function GET() {
       orders: orders.map((o) => ({
         totalPrice: o.totalPrice.toString(),
         cancelledAt: o.cancelledAt,
+        financialStatus: o.financialStatus,
+        fulfillmentStage: o.fulfillmentStage,
       })),
       adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
     });
+    const suggestedTier = suggestedLoyaltyTier(lifetimeTotal);
+    const targets = suggestedTier ? loyaltyExternalTargets(suggestedTier) : null;
     items.push({
       contactId: c.id,
       name: c.name,
       phoneNumber: c.phoneNumber,
       lifetimeTotal,
-      suggestedTier: suggestedLoyaltyTier(lifetimeTotal),
+      suggestedTier,
+      eligibleGroup: targets?.label ?? null,
+      erpGroup: targets?.erpGroup ?? null,
+      shopifyTag: targets?.shopifyTag ?? null,
       assignedMerchant: c.assignedMerchant,
     });
   }

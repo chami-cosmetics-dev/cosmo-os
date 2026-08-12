@@ -22,12 +22,14 @@ export function isCompanyAdminRole(roleNames: string[] | null | undefined): bool
 }
 
 /** Merchant dashboard admin slice: company admin role or explicit permission. */
+export const MERCHANT_DASHBOARD_ADMIN_PERMISSION = "dashboard.merchant_admin_view";
+
 export function hasMerchantDashboardAdminView(input: {
   roleNames?: string[] | null;
   permissionKeys?: string[] | null;
 }): boolean {
   if (isCompanyAdminRole(input.roleNames)) return true;
-  return (input.permissionKeys ?? []).includes("dashboard.merchant_admin_view");
+  return (input.permissionKeys ?? []).includes(MERCHANT_DASHBOARD_ADMIN_PERMISSION);
 }
 
 /** Merchant dashboard access via role: company admins only (not merchant-level users). */

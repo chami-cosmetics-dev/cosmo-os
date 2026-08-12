@@ -1,5 +1,4 @@
-import { brandFromAdaptLineItem } from "@/lib/customer-insight/brand";
-import { brandsMatch } from "@/lib/customer-insight/brand";
+import { brandFromAdaptLineItem, lineMatchesBrand, textContainsBrandWord } from "@/lib/customer-insight/brand";
 import { cityForDisplay, extractCityFromAddress } from "@/lib/customer-insight/city";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { prisma } from "@/lib/prisma";
@@ -63,7 +62,8 @@ export function rankInsightItemOptions(
       if (sku.startsWith(needle)) rank = 0;
       else if (sku.includes(needle)) rank = 1;
       else if (label.startsWith(needle) || value.startsWith(needle)) rank = 2;
-      else if (label.includes(needle) || value.includes(needle)) rank = 3;
+      else if (textContainsBrandWord(label, needle) || textContainsBrandWord(value, needle))
+        rank = 3;
       return { item, rank };
     })
     .filter((row) => row.rank < 99);
@@ -129,11 +129,21 @@ function productItemBaseWhere(companyId: string, brandNeedle: string | null) {
     AND: [
       {
         OR: [
-          { vendor: { name: { equals: brandNeedle, mode: "insensitive" as const } } },
+          { vendor: { name: { contains: brandNeedle, mode: "insensitive" as const } } },
           { productTitle: { contains: brandNeedle, mode: "insensitive" as const } },
         ],
       },
       notCoupon,
+    ],
+  };
+}
+
+function productItemVendorWhere(companyId: string, brandNeedle: string) {
+  return {
+    companyId,
+    AND: [
+      { vendor: { name: { contains: brandNeedle, mode: "insensitive" as const } } },
+      { NOT: { sku: { equals: "coupon", mode: "insensitive" as const } } },
     ],
   };
 }
@@ -147,8 +157,16 @@ export async function listInsightItemOptions(
   const seen = new Set<string>();
   const items: FilterOptionDto[] = [];
   const productWhere = productItemBaseWhere(companyId, brandNeedle);
+  const searchOr = qNeedle
+    ? {
+        OR: [
+          { sku: { contains: qNeedle, mode: "insensitive" as const } },
+          { productTitle: { contains: qNeedle, mode: "insensitive" as const } },
+        ],
+      }
+    : null;
 
-  const [skuPrefixProducts, products] = await Promise.all([
+  const [skuPrefixProducts, vendorProducts, products] = await Promise.all([
     qNeedle
       ? prisma.productItem.findMany({
           where: {
@@ -162,31 +180,31 @@ export async function listInsightItemOptions(
           orderBy: { sku: "asc" },
         })
       : Promise.resolve([]),
+    brandNeedle
+      ? prisma.productItem.findMany({
+          where: searchOr
+            ? { AND: [productItemVendorWhere(companyId, brandNeedle), searchOr] }
+            : productItemVendorWhere(companyId, brandNeedle),
+          select: productItemSelect,
+          take: 3_000,
+          orderBy: { productTitle: "asc" },
+        })
+      : Promise.resolve([]),
     prisma.productItem.findMany({
-      where: qNeedle
-        ? {
-            AND: [
-              productWhere,
-              {
-                OR: [
-                  { sku: { contains: qNeedle, mode: "insensitive" } },
-                  { productTitle: { contains: qNeedle, mode: "insensitive" } },
-                ],
-              },
-            ],
-          }
-        : productWhere,
+      where: searchOr ? { AND: [productWhere, searchOr] } : productWhere,
       select: productItemSelect,
       take: 3_000,
       orderBy: { productTitle: "asc" },
     }),
   ]);
 
-  for (const p of [...skuPrefixProducts, ...products]) {
+  for (const p of [...skuPrefixProducts, ...vendorProducts, ...products]) {
     if (
       brandNeedle &&
-      !brandsMatch(p.vendor?.name, brandNeedle) &&
-      !(p.productTitle ?? "").toLowerCase().includes(brandNeedle.toLowerCase())
+      !lineMatchesBrand(brandNeedle, {
+        vendorName: p.vendor?.name,
+        productTitle: p.productTitle,
+      })
     ) {
       continue;
     }
@@ -216,9 +234,14 @@ export async function listInsightItemOptions(
       const obj = raw as Record<string, unknown>;
       const title = String(obj.itemName ?? obj.productTitle ?? obj.name ?? "").trim();
       if (!title) continue;
-      if (brandNeedle) {
-        const b = brandFromAdaptLineItem(raw);
-        if (!brandsMatch(b, brandNeedle)) continue;
+      if (
+        brandNeedle &&
+        !lineMatchesBrand(brandNeedle, {
+          vendorName: brandFromAdaptLineItem(raw),
+          productTitle: title,
+        })
+      ) {
+        continue;
       }
       const variant = String(obj.variantTitle ?? obj.variant ?? "").trim();
       const sku = String(obj.itemCode ?? obj.sku ?? "").trim();

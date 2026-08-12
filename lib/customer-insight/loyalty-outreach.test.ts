@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { loyaltyRespondedRecipientIds } from "@/lib/customer-insight/loyalty-notify";
 import {
   canAssignLoyaltyTier,
   isLoyaltyEligibleByTotal,
@@ -15,5 +16,14 @@ describe("loyalty-outreach", () => {
 
   it("advances outreach status", () => {
     expect(nextOutreachStatus("loyalty_informed")).toBe("contacted");
+  });
+});
+
+describe("loyaltyRespondedRecipientIds", () => {
+  it("drops the actor and dedupes", () => {
+    expect(loyaltyRespondedRecipientIds(["a", "b", "a", "c"], "b")).toEqual([
+      "a",
+      "c",
+    ]);
   });
 });

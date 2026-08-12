@@ -1,6 +1,7 @@
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
+import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import {
   buildLoyaltyDto,
   classifyLoyaltyTierKey,
@@ -185,6 +186,7 @@ type ContactCandidate = {
   birthDay: number | null;
   lastPurchaseAt: Date | null;
   loyaltyAssignedAt: Date | null;
+  loyaltyAssignedTier: string | null;
 };
 
 function buildAllocationWhere(input: FilterQueryInput): {
@@ -341,6 +343,7 @@ export async function filterAllocatedContacts(
     birthDay: true,
     lastPurchaseAt: true,
     loyaltyAssignedAt: true,
+    loyaltyAssignedTier: true,
   } as const;
 
   if (brandNeedle) {
@@ -429,7 +432,10 @@ export async function filterAllocatedContacts(
       contact.id
     );
 
-    const key = classifyLoyaltyTierKey(lifetimeTotal);
+    const key = effectiveLoyaltyTierKey(
+      contact.loyaltyAssignedTier,
+      classifyLoyaltyTierKey(lifetimeTotal)
+    );
     if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
     if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
 

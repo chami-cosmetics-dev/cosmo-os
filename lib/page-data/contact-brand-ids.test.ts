@@ -26,4 +26,25 @@ describe("lineMatchesBrand", () => {
       lineMatchesBrand("Anua", { vendorName: null, productTitle: "Organic Banana Mask" })
     ).toBe(false);
   });
+
+  it("does not match Extraordinary as Ordinary", () => {
+    expect(
+      lineMatchesBrand("Ordinary", {
+        vendorName: "Loreal",
+        productTitle: "Loreal Elvive Extraordinary Oil",
+      })
+    ).toBe(false);
+    expect(
+      lineMatchesBrand("Ordinary", {
+        vendorName: "The Ordinary",
+        productTitle: "Niacinamide 10%",
+      })
+    ).toBe(true);
+    expect(
+      lineMatchesBrand("Ordinary", {
+        vendorName: null,
+        productTitle: "The Ordinary Niacinamide",
+      })
+    ).toBe(true);
+  });
 });

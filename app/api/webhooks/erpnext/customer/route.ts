@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { getMerchantDisplayName } from "@/lib/customer-insight/auto-allocate";
+import { applyErpCustomerGroupToContact } from "@/lib/customer-insight/erp-loyalty";
 import { resolveCompanyIdsForErpWebhookSecret } from "@/lib/erp-item-price-sync";
 import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
 import { getPrimaryMerCode } from "@/lib/merchant-allocation";
@@ -119,6 +120,13 @@ export async function POST(request: NextRequest) {
       assignedMerchantMer,
       auditBehavior: "summary_only",
     });
+    if ("contactId" in result && result.contactId) {
+      await applyErpCustomerGroupToContact({
+        companyId,
+        contactId: result.contactId,
+        customerGroup: data.customer_group,
+      });
+    }
     console.log(
       `[ERPNext Customer webhook] ${data.name}: ${result.status}` +
         ("contactId" in result ? ` (${result.contactId})` : "") +

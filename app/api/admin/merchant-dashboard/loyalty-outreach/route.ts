@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import { nextOutreachStatus } from "@/lib/customer-insight/loyalty-outreach";
+import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
+import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
+import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
+import { nextOutreachStatus, suggestedLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
+import { notifyMerchantAdminsLoyaltyResponded } from "@/lib/customer-insight/loyalty-notify";
+import { loyaltyExternalTargets } from "@/lib/customer-insight/loyalty-push";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import {
   canAccessMerchantDashboard,
@@ -107,6 +112,58 @@ export async function POST(request: NextRequest) {
     summary: `Loyalty outreach ${parsed.data.action} for ${contact.name}`,
     metadata: { action: parsed.data.action, remark, status },
   });
+
+  if (parsed.data.action === "responded") {
+    try {
+      const emails = await listContactEmails(contact.id, null);
+      const phones = await listContactPhones(contact.id, null);
+      const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
+      const [orders, adaptRows] = await Promise.all([
+        orderLookupOr.length > 0
+          ? prisma.order.findMany({
+              where: {
+                companyId,
+                OR: orderLookupOr,
+                ...customerLifetimeTotalOrderWhere(),
+              },
+              select: {
+                totalPrice: true,
+                cancelledAt: true,
+                financialStatus: true,
+                fulfillmentStage: true,
+              },
+            })
+          : Promise.resolve([]),
+        prisma.adaptPurchaseHistory.findMany({
+          where: { contactId: contact.id, companyId },
+          select: { ttlAmount: true },
+        }),
+      ]);
+      const lifetimeTotal = computeLifetimeTotal({
+        orders: orders.map((o) => ({
+          totalPrice: o.totalPrice.toString(),
+          cancelledAt: o.cancelledAt,
+          financialStatus: o.financialStatus,
+          fulfillmentStage: o.fulfillmentStage,
+        })),
+        adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
+      });
+      const suggested = suggestedLoyaltyTier(lifetimeTotal);
+      const targets = suggested ? loyaltyExternalTargets(suggested) : null;
+      await notifyMerchantAdminsLoyaltyResponded({
+        companyId,
+        contactId: contact.id,
+        contactName: contact.name,
+        actorUserId: user.id,
+        actorName: user.knownName ?? user.name ?? null,
+        eligibleLabel: targets?.label ?? null,
+        erpGroup: targets?.erpGroup ?? null,
+        shopifyTag: targets?.shopifyTag ?? null,
+      });
+    } catch (err) {
+      console.error("[loyalty-outreach] notify merchant admins failed", err);
+    }
+  }
 
   return NextResponse.json({ ok: true, status });
 }

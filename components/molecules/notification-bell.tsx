@@ -28,6 +28,9 @@ type NotificationItem = {
 
 function notificationHref(item: NotificationItem) {
   if (item.entityType === "ApprovalRequest") return "/dashboard/approvals";
+  if (item.type === "loyalty_responded" || item.entityType === "ContactMaster") {
+    return "/dashboard/customer-insight#loyalty-queue";
+  }
   return "/dashboard";
 }
 

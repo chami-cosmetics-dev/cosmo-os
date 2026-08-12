@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
-import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import { canAssignLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
+import { pushLoyaltyAssignmentToErpAndShopify } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
-import { requirePermission } from "@/lib/rbac";
+import { requireAnyPermission } from "@/lib/rbac";
 import {
   customerInsightContactParamsSchema,
   customerInsightLoyaltyAssignBodySchema,
@@ -15,7 +16,10 @@ import {
 type Params = { params: Promise<{ contactId: string }> };
 
 export async function POST(request: NextRequest, { params }: Params) {
-  const auth = await requirePermission("contacts.master.manage");
+  const auth = await requireAnyPermission([
+    "contacts.master.manage",
+    "dashboard.merchant_admin_view",
+  ]);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
@@ -77,8 +81,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   const [orders, adaptRows] = await Promise.all([
     orderLookupOr.length > 0
       ? prisma.order.findMany({
-          where: { companyId, OR: orderLookupOr },
-          select: { totalPrice: true, cancelledAt: true },
+          where: { companyId, OR: orderLookupOr, ...customerLifetimeTotalOrderWhere() },
+          select: {
+            totalPrice: true,
+            cancelledAt: true,
+            financialStatus: true,
+            fulfillmentStage: true,
+          },
         })
       : Promise.resolve([]),
     prisma.adaptPurchaseHistory.findMany({
@@ -90,6 +99,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     orders: orders.map((o) => ({
       totalPrice: o.totalPrice.toString(),
       cancelledAt: o.cancelledAt,
+      financialStatus: o.financialStatus,
+      fulfillmentStage: o.fulfillmentStage,
     })),
     adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
   });
@@ -130,6 +141,17 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   });
 
+  let push = { erpUpdated: 0, shopifyUpdated: 0, errors: [] as string[] };
+  try {
+    push = await pushLoyaltyAssignmentToErpAndShopify({
+      companyId,
+      contactId: contact.id,
+      tier: parsed.data.tier,
+    });
+  } catch (err) {
+    push.errors.push(err instanceof Error ? err.message : "ERP/Shopify push failed");
+  }
+
   await writeAuditLog({
     companyId,
     actorUserId: user.id,
@@ -142,6 +164,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       tier: parsed.data.tier,
       lifetimeTotal,
       remark,
+      erpUpdated: push.erpUpdated,
+      shopifyUpdated: push.shopifyUpdated,
+      pushErrors: push.errors,
     },
   });
 
@@ -149,5 +174,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     ok: true,
     tier: parsed.data.tier,
     assignedAt: now.toISOString(),
+    erpUpdated: push.erpUpdated,
+    shopifyUpdated: push.shopifyUpdated,
+    pushErrors: push.errors,
   });
 }
