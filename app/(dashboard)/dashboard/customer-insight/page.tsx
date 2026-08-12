@@ -28,14 +28,18 @@ export default async function CustomerInsightPage() {
   const canMergeContacts = permissionKeys.includes("contacts.merge");
   const canManageLoyalty =
     permissionKeys.includes("contacts.master.manage") ||
-    permissionKeys.includes("contacts.master.read");
+    permissionKeys.includes("contacts.master.read") ||
+    permissionKeys.includes("dashboard.merchant_admin_view");
 
   return (
     <CustomerInsightPanel
       canFilterAllContacts={canFilterAllContacts}
       canMergeContacts={canMergeContacts}
       canManageLoyalty={canManageLoyalty}
-      canAssignLoyalty={permissionKeys.includes("contacts.master.manage")}
+      canAssignLoyalty={
+        permissionKeys.includes("contacts.master.manage") ||
+        permissionKeys.includes("dashboard.merchant_admin_view")
+      }
     />
   );
 }

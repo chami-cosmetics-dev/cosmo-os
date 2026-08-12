@@ -27,4 +27,9 @@ describe("brandsMatch", () => {
     expect(brandsMatch("Acme", "acme")).toBe(true);
     expect(brandsMatch(null, "acme")).toBe(false);
   });
+
+  it("matches The Ordinary to Ordinary, not Extraordinary", () => {
+    expect(brandsMatch("The Ordinary", "Ordinary")).toBe(true);
+    expect(brandsMatch("Extraordinary Cosmetics", "Ordinary")).toBe(false);
+  });
 });

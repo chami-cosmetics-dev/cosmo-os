@@ -9,9 +9,11 @@ import {
   scopeCosmoOrdersForHistory,
   type HistoryScopeInput,
 } from "@/lib/customer-insight/history-scope";
+import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
 import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
 import {
   insightVisibility,
   type ViewerIdentity,
@@ -279,7 +281,19 @@ export async function loadCustomerInsight(input: {
       assignedMerchant: contact.assignedMerchant,
       category: contact.category,
     }),
-    loyalty: serializeLoyalty(lifetimeTotal, "LKR"),
+    loyalty: (() => {
+      const computed = serializeLoyalty(lifetimeTotal, "LKR");
+      const key = effectiveLoyaltyTierKey(
+        contact.loyaltyAssignedTier,
+        computed.key
+      );
+      return {
+        ...computed,
+        key,
+        label: loyaltyLabel(key),
+        code: loyaltyCode(key),
+      };
+    })(),
     frequency,
     topItems,
     series,
@@ -302,7 +316,7 @@ export async function loadCustomerInsight(input: {
             assignedByName:
               contact.loyaltyAssignedBy?.knownName?.trim() ||
               contact.loyaltyAssignedBy?.name?.trim() ||
-              null,
+              (contact.loyaltyAssignedByUserId ? null : "ERP"),
             assignedByUserId: contact.loyaltyAssignedByUserId,
           }
         : null,

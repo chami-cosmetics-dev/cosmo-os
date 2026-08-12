@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/popover";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
+import { isCompletePhoneSearch } from "@/lib/phone-lookup";
 import {
   LOYALTY_GOLD_MIN,
   LOYALTY_PLATINUM_MIN,
@@ -447,7 +448,10 @@ export function CustomerInsightPanel({
       name: string;
       phoneNumber: string | null;
       lifetimeTotal: number;
-      suggestedTier: string | null;
+      suggestedTier: "gold" | "platinum" | null;
+      eligibleGroup: string | null;
+      erpGroup: string | null;
+      shopifyTag: string | null;
       assignedMerchant: string | null;
     }>
   >([]);
@@ -570,6 +574,12 @@ export function CustomerInsightPanel({
     };
   }, [canManageLoyalty]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#loyalty-queue") return;
+    document.getElementById("loyalty-queue")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loyaltyQueue]);
+
   async function runSearch() {
     const q = phone.trim();
     if (!q) {
@@ -582,6 +592,10 @@ export function CustomerInsightPanel({
     setSearched(false);
     setItemFilter(null);
     setEditing(false);
+    const exactNumber = isCompletePhoneSearch(q);
+    if (exactNumber) {
+      clearFilters();
+    }
     let autoOpenId: string | null = null;
     try {
       const res = await fetch(
@@ -605,7 +619,11 @@ export function CustomerInsightPanel({
       setBusyKey(null);
     }
     if (autoOpenId) {
-      await loadInsight(autoOpenId, 1);
+      await loadInsight(
+        autoOpenId,
+        1,
+        exactNumber ? { brand: "", item: "" } : undefined
+      );
     }
   }
 
@@ -928,12 +946,14 @@ export function CustomerInsightPanel({
       </div>
 
       {canManageLoyalty ? (
-        <Card>
+        <Card id="loyalty-queue">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
             <CardDescription>
-              Responded customers awaiting Gold/Platinum assignment
-              {canAssignLoyalty ? "" : " (read-only)"}.
+              Responded customers. Eligible group is Gold or Platinum from lifetime spend.
+              {canAssignLoyalty
+                ? " Send writes ERP customer group and Shopify tag."
+                : " Read-only."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -949,8 +969,16 @@ export function CustomerInsightPanel({
                     <div>
                       <p className="font-medium">{row.name}</p>
                       <p className="text-muted-foreground text-xs">
-                        {formatMoney(row.lifetimeTotal)} · suggested{" "}
-                        {row.suggestedTier ?? "—"}
+                        {row.phoneNumber ? `${row.phoneNumber} · ` : null}
+                        {formatMoney(row.lifetimeTotal)}
+                      </p>
+                      <p className="text-xs">
+                        Eligible:{" "}
+                        <span className="font-medium">
+                          {row.eligibleGroup ?? "Standard (not Gold/Platinum yet)"}
+                        </span>
+                        {row.erpGroup ? ` · ERP ${row.erpGroup}` : null}
+                        {row.shopifyTag ? ` · Shopify “${row.shopifyTag}”` : null}
                       </p>
                     </div>
                     {canAssignLoyalty && row.suggestedTier ? (
@@ -977,7 +1005,18 @@ export function CustomerInsightPanel({
                                 notify.error(data.error ?? "Assign failed");
                                 return;
                               }
-                              notify.success(`Assigned ${row.suggestedTier}`);
+                              const pushErrors = Array.isArray(data.pushErrors)
+                                ? (data.pushErrors as string[])
+                                : [];
+                              if (pushErrors.length > 0) {
+                                notify.error(
+                                  `Assigned ${row.eligibleGroup}, but some ERP/Shopify updates failed`
+                                );
+                              } else {
+                                notify.success(
+                                  `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
+                                );
+                              }
                               setLoyaltyQueue((prev) =>
                                 prev.filter((x) => x.contactId !== row.contactId)
                               );
@@ -989,7 +1028,7 @@ export function CustomerInsightPanel({
                           })();
                         }}
                       >
-                        Assign {row.suggestedTier}
+                        Send to {row.eligibleGroup}
                       </Button>
                     ) : null}
                   </li>
@@ -1328,7 +1367,13 @@ export function CustomerInsightPanel({
                 key={m.id}
                 type="button"
                 disabled={isBusy}
-                onClick={() => void loadInsight(m.id, 1)}
+                onClick={() =>
+                  void loadInsight(
+                    m.id,
+                    1,
+                    isCompletePhoneSearch(phone) ? { brand: "", item: "" } : undefined
+                  )
+                }
                 className="flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted/50 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"
               >
                 <span className="font-medium">{m.name}</span>
@@ -1475,8 +1520,9 @@ export function CustomerInsightPanel({
                               </span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-foreground">
-                              -
+                            <span className="inline-flex items-center gap-1.5">
+                              <Mail className="size-3.5 shrink-0" aria-hidden />
+                              <span className="text-foreground">-</span>
                             </span>
                           )}
                           <span className="inline-flex items-center gap-1.5">
@@ -1850,129 +1896,7 @@ export function CustomerInsightPanel({
             </Card>
           )}
 
-          {/* Charts side-by-side; invoice history stays full-width below */}
-          {isOwner ? (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Top Items Overview</CardTitle>
-                  <CardDescription>
-                    Highest spend items. Click a bar to filter invoice history to that item.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {topItemsChart.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-muted-foreground">
-                      No purchased items yet.
-                    </p>
-                  ) : (
-                    <div className="h-[300px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={topItemsChart}
-                          margin={{ top: 22, right: 8, left: 0, bottom: 48 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis
-                            dataKey="label"
-                            tickLine={false}
-                            axisLine={false}
-                            fontSize={10}
-                            interval={0}
-                            angle={-28}
-                            textAnchor="end"
-                            height={60}
-                          />
-                          <YAxis
-                            tickLine={false}
-                            axisLine={false}
-                            fontSize={11}
-                            tickFormatter={formatChartAxis}
-                            width={42}
-                          />
-                          <Tooltip
-                            content={<InsightChartTooltip />}
-                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
-                          />
-                          <Bar
-                            dataKey="spend"
-                            fill={CHART_BLUE}
-                            radius={[4, 4, 0, 0]}
-                            cursor="pointer"
-                            onClick={(data) => {
-                              const name =
-                                data &&
-                                typeof data === "object" &&
-                                "name" in data &&
-                                typeof (data as { name?: unknown }).name === "string"
-                                  ? (data as { name: string }).name
-                                  : null;
-                              if (name) focusInvoicesForItem(name);
-                            }}
-                          >
-                            <LabelList
-                              dataKey="quantity"
-                              position="top"
-                              className="fill-foreground"
-                              fontSize={11}
-                              formatter={(value: unknown) =>
-                                value == null || value === "" ? "" : String(value)
-                              }
-                            />
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Monthly Spend Overview</CardTitle>
-                  <CardDescription>Last 12 months of loyalty-eligible spend.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {monthlySpendChart.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-muted-foreground">
-                      No monthly spend to chart yet.
-                    </p>
-                  ) : (
-                    <div className="h-[280px] w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={monthlySpendChart}
-                          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis
-                            dataKey="label"
-                            tickLine={false}
-                            axisLine={false}
-                            fontSize={11}
-                          />
-                          <YAxis
-                            tickLine={false}
-                            axisLine={false}
-                            fontSize={11}
-                            tickFormatter={formatChartAxis}
-                            width={42}
-                          />
-                          <Tooltip
-                            content={<InsightChartTooltip />}
-                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
-                          />
-                          <Bar dataKey="spend" fill={CHART_BLUE} radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          ) : null}
-
-          {/* Invoice history — full width, same as before */}
+          {/* Invoice history — under customer details */}
           <Card ref={invoicesRef}>
             <CardHeader className="pb-2">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -2147,6 +2071,129 @@ export function CustomerInsightPanel({
                 )}
             </CardContent>
           </Card>
+
+          {/* Charts */}
+          {isOwner ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Top Items Overview</CardTitle>
+                  <CardDescription>
+                    Highest spend items. Click a bar to filter invoice history to that item.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {topItemsChart.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-muted-foreground">
+                      No purchased items yet.
+                    </p>
+                  ) : (
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={topItemsChart}
+                          margin={{ top: 22, right: 8, left: 0, bottom: 48 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={10}
+                            interval={0}
+                            angle={-28}
+                            textAnchor="end"
+                            height={60}
+                          />
+                          <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={11}
+                            tickFormatter={formatChartAxis}
+                            width={42}
+                          />
+                          <Tooltip
+                            content={<InsightChartTooltip />}
+                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
+                          />
+                          <Bar
+                            dataKey="spend"
+                            fill={CHART_BLUE}
+                            radius={[4, 4, 0, 0]}
+                            cursor="pointer"
+                            onClick={(data) => {
+                              const name =
+                                data &&
+                                typeof data === "object" &&
+                                "name" in data &&
+                                typeof (data as { name?: unknown }).name === "string"
+                                  ? (data as { name: string }).name
+                                  : null;
+                              if (name) focusInvoicesForItem(name);
+                            }}
+                          >
+                            <LabelList
+                              dataKey="quantity"
+                              position="top"
+                              className="fill-foreground"
+                              fontSize={11}
+                              formatter={(value: unknown) =>
+                                value == null || value === "" ? "" : String(value)
+                              }
+                            />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Monthly Spend Overview</CardTitle>
+                  <CardDescription>Last 12 months of loyalty-eligible spend.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {monthlySpendChart.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-muted-foreground">
+                      No monthly spend to chart yet.
+                    </p>
+                  ) : (
+                    <div className="h-[280px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={monthlySpendChart}
+                          margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={11}
+                          />
+                          <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            fontSize={11}
+                            tickFormatter={formatChartAxis}
+                            width={42}
+                          />
+                          <Tooltip
+                            content={<InsightChartTooltip />}
+                            cursor={{ fill: "hsl(var(--muted))", fillOpacity: 0.35 }}
+                          />
+                          <Bar dataKey="spend" fill={CHART_BLUE} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : null}
+
 
           {/* Contacted footer */}
           {isOwner ? (

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { buildPhoneLookupVariants, canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
 
 export type OsfErpCredentials = {
   baseUrl: string;
@@ -299,4 +300,104 @@ export async function getCustomerWithContacts(
     phones: [...phones],
     emails: [...emails],
   };
+}
+
+export type ErpCustomerGroupRow = {
+  name: string;
+  customer_name: string | null;
+  customer_group: string | null;
+  mobile_no: string | null;
+  email_id: string | null;
+};
+
+/** Page ERP Customers in a customer_group (Gold / Platinum). Read-only. */
+export async function listCustomersByGroup(
+  cfg: OsfErpCredentials,
+  group: string,
+  options: { pageSize?: number; maxPages?: number; start?: number } = {}
+): Promise<ErpCustomerGroupRow[]> {
+  const pageSize = options.pageSize ?? PAGE_SIZE;
+  const maxPages = options.maxPages ?? MAX_PAGES;
+  const start = options.start ?? 0;
+  const fields = JSON.stringify([
+    "name",
+    "customer_name",
+    "customer_group",
+    "mobile_no",
+    "email_id",
+  ]);
+  const all: ErpCustomerGroupRow[] = [];
+  for (let page = 0; page < maxPages; page++) {
+    const filters = JSON.stringify([["customer_group", "=", group]]);
+    const path =
+      `/api/resource/Customer?filters=${encodeURIComponent(filters)}` +
+      `&fields=${encodeURIComponent(fields)}` +
+      `&limit_page_length=${pageSize}&limit_start=${start + page * pageSize}&order_by=name asc`;
+    const json = await erpGetJson<{ data?: ErpCustomerGroupRow[] }>(cfg, path);
+    const batch = json.data ?? [];
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return all;
+}
+
+export async function findErpCustomerNameByPhone(
+  cfg: OsfErpCredentials,
+  phone: string
+): Promise<string | null> {
+  const phoneVariants = buildPhoneLookupVariants(phone.trim()).slice(0, 20);
+  if (phoneVariants.length === 0) return null;
+
+  const phoneFilter = encodeURIComponent(
+    JSON.stringify([["mobile_no", "in", phoneVariants]])
+  );
+  try {
+    const byMobile = await erpGetJson<{ data?: Array<{ name: string }> }>(
+      cfg,
+      `/api/resource/Customer?filters=${phoneFilter}&fields=${encodeURIComponent(JSON.stringify(["name"]))}&limit=1`
+    );
+    const hit = byMobile.data?.[0]?.name?.trim();
+    if (hit) return hit;
+  } catch {
+    // try document name next
+  }
+
+  const phoneId = canonicalPhoneForErpCustomerId(phone);
+  if (!phoneId) return null;
+  try {
+    const byName = await erpGetJson<{ data?: { name?: string } }>(
+      cfg,
+      `/api/resource/Customer/${encodeURIComponent(phoneId)}`
+    );
+    return byName.data?.name?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Explicit OS→ERP loyalty send. Not used for automatic sync. */
+export async function setErpCustomerGroup(
+  cfg: OsfErpCredentials,
+  customerId: string,
+  group: string
+): Promise<boolean> {
+  try {
+    const form = new URLSearchParams({
+      doctype: "Customer",
+      name: customerId,
+      fieldname: "customer_group",
+      value: group,
+    });
+    const res = await fetch(`${cfg.baseUrl}/api/method/frappe.client.set_value`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(cfg),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: form.toString(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

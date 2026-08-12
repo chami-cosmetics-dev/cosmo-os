@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import {
   brandFromAdaptLineItem,
   brandsMatch,
+  lineMatchesBrand,
 } from "@/lib/customer-insight/brand";
 import { emailsForPurchaseLookup } from "@/lib/contact-purchase-lookup";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
@@ -25,25 +26,7 @@ function lineSpend(quantity: number, price: string | number): number {
   return q * p;
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Vendor exact match, or product title contains brand as a whole word
- * (avoids "Banana" matching "Anua").
- */
-export function lineMatchesBrand(
-  brand: string,
-  input: { vendorName?: string | null; productTitle?: string | null }
-): boolean {
-  if (brandsMatch(input.vendorName, brand)) return true;
-  const title = input.productTitle?.trim() ?? "";
-  const needle = brand.trim();
-  if (!needle || !title) return false;
-  const re = new RegExp(`(^|[^a-z0-9])${escapeRegExp(needle)}([^a-z0-9]|$)`, "i");
-  return re.test(title);
-}
+export { lineMatchesBrand } from "@/lib/customer-insight/brand";
 
 function adaptItemMatchesBrand(item: unknown, brand: string): boolean {
   if (brandsMatch(brandFromAdaptLineItem(item), brand)) return true;

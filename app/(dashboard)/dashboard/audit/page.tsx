@@ -61,6 +61,8 @@ const actionLabels: Record<string, string> = {
   contact_auto_enriched: "Contact Auto-Enriched",
   contact_auto_sync_conflict: "Contact Auto-Sync Conflict",
   contact_backfill_run: "Contact Backfill Run",
+  contact_email_cleared: "Contact Email Cleared",
+  contact_allocation_imported: "Contact Allocation Imported",
   setting_created: "Setting Created",
   setting_updated: "Setting Updated",
   setting_deleted: "Setting Deleted",
