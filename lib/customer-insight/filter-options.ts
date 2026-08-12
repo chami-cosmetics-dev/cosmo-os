@@ -1,44 +1,12 @@
 import { brandFromAdaptLineItem } from "@/lib/customer-insight/brand";
 import { brandsMatch } from "@/lib/customer-insight/brand";
 import { extractCityFromAddress } from "@/lib/customer-insight/city";
+import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { prisma } from "@/lib/prisma";
 
 export type FilterOptionDto = { value: string; label: string; sku?: string | null };
 
-const JUNK_ITEM_TOKENS = new Set([
-  "coupon",
-  "coupons",
-  "gift card",
-  "giftcard",
-  "gift cards",
-  "shipping",
-  "tip",
-]);
-
-/** Drop discount/coupon/gift-card rows that are not real catalog products. */
-export function isNonProductInsightItem(input: {
-  title?: string | null;
-  variant?: string | null;
-  sku?: string | null;
-  productType?: string | null;
-}): boolean {
-  const title = (input.title ?? "").trim();
-  const variant = (input.variant ?? "").trim();
-  const sku = (input.sku ?? "").trim();
-  const productType = (input.productType ?? "").trim();
-  const fields = [title, variant, sku, productType];
-  for (const field of fields) {
-    const key = field.toLowerCase();
-    if (JUNK_ITEM_TOKENS.has(key)) return true;
-  }
-  const blob = fields.join(" ").toLowerCase();
-  if (/\bcoupon(s)?\b/.test(blob)) return true;
-  if (/\bgift[\s-]?cards?\b/.test(blob)) return true;
-  if (/^\d+$/.test(title) && (!variant || JUNK_ITEM_TOKENS.has(variant.toLowerCase()))) {
-    return true;
-  }
-  return false;
-}
+export { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 
 function pushUnique(
   seen: Set<string>,
@@ -80,6 +48,37 @@ function pushItemOption(
   out.push({ value: canonical, label: canonical, sku: skuTrim });
 }
 
+export function rankInsightItemOptions(
+  items: FilterOptionDto[],
+  q: string
+): FilterOptionDto[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return items;
+  const scored = items
+    .map((item) => {
+      const sku = (item.sku ?? "").toLowerCase();
+      const label = item.label.toLowerCase();
+      const value = item.value.toLowerCase();
+      let rank = 99;
+      if (sku.startsWith(needle)) rank = 0;
+      else if (sku.includes(needle)) rank = 1;
+      else if (label.startsWith(needle) || value.startsWith(needle)) rank = 2;
+      else if (label.includes(needle) || value.includes(needle)) rank = 3;
+      return { item, rank };
+    })
+    .filter((row) => row.rank < 99);
+  scored.sort((a, b) => {
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    const skuA = a.item.sku ?? "";
+    const skuB = b.item.sku ?? "";
+    if (a.rank <= 1 && skuA !== skuB) {
+      return skuA.localeCompare(skuB, undefined, { sensitivity: "base" });
+    }
+    return a.item.label.localeCompare(b.item.label, undefined, { sensitivity: "base" });
+  });
+  return scored.map((row) => row.item);
+}
+
 export async function listInsightBrandOptions(
   companyId: string,
   q?: string
@@ -112,38 +111,78 @@ export async function listInsightBrandOptions(
   return brands.filter((b) => b.label.toLowerCase().includes(needle));
 }
 
+const productItemSelect = {
+  productTitle: true,
+  variantTitle: true,
+  sku: true,
+  productType: true,
+  vendor: { select: { name: true } },
+} as const;
+
+function productItemBaseWhere(companyId: string, brandNeedle: string | null) {
+  const notCoupon = { NOT: { sku: { equals: "coupon", mode: "insensitive" as const } } };
+  if (!brandNeedle) {
+    return { companyId, ...notCoupon };
+  }
+  return {
+    companyId,
+    AND: [
+      {
+        OR: [
+          { vendor: { name: { equals: brandNeedle, mode: "insensitive" as const } } },
+          { productTitle: { contains: brandNeedle, mode: "insensitive" as const } },
+        ],
+      },
+      notCoupon,
+    ],
+  };
+}
+
 export async function listInsightItemOptions(
   companyId: string,
   input: { brand?: string; q?: string }
 ): Promise<FilterOptionDto[]> {
   const brandNeedle = input.brand?.trim() || null;
+  const qNeedle = input.q?.trim() || null;
   const seen = new Set<string>();
   const items: FilterOptionDto[] = [];
+  const productWhere = productItemBaseWhere(companyId, brandNeedle);
 
-  const productWhere = brandNeedle
-    ? {
-        companyId,
-        OR: [
-          { vendor: { name: { equals: brandNeedle, mode: "insensitive" as const } } },
-          { productTitle: { contains: brandNeedle, mode: "insensitive" as const } },
-        ],
-      }
-    : { companyId };
+  const [skuPrefixProducts, products] = await Promise.all([
+    qNeedle
+      ? prisma.productItem.findMany({
+          where: {
+            AND: [
+              productWhere,
+              { sku: { startsWith: qNeedle, mode: "insensitive" } },
+            ],
+          },
+          select: productItemSelect,
+          take: 300,
+          orderBy: { sku: "asc" },
+        })
+      : Promise.resolve([]),
+    prisma.productItem.findMany({
+      where: qNeedle
+        ? {
+            AND: [
+              productWhere,
+              {
+                OR: [
+                  { sku: { contains: qNeedle, mode: "insensitive" } },
+                  { productTitle: { contains: qNeedle, mode: "insensitive" } },
+                ],
+              },
+            ],
+          }
+        : productWhere,
+      select: productItemSelect,
+      take: 3_000,
+      orderBy: { productTitle: "asc" },
+    }),
+  ]);
 
-  const products = await prisma.productItem.findMany({
-    where: productWhere,
-    select: {
-      productTitle: true,
-      variantTitle: true,
-      sku: true,
-      productType: true,
-      vendor: { select: { name: true } },
-    },
-    take: 3_000,
-    orderBy: { productTitle: "asc" },
-  });
-
-  for (const p of products) {
+  for (const p of [...skuPrefixProducts, ...products]) {
     if (
       brandNeedle &&
       !brandsMatch(p.vendor?.name, brandNeedle) &&
@@ -187,17 +226,11 @@ export async function listInsightItemOptions(
     }
   }
 
-  items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-  const needle = input.q?.trim().toLowerCase();
-  if (!needle) return items.slice(0, 500);
-  return items
-    .filter(
-      (i) =>
-        i.label.toLowerCase().includes(needle) ||
-        i.value.toLowerCase().includes(needle) ||
-        (i.sku?.toLowerCase().includes(needle) ?? false)
-    )
-    .slice(0, 500);
+  if (!qNeedle) {
+    items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    return items.slice(0, 500);
+  }
+  return rankInsightItemOptions(items, qNeedle).slice(0, 500);
 }
 
 export async function listInsightCityOptions(

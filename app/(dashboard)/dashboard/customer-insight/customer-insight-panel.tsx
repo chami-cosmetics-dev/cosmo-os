@@ -36,6 +36,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
+import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import {
   LOYALTY_GOLD_MIN,
   LOYALTY_PLATINUM_MIN,
@@ -237,7 +238,9 @@ function InsightSearchableSelect({
   searchPlaceholder,
   allLabel = "Any",
   disabled,
+  disableLocalFilter,
   onChange,
+  onQueryChange,
 }: {
   value: string;
   options: string[] | InsightSelectOption[];
@@ -245,14 +248,26 @@ function InsightSearchableSelect({
   searchPlaceholder: string;
   allLabel?: string;
   disabled?: boolean;
+  disableLocalFilter?: boolean;
   onChange: (next: string) => void;
+  onQueryChange?: (q: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const normalized = normalizeSelectOptions(options);
-  const selected = normalized.find((option) => option.value === value);
+  const selected =
+    normalized.find((option) => option.value === value) ??
+    (value
+      ? { value, label: value, sku: undefined, keywords: "" }
+      : undefined);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) onQueryChange?.("");
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -284,8 +299,11 @@ function InsightSearchableSelect({
         className="w-[min(var(--radix-popover-trigger-width),100vw)] min-w-[22rem] p-0"
         align="start"
       >
-        <Command>
-          <CommandInput placeholder={searchPlaceholder} />
+        <Command shouldFilter={!disableLocalFilter}>
+          <CommandInput
+            placeholder={searchPlaceholder}
+            onValueChange={(q) => onQueryChange?.(q)}
+          />
           <CommandList>
             <CommandEmpty>No matches.</CommandEmpty>
             <CommandGroup>
@@ -389,6 +407,8 @@ export function CustomerInsightPanel({
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [filterItem, setFilterItem] = useState("");
   const [itemOptions, setItemOptions] = useState<InsightSelectOption[]>([]);
+  const [itemSearch, setItemSearch] = useState("");
+  const [itemSearchDebounced, setItemSearchDebounced] = useState("");
   const [filterCity, setFilterCity] = useState("");
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
@@ -462,11 +482,17 @@ export function CustomerInsightPanel({
   }, []);
 
   useEffect(() => {
+    const t = window.setTimeout(() => setItemSearchDebounced(itemSearch), 250);
+    return () => window.clearTimeout(t);
+  }, [itemSearch]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const params = new URLSearchParams({ type: "items" });
         if (filterBrand.trim()) params.set("brand", filterBrand.trim());
+        if (itemSearchDebounced.trim()) params.set("q", itemSearchDebounced.trim());
         const res = await fetch(
           `/api/admin/customer-insight/filter-options?${params.toString()}`
         );
@@ -483,6 +509,13 @@ export function CustomerInsightPanel({
                 sku: o.sku?.trim() || undefined,
                 keywords: o.sku?.trim() ?? "",
               }))
+              .filter(
+                (o) =>
+                  !isNonProductInsightItem({
+                    title: o.label,
+                    sku: o.sku,
+                  })
+              )
           : [];
         setItemOptions(items);
       } catch {
@@ -492,7 +525,7 @@ export function CustomerInsightPanel({
     return () => {
       cancelled = true;
     };
-  }, [filterBrand]);
+  }, [filterBrand, itemSearchDebounced]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1002,7 +1035,9 @@ export function CustomerInsightPanel({
                 placeholder="Any"
                 searchPlaceholder="Search items or SKU…"
                 disabled={isBusy}
+                disableLocalFilter
                 onChange={setFilterItem}
+                onQueryChange={setItemSearch}
               />
             </label>
             <label className="space-y-1 text-sm">
