@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractCityFromAddress } from "@/lib/customer-insight/city";
+import { cityForDisplay, extractCityFromAddress } from "@/lib/customer-insight/city";
 
 describe("extractCityFromAddress", () => {
   it("matches known cities inside a full address", () => {
@@ -9,12 +9,26 @@ describe("extractCityFromAddress", () => {
     expect(extractCityFromAddress("Negombo")).toBe("Negombo");
   });
 
-  it("uses last address segment when city is unknown", () => {
-    expect(extractCityFromAddress("12 Main Street, Foo Town")).toBe("Foo Town");
+  it("pulls a known city out of messy Adapt-style lines", () => {
+    expect(extractCityFromAddress("1 Kuliyapitiya Kuliyapitiya")).toBe("Kuliyapitiya");
+    expect(extractCityFromAddress("1 Lake Road Boralesgamuwa")).toBe("Boralesgamuwa");
+    expect(extractCityFromAddress("1 Luxapana road Thonikkal VAVUNIYA VAVUNIYA")).toBe(
+      "Vavuniya"
+    );
   });
 
-  it("returns null for empty / country-only", () => {
-    expect(extractCityFromAddress("")).toBeNull();
-    expect(extractCityFromAddress("Sri Lanka")).toBeNull();
+  it("skips unclear village / street blobs", () => {
+    expect(extractCityFromAddress("12 Main Street, Foo Town")).toBeNull();
+    expect(extractCityFromAddress("1 Kudadeniya Bulathkohupitiya")).toBeNull();
+    expect(extractCityFromAddress("1 Kudabuthgamuwa mulleriyawa mulleriyawa")).toBeNull();
+  });
+
+  it("keeps a clean merchant-typed city that is not on the known list", () => {
+    expect(cityForDisplay("Mulleriyawa")).toBe("Mulleriyawa");
+    expect(cityForDisplay("ja-ela")).toBe("Ja-Ela");
+  });
+
+  it("hides Adapt junk in display", () => {
+    expect(cityForDisplay("1 Kudadeniya Bulathkohupitiya")).toBeNull();
   });
 });

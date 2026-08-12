@@ -75,6 +75,12 @@ export const customerInsightProfilePatchSchema = z
       .transform((v) =>
         v === "" || v === undefined ? (v === undefined ? undefined : null) : v
       ),
+    city: z
+      .union([z.string().trim().max(LIMITS.city.max), z.null()])
+      .optional()
+      .transform((v) =>
+        v === "" || v === undefined ? (v === undefined ? undefined : null) : v
+      ),
     birthYear: z.coerce.number().int().min(1900).max(2100).optional().nullable(),
     birthMonth: z.coerce.number().int().min(1).max(12).optional().nullable(),
     birthDay: z.coerce.number().int().min(1).max(31).optional().nullable(),
@@ -99,6 +105,7 @@ export const customerInsightProfilePatchSchema = z
       data.gender !== undefined ||
       data.language !== undefined ||
       data.address !== undefined ||
+      data.city !== undefined ||
       data.birthYear !== undefined ||
       data.birthMonth !== undefined ||
       data.birthDay !== undefined,

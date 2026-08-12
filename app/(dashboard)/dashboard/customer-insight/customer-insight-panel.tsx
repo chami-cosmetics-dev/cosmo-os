@@ -211,6 +211,7 @@ type ProfileForm = {
   gender: string;
   language: string;
   address: string;
+  city: string;
   birthDate: string;
 };
 
@@ -646,6 +647,7 @@ export function CustomerInsightPanel({
           gender: next.contact.gender ?? "",
           language: next.contact.language ?? "",
           address: next.contact.address ?? "",
+          city: next.contact.city ?? "",
           birthDate: dobPartsToInputValue(
             next.contact.birthYear,
             next.contact.birthMonth,
@@ -689,6 +691,7 @@ export function CustomerInsightPanel({
         gender: profileForm.gender || null,
         language: profileForm.language || null,
         address: profileForm.address.trim() || null,
+        city: profileForm.city.trim() || null,
         birthYear: dob.birthYear,
         birthMonth: dob.birthMonth,
         birthDay: dob.birthDay,
@@ -1426,6 +1429,12 @@ export function CustomerInsightPanel({
                               -
                             </span>
                           )}
+                          <span className="inline-flex items-center gap-1.5">
+                            <MapPin className="size-3.5 shrink-0" aria-hidden />
+                            <span className="text-foreground">
+                              {insight.contact.city?.trim() ? insight.contact.city : "-"}
+                            </span>
+                          </span>
                           {formatMemberSince(insight.frequency?.firstOrderAt) ? (
                             <span className="inline-flex items-center gap-1.5">
                               <Calendar className="size-3.5 shrink-0" aria-hidden />
@@ -1632,6 +1641,26 @@ export function CustomerInsightPanel({
                         max="2100-12-31"
                         min="1900-01-01"
                       />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">City</span>
+                      <Input
+                        value={profileForm.city}
+                        onChange={(e) =>
+                          setProfileForm((prev) =>
+                            prev ? { ...prev, city: e.target.value } : prev
+                          )
+                        }
+                        disabled={isBusy}
+                        maxLength={80}
+                        placeholder="e.g. Colombo"
+                        list="insight-city-suggestions"
+                      />
+                      <datalist id="insight-city-suggestions">
+                        {cityOptions.map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
                     </label>
                     <label className="space-y-1 text-sm sm:col-span-2">
                       <span className="text-muted-foreground">Address</span>

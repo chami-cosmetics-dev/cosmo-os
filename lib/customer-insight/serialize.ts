@@ -1,3 +1,4 @@
+import { cityForDisplay } from "@/lib/customer-insight/city";
 import { buildLoyaltyDto } from "@/lib/customer-insight/loyalty-tier";
 import { buildProgressBarDto } from "@/lib/customer-insight/progress-bar";
 import type {
@@ -40,7 +41,7 @@ export function serializeContactInsight(input: {
     gender: input.gender ?? null,
     language: input.language ?? null,
     address: input.address ?? null,
-    city: input.city ?? null,
+    city: cityForDisplay(input.city),
     birthYear: input.birthYear ?? null,
     birthMonth: input.birthMonth ?? null,
     birthDay: input.birthDay ?? null,
