@@ -895,39 +895,81 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             )}
           </CardContent>
         </Card>
+      </div>
 
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base">Loyalty outreach</CardTitle>
-            <p className="text-muted-foreground text-xs">
-              Allocated customers at Gold threshold awaiting loyalty contact /
-              response (not yet master-assigned).
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base">Loyalty outreach</CardTitle>
+          <p className="text-muted-foreground text-xs">
+            Allocated customers at Gold threshold awaiting loyalty contact /
+            response (not yet master-assigned).
+          </p>
+        </CardHeader>
+        <CardContent>
+          {(data.loyaltyOutreach ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No loyalty outreach customers right now.
             </p>
-          </CardHeader>
-          <CardContent>
-            {(data.loyaltyOutreach ?? []).length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                No loyalty outreach customers right now.
-              </p>
-            ) : (
-              <ul className="max-h-72 space-y-2 overflow-y-auto">
-                {(data.loyaltyOutreach ?? []).map((row) => (
-                  <li
-                    key={row.contactId}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{row.name}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {formatMoney(row.lifetimeTotal)} · {row.status}
-                        {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
+          ) : (
+            <ul className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
+              {(data.loyaltyOutreach ?? []).map((row) => (
+                <li
+                  key={row.contactId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{row.name}</p>
+                    <p className="text-muted-foreground text-xs">
+                      {formatMoney(row.lifetimeTotal)} · {row.status}
+                      {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={isBusy}
+                      onClick={() => {
+                        void (async () => {
+                          setBusyKey("loyalty");
+                          try {
+                            const res = await fetch(
+                              "/api/admin/merchant-dashboard/loyalty-outreach",
+                              {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  contactId: row.contactId,
+                                  action:
+                                    row.status === "contacted"
+                                      ? "responded"
+                                      : "loyalty_informed",
+                                }),
+                              },
+                            );
+                            const json = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              notify.error(json.error ?? "Update failed");
+                              return;
+                            }
+                            notify.success("Loyalty outreach updated");
+                            await reload(merchantId);
+                          } catch {
+                            notify.error("Update failed");
+                          } finally {
+                            setBusyKey(null);
+                          }
+                        })();
+                      }}
+                    >
+                      {row.status === "contacted" ? "Responded" : "Mark contacted"}
+                    </Button>
+                    {row.status === "contacted" ? (
                       <Button
                         type="button"
                         size="sm"
-                        variant="secondary"
+                        variant="outline"
                         disabled={isBusy}
                         onClick={() => {
                           void (async () => {
@@ -937,13 +979,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                                 "/api/admin/merchant-dashboard/loyalty-outreach",
                                 {
                                   method: "POST",
-                                  headers: { "Content-Type": "application/json" },
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
                                   body: JSON.stringify({
                                     contactId: row.contactId,
-                                    action:
-                                      row.status === "contacted"
-                                        ? "responded"
-                                        : "loyalty_informed",
+                                    action: "not_responded",
                                   }),
                                 },
                               );
@@ -952,7 +993,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                                 notify.error(json.error ?? "Update failed");
                                 return;
                               }
-                              notify.success("Loyalty outreach updated");
+                              notify.success("Marked not responded");
                               await reload(merchantId);
                             } catch {
                               notify.error("Update failed");
@@ -962,57 +1003,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                           })();
                         }}
                       >
-                        {row.status === "contacted" ? "Responded" : "Mark contacted"}
+                        Not responded
                       </Button>
-                      {row.status === "contacted" ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={isBusy}
-                          onClick={() => {
-                            void (async () => {
-                              setBusyKey("loyalty");
-                              try {
-                                const res = await fetch(
-                                  "/api/admin/merchant-dashboard/loyalty-outreach",
-                                  {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                    },
-                                    body: JSON.stringify({
-                                      contactId: row.contactId,
-                                      action: "not_responded",
-                                    }),
-                                  },
-                                );
-                                const json = await res.json().catch(() => ({}));
-                                if (!res.ok) {
-                                  notify.error(json.error ?? "Update failed");
-                                  return;
-                                }
-                                notify.success("Marked not responded");
-                                await reload(merchantId);
-                              } catch {
-                                notify.error("Update failed");
-                              } finally {
-                                setBusyKey(null);
-                              }
-                            })();
-                          }}
-                        >
-                          Not responded
-                        </Button>
-                      ) : null}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
