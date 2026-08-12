@@ -1,8 +1,12 @@
 import { brandFromAdaptLineItem } from "@/lib/customer-insight/brand";
 import { brandsMatch } from "@/lib/customer-insight/brand";
+import { extractCityFromAddress } from "@/lib/customer-insight/city";
+import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { prisma } from "@/lib/prisma";
 
 export type FilterOptionDto = { value: string; label: string; sku?: string | null };
+
+export { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 
 function pushUnique(
   seen: Set<string>,
@@ -26,6 +30,15 @@ function pushItemOption(
 ) {
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return;
+  if (
+    isNonProductInsightItem({
+      title: trimmedTitle,
+      variant,
+      sku,
+    })
+  ) {
+    return;
+  }
   const variantTrim = variant?.trim() || "";
   const canonical = variantTrim ? `${trimmedTitle} — ${variantTrim}` : trimmedTitle;
   const key = canonical.toLowerCase();
@@ -33,6 +46,37 @@ function pushItemOption(
   seen.add(key);
   const skuTrim = sku?.trim() || null;
   out.push({ value: canonical, label: canonical, sku: skuTrim });
+}
+
+export function rankInsightItemOptions(
+  items: FilterOptionDto[],
+  q: string
+): FilterOptionDto[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return items;
+  const scored = items
+    .map((item) => {
+      const sku = (item.sku ?? "").toLowerCase();
+      const label = item.label.toLowerCase();
+      const value = item.value.toLowerCase();
+      let rank = 99;
+      if (sku.startsWith(needle)) rank = 0;
+      else if (sku.includes(needle)) rank = 1;
+      else if (label.startsWith(needle) || value.startsWith(needle)) rank = 2;
+      else if (label.includes(needle) || value.includes(needle)) rank = 3;
+      return { item, rank };
+    })
+    .filter((row) => row.rank < 99);
+  scored.sort((a, b) => {
+    if (a.rank !== b.rank) return a.rank - b.rank;
+    const skuA = a.item.sku ?? "";
+    const skuB = b.item.sku ?? "";
+    if (a.rank <= 1 && skuA !== skuB) {
+      return skuA.localeCompare(skuB, undefined, { sensitivity: "base" });
+    }
+    return a.item.label.localeCompare(b.item.label, undefined, { sensitivity: "base" });
+  });
+  return scored.map((row) => row.item);
 }
 
 export async function listInsightBrandOptions(
@@ -67,37 +111,78 @@ export async function listInsightBrandOptions(
   return brands.filter((b) => b.label.toLowerCase().includes(needle));
 }
 
+const productItemSelect = {
+  productTitle: true,
+  variantTitle: true,
+  sku: true,
+  productType: true,
+  vendor: { select: { name: true } },
+} as const;
+
+function productItemBaseWhere(companyId: string, brandNeedle: string | null) {
+  const notCoupon = { NOT: { sku: { equals: "coupon", mode: "insensitive" as const } } };
+  if (!brandNeedle) {
+    return { companyId, ...notCoupon };
+  }
+  return {
+    companyId,
+    AND: [
+      {
+        OR: [
+          { vendor: { name: { equals: brandNeedle, mode: "insensitive" as const } } },
+          { productTitle: { contains: brandNeedle, mode: "insensitive" as const } },
+        ],
+      },
+      notCoupon,
+    ],
+  };
+}
+
 export async function listInsightItemOptions(
   companyId: string,
   input: { brand?: string; q?: string }
 ): Promise<FilterOptionDto[]> {
   const brandNeedle = input.brand?.trim() || null;
+  const qNeedle = input.q?.trim() || null;
   const seen = new Set<string>();
   const items: FilterOptionDto[] = [];
+  const productWhere = productItemBaseWhere(companyId, brandNeedle);
 
-  const productWhere = brandNeedle
-    ? {
-        companyId,
-        OR: [
-          { vendor: { name: { equals: brandNeedle, mode: "insensitive" as const } } },
-          { productTitle: { contains: brandNeedle, mode: "insensitive" as const } },
-        ],
-      }
-    : { companyId };
+  const [skuPrefixProducts, products] = await Promise.all([
+    qNeedle
+      ? prisma.productItem.findMany({
+          where: {
+            AND: [
+              productWhere,
+              { sku: { startsWith: qNeedle, mode: "insensitive" } },
+            ],
+          },
+          select: productItemSelect,
+          take: 300,
+          orderBy: { sku: "asc" },
+        })
+      : Promise.resolve([]),
+    prisma.productItem.findMany({
+      where: qNeedle
+        ? {
+            AND: [
+              productWhere,
+              {
+                OR: [
+                  { sku: { contains: qNeedle, mode: "insensitive" } },
+                  { productTitle: { contains: qNeedle, mode: "insensitive" } },
+                ],
+              },
+            ],
+          }
+        : productWhere,
+      select: productItemSelect,
+      take: 3_000,
+      orderBy: { productTitle: "asc" },
+    }),
+  ]);
 
-  const products = await prisma.productItem.findMany({
-    where: productWhere,
-    select: {
-      productTitle: true,
-      variantTitle: true,
-      sku: true,
-      vendor: { select: { name: true } },
-    },
-    take: 3_000,
-    orderBy: { productTitle: "asc" },
-  });
-
-  for (const p of products) {
+  for (const p of [...skuPrefixProducts, ...products]) {
     if (
       brandNeedle &&
       !brandsMatch(p.vendor?.name, brandNeedle) &&
@@ -106,6 +191,16 @@ export async function listInsightItemOptions(
       continue;
     }
     const title = (p.productTitle ?? "").trim() || "Unknown item";
+    if (
+      isNonProductInsightItem({
+        title,
+        variant: p.variantTitle,
+        sku: p.sku,
+        productType: p.productType,
+      })
+    ) {
+      continue;
+    }
     pushItemOption(seen, items, title, p.variantTitle, p.sku);
   }
 
@@ -131,15 +226,53 @@ export async function listInsightItemOptions(
     }
   }
 
-  items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
-  const needle = input.q?.trim().toLowerCase();
-  if (!needle) return items.slice(0, 500);
-  return items
-    .filter(
-      (i) =>
-        i.label.toLowerCase().includes(needle) ||
-        i.value.toLowerCase().includes(needle) ||
-        (i.sku?.toLowerCase().includes(needle) ?? false)
-    )
-    .slice(0, 500);
+  if (!qNeedle) {
+    items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+    return items.slice(0, 500);
+  }
+  return rankInsightItemOptions(items, qNeedle).slice(0, 500);
+}
+
+export async function listInsightCityOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  const missing = await prisma.contactMaster.findMany({
+    where: { companyId, city: null, address: { not: null } },
+    select: { id: true, address: true },
+    take: 400,
+  });
+  const pending: Array<{ id: string; city: string }> = [];
+  for (const row of missing) {
+    const city = extractCityFromAddress(row.address);
+    if (!city) continue;
+    pending.push({ id: row.id, city });
+  }
+  for (let i = 0; i < pending.length; i += 25) {
+    const chunk = pending.slice(i, i + 25);
+    await Promise.all(
+      chunk.map((row) =>
+        prisma.contactMaster.update({
+          where: { id: row.id },
+          data: { city: row.city },
+        })
+      )
+    );
+  }
+
+  const rows = await prisma.contactMaster.findMany({
+    where: { companyId, city: { not: null } },
+    distinct: ["city"],
+    select: { city: true },
+    take: 800,
+    orderBy: { city: "asc" },
+  });
+  const seen = new Set<string>();
+  const cities: FilterOptionDto[] = [];
+  for (const row of rows) {
+    pushUnique(seen, cities, row.city ?? "");
+  }
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return cities;
+  return cities.filter((c) => c.label.toLowerCase().includes(needle));
 }

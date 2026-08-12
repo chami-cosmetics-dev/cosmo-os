@@ -150,6 +150,7 @@ export const customerInsightFilterQuerySchema = z
   .object({
     brand: trimmedString(1, LIMITS.name.max).optional(),
     item: trimmedString(1, LIMITS.name.max).optional(),
+    city: trimmedString(1, 100).optional(),
     minTotal: z.coerce.number().min(0).optional(),
     maxTotal: z.coerce.number().min(0).optional(),
     birthdayFrom: monthDaySchema.optional(),
@@ -220,7 +221,7 @@ export const merchantLoyaltyOutreachBodySchema = z.object({
 });
 
 export const customerInsightFilterOptionsQuerySchema = z.object({
-  type: z.enum(["brands", "items"]).default("brands"),
+  type: z.enum(["brands", "items", "cities"]).default("brands"),
   brand: trimmedString(1, LIMITS.name.max).optional(),
   q: trimmedString(1, 100).optional(),
 });

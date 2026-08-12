@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   listInsightBrandOptions,
+  listInsightCityOptions,
   listInsightItemOptions,
 } from "@/lib/customer-insight/filter-options";
 import { requirePermission } from "@/lib/rbac";
@@ -42,6 +43,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       options,
       /** Back-compat: brands list empty when type=items */
+      brands: [],
+    });
+  }
+
+  if (parsed.data.type === "cities") {
+    const options = await listInsightCityOptions(companyId, parsed.data.q);
+    return NextResponse.json({
+      options,
       brands: [],
     });
   }

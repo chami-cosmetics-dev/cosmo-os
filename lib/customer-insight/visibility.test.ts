@@ -23,6 +23,7 @@ const sampleOwner: CustomerInsightDto = {
     gender: "Female",
     language: "Sinhala",
     address: "Colombo",
+    city: "Colombo",
     birthYear: 1990,
     birthMonth: 8,
     birthDay: 1,

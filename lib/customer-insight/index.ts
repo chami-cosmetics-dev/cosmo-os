@@ -54,6 +54,7 @@ export {
   brandFromAdaptLineItem,
   brandsMatch,
 } from "@/lib/customer-insight/brand";
+export { extractCityFromAddress } from "@/lib/customer-insight/city";
 export { filterAllocatedContacts, matchesBirthdayRange, matchesBirthdayThisMonth, hasNoPurchaseWithinMonths, hasNoPurchaseInDateRange } from "@/lib/customer-insight/filters";
 export { updateContactInsightProfile } from "@/lib/customer-insight/profile";
 export {

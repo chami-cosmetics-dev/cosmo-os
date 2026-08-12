@@ -161,6 +161,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         gender: updated.gender,
         language: updated.language,
         address: updated.address,
+        city: updated.city,
         birthYear: updated.birthYear,
         birthMonth: updated.birthMonth,
         birthDay: updated.birthDay,
