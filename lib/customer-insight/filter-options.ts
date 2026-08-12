@@ -32,8 +32,7 @@ function pushItemOption(
   if (seen.has(key)) return;
   seen.add(key);
   const skuTrim = sku?.trim() || null;
-  const label = skuTrim ? `${canonical} · ${skuTrim}` : canonical;
-  out.push({ value: canonical, label, sku: skuTrim });
+  out.push({ value: canonical, label: canonical, sku: skuTrim });
 }
 
 export async function listInsightBrandOptions(
