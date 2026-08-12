@@ -231,8 +231,14 @@ function birthDateInputToParts(value: string): {
 
 export function CustomerInsightPanel({
   canFilterAllContacts = false,
+  canMergeContacts = false,
+  canManageLoyalty = false,
+  canAssignLoyalty = false,
 }: {
   canFilterAllContacts?: boolean;
+  canMergeContacts?: boolean;
+  canManageLoyalty?: boolean;
+  canAssignLoyalty?: boolean;
 }) {
   const [phone, setPhone] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -245,19 +251,49 @@ export function CustomerInsightPanel({
   const [itemFilter, setItemFilter] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
-  const [filterPush, setFilterPush] = useState<"" | "gold" | "platinum">("");
-  const [filterLoyalty, setFilterLoyalty] = useState("");
   const [filterBrand, setFilterBrand] = useState("");
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
-  const [filterBirthday, setFilterBirthday] = useState(false);
-  const [filterNoPurchase, setFilterNoPurchase] = useState<"" | "3" | "6">("");
+  const [brandSearch, setBrandSearch] = useState("");
+  const [filterItem, setFilterItem] = useState("");
+  const [itemOptions, setItemOptions] = useState<string[]>([]);
+  const [itemSearch, setItemSearch] = useState("");
+  const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
+  const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
+  const [filterLastFrom, setFilterLastFrom] = useState("");
+  const [filterLastTo, setFilterLastTo] = useState("");
+  const [filterLoyaltyRegFrom, setFilterLoyaltyRegFrom] = useState("");
+  const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
+  const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
+  const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
     null
   );
   const [filterTotal, setFilterTotal] = useState(0);
+  const [mergeSourceId, setMergeSourceId] = useState("");
+  const [contactHistory, setContactHistory] = useState<
+    Array<{
+      id: string;
+      createdAt: string;
+      merchantName: string | null;
+      category: string | null;
+      remark: string | null;
+      outcome: string | null;
+    }>
+  >([]);
   const [callOutcome, setCallOutcome] = useState<string>("Interested");
+  const [contactRemark, setContactRemark] = useState("");
+  const [loyaltyQueue, setLoyaltyQueue] = useState<
+    Array<{
+      contactId: string;
+      name: string;
+      phoneNumber: string | null;
+      lifetimeTotal: number;
+      suggestedTier: string | null;
+      assignedMerchant: string | null;
+    }>
+  >([]);
   const invoicesRef = useRef<HTMLDivElement>(null);
 
   const isBusy = busyKey !== null;
@@ -267,21 +303,75 @@ export function CustomerInsightPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/admin/customer-insight/filter-options");
+        const q = brandSearch.trim()
+          ? `&q=${encodeURIComponent(brandSearch.trim())}`
+          : "";
+        const res = await fetch(
+          `/api/admin/customer-insight/filter-options?type=brands${q}`
+        );
         const data = await res.json().catch(() => ({}));
         if (!res.ok || cancelled) return;
         const brands = Array.isArray(data.brands)
           ? (data.brands as unknown[]).filter((b): b is string => typeof b === "string")
-          : [];
+          : Array.isArray(data.options)
+            ? (data.options as Array<{ value?: string }>)
+                .map((o) => o.value)
+                .filter((b): b is string => typeof b === "string")
+            : [];
         setBrandOptions(brands);
       } catch {
-        // Options are optional for page use; filters still work without brands.
+        // Options optional
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [brandSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const params = new URLSearchParams({ type: "items" });
+        if (filterBrand.trim()) params.set("brand", filterBrand.trim());
+        if (itemSearch.trim()) params.set("q", itemSearch.trim());
+        const res = await fetch(
+          `/api/admin/customer-insight/filter-options?${params.toString()}`
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        const items = Array.isArray(data.options)
+          ? (data.options as Array<{ value?: string }>)
+              .map((o) => o.value)
+              .filter((b): b is string => typeof b === "string")
+          : [];
+        setItemOptions(items);
+      } catch {
+        // optional
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filterBrand, itemSearch]);
+
+  useEffect(() => {
+    if (!canManageLoyalty) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/customer-insight/loyalty-queue");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        setLoyaltyQueue(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        // optional
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageLoyalty]);
 
   async function runSearch() {
     const q = phone.trim();
@@ -353,8 +443,22 @@ export function CustomerInsightPanel({
             next.contact.birthDay
           ),
         });
+        try {
+          const hRes = await fetch(
+            `/api/admin/customer-insight/${encodeURIComponent(contactId)}/contact-history`
+          );
+          const hData = await hRes.json().catch(() => ({}));
+          if (hRes.ok && Array.isArray(hData.items)) {
+            setContactHistory(hData.items);
+          } else {
+            setContactHistory([]);
+          }
+        } catch {
+          setContactHistory([]);
+        }
       } else {
         setProfileForm(null);
+        setContactHistory([]);
       }
     } catch {
       notify.error("Failed to load customer insight.");
@@ -423,7 +527,11 @@ export function CustomerInsightPanel({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category: callOutcome }),
+          body: JSON.stringify({
+            category: callOutcome,
+            remark: contactRemark.trim() || null,
+            outcome: "general",
+          }),
         }
       );
       const data = await res.json().catch(() => ({}));
@@ -432,6 +540,7 @@ export function CustomerInsightPanel({
         return;
       }
       notify.success(`Saved outcome: ${data.category ?? callOutcome}`);
+      setContactRemark("");
       setInsight((prev) =>
         prev
           ? {
@@ -446,6 +555,9 @@ export function CustomerInsightPanel({
             }
           : prev
       );
+      if (selectedContactId) {
+        void loadInsight(selectedContactId, invoicePage);
+      }
     } catch {
       notify.error("Failed to save call outcome.");
     } finally {
@@ -457,13 +569,23 @@ export function CustomerInsightPanel({
     setBusyKey("filter");
     try {
       const params = new URLSearchParams();
-      if (filterPush === "gold") params.set("pushGold", "true");
-      if (filterPush === "platinum") params.set("pushPlatinum", "true");
-      if (filterLoyalty) params.set("loyalty", filterLoyalty);
       if (filterBrand.trim()) params.set("brand", filterBrand.trim());
-      if (filterBirthday) params.set("birthdayThisMonth", "true");
-      if (filterNoPurchase === "3" || filterNoPurchase === "6") {
-        params.set("noPurchaseMonths", filterNoPurchase);
+      if (filterItem.trim()) params.set("item", filterItem.trim());
+      if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
+        params.set("birthdayFrom", filterBirthdayFrom.trim());
+        params.set("birthdayTo", filterBirthdayTo.trim());
+      }
+      if (filterLastFrom.trim()) params.set("lastContactedFrom", filterLastFrom.trim());
+      if (filterLastTo.trim()) params.set("lastContactedTo", filterLastTo.trim());
+      if (filterLoyaltyRegFrom.trim()) {
+        params.set("loyaltyRegisteredFrom", filterLoyaltyRegFrom.trim());
+      }
+      if (filterLoyaltyRegTo.trim()) {
+        params.set("loyaltyRegisteredTo", filterLoyaltyRegTo.trim());
+      }
+      if (filterNoPurchaseFrom.trim() && filterNoPurchaseTo.trim()) {
+        params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
+        params.set("noPurchaseTo", filterNoPurchaseTo.trim());
       }
       if (filterMin.trim()) params.set("minTotal", filterMin.trim());
       if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
@@ -550,6 +672,79 @@ export function CustomerInsightPanel({
         </p>
       </div>
 
+      {canManageLoyalty ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
+            <CardDescription>
+              Responded customers awaiting Gold/Platinum assignment
+              {canAssignLoyalty ? "" : " (read-only)"}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loyaltyQueue.length === 0 ? (
+              <p className="text-muted-foreground text-sm">Queue empty.</p>
+            ) : (
+              <ul className="space-y-2">
+                {loyaltyQueue.map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {formatMoney(row.lifetimeTotal)} · suggested{" "}
+                        {row.suggestedTier ?? "—"}
+                      </p>
+                    </div>
+                    {canAssignLoyalty && row.suggestedTier ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isBusy}
+                        onClick={() => {
+                          void (async () => {
+                            setBusyKey("loyalty-assign");
+                            try {
+                              const res = await fetch(
+                                `/api/admin/customer-insight/${encodeURIComponent(row.contactId)}/loyalty-assign`,
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    tier: row.suggestedTier,
+                                  }),
+                                }
+                              );
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) {
+                                notify.error(data.error ?? "Assign failed");
+                                return;
+                              }
+                              notify.success(`Assigned ${row.suggestedTier}`);
+                              setLoyaltyQueue((prev) =>
+                                prev.filter((x) => x.contactId !== row.contactId)
+                              );
+                            } catch {
+                              notify.error("Assign failed");
+                            } finally {
+                              setBusyKey(null);
+                            }
+                          })();
+                        }}
+                      >
+                        Assign {row.suggestedTier}
+                      </Button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
@@ -566,47 +761,55 @@ export function CustomerInsightPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Push</span>
-              <select
-                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
-                value={filterPush}
-                onChange={(e) =>
-                  setFilterPush(e.target.value as "" | "gold" | "platinum")
-                }
+            <label className="space-y-1 text-sm sm:col-span-2 lg:col-span-1">
+              <span className="text-muted-foreground">Brand search</span>
+              <Input
+                value={brandSearch}
+                onChange={(e) => setBrandSearch(e.target.value)}
+                placeholder="Search brands…"
                 disabled={isBusy}
-              >
-                <option value="">None</option>
-                <option value="gold">Push to Gold (≥75k &lt;100k)</option>
-                <option value="platinum">Push to Platinum (≥200k &lt;250k)</option>
-              </select>
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Loyalty</span>
-              <select
-                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
-                value={filterLoyalty}
-                onChange={(e) => setFilterLoyalty(e.target.value)}
-                disabled={isBusy}
-              >
-                <option value="">Any</option>
-                <option value="standard">Standard</option>
-                <option value="gold">Gold</option>
-                <option value="platinum">Platinum</option>
-              </select>
+              />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Brand</span>
               <select
                 className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
                 value={filterBrand}
-                onChange={(e) => setFilterBrand(e.target.value)}
+                onChange={(e) => {
+                  setFilterBrand(e.target.value);
+                  setFilterItem("");
+                }}
                 disabled={isBusy}
               >
                 <option value="">Any</option>
                 {brandOptions.map((brand) => (
                   <option key={brand} value={brand}>
                     {brand}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm sm:col-span-2 lg:col-span-1">
+              <span className="text-muted-foreground">Item search</span>
+              <Input
+                value={itemSearch}
+                onChange={(e) => setItemSearch(e.target.value)}
+                placeholder="Search items…"
+                disabled={isBusy}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Item</span>
+              <select
+                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                value={filterItem}
+                onChange={(e) => setFilterItem(e.target.value)}
+                disabled={isBusy}
+              >
+                <option value="">Any</option>
+                {itemOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
                   </option>
                 ))}
               </select>
@@ -629,29 +832,77 @@ export function CustomerInsightPanel({
                 disabled={isBusy}
               />
             </label>
-            <label className="flex items-end gap-2 pb-2 text-sm">
-              <input
-                type="checkbox"
-                checked={filterBirthday}
-                onChange={(e) => setFilterBirthday(e.target.checked)}
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Birthday from (MM-DD)</span>
+              <Input
+                value={filterBirthdayFrom}
+                onChange={(e) => setFilterBirthdayFrom(e.target.value)}
+                placeholder="08-01"
                 disabled={isBusy}
               />
-              Birthday this month
             </label>
             <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">No purchase</span>
-              <select
-                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
-                value={filterNoPurchase}
-                onChange={(e) =>
-                  setFilterNoPurchase(e.target.value as "" | "3" | "6")
-                }
+              <span className="text-muted-foreground">Birthday to (MM-DD)</span>
+              <Input
+                value={filterBirthdayTo}
+                onChange={(e) => setFilterBirthdayTo(e.target.value)}
+                placeholder="08-31"
                 disabled={isBusy}
-              >
-                <option value="">Any</option>
-                <option value="3">No purchase in last 3 months</option>
-                <option value="6">No purchase in last 6 months</option>
-              </select>
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Last contacted from</span>
+              <Input
+                type="date"
+                value={filterLastFrom}
+                onChange={(e) => setFilterLastFrom(e.target.value)}
+                disabled={isBusy}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Last contacted to</span>
+              <Input
+                type="date"
+                value={filterLastTo}
+                onChange={(e) => setFilterLastTo(e.target.value)}
+                disabled={isBusy}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Loyalty registered from</span>
+              <Input
+                type="date"
+                value={filterLoyaltyRegFrom}
+                onChange={(e) => setFilterLoyaltyRegFrom(e.target.value)}
+                disabled={isBusy}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Loyalty registered to</span>
+              <Input
+                type="date"
+                value={filterLoyaltyRegTo}
+                onChange={(e) => setFilterLoyaltyRegTo(e.target.value)}
+                disabled={isBusy}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">No purchase from</span>
+              <Input
+                type="date"
+                value={filterNoPurchaseFrom}
+                onChange={(e) => setFilterNoPurchaseFrom(e.target.value)}
+                disabled={isBusy}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">No purchase to</span>
+              <Input
+                type="date"
+                value={filterNoPurchaseTo}
+                onChange={(e) => setFilterNoPurchaseTo(e.target.value)}
+                disabled={isBusy}
+              />
             </label>
           </div>
           <Button type="button" disabled={isBusy} onClick={() => void runFilters()}>
@@ -947,12 +1198,27 @@ export function CustomerInsightPanel({
                     <div className="space-y-1.5 lg:text-right">
                       <p className="text-xs text-muted-foreground">Loyalty Tier</p>
                       <span
-                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyalty.key)}`}
+                        className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-semibold ${tierBadgeClass(insight.loyaltyAssignment?.tier ?? insight.loyalty.key)}`}
                       >
                         <ShieldCheck className="size-3.5" aria-hidden />
-                        {insight.loyalty.label}
-                        {insight.loyalty.code ? ` (${insight.loyalty.code})` : ""}
+                        {insight.loyaltyAssignment
+                          ? insight.loyaltyAssignment.tier === "platinum"
+                            ? "Platinum"
+                            : "Gold"
+                          : insight.loyalty.label}
+                        {insight.loyalty.code && !insight.loyaltyAssignment
+                          ? ` (${insight.loyalty.code})`
+                          : ""}
                       </span>
+                      {insight.loyaltyAssignment ? (
+                        <p className="text-xs text-muted-foreground">
+                          Assigned by{" "}
+                          {insight.loyaltyAssignment.assignedByName ?? "unknown"}{" "}
+                          {insight.loyaltyAssignment.assignedAt
+                            ? `· ${new Date(insight.loyaltyAssignment.assignedAt).toLocaleString()}`
+                            : ""}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="space-y-1 lg:text-right">
                       <p className="text-xs text-muted-foreground">Lifetime Total Spend</p>
@@ -1525,6 +1791,17 @@ export function CustomerInsightPanel({
                       </select>
                     </label>
                   ) : null}
+                  {insight.canMarkContacted ? (
+                    <label className="block max-w-sm space-y-1 text-sm">
+                      <span className="text-muted-foreground">Remark</span>
+                      <Input
+                        value={contactRemark}
+                        onChange={(e) => setContactRemark(e.target.value)}
+                        disabled={isBusy}
+                        placeholder="Optional remark"
+                      />
+                    </label>
+                  ) : null}
                 </div>
                 {insight.canMarkContacted ? (
                   <Button
@@ -1541,6 +1818,91 @@ export function CustomerInsightPanel({
                     Save outcome
                   </Button>
                 ) : null}
+                {contactHistory.length > 0 ? (
+                  <div className="space-y-2 border-t pt-3">
+                    <p className="text-sm font-medium">Contact history</p>
+                    <ul className="max-h-48 space-y-2 overflow-y-auto text-xs">
+                      {contactHistory.map((row) => (
+                        <li key={row.id} className="rounded border px-2 py-1.5">
+                          <div className="font-medium">
+                            {new Date(row.createdAt).toLocaleString()}
+                            {row.merchantName ? ` · ${row.merchantName}` : ""}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {row.category ?? "—"}
+                            {row.outcome ? ` · ${row.outcome}` : ""}
+                          </div>
+                          {row.remark ? <div>{row.remark}</div> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+          {canMergeContacts && selectedContactId ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Merge contact</CardTitle>
+                <CardDescription>
+                  Merge another contact into the open customer (requires contacts.merge).
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap items-end gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">Source contact id</span>
+                  <Input
+                    value={mergeSourceId}
+                    onChange={(e) => setMergeSourceId(e.target.value)}
+                    disabled={isBusy}
+                    placeholder="cuid to merge away"
+                  />
+                </label>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={isBusy || !mergeSourceId.trim()}
+                  onClick={() => {
+                    void (async () => {
+                      setBusyKey("merge");
+                      try {
+                        const res = await fetch(
+                          "/api/admin/customer-insight/merge",
+                          {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              sourceContactId: mergeSourceId.trim(),
+                              targetContactId: selectedContactId,
+                            }),
+                          }
+                        );
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          notify.error(data.error ?? "Merge failed");
+                          return;
+                        }
+                        notify.success("Contacts merged");
+                        setMergeSourceId("");
+                        await loadInsight(selectedContactId, 1);
+                      } catch {
+                        notify.error("Merge failed");
+                      } finally {
+                        setBusyKey(null);
+                      }
+                    })();
+                  }}
+                >
+                  {busyKey === "merge" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Merging...
+                    </>
+                  ) : (
+                    "Merge into this contact"
+                  )}
+                </Button>
               </CardContent>
             </Card>
           ) : null}

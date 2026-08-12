@@ -49,10 +49,6 @@ export const customerInsightProfilePatchSchema = z
       .union([emailSchema, z.literal(""), z.null()])
       .optional()
       .transform((v) => (v === "" ? null : v)),
-    /**
-     * Add a new primary phone while keeping the previous primary as secondary
-     * (purchase history + search still match both).
-     */
     addPhoneNumber: z
       .string()
       .trim()
@@ -62,15 +58,21 @@ export const customerInsightProfilePatchSchema = z
     gender: z
       .union([z.enum(CONTACT_GENDER_OPTIONS), z.literal(""), z.null()])
       .optional()
-      .transform((v) => (v === "" || v === undefined ? (v === undefined ? undefined : null) : v)),
+      .transform((v) =>
+        v === "" || v === undefined ? (v === undefined ? undefined : null) : v
+      ),
     language: z
       .union([z.enum(CONTACT_LANGUAGE_OPTIONS), z.literal(""), z.null()])
       .optional()
-      .transform((v) => (v === "" || v === undefined ? (v === undefined ? undefined : null) : v)),
+      .transform((v) =>
+        v === "" || v === undefined ? (v === undefined ? undefined : null) : v
+      ),
     address: z
       .union([z.string().trim().max(LIMITS.address.max), z.null()])
       .optional()
-      .transform((v) => (v === "" || v === undefined ? (v === undefined ? undefined : null) : v)),
+      .transform((v) =>
+        v === "" || v === undefined ? (v === undefined ? undefined : null) : v
+      ),
     birthYear: z.coerce.number().int().min(1900).max(2100).optional().nullable(),
     birthMonth: z.coerce.number().int().min(1).max(12).optional().nullable(),
     birthDay: z.coerce.number().int().min(1).max(31).optional().nullable(),
@@ -113,26 +115,50 @@ export const customerInsightContactedBodySchema = z.object({
     "Interested-SMS",
   ]),
   note: z.string().trim().max(500).optional().nullable(),
+  remark: z.string().trim().max(2000).optional().nullable(),
+  outcome: z
+    .enum(["general", "loyalty_informed", "responded", "not_responded"])
+    .optional()
+    .default("general"),
 });
+
+/** MM-DD calendar day (ignore year). */
+const monthDaySchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,2}-\d{1,2}$/, "Expected MM-DD")
+  .transform((v) => {
+    const [mRaw, dRaw] = v.split("-");
+    const month = Number(mRaw);
+    const day = Number(dRaw);
+    return { month, day };
+  })
+  .refine(
+    (v) => v.month >= 1 && v.month <= 12 && v.day >= 1 && v.day <= 31,
+    "Invalid month-day"
+  );
+
+const optionalIsoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
+  .optional();
 
 export const customerInsightFilterQuerySchema = z
   .object({
-    pushGold: z
-      .enum(["true", "1", "false", "0"])
-      .optional()
-      .transform((v) => v === "true" || v === "1"),
-    pushPlatinum: z
-      .enum(["true", "1", "false", "0"])
-      .optional()
-      .transform((v) => v === "true" || v === "1"),
-    loyalty: z.enum(["standard", "gold", "platinum"]).optional(),
     brand: trimmedString(1, LIMITS.name.max).optional(),
+    item: trimmedString(1, LIMITS.name.max).optional(),
     minTotal: z.coerce.number().min(0).optional(),
     maxTotal: z.coerce.number().min(0).optional(),
-    birthdayThisMonth: z
-      .enum(["true", "1", "false", "0"])
-      .optional()
-      .transform((v) => v === "true" || v === "1"),
+    birthdayFrom: monthDaySchema.optional(),
+    birthdayTo: monthDaySchema.optional(),
+    lastContactedFrom: optionalIsoDate,
+    lastContactedTo: optionalIsoDate,
+    loyaltyRegisteredFrom: optionalIsoDate,
+    loyaltyRegisteredTo: optionalIsoDate,
+    noPurchaseFrom: optionalIsoDate,
+    noPurchaseTo: optionalIsoDate,
+    /** Legacy presets still accepted. */
     noPurchaseMonths: z
       .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
       .optional()
@@ -150,13 +176,6 @@ export const customerInsightFilterQuerySchema = z
     pageSize: z.coerce.number().int().min(1).max(50).default(25),
   })
   .superRefine((val, ctx) => {
-    if (val.pushGold && val.pushPlatinum) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Only one of pushGold or pushPlatinum may be set",
-        path: ["pushGold"],
-      });
-    }
     if (
       val.minTotal != null &&
       val.maxTotal != null &&
@@ -168,4 +187,38 @@ export const customerInsightFilterQuerySchema = z
         path: ["minTotal"],
       });
     }
+    if ((val.birthdayFrom && !val.birthdayTo) || (!val.birthdayFrom && val.birthdayTo)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "birthdayFrom and birthdayTo must both be set",
+        path: ["birthdayFrom"],
+      });
+    }
   });
+
+export const customerInsightMergeBodySchema = z
+  .object({
+    sourceContactId: cuidSchema,
+    targetContactId: cuidSchema,
+  })
+  .refine((v) => v.sourceContactId !== v.targetContactId, {
+    message: "source and target must differ",
+    path: ["sourceContactId"],
+  });
+
+export const customerInsightLoyaltyAssignBodySchema = z.object({
+  tier: z.enum(["gold", "platinum"]),
+  remark: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const merchantLoyaltyOutreachBodySchema = z.object({
+  contactId: cuidSchema,
+  action: z.enum(["loyalty_informed", "responded", "not_responded"]),
+  remark: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const customerInsightFilterOptionsQuerySchema = z.object({
+  type: z.enum(["brands", "items"]).default("brands"),
+  brand: trimmedString(1, LIMITS.name.max).optional(),
+  q: trimmedString(1, 100).optional(),
+});

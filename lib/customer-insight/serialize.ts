@@ -6,6 +6,7 @@ import type {
   FrequencyDto,
   InvoicePaginationDto,
   InsightVisibility,
+  LoyaltyAssignmentDto,
   LoyaltyDto,
   SeriesPointDto,
   TopItemDto,
@@ -63,6 +64,8 @@ export function buildCustomerInsightDto(input: {
   lastContactedAt?: string | null;
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
+  loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  canMergeContacts?: boolean;
 }): CustomerInsightDto {
   const owner: CustomerInsightDto = {
     visibility: "owner",
@@ -77,6 +80,8 @@ export function buildCustomerInsightDto(input: {
     lastContactedAt: input.lastContactedAt ?? null,
     canEditProfile: input.canEditProfile ?? true,
     canMarkContacted: input.canMarkContacted ?? true,
+    loyaltyAssignment: input.loyaltyAssignment ?? null,
+    canMergeContacts: input.canMergeContacts ?? false,
     invoices: input.invoices,
     invoicePagination: input.invoicePagination,
   };

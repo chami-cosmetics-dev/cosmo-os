@@ -368,6 +368,7 @@ model User {
   merchantTargetsAssigned           MerchantMonthlyTarget[]    @relation("MerchantMonthlyTargetAssignedBy")
   merchantMonthlyTargetHistoryAsMerchant MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryUser")
   merchantMonthlyTargetHistoryAssigned   MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryAssignedBy")
+  loyaltyAssignments                     ContactMaster[]                @relation("ContactLoyaltyAssignedBy")
 }
 
 /// Monthly sales target for a merchant-role user (Asia/Colombo calendar month).
@@ -1649,6 +1650,10 @@ model ContactMaster {
   origin            String?
   customerType      String?
   category          String?
+  loyaltyAssignedTier       String?
+  loyaltyAssignedAt         DateTime?
+  loyaltyAssignedByUserId   String?
+  loyaltyOutreachStatus     String?
   // Contact preferences
   contactSaved      Boolean?
   whatsappAllowed   Boolean?
@@ -1658,6 +1663,7 @@ model ContactMaster {
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
   company           Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  loyaltyAssignedBy User?                     @relation("ContactLoyaltyAssignedBy", fields: [loyaltyAssignedByUserId], references: [id], onDelete: SetNull)
   emails            ContactEmail[]
   phones            ContactPhone[]
   // Call center performance tracking: records each allocation update event for this contact
@@ -1673,6 +1679,8 @@ model ContactMaster {
   @@index([companyId, country])
   @@index([companyId, zone])
   @@index([companyId, area])
+  @@index([companyId, loyaltyAssignedAt])
+  @@index([companyId, loyaltyOutreachStatus])
 }
 
 model AdaptPurchaseHistory {
@@ -1814,6 +1822,8 @@ model ContactAllocationUpdate {
   merchantName String?
   /// The contact's effective category at the time of update (new value if changed in this update, otherwise the existing value)
   category     String?
+  remark       String?
+  outcome      String?
   createdAt    DateTime @default(now())
 
   company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)

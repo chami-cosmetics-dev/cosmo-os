@@ -34,6 +34,9 @@ export async function GET(request: NextRequest) {
   const parsed = merchantDashboardPageDataQuerySchema.safeParse({
     merchantUserId: raw.merchantUserId || undefined,
     yearMonth: raw.yearMonth || undefined,
+    showCustomerLists: raw.showCustomerLists || undefined,
+    fromDate: raw.fromDate || undefined,
+    toDate: raw.toDate || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -51,6 +54,9 @@ export async function GET(request: NextRequest) {
       viewerIsAdmin || hasPermission(context, "dashboard.merchant_targets.manage"),
     selectedMerchantId: viewerIsAdmin ? parsed.data.merchantUserId : context.user.id,
     yearMonth: parsed.data.yearMonth,
+    showCustomerLists: parsed.data.showCustomerLists,
+    fromDate: parsed.data.fromDate,
+    toDate: parsed.data.toDate,
   });
 
   if ("error" in data) {
