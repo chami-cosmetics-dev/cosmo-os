@@ -57,7 +57,7 @@ export async function pushLoyaltyAssignmentToErpAndShopify(input: {
 
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
-    select: { phoneNumber: true, email: true },
+    select: { id: true, phoneNumber: true, email: true },
   });
   if (!contact) {
     return { erpUpdated: 0, shopifyUpdated: 0, errors: ["Contact not found"] };
