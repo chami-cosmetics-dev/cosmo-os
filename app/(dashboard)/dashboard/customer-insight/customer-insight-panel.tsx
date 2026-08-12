@@ -1210,14 +1210,18 @@ export function CustomerInsightPanel({
                               No phone
                             </span>
                           )}
-                          {insight.contact.email ? (
+                          {insight.contact.email?.trim() ? (
                             <span className="inline-flex items-center gap-1.5">
                               <Mail className="size-3.5 shrink-0" aria-hidden />
                               <span className="truncate text-foreground">
                                 {insight.contact.email}
                               </span>
                             </span>
-                          ) : null}
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-foreground">
+                              -
+                            </span>
+                          )}
                           {formatMemberSince(insight.frequency?.firstOrderAt) ? (
                             <span className="inline-flex items-center gap-1.5">
                               <Calendar className="size-3.5 shrink-0" aria-hidden />
