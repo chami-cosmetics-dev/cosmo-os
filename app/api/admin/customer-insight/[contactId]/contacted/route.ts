@@ -49,6 +49,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     name: user.name ?? null,
     email: user.email ?? null,
     roleNames: (auth.context!.roleNames as string[]) ?? [],
+    permissionKeys: (auth.context!.permissionKeys as string[]) ?? [],
     couponCodes: (await prisma.user.findUnique({
       where: { id: user.id },
       select: { couponCodes: true },

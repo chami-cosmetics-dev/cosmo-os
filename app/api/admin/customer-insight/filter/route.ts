@@ -3,11 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
 import {
   canFilterAllInsightContacts,
-  isAdminOrSuperAdmin,
+  hasInsightAdminView,
 } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
 import { customerInsightFilterQuerySchema } from "@/lib/validation/customer-insight";
+
+function queryParam(value: string | null): string | undefined {
+  const trimmed = (value ?? "").trim();
+  return trimmed || undefined;
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("contacts.insight.read");
@@ -26,21 +31,21 @@ export async function GET(request: NextRequest) {
 
   const sp = request.nextUrl.searchParams;
   const parsed = customerInsightFilterQuerySchema.safeParse({
-    brand: sp.get("brand") ?? undefined,
-    item: sp.get("item") ?? undefined,
-    minTotal: sp.get("minTotal") ?? undefined,
-    maxTotal: sp.get("maxTotal") ?? undefined,
-    birthdayFrom: sp.get("birthdayFrom") ?? undefined,
-    birthdayTo: sp.get("birthdayTo") ?? undefined,
-    lastContactedFrom: sp.get("lastContactedFrom") ?? undefined,
-    lastContactedTo: sp.get("lastContactedTo") ?? undefined,
-    loyaltyRegisteredFrom: sp.get("loyaltyRegisteredFrom") ?? undefined,
-    loyaltyRegisteredTo: sp.get("loyaltyRegisteredTo") ?? undefined,
-    noPurchaseFrom: sp.get("noPurchaseFrom") ?? undefined,
-    noPurchaseTo: sp.get("noPurchaseTo") ?? undefined,
-    noPurchaseMonths: sp.get("noPurchaseMonths") ?? undefined,
-    page: sp.get("page") ?? undefined,
-    pageSize: sp.get("pageSize") ?? undefined,
+    brand: queryParam(sp.get("brand")),
+    item: queryParam(sp.get("item")),
+    minTotal: queryParam(sp.get("minTotal")),
+    maxTotal: queryParam(sp.get("maxTotal")),
+    birthdayFrom: queryParam(sp.get("birthdayFrom")),
+    birthdayTo: queryParam(sp.get("birthdayTo")),
+    lastContactedFrom: queryParam(sp.get("lastContactedFrom")),
+    lastContactedTo: queryParam(sp.get("lastContactedTo")),
+    loyaltyRegisteredFrom: queryParam(sp.get("loyaltyRegisteredFrom")),
+    loyaltyRegisteredTo: queryParam(sp.get("loyaltyRegisteredTo")),
+    noPurchaseFrom: queryParam(sp.get("noPurchaseFrom")),
+    noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
+    noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
+    page: queryParam(sp.get("page")),
+    pageSize: queryParam(sp.get("pageSize")),
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -71,7 +76,7 @@ export async function GET(request: NextRequest) {
   const result = await filterAllocatedContacts({
     companyId,
     viewer,
-    isAdmin: isAdminOrSuperAdmin(roleNames),
+    isAdmin: hasInsightAdminView({ roleNames, permissionKeys }),
     scopeAllContacts,
     brand: parsed.data.brand,
     item: parsed.data.item,

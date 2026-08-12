@@ -2,7 +2,7 @@ import { brandFromAdaptLineItem } from "@/lib/customer-insight/brand";
 import { brandsMatch } from "@/lib/customer-insight/brand";
 import { prisma } from "@/lib/prisma";
 
-export type FilterOptionDto = { value: string; label: string };
+export type FilterOptionDto = { value: string; label: string; sku?: string | null };
 
 function pushUnique(
   seen: Set<string>,
@@ -15,6 +15,25 @@ function pushUnique(
   if (seen.has(key)) return;
   seen.add(key);
   out.push({ value: trimmed, label: trimmed });
+}
+
+function pushItemOption(
+  seen: Set<string>,
+  out: FilterOptionDto[],
+  title: string,
+  variant?: string | null,
+  sku?: string | null
+) {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return;
+  const variantTrim = variant?.trim() || "";
+  const canonical = variantTrim ? `${trimmedTitle} — ${variantTrim}` : trimmedTitle;
+  const key = canonical.toLowerCase();
+  if (seen.has(key)) return;
+  seen.add(key);
+  const skuTrim = sku?.trim() || null;
+  const label = skuTrim ? `${canonical} · ${skuTrim}` : canonical;
+  out.push({ value: canonical, label, sku: skuTrim });
 }
 
 export async function listInsightBrandOptions(
@@ -72,6 +91,7 @@ export async function listInsightItemOptions(
     select: {
       productTitle: true,
       variantTitle: true,
+      sku: true,
       vendor: { select: { name: true } },
     },
     take: 3_000,
@@ -87,9 +107,7 @@ export async function listInsightItemOptions(
       continue;
     }
     const title = (p.productTitle ?? "").trim() || "Unknown item";
-    const variant = p.variantTitle?.trim();
-    const label = variant ? `${title} — ${variant}` : title;
-    pushUnique(seen, items, label);
+    pushItemOption(seen, items, title, p.variantTitle, p.sku);
   }
 
   const adaptRows = await prisma.adaptPurchaseHistory.findMany({
@@ -109,13 +127,20 @@ export async function listInsightItemOptions(
         if (!brandsMatch(b, brandNeedle)) continue;
       }
       const variant = String(obj.variantTitle ?? obj.variant ?? "").trim();
-      const label = variant ? `${title} — ${variant}` : title;
-      pushUnique(seen, items, label);
+      const sku = String(obj.itemCode ?? obj.sku ?? "").trim();
+      pushItemOption(seen, items, title, variant, sku);
     }
   }
 
   items.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   const needle = input.q?.trim().toLowerCase();
   if (!needle) return items.slice(0, 500);
-  return items.filter((i) => i.label.toLowerCase().includes(needle)).slice(0, 500);
+  return items
+    .filter(
+      (i) =>
+        i.label.toLowerCase().includes(needle) ||
+        i.value.toLowerCase().includes(needle) ||
+        (i.sku?.toLowerCase().includes(needle) ?? false)
+    )
+    .slice(0, 500);
 }

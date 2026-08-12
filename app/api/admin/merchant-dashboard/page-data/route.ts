@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getMerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import {
   canAccessMerchantDashboard,
-  isCompanyAdminRole,
+  hasMerchantDashboardAdminView,
 } from "@/lib/merchant-role";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { merchantDashboardPageDataQuerySchema } from "@/lib/validation/merchant-dashboard";
@@ -45,7 +45,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const viewerIsAdmin = isCompanyAdminRole(roleNames);
+  const viewerIsAdmin = hasMerchantDashboardAdminView({
+    roleNames,
+    permissionKeys: context.permissionKeys as string[] | undefined,
+  });
   const data = await getMerchantDashboardPageData({
     companyId,
     viewerUserId: context.user.id,

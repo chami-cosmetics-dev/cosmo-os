@@ -22,6 +22,13 @@ function labelMatches(itemLabel: string, needle: string): boolean {
   return l === n || l.includes(n) || n.includes(l);
 }
 
+function skuMatches(sku: string | null | undefined, needle: string): boolean {
+  const s = norm(sku ?? "");
+  const n = norm(needle);
+  if (!s || !n) return false;
+  return s === n || s.includes(n) || n.includes(s);
+}
+
 function adaptItemLabel(item: unknown): string {
   if (!item || typeof item !== "object") return "";
   const obj = item as Record<string, unknown>;
@@ -54,7 +61,15 @@ export async function findContactsByPurchasedItem(
     const lines = Array.isArray(row.lineItems) ? row.lineItems : [];
     for (const raw of lines) {
       const label = adaptItemLabel(raw);
-      if (!labelMatches(label, needle)) continue;
+      const sku =
+        raw && typeof raw === "object"
+          ? String(
+              (raw as Record<string, unknown>).itemCode ??
+                (raw as Record<string, unknown>).sku ??
+                ""
+            ).trim()
+          : "";
+      if (!labelMatches(label, needle) && !skuMatches(sku, needle)) continue;
       if (brandNeedle && !brandsMatch(brandFromAdaptLineItem(raw), brandNeedle)) {
         continue;
       }
@@ -63,6 +78,7 @@ export async function findContactsByPurchasedItem(
     }
   }
 
+  const titleNeedle = needle.split("—")[0]?.trim() || needle;
   const orders = await prisma.order.findMany({
     where: {
       companyId,
@@ -70,7 +86,15 @@ export async function findContactsByPurchasedItem(
       lineItems: {
         some: {
           productItem: {
-            productTitle: { contains: needle.split("—")[0]?.trim() || needle, mode: "insensitive" },
+            OR: [
+              {
+                productTitle: {
+                  contains: titleNeedle,
+                  mode: "insensitive",
+                },
+              },
+              { sku: { contains: needle, mode: "insensitive" } },
+            ],
           },
         },
       },
@@ -84,6 +108,7 @@ export async function findContactsByPurchasedItem(
             select: {
               productTitle: true,
               variantTitle: true,
+              sku: true,
               vendor: { select: { name: true } },
             },
           },
@@ -104,7 +129,14 @@ export async function findContactsByPurchasedItem(
       const title = li.productItem.productTitle?.trim() || "Unknown item";
       const variant = li.productItem.variantTitle?.trim();
       const label = variant ? `${title} — ${variant}` : title;
-      if (!labelMatches(label, needle) && !labelMatches(title, needle)) continue;
+      const sku = li.productItem.sku?.trim() || "";
+      if (
+        !labelMatches(label, needle) &&
+        !labelMatches(title, needle) &&
+        !skuMatches(sku, needle)
+      ) {
+        continue;
+      }
       if (
         brandNeedle &&
         !brandsMatch(li.productItem.vendor?.name, brandNeedle)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   canAccessMerchantDashboard,
-  isCompanyAdminRole,
+  hasMerchantDashboardAdminView,
 } from "@/lib/merchant-role";
 import { fetchMerchantDailyInvoices } from "@/lib/page-data/merchant-dashboard-sales";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -42,7 +42,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const viewerIsAdmin = isCompanyAdminRole(roleNames);
+  const viewerIsAdmin = hasMerchantDashboardAdminView({
+    roleNames,
+    permissionKeys: context.permissionKeys as string[] | undefined,
+  });
   const merchantUserId = viewerIsAdmin
     ? (parsed.data.merchantUserId ?? context.user.id)
     : context.user.id;

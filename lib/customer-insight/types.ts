@@ -117,6 +117,12 @@ export type InvoicePaginationDto = {
   total: number;
 };
 
+export type HistoryScopeDto = {
+  brand: string | null;
+  item: string | null;
+  scopedSpend: number;
+};
+
 export type ProgressBarDto = {
   currentTotal: number;
   goldMin: number;
@@ -132,6 +138,8 @@ export type CustomerInsightDto = {
   loyalty: LoyaltyDto;
   invoices: UnifiedInvoiceRowDto[];
   invoicePagination: InvoicePaginationDto;
+  /** When opened from brand/item filters — history charts and invoices are scoped. */
+  historyScope?: HistoryScopeDto | null;
   /** Owner / admin only */
   contact?: ContactInsightDto;
   frequency?: FrequencyDto;

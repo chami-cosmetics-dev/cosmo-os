@@ -40,6 +40,7 @@ export {
   insightVisibility,
   viewerMerchantLabels,
   isAdminOrSuperAdmin,
+  hasInsightAdminView,
   canFilterAllInsightContacts,
 } from "@/lib/customer-insight/ownership";
 export { toLimitedInsightDto } from "@/lib/customer-insight/visibility";

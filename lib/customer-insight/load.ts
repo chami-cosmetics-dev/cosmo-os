@@ -3,6 +3,12 @@ import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers"
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
+import {
+  buildHistoryScopeDto,
+  scopeAdaptRowsForHistory,
+  scopeCosmoOrdersForHistory,
+  type HistoryScopeInput,
+} from "@/lib/customer-insight/history-scope";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
 import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
@@ -38,6 +44,8 @@ export async function loadCustomerInsight(input: {
   invoicesPage: number;
   invoicesPageSize: number;
   viewer: ViewerIdentity;
+  historyBrand?: string | null;
+  historyItem?: string | null;
 }): Promise<CustomerInsightDto | null> {
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
@@ -136,6 +144,17 @@ export async function loadCustomerInsight(input: {
     lastContactedPromise,
   ]);
 
+  const historyScope: HistoryScopeInput = {
+    brand: input.historyBrand,
+    item: input.historyItem,
+  };
+  const scopedCosmo = scopeCosmoOrdersForHistory(orders, historyScope);
+  const scopedAdapt = scopeAdaptRowsForHistory(adaptRows, historyScope);
+  const historyOrders = scopedCosmo.orders;
+  const historyAdaptRows = scopedAdapt.adaptRows;
+  const scopedSpend = scopedCosmo.scopedSpend + scopedAdapt.scopedSpend;
+  const historyScopeDto = buildHistoryScopeDto(historyScope, scopedSpend);
+
   const orderAmounts = orders.map((o) => ({
     totalPrice: o.totalPrice.toString(),
     cancelledAt: o.cancelledAt,
@@ -159,12 +178,12 @@ export async function loadCustomerInsight(input: {
   }
 
   const seriesEvents = [
-    ...orders.map((o) => ({
+    ...historyOrders.map((o) => ({
       date: o.createdAt,
       amount: Number(o.totalPrice.toString()),
       includedInLoyaltyTotal: isOrderIncludedInCustomerLifetimeTotal(o),
     })),
-    ...adaptRows.map((r) => ({
+    ...historyAdaptRows.map((r) => ({
       date: r.invoiceDate,
       amount: Number(r.ttlAmount.toString()),
       includedInLoyaltyTotal: true,
@@ -174,7 +193,7 @@ export async function loadCustomerInsight(input: {
   const { series, chartsAvailable } = buildMonthlySeries(seriesEvents);
   const frequency = buildFrequencyMetrics(loyaltyEligibleDates);
   const topItems = aggregateTopItems({
-    orders: orders.map((o) => ({
+    orders: historyOrders.map((o) => ({
       cancelledAt: o.cancelledAt,
       financialStatus: o.financialStatus,
       fulfillmentStage: o.fulfillmentStage,
@@ -185,11 +204,11 @@ export async function loadCustomerInsight(input: {
         variantTitle: li.productItem.variantTitle,
       })),
     })),
-    adaptRows: adaptRows.map((r) => ({ lineItems: r.lineItems })),
+    adaptRows: historyAdaptRows.map((r) => ({ lineItems: r.lineItems })),
   });
 
   const paged = mergeAndPaginateInvoices({
-    orders: orders.map((o) => {
+    orders: historyOrders.map((o) => {
       const lineItems: InvoiceLineDto[] = o.lineItems.map((li) => ({
         id: li.id,
         productTitle: li.productItem.productTitle,
@@ -214,7 +233,7 @@ export async function loadCustomerInsight(input: {
         lineItems,
       };
     }),
-    adaptRows: adaptRows.map((r) => {
+    adaptRows: historyAdaptRows.map((r) => {
       const rawItems = Array.isArray(r.lineItems) ? r.lineItems : [];
       const lineItems: InvoiceLineDto[] = adaptLineItemsForPurchaseUi(r.lineItems).map(
         (li, idx) => ({
@@ -285,5 +304,6 @@ export async function loadCustomerInsight(input: {
             assignedByUserId: contact.loyaltyAssignedByUserId,
           }
         : null,
+    historyScope: historyScopeDto,
   });
 }

@@ -11,6 +11,7 @@ export type ViewerIdentity = {
    */
   couponCodes?: string[] | null;
   roleNames?: string[];
+  permissionKeys?: string[] | null;
 };
 
 export function normalizeMerchantLabel(value: string | null | undefined): string {
@@ -91,15 +92,24 @@ export function isAdminOrSuperAdmin(roleNames: string[] | undefined | null): boo
   return roleNames.includes("admin") || roleNames.includes("super_admin");
 }
 
+/** Customer Insight admin capabilities (company-wide filters + owner view). */
+export function hasInsightAdminView(input: {
+  roleNames?: string[] | null;
+  permissionKeys?: string[] | null;
+}): boolean {
+  if (isAdminOrSuperAdmin(input.roleNames)) return true;
+  return (input.permissionKeys ?? []).includes("contacts.insight.admin_view");
+}
+
 /**
  * Company-wide Insight filters (all contacts, not only allocated).
- * Admins always; also users with Contact Master / allocation manage rights.
+ * Admins, Insight admin view, or Contact Master / allocation manage rights.
  */
 export function canFilterAllInsightContacts(input: {
   roleNames?: string[] | null;
   permissionKeys?: string[] | null;
 }): boolean {
-  if (isAdminOrSuperAdmin(input.roleNames)) return true;
+  if (hasInsightAdminView(input)) return true;
   const keys = input.permissionKeys ?? [];
   return (
     keys.includes("contacts.master.read") ||
@@ -117,7 +127,7 @@ export function isAllocatedOwner(
   viewer: ViewerIdentity,
   assignedMerchant: string | null | undefined
 ): boolean {
-  if (isAdminOrSuperAdmin(viewer.roleNames)) return true;
+  if (hasInsightAdminView(viewer)) return true;
   return matchesMerchantAllocation(viewer, assignedMerchant);
 }
 
