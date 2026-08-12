@@ -40,6 +40,8 @@ export const customerInsightInvoicesQuerySchema = z.object({
     .max(LIMITS.pagination.pageMax)
     .default(1),
   invoicesPageSize: z.coerce.number().int().min(1).max(50).default(25),
+  brand: z.string().trim().max(200).optional(),
+  item: z.string().trim().max(500).optional(),
 });
 
 export const customerInsightProfilePatchSchema = z

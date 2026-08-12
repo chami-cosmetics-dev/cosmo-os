@@ -213,6 +213,22 @@ type ProfileForm = {
   birthDate: string;
 };
 
+type InsightSelectOption = {
+  value: string;
+  label: string;
+  keywords?: string;
+};
+
+function normalizeSelectOptions(
+  options: string[] | InsightSelectOption[]
+): InsightSelectOption[] {
+  return options.map((option) =>
+    typeof option === "string"
+      ? { value: option, label: option }
+      : { ...option, keywords: option.keywords ?? "" }
+  );
+}
+
 function InsightSearchableSelect({
   value,
   options,
@@ -223,7 +239,7 @@ function InsightSearchableSelect({
   onChange,
 }: {
   value: string;
-  options: string[];
+  options: string[] | InsightSelectOption[];
   placeholder: string;
   searchPlaceholder: string;
   allLabel?: string;
@@ -231,7 +247,8 @@ function InsightSearchableSelect({
   onChange: (next: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option === value);
+  const normalized = normalizeSelectOptions(options);
+  const selected = normalized.find((option) => option.value === value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -246,9 +263,9 @@ function InsightSearchableSelect({
         >
           <span
             className={cn("truncate text-left", !selected && "text-muted-foreground")}
-            title={selected ?? allLabel}
+            title={selected?.label ?? allLabel}
           >
-            {selected ?? allLabel}
+            {selected?.label ?? allLabel}
           </span>
           <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
         </Button>
@@ -272,22 +289,22 @@ function InsightSearchableSelect({
                 <Check className={cn("size-4", !value ? "opacity-100" : "opacity-0")} />
                 {allLabel}
               </CommandItem>
-              {options.map((option) => (
+              {normalized.map((option) => (
                 <CommandItem
-                  key={option}
-                  value={option}
+                  key={option.value}
+                  value={`${option.label} ${option.keywords ?? ""}`.trim()}
                   onSelect={() => {
-                    onChange(option);
+                    onChange(option.value);
                     setOpen(false);
                   }}
                 >
                   <Check
                     className={cn(
                       "size-4",
-                      value === option ? "opacity-100" : "opacity-0"
+                      value === option.value ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  <span className="truncate">{option}</span>
+                  <span className="truncate">{option.label}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -353,7 +370,7 @@ export function CustomerInsightPanel({
   const [filterBrand, setFilterBrand] = useState("");
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [filterItem, setFilterItem] = useState("");
-  const [itemOptions, setItemOptions] = useState<string[]>([]);
+  const [itemOptions, setItemOptions] = useState<InsightSelectOption[]>([]);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -436,9 +453,15 @@ export function CustomerInsightPanel({
         const data = await res.json().catch(() => ({}));
         if (!res.ok || cancelled) return;
         const items = Array.isArray(data.options)
-          ? (data.options as Array<{ value?: string }>)
-              .map((o) => o.value)
-              .filter((b): b is string => typeof b === "string")
+          ? (data.options as Array<{ value?: string; label?: string; sku?: string | null }>)
+              .filter((o): o is { value: string; label?: string; sku?: string | null } =>
+                typeof o.value === "string"
+              )
+              .map((o) => ({
+                value: o.value,
+                label: o.label ?? o.value,
+                keywords: o.sku?.trim() ?? "",
+              }))
           : [];
         setItemOptions(items);
       } catch {
@@ -507,13 +530,26 @@ export function CustomerInsightPanel({
     }
   }
 
-  async function loadInsight(contactId: string, page: number) {
+  async function loadInsight(
+    contactId: string,
+    page: number,
+    scopeOverride?: { brand?: string; item?: string }
+  ) {
     setBusyKey(`insight-${contactId}`);
     setEditing(false);
     setSelectedContactId(contactId);
+    setItemFilter(null);
     try {
+      const brand = scopeOverride?.brand ?? filterBrand;
+      const item = scopeOverride?.item ?? filterItem;
+      const params = new URLSearchParams({
+        invoicesPage: String(page),
+        invoicesPageSize: "25",
+      });
+      if (brand.trim()) params.set("brand", brand.trim());
+      if (item.trim()) params.set("item", item.trim());
       const res = await fetch(
-        `/api/admin/customer-insight/${encodeURIComponent(contactId)}?invoicesPage=${page}&invoicesPageSize=25`
+        `/api/admin/customer-insight/${encodeURIComponent(contactId)}?${params}`
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -858,6 +894,45 @@ export function CustomerInsightPanel({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <fieldset className="space-y-3 rounded-lg border border-border/60 p-3">
+            <legend className="px-1 text-xs font-medium text-muted-foreground">
+              Phone search
+            </legend>
+            <p className="text-muted-foreground text-xs">
+              Enter a full customer phone number for an exact match.
+            </p>
+            <form
+              className="flex flex-col gap-3 sm:flex-row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void runSearch();
+              }}
+            >
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. 0771234567"
+                disabled={isBusy}
+                inputMode="tel"
+                autoComplete="tel"
+                className="sm:max-w-sm"
+              />
+              <Button type="submit" disabled={isBusy}>
+                {busyKey === "search" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Searching...
+                  </>
+                ) : (
+                  <>
+                    <Search aria-hidden />
+                    Search
+                  </>
+                )}
+              </Button>
+            </form>
+          </fieldset>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Brand</span>
@@ -879,7 +954,7 @@ export function CustomerInsightPanel({
                 value={filterItem}
                 options={itemOptions}
                 placeholder="Any"
-                searchPlaceholder="Search items…"
+                searchPlaceholder="Search items or SKU…"
                 disabled={isBusy}
                 onChange={setFilterItem}
               />
@@ -1085,47 +1160,6 @@ export function CustomerInsightPanel({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Phone search</CardTitle>
-          <CardDescription>
-            Enter a full customer phone number for an exact match.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="flex flex-col gap-3 sm:flex-row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void runSearch();
-            }}
-          >
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="e.g. 0771234567"
-              disabled={isBusy}
-              inputMode="tel"
-              autoComplete="tel"
-              className="sm:max-w-sm"
-            />
-            <Button type="submit" disabled={isBusy}>
-              {busyKey === "search" ? (
-                <>
-                  <Loader2 className="animate-spin" aria-hidden />
-                  Searching...
-                </>
-              ) : (
-                <>
-                  <Search aria-hidden />
-                  Search
-                </>
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
       {searched && matches && matches.length === 0 && !insight && (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
@@ -1165,6 +1199,50 @@ export function CustomerInsightPanel({
 
       {insight && (
         <>
+          {insight.historyScope ? (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <p className="font-medium">Filtered purchase history</p>
+                  <p className="text-muted-foreground text-xs">
+                    {insight.historyScope.brand
+                      ? `Brand: ${insight.historyScope.brand}`
+                      : null}
+                    {insight.historyScope.brand && insight.historyScope.item ? " · " : null}
+                    {insight.historyScope.item
+                      ? `Item: ${insight.historyScope.item}`
+                      : null}
+                    {" · "}
+                    Scoped spend{" "}
+                    <span className="font-medium tabular-nums text-foreground">
+                      {formatMoney(
+                        insight.historyScope.scopedSpend,
+                        insight.loyalty.currency
+                      )}
+                    </span>
+                    . Lifetime loyalty total above is still all completed orders.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy || !selectedContactId}
+                  onClick={() => {
+                    setFilterBrand("");
+                    setFilterItem("");
+                    if (selectedContactId) {
+                      void loadInsight(selectedContactId, 1, { brand: "", item: "" });
+                    }
+                  }}
+                >
+                  <X className="size-4" aria-hidden />
+                  Show all history
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           {/* Limited summary */}
           {!isOwner && (
             <Card>
@@ -1727,6 +1805,9 @@ export function CustomerInsightPanel({
                   <CardTitle className="text-base">Invoice history</CardTitle>
                   <CardDescription>
                     {insight.invoicePagination.total} order(s).
+                    {insight.historyScope
+                      ? " Only lines matching your brand/item filter."
+                      : null}
                     {!isOwner
                       ? " Headers only — line items hidden for non-allocated merchants."
                       : " Cosmo invoices open with View Invoice; Adapt is view-only in the table."}

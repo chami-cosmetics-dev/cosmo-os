@@ -124,6 +124,11 @@ const DEFAULT_PERMISSIONS = [
       "Open Customer Insight: search by phone, view purchase insight and filters; allocated merchants and admins can edit profile (no Contact Master list/export)",
   },
   {
+    key: "contacts.insight.admin_view",
+    description:
+      "Customer Insight admin view: filter all company contacts, full owner insight on any customer (same as company admin on Insight)",
+  },
+  {
     key: "contacts.merge",
     description: "Merge Contact Master records from Customer Insight",
   },
@@ -313,6 +318,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "dashboard.merchant_view",
     description: "View personalized merchant dashboard (own slice, or any merchant if admin)",
+  },
+  {
+    key: "dashboard.merchant_admin_view",
+    description:
+      "Merchant dashboard admin view: pick any merchant, company-wide merchant overview (same as company admin on Merchant dashboard)",
   },
   {
     key: "dashboard.merchant_targets.manage",
@@ -529,6 +539,7 @@ const DEFAULT_ROLES = [
       "contacts.master.read",
       "contacts.master.manage",
       "contacts.insight.read",
+      "contacts.insight.admin_view",
       "contacts.merge",
       "contacts.updates.read",
       "contacts.updates.manage",
@@ -557,6 +568,7 @@ const DEFAULT_ROLES = [
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
       "dashboard.merchant_view",
+      "dashboard.merchant_admin_view",
       "dashboard.merchant_targets.manage",
       "dashboard.edit",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,

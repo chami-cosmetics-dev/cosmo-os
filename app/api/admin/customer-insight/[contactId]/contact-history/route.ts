@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listContactEventHistory } from "@/lib/customer-insight/contacted";
 import {
   isAllocatedOwner,
-  isAdminOrSuperAdmin,
+  hasInsightAdminView,
 } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -53,10 +53,11 @@ export async function GET(
     email: user.email ?? null,
     roleNames,
     couponCodes: dbUser?.couponCodes ?? null,
+    permissionKeys,
   };
 
   const canSeeHistory =
-    isAdminOrSuperAdmin(roleNames) ||
+    hasInsightAdminView({ roleNames, permissionKeys }) ||
     permissionKeys.includes("contacts.updates.read") ||
     permissionKeys.includes("contacts.updates.manage") ||
     permissionKeys.includes("contacts.master.read") ||

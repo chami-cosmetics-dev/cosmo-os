@@ -5,7 +5,7 @@ import { nextOutreachStatus } from "@/lib/customer-insight/loyalty-outreach";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import {
   canAccessMerchantDashboard,
-  isCompanyAdminRole,
+  hasMerchantDashboardAdminView,
 } from "@/lib/merchant-role";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -51,7 +51,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  const viewerIsAdmin = isCompanyAdminRole(roleNames);
+  const viewerIsAdmin = hasMerchantDashboardAdminView({
+    roleNames,
+    permissionKeys: context.permissionKeys as string[] | undefined,
+  });
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
     select: { couponCodes: true },
@@ -62,6 +65,7 @@ export async function POST(request: NextRequest) {
     email: user.email ?? null,
     roleNames,
     couponCodes: dbUser?.couponCodes ?? null,
+    permissionKeys: context.permissionKeys as string[] | undefined,
   };
 
   if (!viewerIsAdmin && !isAllocatedOwner(viewer, contact.assignedMerchant)) {

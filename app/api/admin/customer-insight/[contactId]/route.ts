@@ -38,6 +38,7 @@ async function viewerFromAuth(auth: {
     name: user?.name ?? null,
     email: user?.email ?? null,
     roleNames: (auth.context?.roleNames as string[]) ?? [],
+    permissionKeys: (auth.context?.permissionKeys as string[]) ?? [],
     couponCodes: dbUser?.couponCodes ?? null,
   };
 }
@@ -68,6 +69,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   const queryParsed = customerInsightInvoicesQuerySchema.safeParse({
     invoicesPage: request.nextUrl.searchParams.get("invoicesPage") ?? undefined,
     invoicesPageSize: request.nextUrl.searchParams.get("invoicesPageSize") ?? undefined,
+    brand: request.nextUrl.searchParams.get("brand") ?? undefined,
+    item: request.nextUrl.searchParams.get("item") ?? undefined,
   });
   if (!queryParsed.success) {
     return NextResponse.json(
@@ -81,6 +84,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     contactId: idParsed.data.contactId,
     invoicesPage: queryParsed.data.invoicesPage,
     invoicesPageSize: queryParsed.data.invoicesPageSize,
+    historyBrand: queryParsed.data.brand,
+    historyItem: queryParsed.data.item,
     viewer: await viewerFromAuth(auth),
   });
   if (!insight) {

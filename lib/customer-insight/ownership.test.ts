@@ -67,7 +67,19 @@ describe("isAllocatedOwner", () => {
     expect(
       isAllocatedOwner({ knownName: "Alice", roleNames: ["admin"] }, "Bob")
     ).toBe(true);
-    expect(isAdminOrSuperAdmin(["super_admin"])).toBe(true);
+  });
+
+  it("treats insight admin view as allocated owner", () => {
+    expect(
+      isAllocatedOwner(
+        {
+          knownName: "Alice",
+          roleNames: ["manager"],
+          permissionKeys: ["contacts.insight.admin_view"],
+        },
+        "Bob"
+      )
+    ).toBe(true);
   });
 });
 
@@ -88,6 +100,15 @@ describe("canFilterAllInsightContacts", () => {
       canFilterAllInsightContacts({
         roleNames: ["merchant"],
         permissionKeys: ["contacts.allocation.manage"],
+      })
+    ).toBe(true);
+  });
+
+  it("allows insight admin view permission", () => {
+    expect(
+      canFilterAllInsightContacts({
+        roleNames: ["manager"],
+        permissionKeys: ["contacts.insight.admin_view"],
       })
     ).toBe(true);
   });
