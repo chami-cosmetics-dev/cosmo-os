@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Calendar, Check, Crown, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { Calendar, Check, ChevronsUpDown, Crown, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +21,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import {
   LOYALTY_GOLD_MIN,
@@ -45,6 +58,7 @@ import {
 import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
 import { formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
+import { cn } from "@/lib/utils";
 
 const CHART_BLUE = "#3b82f6";
 
@@ -199,6 +213,91 @@ type ProfileForm = {
   birthDate: string;
 };
 
+function InsightSearchableSelect({
+  value,
+  options,
+  placeholder,
+  searchPlaceholder,
+  allLabel = "Any",
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: string[];
+  placeholder: string;
+  searchPlaceholder: string;
+  allLabel?: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="border-input h-9 w-full justify-between px-3 font-normal"
+        >
+          <span
+            className={cn("truncate text-left", !selected && "text-muted-foreground")}
+            title={selected ?? allLabel}
+          >
+            {selected ?? allLabel}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+      >
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+          <CommandList>
+            <CommandEmpty>No matches.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value={allLabel}
+                onSelect={() => {
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
+                <Check className={cn("size-4", !value ? "opacity-100" : "opacity-0")} />
+                {allLabel}
+              </CommandItem>
+              {options.map((option) => (
+                <CommandItem
+                  key={option}
+                  value={option}
+                  onSelect={() => {
+                    onChange(option);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "size-4",
+                      value === option ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  <span className="truncate">{option}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function dobPartsToInputValue(
   year: number | null | undefined,
   month: number | null | undefined,
@@ -253,10 +352,8 @@ export function CustomerInsightPanel({
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
   const [filterBrand, setFilterBrand] = useState("");
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
-  const [brandSearch, setBrandSearch] = useState("");
   const [filterItem, setFilterItem] = useState("");
   const [itemOptions, setItemOptions] = useState<string[]>([]);
-  const [itemSearch, setItemSearch] = useState("");
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -303,11 +400,8 @@ export function CustomerInsightPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const q = brandSearch.trim()
-          ? `&q=${encodeURIComponent(brandSearch.trim())}`
-          : "";
         const res = await fetch(
-          `/api/admin/customer-insight/filter-options?type=brands${q}`
+          `/api/admin/customer-insight/filter-options?type=brands`
         );
         const data = await res.json().catch(() => ({}));
         if (!res.ok || cancelled) return;
@@ -326,7 +420,7 @@ export function CustomerInsightPanel({
     return () => {
       cancelled = true;
     };
-  }, [brandSearch]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -334,7 +428,6 @@ export function CustomerInsightPanel({
       try {
         const params = new URLSearchParams({ type: "items" });
         if (filterBrand.trim()) params.set("brand", filterBrand.trim());
-        if (itemSearch.trim()) params.set("q", itemSearch.trim());
         const res = await fetch(
           `/api/admin/customer-insight/filter-options?${params.toString()}`
         );
@@ -353,7 +446,7 @@ export function CustomerInsightPanel({
     return () => {
       cancelled = true;
     };
-  }, [filterBrand, itemSearch]);
+  }, [filterBrand]);
 
   useEffect(() => {
     if (!canManageLoyalty) return;
@@ -761,58 +854,30 @@ export function CustomerInsightPanel({
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="space-y-1 text-sm sm:col-span-2 lg:col-span-1">
-              <span className="text-muted-foreground">Brand search</span>
-              <Input
-                value={brandSearch}
-                onChange={(e) => setBrandSearch(e.target.value)}
-                placeholder="Search brands…"
-                disabled={isBusy}
-              />
-            </label>
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Brand</span>
-              <select
-                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+              <InsightSearchableSelect
                 value={filterBrand}
-                onChange={(e) => {
-                  setFilterBrand(e.target.value);
+                options={brandOptions}
+                placeholder="Any"
+                searchPlaceholder="Search brands…"
+                disabled={isBusy}
+                onChange={(next) => {
+                  setFilterBrand(next);
                   setFilterItem("");
                 }}
-                disabled={isBusy}
-              >
-                <option value="">Any</option>
-                {brandOptions.map((brand) => (
-                  <option key={brand} value={brand}>
-                    {brand}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="space-y-1 text-sm sm:col-span-2 lg:col-span-1">
-              <span className="text-muted-foreground">Item search</span>
-              <Input
-                value={itemSearch}
-                onChange={(e) => setItemSearch(e.target.value)}
-                placeholder="Search items…"
-                disabled={isBusy}
               />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Item</span>
-              <select
-                className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+              <InsightSearchableSelect
                 value={filterItem}
-                onChange={(e) => setFilterItem(e.target.value)}
+                options={itemOptions}
+                placeholder="Any"
+                searchPlaceholder="Search items…"
                 disabled={isBusy}
-              >
-                <option value="">Any</option>
-                {itemOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
+                onChange={setFilterItem}
+              />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Min total</span>
