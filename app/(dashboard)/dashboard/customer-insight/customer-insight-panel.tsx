@@ -834,6 +834,45 @@ export function CustomerInsightPanel({
 
   const filterTotalPages = Math.max(1, Math.ceil(filterTotal / filterPageSize));
 
+  const hasActiveFilters =
+    Boolean(
+      filterBrand.trim() ||
+        filterItem.trim() ||
+        filterCity.trim() ||
+        filterBirthdayFrom.trim() ||
+        filterBirthdayTo.trim() ||
+        filterLastFrom.trim() ||
+        filterLastTo.trim() ||
+        filterLoyaltyRegFrom.trim() ||
+        filterLoyaltyRegTo.trim() ||
+        filterNoPurchaseFrom.trim() ||
+        filterNoPurchaseTo.trim() ||
+        filterMin.trim() ||
+        filterMax.trim() ||
+        filterResults
+    );
+
+  function clearFilters() {
+    setFilterBrand("");
+    setFilterItem("");
+    setItemSearch("");
+    setItemSearchDebounced("");
+    setFilterCity("");
+    setFilterBirthdayFrom("");
+    setFilterBirthdayTo("");
+    setFilterLastFrom("");
+    setFilterLastTo("");
+    setFilterLoyaltyRegFrom("");
+    setFilterLoyaltyRegTo("");
+    setFilterNoPurchaseFrom("");
+    setFilterNoPurchaseTo("");
+    setFilterMin("");
+    setFilterMax("");
+    setFilterResults(null);
+    setFilterTotal(0);
+    setFilterPage(1);
+  }
+
   const visibleInvoices =
     insight && itemFilter && isOwner
       ? insight.invoices.filter((inv) =>
@@ -1181,16 +1220,27 @@ export function CustomerInsightPanel({
               </div>
             </fieldset>
           </div>
-          <Button type="button" disabled={isBusy} onClick={() => void runFilters(1)}>
-            {busyKey === "filter" ? (
-              <>
-                <Loader2 className="animate-spin" aria-hidden />
-                Filtering...
-              </>
-            ) : (
-              "Apply filters"
-            )}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" disabled={isBusy} onClick={() => void runFilters(1)}>
+              {busyKey === "filter" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Filtering...
+                </>
+              ) : (
+                "Apply filters"
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy || !hasActiveFilters}
+              onClick={clearFilters}
+            >
+              <X className="size-4" aria-hidden />
+              Clear filters
+            </Button>
+          </div>
           {filterResults && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
