@@ -74,6 +74,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     merchantName: getMerchantDisplayName(user) ?? contact.assignedMerchant,
     category: parsed.data.category,
     note: parsed.data.note,
+    remark: parsed.data.remark,
+    outcome: parsed.data.outcome,
   });
   if (!result) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });

@@ -2,6 +2,26 @@
 
 export type LoyaltyTierKey = "standard" | "gold" | "platinum";
 
+export type LoyaltyOutreachStatus =
+  | "eligible"
+  | "contacted"
+  | "responded"
+  | "not_responded"
+  | "assigned";
+
+export type ContactEventOutcome =
+  | "general"
+  | "loyalty_informed"
+  | "responded"
+  | "not_responded";
+
+export type LoyaltyAssignmentDto = {
+  tier: "gold" | "platinum";
+  assignedAt: string;
+  assignedByName: string | null;
+  assignedByUserId: string | null;
+};
+
 export type LoyaltyThresholds = {
   goldMin: number;
   platinumMin: number;
@@ -122,6 +142,8 @@ export type CustomerInsightDto = {
   lastContactedAt?: string | null;
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
+  loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  canMergeContacts?: boolean;
 };
 
 export type AllocatedFilterItemDto = {

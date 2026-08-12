@@ -9,6 +9,18 @@ export const merchantDashboardYearMonthSchema = z
 export const merchantDashboardPageDataQuerySchema = z.object({
   merchantUserId: cuidSchema.optional(),
   yearMonth: merchantDashboardYearMonthSchema.optional(),
+  showCustomerLists: z
+    .enum(["true", "1", "false", "0"])
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
+  fromDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  toDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 export const merchantDashboardDayYmdSchema = z

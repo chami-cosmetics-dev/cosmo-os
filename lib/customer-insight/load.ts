@@ -54,6 +54,10 @@ export async function loadCustomerInsight(input: {
       address: true,
       assignedMerchant: true,
       category: true,
+      loyaltyAssignedTier: true,
+      loyaltyAssignedAt: true,
+      loyaltyAssignedByUserId: true,
+      loyaltyAssignedBy: { select: { id: true, name: true, knownName: true } },
       emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
       phones: { orderBy: { createdAt: "asc" }, select: { phoneNumber: true } },
     },
@@ -262,5 +266,18 @@ export async function loadCustomerInsight(input: {
     lastContactedAt,
     canEditProfile: visibility === "owner",
     canMarkContacted: visibility === "owner",
+    loyaltyAssignment:
+      contact.loyaltyAssignedTier === "gold" ||
+      contact.loyaltyAssignedTier === "platinum"
+        ? {
+            tier: contact.loyaltyAssignedTier,
+            assignedAt: contact.loyaltyAssignedAt?.toISOString() ?? "",
+            assignedByName:
+              contact.loyaltyAssignedBy?.knownName?.trim() ||
+              contact.loyaltyAssignedBy?.name?.trim() ||
+              null,
+            assignedByUserId: contact.loyaltyAssignedByUserId,
+          }
+        : null,
   });
 }

@@ -124,6 +124,10 @@ const DEFAULT_PERMISSIONS = [
       "Open Customer Insight: search by phone, view purchase insight and filters; allocated merchants and admins can edit profile (no Contact Master list/export)",
   },
   {
+    key: "contacts.merge",
+    description: "Merge Contact Master records from Customer Insight",
+  },
+  {
     key: "contacts.updates.read",
     description: "View Contact Updates",
   },
@@ -525,6 +529,7 @@ const DEFAULT_ROLES = [
       "contacts.master.read",
       "contacts.master.manage",
       "contacts.insight.read",
+      "contacts.merge",
       "contacts.updates.read",
       "contacts.updates.manage",
       "contacts.allocation.read",

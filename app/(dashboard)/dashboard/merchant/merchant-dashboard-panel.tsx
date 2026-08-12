@@ -152,6 +152,15 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [dailyInvoicesOrderCount, setDailyInvoicesOrderCount] = useState(
     initialData.dailyInvoicesOrderCount,
   );
+  const [showCustomerLists, setShowCustomerLists] = useState(
+    initialData.showCustomerLists ?? false,
+  );
+  const [rangeFrom, setRangeFrom] = useState(
+    initialData.rangeFromYmd ?? initialData.fromYmd,
+  );
+  const [rangeTo, setRangeTo] = useState(
+    initialData.rangeToYmd ?? initialData.toYmd,
+  );
   const [isPending, startTransition] = useTransition();
   const isBusy = busyKey !== null || isPending;
 
@@ -171,13 +180,26 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     setDailyInvoicesOrderCount(initialData.dailyInvoicesOrderCount);
   }, [initialData]);
 
-  async function reload(nextMerchantId: string) {
+  async function reload(
+    nextMerchantId: string,
+    opts?: {
+      showCustomerLists?: boolean;
+      fromDate?: string;
+      toDate?: string;
+    },
+  ) {
     setBusyKey("reload");
     try {
+      const lists = opts?.showCustomerLists ?? showCustomerLists;
+      const from = opts?.fromDate ?? rangeFrom;
+      const to = opts?.toDate ?? rangeTo;
       const params = new URLSearchParams({
         merchantUserId: nextMerchantId,
         yearMonth: data.yearMonth,
       });
+      if (lists) params.set("showCustomerLists", "true");
+      if (from) params.set("fromDate", from);
+      if (to) params.set("toDate", to);
       const res = await fetch(`/api/admin/merchant-dashboard/page-data?${params}`);
       const json = await res.json();
       if (!res.ok) {
@@ -194,6 +216,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         );
         setShowAllToday(false);
         setShowAllLifetime(false);
+        setShowCustomerLists(Boolean(json.showCustomerLists));
+        setRangeFrom(json.rangeFromYmd ?? json.fromYmd);
+        setRangeTo(json.rangeToYmd ?? json.toYmd);
         setInvoiceDay(json.dailyInvoicesYmd);
         setDailyInvoices(json.dailyInvoices);
         setDailyInvoicesTotal(json.dailyInvoicesTotal);
@@ -870,7 +895,192 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-base">Loyalty outreach</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              Allocated customers at Gold threshold awaiting loyalty contact /
+              response (not yet master-assigned).
+            </p>
+          </CardHeader>
+          <CardContent>
+            {(data.loyaltyOutreach ?? []).length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No loyalty outreach customers right now.
+              </p>
+            ) : (
+              <ul className="max-h-72 space-y-2 overflow-y-auto">
+                {(data.loyaltyOutreach ?? []).map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {formatMoney(row.lifetimeTotal)} · {row.status}
+                        {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={isBusy}
+                        onClick={() => {
+                          void (async () => {
+                            setBusyKey("loyalty");
+                            try {
+                              const res = await fetch(
+                                "/api/admin/merchant-dashboard/loyalty-outreach",
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    contactId: row.contactId,
+                                    action:
+                                      row.status === "contacted"
+                                        ? "responded"
+                                        : "loyalty_informed",
+                                  }),
+                                },
+                              );
+                              const json = await res.json().catch(() => ({}));
+                              if (!res.ok) {
+                                notify.error(json.error ?? "Update failed");
+                                return;
+                              }
+                              notify.success("Loyalty outreach updated");
+                              await reload(merchantId);
+                            } catch {
+                              notify.error("Update failed");
+                            } finally {
+                              setBusyKey(null);
+                            }
+                          })();
+                        }}
+                      >
+                        {row.status === "contacted" ? "Responded" : "Mark contacted"}
+                      </Button>
+                      {row.status === "contacted" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy}
+                          onClick={() => {
+                            void (async () => {
+                              setBusyKey("loyalty");
+                              try {
+                                const res = await fetch(
+                                  "/api/admin/merchant-dashboard/loyalty-outreach",
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                    },
+                                    body: JSON.stringify({
+                                      contactId: row.contactId,
+                                      action: "not_responded",
+                                    }),
+                                  },
+                                );
+                                const json = await res.json().catch(() => ({}));
+                                if (!res.ok) {
+                                  notify.error(json.error ?? "Update failed");
+                                  return;
+                                }
+                                notify.success("Marked not responded");
+                                await reload(merchantId);
+                              } catch {
+                                notify.error("Update failed");
+                              } finally {
+                                setBusyKey(null);
+                              }
+                            })();
+                          }}
+                        >
+                          Not responded
+                        </Button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Period &amp; lists</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              Date range for call-center performance. Opt in to Daily / Top lifetime
+              customer cards.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">From</span>
+              <Input
+                type="date"
+                value={rangeFrom}
+                disabled={isBusy}
+                onChange={(e) => setRangeFrom(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">To</span>
+              <Input
+                type="date"
+                value={rangeTo}
+                disabled={isBusy}
+                onChange={(e) => setRangeTo(e.target.value)}
+              />
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isBusy}
+              onClick={() => void reload(merchantId, { fromDate: rangeFrom, toDate: rangeTo })}
+            >
+              Apply range
+            </Button>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showCustomerLists}
+                disabled={isBusy}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setShowCustomerLists(next);
+                  void reload(merchantId, { showCustomerLists: next });
+                }}
+              />
+              Show daily / lifetime customer lists
+            </label>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-2 text-sm font-medium">Call center performance (you)</p>
+          {(data.callCenterPerformance ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">No updates in this range.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {(data.callCenterPerformance ?? []).map((row, i) => (
+                <li key={`${row.category}-${i}`} className="flex justify-between gap-2">
+                  <span>{row.category}</span>
+                  <span className="tabular-nums">{row.count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="space-y-1">
@@ -1329,6 +1539,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {showCustomerLists || data.showCustomerLists ? (
+          <>
         <Card>
           <CardHeader className="space-y-1">
             <CardTitle className="text-base">Daily top customers</CardTitle>
@@ -1488,6 +1700,15 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             )}
           </CardContent>
         </Card>
+          </>
+        ) : (
+          <Card className="lg:col-span-2">
+            <CardContent className="text-muted-foreground py-6 text-sm">
+              Daily and lifetime customer lists are hidden. Enable “Show daily /
+              lifetime customer lists” above when you need them.
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Dialog

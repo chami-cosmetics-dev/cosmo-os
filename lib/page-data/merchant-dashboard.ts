@@ -17,6 +17,7 @@ import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { isMerchantRoleName } from "@/lib/merchant-role";
 import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
+import { fetchMerchantLoyaltyOutreach } from "@/lib/page-data/merchant-dashboard-loyalty";
 import { fetchMerchantSalesHistory } from "@/lib/page-data/merchant-dashboard-history";
 import {
   buildLocationShareRows,
@@ -142,6 +143,22 @@ export type MerchantDashboardPageData = {
   dailyInvoices: MerchantDailyInvoiceRow[];
   dailyInvoicesTotal: number;
   dailyInvoicesOrderCount: number;
+  showCustomerLists: boolean;
+  rangeFromYmd: string;
+  rangeToYmd: string;
+  loyaltyOutreach: Array<{
+    contactId: string;
+    name: string;
+    phoneNumber: string | null;
+    lifetimeTotal: number;
+    status: string;
+    lastContactedAt: string | null;
+  }>;
+  callCenterPerformance: Array<{
+    merchantName: string;
+    category: string;
+    count: number;
+  }>;
 };
 
 function currentYearMonth(now = new Date()): string {
@@ -260,6 +277,9 @@ export async function getMerchantDashboardPageData(input: {
   canManageTargets: boolean;
   selectedMerchantId?: string | null;
   yearMonth?: string | null;
+  showCustomerLists?: boolean;
+  fromDate?: string | null;
+  toDate?: string | null;
 }): Promise<MerchantDashboardPageData | { error: string; status: number }> {
   const yearMonth =
     input.yearMonth && /^\d{4}-\d{2}$/.test(input.yearMonth)
@@ -320,6 +340,26 @@ export async function getMerchantDashboardPageData(input: {
     couponCodes: couponById.get(m.id) ?? [],
   }));
 
+  const showCustomerLists = Boolean(input.showCustomerLists);
+  const rangeFromYmd =
+    input.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(input.fromDate)
+      ? input.fromDate
+      : fromYmd;
+  const chartRangeToYmd =
+    input.toDate && /^\d{4}-\d{2}-\d{2}$/.test(input.toDate)
+      ? input.toDate
+      : rangeToYmd;
+
+  const emptyTop = {
+    today: [] as Awaited<
+      ReturnType<typeof fetchMerchantTopCustomersBySales>
+    >["today"],
+    lifetime: [] as Awaited<
+      ReturnType<typeof fetchMerchantTopCustomersBySales>
+    >["lifetime"],
+    todayYmd,
+  };
+
   const [
     mtdCohort,
     todayCohort,
@@ -329,6 +369,8 @@ export async function getMerchantDashboardPageData(input: {
     topCustomersSplit,
     nearestBirthdays,
     dailyInvoicesResult,
+    loyaltyOutreach,
+    callCenterRaw,
   ] = await Promise.all([
     fetchMerchantCohortSales(input.companyId, cohortInputs, {
       fromYmd,
@@ -360,9 +402,11 @@ export async function getMerchantDashboardPageData(input: {
         },
       },
     }),
-    fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
-      limit: 25,
-    }),
+    showCustomerLists
+      ? fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
+          limit: 25,
+        })
+      : Promise.resolve(emptyTop),
     fetchMerchantNearestBirthdays(input.companyId, profileUser, {
       limit: 15,
       withinDays: 45,
@@ -371,6 +415,34 @@ export async function getMerchantDashboardPageData(input: {
       dayYmd: todayYmd,
       dateType: "all_orders",
     }),
+    fetchMerchantLoyaltyOutreach({
+      companyId: input.companyId,
+      viewer: {
+        knownName: profileUser.knownName,
+        name: profileUser.name,
+        email: profileUser.email,
+        couponCodes: profileUser.couponCodes,
+      },
+      take: 15,
+    }),
+    prisma.$queryRaw<
+      Array<{ merchantName: string | null; category: string | null; count: bigint }>
+    >`
+      SELECT
+        "merchantName",
+        "category",
+        COUNT(*) AS "count"
+      FROM "ContactAllocationUpdate"
+      WHERE "companyId" = ${input.companyId}
+        AND "createdAt" >= ${new Date(`${rangeFromYmd}T00:00:00+05:30`)}
+        AND "createdAt" <= ${new Date(`${chartRangeToYmd}T23:59:59.999+05:30`)}
+        AND (
+          "merchantId" = ${selectedMerchantId}
+          OR lower(coalesce("merchantName", '')) = lower(${displayName})
+        )
+      GROUP BY "merchantName", "category"
+      ORDER BY "count" DESC
+    `,
   ]);
 
   const viewedMtd = mtdCohort.byMerchant.get(selectedMerchantId);
@@ -558,6 +630,15 @@ export async function getMerchantDashboardPageData(input: {
     dailyInvoices: dailyInvoicesResult.rows,
     dailyInvoicesTotal: dailyInvoicesResult.total,
     dailyInvoicesOrderCount: dailyInvoicesResult.orderCount,
+    showCustomerLists,
+    rangeFromYmd,
+    rangeToYmd: chartRangeToYmd,
+    loyaltyOutreach,
+    callCenterPerformance: callCenterRaw.map((row) => ({
+      merchantName: row.merchantName ?? "Unknown",
+      category: row.category ?? "N/A",
+      count: Number(row.count),
+    })),
   };
 }
 

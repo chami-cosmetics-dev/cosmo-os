@@ -3,6 +3,7 @@ import {
   type CallCenterCategory,
 } from "@/lib/contact-call-center-categories";
 import { writeAuditLog } from "@/lib/audit-log";
+import type { ContactEventOutcome } from "@/lib/customer-insight/types";
 import { prisma } from "@/lib/prisma";
 
 /** Legacy Insight marker — still counts as last-contacted, excluded from chart. */
@@ -24,6 +25,47 @@ export async function getLastContactedAt(input: {
   return latest?.createdAt.toISOString() ?? null;
 }
 
+export async function listContactEventHistory(input: {
+  companyId: string;
+  contactId: string;
+  take?: number;
+}): Promise<
+  Array<{
+    id: string;
+    createdAt: string;
+    merchantName: string | null;
+    category: string | null;
+    remark: string | null;
+    outcome: string | null;
+  }>
+> {
+  const rows = await prisma.contactAllocationUpdate.findMany({
+    where: {
+      companyId: input.companyId,
+      contactId: input.contactId,
+      NOT: { category: "allocation" },
+    },
+    orderBy: { createdAt: "desc" },
+    take: input.take ?? 100,
+    select: {
+      id: true,
+      createdAt: true,
+      merchantName: true,
+      category: true,
+      remark: true,
+      outcome: true,
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt.toISOString(),
+    merchantName: r.merchantName,
+    category: r.category,
+    remark: r.remark,
+    outcome: r.outcome,
+  }));
+}
+
 export async function markContactInsightContacted(input: {
   companyId: string;
   contactId: string;
@@ -31,6 +73,8 @@ export async function markContactInsightContacted(input: {
   merchantName: string | null;
   category: CallCenterCategory;
   note?: string | null;
+  remark?: string | null;
+  outcome?: ContactEventOutcome;
 }): Promise<{ lastContactedAt: string; category: string } | null> {
   if (!isCallCenterCategory(input.category)) return null;
 
@@ -53,6 +97,8 @@ export async function markContactInsightContacted(input: {
     input.merchantName?.trim() ||
     contact.assignedMerchant?.trim() ||
     "Unknown";
+  const remark = input.remark?.trim() || input.note?.trim() || null;
+  const outcome = input.outcome ?? "general";
 
   await prisma.$transaction(async (tx) => {
     await tx.contactMaster.update({
@@ -66,6 +112,8 @@ export async function markContactInsightContacted(input: {
         merchantId: input.actorUserId ?? null,
         merchantName,
         category: input.category,
+        remark,
+        outcome,
       },
     });
   });
@@ -73,13 +121,15 @@ export async function markContactInsightContacted(input: {
   await writeAuditLog({
     companyId: input.companyId,
     actorUserId: input.actorUserId ?? undefined,
-    module: "contacts",
-    action: "contact_follow_up_contacted",
+    module: "customer-insight",
+    action: "insight_contacted",
     entityType: "ContactMaster",
     entityId: contact.id,
     summary: `Marked ${contact.name} as ${input.category} (Customer Insight)`,
     metadata: {
       note: input.note?.trim() || null,
+      remark,
+      outcome,
       category: input.category,
       phoneNumber: contact.phoneNumber,
       email: contact.email,
