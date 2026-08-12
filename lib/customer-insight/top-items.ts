@@ -4,8 +4,12 @@ import {
   type TopItemDto,
 } from "@/lib/customer-insight/types";
 
+import { isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+
 export type OrderLineForTopItems = {
   cancelledAt: Date | null;
+  financialStatus?: string | null;
+  fulfillmentStage?: string | null;
   lineItems: Array<{
     quantity: number;
     price: number | string;
@@ -42,7 +46,7 @@ export function aggregateTopItems(input: {
   const map = new Map<string, { quantity: number; spend: number }>();
 
   for (const order of input.orders) {
-    if (order.cancelledAt) continue;
+    if (!isOrderIncludedInCustomerLifetimeTotal(order)) continue;
     for (const line of order.lineItems) {
       const name = itemLabel(line.productTitle, line.variantTitle);
       const qty = Number.isFinite(line.quantity) ? line.quantity : 0;

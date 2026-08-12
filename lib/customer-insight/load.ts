@@ -5,7 +5,7 @@ import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insi
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
-import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
 import {
   insightVisibility,
   type ViewerIdentity,
@@ -101,6 +101,7 @@ export async function loadCustomerInsight(input: {
             currency: true,
             cancelledAt: true,
             financialStatus: true,
+            fulfillmentStage: true,
             fulfillmentStatus: true,
             lineItems: {
               select: {
@@ -138,6 +139,8 @@ export async function loadCustomerInsight(input: {
   const orderAmounts = orders.map((o) => ({
     totalPrice: o.totalPrice.toString(),
     cancelledAt: o.cancelledAt,
+    financialStatus: o.financialStatus,
+    fulfillmentStage: o.fulfillmentStage,
   }));
   const adaptAmounts = adaptRows.map((r) => ({
     ttlAmount: r.ttlAmount.toString(),
@@ -149,7 +152,7 @@ export async function loadCustomerInsight(input: {
 
   const loyaltyEligibleDates: Date[] = [];
   for (const o of orders) {
-    if (!o.cancelledAt) loyaltyEligibleDates.push(o.createdAt);
+    if (isOrderIncludedInCustomerLifetimeTotal(o)) loyaltyEligibleDates.push(o.createdAt);
   }
   for (const r of adaptRows) {
     loyaltyEligibleDates.push(r.invoiceDate);
@@ -159,7 +162,7 @@ export async function loadCustomerInsight(input: {
     ...orders.map((o) => ({
       date: o.createdAt,
       amount: Number(o.totalPrice.toString()),
-      includedInLoyaltyTotal: !o.cancelledAt,
+      includedInLoyaltyTotal: isOrderIncludedInCustomerLifetimeTotal(o),
     })),
     ...adaptRows.map((r) => ({
       date: r.invoiceDate,
@@ -173,6 +176,8 @@ export async function loadCustomerInsight(input: {
   const topItems = aggregateTopItems({
     orders: orders.map((o) => ({
       cancelledAt: o.cancelledAt,
+      financialStatus: o.financialStatus,
+      fulfillmentStage: o.fulfillmentStage,
       lineItems: o.lineItems.map((li) => ({
         quantity: li.quantity,
         price: li.price.toString(),
@@ -204,6 +209,7 @@ export async function loadCustomerInsight(input: {
         currency: o.currency,
         cancelledAt: o.cancelledAt,
         financialStatus: o.financialStatus,
+        fulfillmentStage: o.fulfillmentStage,
         fulfillmentStatus: o.fulfillmentStatus,
         lineItems,
       };
