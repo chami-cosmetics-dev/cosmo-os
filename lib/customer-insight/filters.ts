@@ -1,6 +1,6 @@
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
-import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import {
   buildLoyaltyDto,
   classifyLoyaltyTierKey,
@@ -149,8 +149,13 @@ async function lifetimeTotalForContact(
   const [orders, adaptRows] = await Promise.all([
     orderLookupOr.length > 0
       ? prisma.order.findMany({
-          where: { companyId, OR: orderLookupOr },
-          select: { totalPrice: true, cancelledAt: true },
+          where: { companyId, OR: orderLookupOr, ...customerLifetimeTotalOrderWhere() },
+          select: {
+            totalPrice: true,
+            cancelledAt: true,
+            financialStatus: true,
+            fulfillmentStage: true,
+          },
         })
       : Promise.resolve([]),
     prisma.adaptPurchaseHistory.findMany({
@@ -163,6 +168,8 @@ async function lifetimeTotalForContact(
     orders: orders.map((o) => ({
       totalPrice: o.totalPrice.toString(),
       cancelledAt: o.cancelledAt,
+      financialStatus: o.financialStatus,
+      fulfillmentStage: o.fulfillmentStage,
     })),
     adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
   });

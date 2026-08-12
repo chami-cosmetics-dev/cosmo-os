@@ -3,14 +3,51 @@
  * Pure reducers are unit-tested; loaders live alongside for API use.
  */
 
+/** Fulfillment stages that count toward customer lifetime spend (OSF completed-sale rules). */
+export const CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES = [
+  "delivery_complete",
+  "invoice_complete",
+] as const;
+
 export type OrderAmountInput = {
   totalPrice: number | string;
   cancelledAt: Date | string | null;
+  financialStatus?: string | null;
+  fulfillmentStage?: string | null;
 };
 
 export type AdaptAmountInput = {
   ttlAmount: number | string;
 };
+
+function normalizeStatus(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+/** Prisma filter for orders that count in customer insight lifetime totals. */
+export function customerLifetimeTotalOrderWhere() {
+  return {
+    cancelledAt: null,
+    financialStatus: { not: "voided" },
+    fulfillmentStage: { in: [...CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES] },
+  };
+}
+
+/**
+ * Only delivery-complete / invoice-complete Cosmo orders count.
+ * Voids, returns, and cancelled rows are excluded.
+ */
+export function isOrderIncludedInCustomerLifetimeTotal(order: {
+  cancelledAt: Date | string | null;
+  financialStatus?: string | null;
+  fulfillmentStage?: string | null;
+}): boolean {
+  if (order.cancelledAt) return false;
+  if (normalizeStatus(order.financialStatus) === "voided") return false;
+  const stage = normalizeStatus(order.fulfillmentStage);
+  if (stage === "returned" || stage === "returned_to_store") return false;
+  return CUSTOMER_LIFETIME_TOTAL_FULFILLMENT_STAGES.some((s) => s === stage);
+}
 
 function toNumber(value: number | string): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -18,11 +55,11 @@ function toNumber(value: number | string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Sum Cosmo order totals excluding cancelled rows. */
+/** Sum Cosmo order totals for completed, non-void, non-return rows. */
 export function sumEligibleOrderTotals(orders: OrderAmountInput[]): number {
   let sum = 0;
   for (const order of orders) {
-    if (order.cancelledAt) continue;
+    if (!isOrderIncludedInCustomerLifetimeTotal(order)) continue;
     sum += toNumber(order.totalPrice);
   }
   return sum;

@@ -368,6 +368,8 @@ export function CustomerInsightPanel({
     null
   );
   const [filterTotal, setFilterTotal] = useState(0);
+  const [filterPage, setFilterPage] = useState(1);
+  const filterPageSize = 25;
   const [mergeSourceId, setMergeSourceId] = useState("");
   const [contactHistory, setContactHistory] = useState<
     Array<{
@@ -658,8 +660,9 @@ export function CustomerInsightPanel({
     }
   }
 
-  async function runFilters() {
+  async function runFilters(page = 1) {
     setBusyKey("filter");
+    setFilterPage(page);
     try {
       const params = new URLSearchParams();
       if (filterBrand.trim()) params.set("brand", filterBrand.trim());
@@ -682,8 +685,8 @@ export function CustomerInsightPanel({
       }
       if (filterMin.trim()) params.set("minTotal", filterMin.trim());
       if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
-      params.set("page", "1");
-      params.set("pageSize", "25");
+      params.set("page", String(page));
+      params.set("pageSize", String(filterPageSize));
       const res = await fetch(`/api/admin/customer-insight/filter?${params}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -710,6 +713,8 @@ export function CustomerInsightPanel({
         Math.ceil(insight.invoicePagination.total / insight.invoicePagination.pageSize)
       )
     : 1;
+
+  const filterTotalPages = Math.max(1, Math.ceil(filterTotal / filterPageSize));
 
   const visibleInvoices =
     insight && itemFilter && isOwner
@@ -1006,7 +1011,7 @@ export function CustomerInsightPanel({
               </div>
             </fieldset>
           </div>
-          <Button type="button" disabled={isBusy} onClick={() => void runFilters()}>
+          <Button type="button" disabled={isBusy} onClick={() => void runFilters(1)}>
             {busyKey === "filter" ? (
               <>
                 <Loader2 className="animate-spin" aria-hidden />
@@ -1018,13 +1023,20 @@ export function CustomerInsightPanel({
           </Button>
           {filterResults && (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                {filterTotal === 0
-                  ? canFilterAllContacts
-                    ? "No contacts match these filters."
-                    : "No allocated customers match these filters."
-                  : `${filterTotal} match(es), showing ${filterResults.length}.`}
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {filterTotal === 0
+                    ? canFilterAllContacts
+                      ? "No contacts match these filters."
+                      : "No allocated customers match these filters."
+                    : `${filterTotal} match(es), showing ${filterResults.length}.`}
+                </p>
+                {filterTotal > filterPageSize ? (
+                  <p className="text-xs text-muted-foreground">
+                    Page {filterPage} of {filterTotalPages}
+                  </p>
+                ) : null}
+              </div>
               <ul className="divide-y rounded-md border">
                 {filterResults.map((row) => (
                   <li key={row.contactId}>
@@ -1046,6 +1058,28 @@ export function CustomerInsightPanel({
                   </li>
                 ))}
               </ul>
+              {filterTotal > filterPageSize ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isBusy || filterPage <= 1}
+                    onClick={() => void runFilters(filterPage - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isBusy || filterPage >= filterTotalPages}
+                    onClick={() => void runFilters(filterPage + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>

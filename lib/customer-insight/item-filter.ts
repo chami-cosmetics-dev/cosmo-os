@@ -1,3 +1,4 @@
+import { customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import {
   brandFromAdaptLineItem,
   brandsMatch,
@@ -65,7 +66,7 @@ export async function findContactsByPurchasedItem(
   const orders = await prisma.order.findMany({
     where: {
       companyId,
-      cancelledAt: null,
+      ...customerLifetimeTotalOrderWhere(),
       lineItems: {
         some: {
           productItem: {

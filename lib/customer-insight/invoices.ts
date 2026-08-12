@@ -1,3 +1,4 @@
+import { isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
 import type { InvoiceLineDto, UnifiedInvoiceRowDto } from "@/lib/customer-insight/types";
 
 export type OrderInvoiceInput = {
@@ -11,6 +12,7 @@ export type OrderInvoiceInput = {
   cancelledAt: Date | null;
   financialStatus: string | null;
   fulfillmentStatus: string | null;
+  fulfillmentStage?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -51,7 +53,11 @@ export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRo
     fulfillmentStatus: order.fulfillmentStatus,
     amount: toAmount(order.totalPrice),
     currency: order.currency?.trim() || "LKR",
-    includedInLoyaltyTotal: !order.cancelledAt,
+    includedInLoyaltyTotal: isOrderIncludedInCustomerLifetimeTotal({
+      cancelledAt: order.cancelledAt,
+      financialStatus: order.financialStatus,
+      fulfillmentStage: order.fulfillmentStage,
+    }),
     orderId: order.id,
     lineItems: order.lineItems ?? [],
   };
