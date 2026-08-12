@@ -28,6 +28,7 @@ export type FilterQueryInput = {
   scopeAllContacts?: boolean;
   brand?: string;
   item?: string;
+  city?: string;
   minTotal?: number;
   maxTotal?: number;
   birthdayFrom?: MonthDay;
@@ -242,6 +243,19 @@ function buildAllocationWhere(input: FilterQueryInput): {
         ? [where.AND]
         : [];
     where.AND = [...existingAnd, inactivity];
+  }
+
+  const cityNeedle = input.city?.trim();
+  if (cityNeedle) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [
+      ...existingAnd,
+      { city: { equals: cityNeedle, mode: "insensitive" as const } },
+    ];
   }
 
   return { empty: false, where };

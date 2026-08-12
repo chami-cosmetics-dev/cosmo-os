@@ -54,6 +54,7 @@ export type ContactInsightDto = {
   gender: string | null;
   language: string | null;
   address: string | null;
+  city: string | null;
   birthYear: number | null;
   birthMonth: number | null;
   birthDay: number | null;

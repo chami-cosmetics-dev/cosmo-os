@@ -1640,6 +1640,7 @@ model ContactMaster {
   workPlace         String?
   occupation        String?
   address           String?
+  city              String?
   birthYear         Int?
   birthMonth        Int?
   birthDay          Int?
@@ -1679,6 +1680,7 @@ model ContactMaster {
   @@index([companyId, country])
   @@index([companyId, zone])
   @@index([companyId, area])
+  @@index([companyId, city])
   @@index([companyId, loyaltyAssignedAt])
   @@index([companyId, loyaltyOutreachStatus])
 }

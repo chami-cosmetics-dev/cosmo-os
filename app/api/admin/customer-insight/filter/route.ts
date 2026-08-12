@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   const parsed = customerInsightFilterQuerySchema.safeParse({
     brand: queryParam(sp.get("brand")),
     item: queryParam(sp.get("item")),
+    city: queryParam(sp.get("city")),
     minTotal: queryParam(sp.get("minTotal")),
     maxTotal: queryParam(sp.get("maxTotal")),
     birthdayFrom: queryParam(sp.get("birthdayFrom")),
@@ -80,6 +81,7 @@ export async function GET(request: NextRequest) {
     scopeAllContacts,
     brand: parsed.data.brand,
     item: parsed.data.item,
+    city: parsed.data.city,
     minTotal: parsed.data.minTotal,
     maxTotal: parsed.data.maxTotal,
     birthdayFrom: parsed.data.birthdayFrom,

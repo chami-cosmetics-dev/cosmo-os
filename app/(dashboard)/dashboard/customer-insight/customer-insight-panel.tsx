@@ -389,6 +389,8 @@ export function CustomerInsightPanel({
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [filterItem, setFilterItem] = useState("");
   const [itemOptions, setItemOptions] = useState<InsightSelectOption[]>([]);
+  const [filterCity, setFilterCity] = useState("");
+  const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -491,6 +493,30 @@ export function CustomerInsightPanel({
       cancelled = true;
     };
   }, [filterBrand]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/customer-insight/filter-options?type=cities`
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || cancelled) return;
+        const cities = Array.isArray(data.options)
+          ? (data.options as Array<{ value?: string }>)
+              .map((o) => o.value)
+              .filter((c): c is string => typeof c === "string")
+          : [];
+        setCityOptions(cities);
+      } catch {
+        // optional
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!canManageLoyalty) return;
@@ -722,6 +748,7 @@ export function CustomerInsightPanel({
       const params = new URLSearchParams();
       if (filterBrand.trim()) params.set("brand", filterBrand.trim());
       if (filterItem.trim()) params.set("item", filterItem.trim());
+      if (filterCity.trim()) params.set("city", filterCity.trim());
       if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
         params.set("birthdayFrom", filterBirthdayFrom.trim());
         params.set("birthdayTo", filterBirthdayTo.trim());
@@ -976,6 +1003,17 @@ export function CustomerInsightPanel({
                 searchPlaceholder="Search items or SKU…"
                 disabled={isBusy}
                 onChange={setFilterItem}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">City</span>
+              <InsightSearchableSelect
+                value={filterCity}
+                options={cityOptions}
+                placeholder="Any"
+                searchPlaceholder="Search cities…"
+                disabled={isBusy}
+                onChange={setFilterCity}
               />
             </label>
             <div className="grid grid-cols-2 gap-2 sm:col-span-2">
@@ -1395,6 +1433,10 @@ export function CustomerInsightPanel({
                         <DetailField
                           label="Language"
                           value={insight.contact.language ?? "—"}
+                        />
+                        <DetailField
+                          label="City"
+                          value={insight.contact.city ?? "—"}
                         />
                         <DetailField
                           label="Address"
