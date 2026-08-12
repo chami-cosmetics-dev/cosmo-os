@@ -439,7 +439,7 @@ export function CustomerInsightPanel({
       outcome: string | null;
     }>
   >([]);
-  const [callOutcome, setCallOutcome] = useState<string>("Interested");
+  const [callOutcome, setCallOutcome] = useState<string>("N/A");
   const [contactRemark, setContactRemark] = useState("");
   const [loyaltyQueue, setLoyaltyQueue] = useState<
     Array<{
@@ -2158,16 +2158,16 @@ export function CustomerInsightPanel({
                     <p className="font-medium">
                       {insight.lastContactedAt
                         ? formatAppDateTime(insight.lastContactedAt)
-                        : "—"}
+                        : "N/A"}
                     </p>
-                    {insight.contact?.category ? (
-                      <p className="text-muted-foreground mt-1 text-xs">
-                        Current status:{" "}
-                        <span className="text-foreground font-medium">
-                          {insight.contact.category}
-                        </span>
-                      </p>
-                    ) : null}
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      Current status:{" "}
+                      <span className="text-foreground font-medium">
+                        {insight.contact?.category?.trim()
+                          ? insight.contact.category
+                          : "N/A"}
+                      </span>
+                    </p>
                   </div>
                   {insight.canMarkContacted ? (
                     <label className="block max-w-sm space-y-1 text-sm">
@@ -2224,7 +2224,7 @@ export function CustomerInsightPanel({
                             {row.merchantName ? ` · ${row.merchantName}` : ""}
                           </div>
                           <div className="text-muted-foreground">
-                            {row.category ?? "—"}
+                            {row.category?.trim() ? row.category : "N/A"}
                             {row.outcome ? ` · ${row.outcome}` : ""}
                           </div>
                           {row.remark ? <div>{row.remark}</div> : null}
