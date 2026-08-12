@@ -2,6 +2,7 @@ import { adaptLineItemsForPurchaseUi } from "@/lib/adapt-import/line-items";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
+import { getLastContactedAt } from "@/lib/customer-insight/contacted";
 import {
   buildHistoryScopeDto,
   scopeAdaptRowsForHistory,

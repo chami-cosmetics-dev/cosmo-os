@@ -1,5 +1,4 @@
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
-import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import type { HistoryScopeDto } from "@/lib/customer-insight/types";
 import { lineMatchesBrand } from "@/lib/page-data/contact-brand-ids";
 
@@ -19,6 +18,18 @@ function lineSpend(quantity: number, price: string | number): number {
   return q * p;
 }
 
+function itemDisplayLabel(
+  productTitle: string | null,
+  variantTitle?: string | null
+): string {
+  const title = productTitle?.trim() || "Unknown item";
+  const variant = variantTitle?.trim();
+  if (variant && variant.toLowerCase() !== "default title") {
+    return `${title} — ${variant}`;
+  }
+  return title;
+}
+
 function lineMatchesItemLabel(
   line: {
     productTitle: string | null;
@@ -29,12 +40,7 @@ function lineMatchesItemLabel(
 ): boolean {
   const n = norm(itemNeedle);
   if (!n) return true;
-  const label = norm(
-    invoiceLineDisplayName({
-      productTitle: line.productTitle,
-      variantTitle: line.variantTitle ?? null,
-    })
-  );
+  const label = norm(itemDisplayLabel(line.productTitle, line.variantTitle));
   const title = norm(line.productTitle ?? "");
   const sku = norm(line.sku ?? "");
   if (label && (label === n || label.includes(n) || n.includes(label))) return true;

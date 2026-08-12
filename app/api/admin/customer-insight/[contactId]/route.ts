@@ -22,6 +22,7 @@ async function viewerFromAuth(auth: {
       id?: string;
     } | null;
     roleNames?: string[];
+    permissionKeys?: string[];
   } | null;
 }) {
   const user = auth.context?.user;
