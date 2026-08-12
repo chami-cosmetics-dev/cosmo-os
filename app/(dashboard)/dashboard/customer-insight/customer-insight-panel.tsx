@@ -852,8 +852,8 @@ export function CustomerInsightPanel({
             Master.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Brand</span>
               <InsightSearchableSelect
@@ -879,96 +879,132 @@ export function CustomerInsightPanel({
                 onChange={setFilterItem}
               />
             </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Min total</span>
-              <Input
-                value={filterMin}
-                onChange={(e) => setFilterMin(e.target.value)}
-                inputMode="numeric"
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Max total</span>
-              <Input
-                value={filterMax}
-                onChange={(e) => setFilterMax(e.target.value)}
-                inputMode="numeric"
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Birthday from (MM-DD)</span>
-              <Input
-                value={filterBirthdayFrom}
-                onChange={(e) => setFilterBirthdayFrom(e.target.value)}
-                placeholder="08-01"
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Birthday to (MM-DD)</span>
-              <Input
-                value={filterBirthdayTo}
-                onChange={(e) => setFilterBirthdayTo(e.target.value)}
-                placeholder="08-31"
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Last contacted from</span>
-              <Input
-                type="date"
-                value={filterLastFrom}
-                onChange={(e) => setFilterLastFrom(e.target.value)}
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Last contacted to</span>
-              <Input
-                type="date"
-                value={filterLastTo}
-                onChange={(e) => setFilterLastTo(e.target.value)}
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Loyalty registered from</span>
-              <Input
-                type="date"
-                value={filterLoyaltyRegFrom}
-                onChange={(e) => setFilterLoyaltyRegFrom(e.target.value)}
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Loyalty registered to</span>
-              <Input
-                type="date"
-                value={filterLoyaltyRegTo}
-                onChange={(e) => setFilterLoyaltyRegTo(e.target.value)}
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">No purchase from</span>
-              <Input
-                type="date"
-                value={filterNoPurchaseFrom}
-                onChange={(e) => setFilterNoPurchaseFrom(e.target.value)}
-                disabled={isBusy}
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">No purchase to</span>
-              <Input
-                type="date"
-                value={filterNoPurchaseTo}
-                onChange={(e) => setFilterNoPurchaseTo(e.target.value)}
-                disabled={isBusy}
-              />
-            </label>
+            <div className="grid grid-cols-2 gap-2 sm:col-span-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Min total</span>
+                <Input
+                  value={filterMin}
+                  onChange={(e) => setFilterMin(e.target.value)}
+                  inputMode="numeric"
+                  disabled={isBusy}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Max total</span>
+                <Input
+                  value={filterMax}
+                  onChange={(e) => setFilterMax(e.target.value)}
+                  inputMode="numeric"
+                  disabled={isBusy}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                Birthday (MM-DD)
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    value={filterBirthdayFrom}
+                    onChange={(e) => setFilterBirthdayFrom(e.target.value)}
+                    placeholder="08-01"
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    value={filterBirthdayTo}
+                    onChange={(e) => setFilterBirthdayTo(e.target.value)}
+                    placeholder="08-31"
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                Last contacted
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={filterLastFrom}
+                    onChange={(e) => setFilterLastFrom(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={filterLastTo}
+                    onChange={(e) => setFilterLastTo(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                Loyalty registered
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={filterLoyaltyRegFrom}
+                    onChange={(e) => setFilterLoyaltyRegFrom(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={filterLoyaltyRegTo}
+                    onChange={(e) => setFilterLoyaltyRegTo(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset className="space-y-2 rounded-lg border border-border/60 p-3">
+              <legend className="px-1 text-xs font-medium text-muted-foreground">
+                No purchase
+              </legend>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={filterNoPurchaseFrom}
+                    onChange={(e) => setFilterNoPurchaseFrom(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={filterNoPurchaseTo}
+                    onChange={(e) => setFilterNoPurchaseTo(e.target.value)}
+                    disabled={isBusy}
+                  />
+                </label>
+              </div>
+            </fieldset>
           </div>
           <Button type="button" disabled={isBusy} onClick={() => void runFilters()}>
             {busyKey === "filter" ? (
