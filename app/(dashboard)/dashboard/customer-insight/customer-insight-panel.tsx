@@ -216,6 +216,7 @@ type ProfileForm = {
 type InsightSelectOption = {
   value: string;
   label: string;
+  sku?: string;
   keywords?: string;
 };
 
@@ -262,16 +263,25 @@ function InsightSearchableSelect({
           className="border-input h-9 w-full justify-between px-3 font-normal"
         >
           <span
-            className={cn("truncate text-left", !selected && "text-muted-foreground")}
-            title={selected?.label ?? allLabel}
+            className={cn("min-w-0 truncate text-left", !selected && "text-muted-foreground")}
+            title={
+              selected
+                ? selected.sku
+                  ? `${selected.label} · ${selected.sku}`
+                  : selected.label
+                : allLabel
+            }
           >
             {selected?.label ?? allLabel}
+            {selected?.sku ? (
+              <span className="text-muted-foreground"> · {selected.sku}</span>
+            ) : null}
           </span>
           <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0"
+        className="w-[min(var(--radix-popover-trigger-width),100vw)] min-w-[22rem] p-0"
         align="start"
       >
         <Command>
@@ -292,19 +302,27 @@ function InsightSearchableSelect({
               {normalized.map((option) => (
                 <CommandItem
                   key={option.value}
-                  value={`${option.label} ${option.keywords ?? ""}`.trim()}
+                  value={`${option.label} ${option.sku ?? ""} ${option.keywords ?? ""}`.trim()}
                   onSelect={() => {
                     onChange(option.value);
                     setOpen(false);
                   }}
+                  className="items-start"
                 >
                   <Check
                     className={cn(
-                      "size-4",
+                      "mt-0.5 size-4 shrink-0",
                       value === option.value ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  <span className="truncate">{option.label}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{option.label}</span>
+                    {option.sku ? (
+                      <span className="text-muted-foreground block truncate text-xs">
+                        SKU: {option.sku}
+                      </span>
+                    ) : null}
+                  </span>
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -460,6 +478,7 @@ export function CustomerInsightPanel({
               .map((o) => ({
                 value: o.value,
                 label: o.label ?? o.value,
+                sku: o.sku?.trim() || undefined,
                 keywords: o.sku?.trim() ?? "",
               }))
           : [];
