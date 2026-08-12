@@ -87,9 +87,6 @@ const KNOWN_CITIES = [
   "Ella",
 ].sort((a, b) => b.length - a.length);
 
-const NOISE_PART =
-  /^(sri\s*lanka|western|southern|central|eastern|northern|uva|sabaragamuwa|north\s*western|north\s*central|province|district)$/i;
-
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -103,11 +100,41 @@ function titleCaseCity(value: string): string {
     .join(" ");
 }
 
+const CLEAN_CITY_LABEL = /^[A-Za-z][A-Za-z .'\-]{1,59}$/;
+
+/** Merchant-typed or stored city: known city, or a short clean name. Junk Adapt lines → null. */
+export function cityForDisplay(value: string | null | undefined): string | null {
+  const extracted = extractCityFromAddress(value);
+  if (extracted) return extracted;
+  const raw = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw || !CLEAN_CITY_LABEL.test(raw)) return null;
+  if (/^\d/.test(raw)) return null;
+  return titleCaseCity(raw);
+}
+
+/** Canonical city name if `value` is a known city; otherwise null. */
+export function recognizedCity(value: string | null | undefined): string | null {
+  const raw = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw) return null;
+  if (/\bcolombo\s*\d{1,2}\b/i.test(raw) && raw.replace(/\bcolombo\s*\d{1,2}\b/i, "").trim() === "") {
+    return "Colombo";
+  }
+  const known = KNOWN_CITIES.find((c) => c.toLowerCase() === raw.toLowerCase());
+  return known ?? null;
+}
+
+/**
+ * City only when a known Sri Lanka city is clearly present.
+ * Messy / village / street blobs are skipped (merchant can fill later).
+ */
 export function extractCityFromAddress(
   address: string | null | undefined
 ): string | null {
   const raw = (address ?? "").replace(/\s+/g, " ").trim();
   if (!raw) return null;
+
+  const exact = recognizedCity(raw);
+  if (exact) return exact;
 
   const colomboPostal = raw.match(/\bcolombo\s*\d{1,2}\b/i);
   if (colomboPostal) return "Colombo";
@@ -115,17 +142,6 @@ export function extractCityFromAddress(
   for (const city of KNOWN_CITIES) {
     const re = new RegExp(`(^|[^a-z0-9])${escapeRegExp(city)}([^a-z0-9]|$)`, "i");
     if (re.test(raw)) return city;
-  }
-
-  const parts = raw.split(/[,/|]/).map((p) => p.trim()).filter(Boolean);
-  for (let i = parts.length - 1; i >= 0; i--) {
-    let part = parts[i]
-      .replace(/\b\d{4,5}\b/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!part || NOISE_PART.test(part) || /^\d+$/.test(part)) continue;
-    if (part.length < 2 || part.length > 60) continue;
-    return titleCaseCity(part);
   }
 
   return null;

@@ -1,6 +1,6 @@
 import { brandFromAdaptLineItem } from "@/lib/customer-insight/brand";
 import { brandsMatch } from "@/lib/customer-insight/brand";
-import { extractCityFromAddress } from "@/lib/customer-insight/city";
+import { cityForDisplay, extractCityFromAddress } from "@/lib/customer-insight/city";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { prisma } from "@/lib/prisma";
 
@@ -270,7 +270,9 @@ export async function listInsightCityOptions(
   const seen = new Set<string>();
   const cities: FilterOptionDto[] = [];
   for (const row of rows) {
-    pushUnique(seen, cities, row.city ?? "");
+    const city = cityForDisplay(row.city);
+    if (!city) continue;
+    pushUnique(seen, cities, city);
   }
   const needle = q?.trim().toLowerCase();
   if (!needle) return cities;

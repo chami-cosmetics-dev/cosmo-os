@@ -17,6 +17,7 @@ export const LIMITS = {
   companyName: { max: 200 },
   employeeSize: { max: 50 },
   address: { max: 500 },
+  city: { max: 80 },
   itemName: { max: 255 },
   permissionKey: { max: 64 },
   nicNo: { max: 15 },
