@@ -17,6 +17,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -24,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   CALL_CENTER_CATEGORY_VALUES,
   CALL_CENTER_CHART_EXCLUDED_CATEGORIES,
@@ -151,6 +153,17 @@ export function CallCenterPerformanceChart({
   const [error, setError] = useState<string | null>(null);
   const [chartType, setChartType] = useState<ChartType>("column");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [rangeFrom, setRangeFrom] = useState(fromDate ?? "");
+  const [rangeTo, setRangeTo] = useState(toDate ?? "");
+  const [appliedFrom, setAppliedFrom] = useState(fromDate ?? "");
+  const [appliedTo, setAppliedTo] = useState(toDate ?? "");
+
+  useEffect(() => {
+    setRangeFrom(fromDate ?? "");
+    setRangeTo(toDate ?? "");
+    setAppliedFrom(fromDate ?? "");
+    setAppliedTo(toDate ?? "");
+  }, [fromDate, toDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,8 +171,8 @@ export function CallCenterPerformanceChart({
     setError(null);
 
     const params = new URLSearchParams();
-    if (fromDate) params.set("from", fromDate);
-    if (toDate) params.set("to", toDate);
+    if (appliedFrom) params.set("from", appliedFrom);
+    if (appliedTo) params.set("to", appliedTo);
     const query = params.toString();
 
     fetch(`/api/admin/contacts/allocation/performance${query ? `?${query}` : ""}`)
@@ -179,7 +192,7 @@ export function CallCenterPerformanceChart({
     return () => {
       cancelled = true;
     };
-  }, [fromDate, toDate]);
+  }, [appliedFrom, appliedTo]);
 
   const { categories, merchants, colorMap, chartData } = useMemo(() => {
     const catSet = new Set<string>([...CALL_CENTER_CATEGORY_VALUES]);
@@ -409,22 +422,57 @@ export function CallCenterPerformanceChart({
             </CardDescription>
           </div>
 
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5 text-xs">
-            {CHART_TYPE_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap items-end justify-end gap-2">
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={rangeFrom}
+                  disabled={loading}
+                  className="w-auto"
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={rangeTo}
+                  disabled={loading}
+                  className="w-auto"
+                  onChange={(e) => setRangeTo(e.target.value)}
+                />
+              </label>
+              <Button
                 type="button"
-                onClick={() => setChartType(opt.value)}
-                className={cn(
-                  "rounded-md px-3 py-1 transition-colors",
-                  chartType === opt.value
-                    ? "bg-background font-medium shadow-xs text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+                size="sm"
+                disabled={loading}
+                onClick={() => {
+                  setAppliedFrom(rangeFrom);
+                  setAppliedTo(rangeTo);
+                }}
               >
-                {opt.label}
-              </button>
-            ))}
+                Apply range
+              </Button>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5 text-xs">
+              {CHART_TYPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setChartType(opt.value)}
+                  className={cn(
+                    "rounded-md px-3 py-1 transition-colors",
+                    chartType === opt.value
+                      ? "bg-background font-medium shadow-xs text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </CardHeader>
