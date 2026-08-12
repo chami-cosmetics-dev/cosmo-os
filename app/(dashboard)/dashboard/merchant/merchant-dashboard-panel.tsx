@@ -34,6 +34,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  callCenterCategoryColor,
+} from "@/lib/contact-call-center-categories";
 import { formatAppTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
@@ -1015,74 +1018,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <CardTitle className="text-base">Period &amp; lists</CardTitle>
-            <p className="text-muted-foreground text-xs">
-              Date range for call-center performance. Opt in to Daily / Top lifetime
-              customer cards.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="space-y-1 text-xs">
-              <span className="text-muted-foreground">From</span>
-              <Input
-                type="date"
-                value={rangeFrom}
-                disabled={isBusy}
-                onChange={(e) => setRangeFrom(e.target.value)}
-              />
-            </label>
-            <label className="space-y-1 text-xs">
-              <span className="text-muted-foreground">To</span>
-              <Input
-                type="date"
-                value={rangeTo}
-                disabled={isBusy}
-                onChange={(e) => setRangeTo(e.target.value)}
-              />
-            </label>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isBusy}
-              onClick={() => void reload(merchantId, { fromDate: rangeFrom, toDate: rangeTo })}
-            >
-              Apply range
-            </Button>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={showCustomerLists}
-                disabled={isBusy}
-                onChange={(e) => {
-                  const next = e.target.checked;
-                  setShowCustomerLists(next);
-                  void reload(merchantId, { showCustomerLists: next });
-                }}
-              />
-              Show daily / lifetime customer lists
-            </label>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <p className="mb-2 text-sm font-medium">Call center performance (you)</p>
-          {(data.callCenterPerformance ?? []).length === 0 ? (
-            <p className="text-muted-foreground text-sm">No updates in this range.</p>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {(data.callCenterPerformance ?? []).map((row, i) => (
-                <li key={`${row.category}-${i}`} className="flex justify-between gap-2">
-                  <span>{row.category}</span>
-                  <span className="tabular-nums">{row.count}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
         <CardHeader className="space-y-1">
           <CardTitle className="text-base">Your sales by outlet</CardTitle>
           <p className="text-muted-foreground text-xs">
@@ -1538,6 +1473,23 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </Card>
       )}
 
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium">Customer lists</p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showCustomerLists || data.showCustomerLists}
+              disabled={isBusy}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setShowCustomerLists(next);
+                void reload(merchantId, { showCustomerLists: next });
+              }}
+            />
+            Show daily / lifetime customer lists
+          </label>
+        </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {showCustomerLists || data.showCustomerLists ? (
           <>
@@ -1704,11 +1656,12 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         ) : (
           <Card className="lg:col-span-2">
             <CardContent className="text-muted-foreground py-6 text-sm">
-              Daily and lifetime customer lists are hidden. Enable “Show daily /
-              lifetime customer lists” above when you need them.
+              Daily and lifetime customer lists are hidden. Turn on the checkbox
+              above when you need them.
             </CardContent>
           </Card>
         )}
+      </div>
       </div>
 
       <Dialog
@@ -1814,48 +1767,80 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       </Dialog>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Target assignment history</CardTitle>
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Call center performance</CardTitle>
+            <p className="text-muted-foreground text-xs">
+              Your contact updates in the selected date range.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">From</span>
+              <Input
+                type="date"
+                value={rangeFrom}
+                disabled={isBusy}
+                onChange={(e) => setRangeFrom(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground">To</span>
+              <Input
+                type="date"
+                value={rangeTo}
+                disabled={isBusy}
+                onChange={(e) => setRangeTo(e.target.value)}
+              />
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isBusy}
+              onClick={() =>
+                void reload(merchantId, { fromDate: rangeFrom, toDate: rangeTo })
+              }
+            >
+              Apply range
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          {data.history.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No targets assigned yet.</p>
+          {(data.callCenterPerformance ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">No updates in this range.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-muted-foreground border-b text-left">
-                    <th className="py-2 pr-3 font-medium">Month</th>
-                    <th className="py-2 pr-3 font-medium">Target</th>
-                    <th className="py-2 pr-3 font-medium">Achieved</th>
-                    <th className="py-2 pr-3 font-medium">Status</th>
-                    <th className="py-2 pr-3 font-medium">Assigned by</th>
-                    <th className="py-2 font-medium">When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.history.map((row) => (
-                    <tr key={row.id} className="border-b border-border/60">
-                      <td className="py-2 pr-3">{row.yearMonth}</td>
-                      <td className="py-2 pr-3">{formatMoney(row.targetAmount)}</td>
-                      <td className="py-2 pr-3">
-                        {row.achievedAmount != null
-                          ? formatMoney(row.achievedAmount)
-                          : "—"}
-                      </td>
-                      <td className="py-2 pr-3 capitalize">
-                        {row.status.replaceAll("_", " ")}
-                      </td>
-                      <td className="py-2 pr-3">{row.assignedByName ?? "—"}</td>
-                      <td className="py-2">
-                        {row.assignedAt
-                          ? new Date(row.assignedAt).toLocaleString()
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={(data.callCenterPerformance ?? []).map((row) => ({
+                    category: row.category,
+                    count: row.count,
+                    fill: callCenterCategoryColor(row.category),
+                  }))}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 48 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis
+                    dataKey="category"
+                    tick={{ fontSize: 11 }}
+                    interval={0}
+                    angle={-25}
+                    textAnchor="end"
+                    height={56}
+                  />
+                  <YAxis allowDecimals={false} width={36} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {(data.callCenterPerformance ?? []).map((row, i) => (
+                      <Cell
+                        key={`${row.category}-${i}`}
+                        fill={callCenterCategoryColor(row.category, i)}
+                      />
+                    ))}
+                    <LabelList dataKey="count" position="top" className="fill-foreground text-[10px]" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           )}
         </CardContent>
@@ -1969,6 +1954,54 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Target assignment history</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.history.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No targets assigned yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-muted-foreground border-b text-left">
+                    <th className="py-2 pr-3 font-medium">Month</th>
+                    <th className="py-2 pr-3 font-medium">Target</th>
+                    <th className="py-2 pr-3 font-medium">Achieved</th>
+                    <th className="py-2 pr-3 font-medium">Status</th>
+                    <th className="py-2 pr-3 font-medium">Assigned by</th>
+                    <th className="py-2 font-medium">When</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.history.map((row) => (
+                    <tr key={row.id} className="border-b border-border/60">
+                      <td className="py-2 pr-3">{row.yearMonth}</td>
+                      <td className="py-2 pr-3">{formatMoney(row.targetAmount)}</td>
+                      <td className="py-2 pr-3">
+                        {row.achievedAmount != null
+                          ? formatMoney(row.achievedAmount)
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-3 capitalize">
+                        {row.status.replaceAll("_", " ")}
+                      </td>
+                      <td className="py-2 pr-3">{row.assignedByName ?? "—"}</td>
+                      <td className="py-2">
+                        {row.assignedAt
+                          ? new Date(row.assignedAt).toLocaleString()
+                          : "—"}
                       </td>
                     </tr>
                   ))}
