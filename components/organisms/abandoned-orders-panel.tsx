@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet, Phone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import {
   getAbandonedOrdersResponseDisplay,
   MANUAL_CUSTOMER_RESPONSES,
   CUSTOMER_RESPONSE_LABELS,
+  type FollowUpStatus,
 } from "@/lib/abandoned-orders-constants";
 import { AbandonedOrderFollowUpForm } from "@/components/molecules/abandoned-order-follow-up-form";
 import {
@@ -36,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 type SyncInfo = {
   lastSyncedAt: string | null;
@@ -47,6 +49,16 @@ function formatMoney(value: string | null, currency: string) {
   const n = Number(value);
   if (!Number.isFinite(n)) return `${value} ${currency}`;
   return `${n.toLocaleString(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+}
+
+function followUpStatusClass(status: FollowUpStatus) {
+  if (status === "follow_up") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-900";
+  }
+  if (status === "closed") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900";
+  }
+  return "border-border/70 bg-secondary/40 text-foreground";
 }
 
 export function AbandonedOrdersPanel({
@@ -351,85 +363,127 @@ export function AbandonedOrdersPanel({
               No abandoned checkouts found for the selected filters.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border/70">
-              <table className="min-w-[1500px] w-full text-sm">
-                <thead className="bg-secondary/30">
-                  <tr className="text-left">
-                    <th className="px-3 py-2 font-medium">Abandoned</th>
-                    <th className="px-3 py-2 font-medium">Customer</th>
-                    <th className="px-3 py-2 font-medium">Phone</th>
-                    <th className="px-3 py-2 font-medium">Email</th>
-                    <th className="px-3 py-2 font-medium">Billing address</th>
-                    <th className="px-3 py-2 font-medium">Shipping address</th>
-                    <th className="px-3 py-2 font-medium">Cart summary</th>
-                    <th className="px-3 py-2 font-medium">Total</th>
-                    <th className="px-3 py-2 font-medium">Follow-up</th>
-                    <th className="px-3 py-2 font-medium">Response</th>
-                    <th className="px-3 py-2 font-medium">Last update</th>
+            <div className="overflow-x-auto rounded-lg border border-border/70">
+              <table className="w-full min-w-[1100px] table-fixed text-sm">
+                <thead className="bg-secondary/25">
+                  <tr className="text-left text-muted-foreground">
+                    <th className="w-[11%] px-3 py-2.5 font-medium">Abandoned</th>
+                    <th className="w-[15%] px-3 py-2.5 font-medium">Customer</th>
+                    <th className="w-[14%] px-3 py-2.5 font-medium">Billing</th>
+                    <th className="w-[14%] px-3 py-2.5 font-medium">Shipping</th>
+                    <th className="w-[15%] px-3 py-2.5 font-medium">Cart</th>
+                    <th className="w-[9%] px-3 py-2.5 font-medium">Follow-up</th>
+                    <th className="w-[12%] px-3 py-2.5 font-medium">Response</th>
                     {canManage && (
-                      <th className="px-3 py-2 font-medium">Action</th>
+                      <th className="w-[10%] px-3 py-2.5 font-medium text-right">Action</th>
                     )}
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-t border-border/60 hover:bg-secondary/10">
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {formatAppDateTime(new Date(item.abandonedAt))}
-                      </td>
-                      <td className="px-3 py-2">
-                        {item.customerName ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerPhone ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerEmail ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 max-w-[220px]">
-                        <span className="line-clamp-3" title={item.billingAddressText ?? undefined}>
-                          {item.billingAddressText ?? "—"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 max-w-[220px]">
-                        <span className="line-clamp-3" title={item.shippingAddressText ?? undefined}>
-                          {item.shippingAddressText ?? "—"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">{item.lineItemsSummary || "—"}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {formatMoney(item.totalPrice, item.currency)}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}
-                      </td>
-                      <td className="px-3 py-2 max-w-[240px]">
-                        <span
-                          className="line-clamp-3"
-                          title={getAbandonedOrdersResponseDisplay(item)}
-                        >
-                          {getAbandonedOrdersResponseDisplay(item)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.lastFollowUpBy?.name ?? "—"}
-                        {item.lastFollowUpAt ? ` • ${formatAppDateTime(new Date(item.lastFollowUpAt))}` : ""}
-                      </td>
-                      {canManage && (
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void openEditor(item)}
-                            disabled={loading}
-                          >
-                            {saveBusy ? "Updating..." : "Update"}
-                          </Button>
+                  {items.map((item) => {
+                    const responseText = getAbandonedOrdersResponseDisplay(item);
+                    return (
+                      <tr
+                        key={item.id}
+                        className="border-t border-border/50 align-top hover:bg-secondary/10"
+                      >
+                        <td className="px-3 py-3">
+                          <div className="font-medium whitespace-nowrap">
+                            {formatAppDateTime(new Date(item.abandonedAt))}
+                          </div>
+                          {(item.lastFollowUpBy?.name || item.lastFollowUpAt) && (
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              Updated
+                              {item.lastFollowUpBy?.name ? ` by ${item.lastFollowUpBy.name}` : ""}
+                              {item.lastFollowUpAt
+                                ? ` · ${formatAppDateTime(new Date(item.lastFollowUpAt))}`
+                                : ""}
+                            </div>
+                          )}
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td className="px-3 py-3">
+                          <div className="font-medium" title={item.customerName ?? undefined}>
+                            {item.customerName ?? "—"}
+                          </div>
+                          {item.customerPhone ? (
+                            <a
+                              href={`tel:${item.customerPhone}`}
+                              className="mt-1 inline-flex items-center gap-1 text-xs text-foreground/80 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Phone className="size-3.5 shrink-0" aria-hidden />
+                              {item.customerPhone}
+                            </a>
+                          ) : (
+                            <div className="mt-1 text-xs text-muted-foreground">No phone</div>
+                          )}
+                          {item.customerEmail ? (
+                            <div
+                              className="mt-0.5 truncate text-xs text-muted-foreground"
+                              title={item.customerEmail}
+                            >
+                              {item.customerEmail}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            className="line-clamp-3 text-muted-foreground"
+                            title={item.billingAddressText ?? undefined}
+                          >
+                            {item.billingAddressText ?? "—"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            className="line-clamp-3 text-muted-foreground"
+                            title={item.shippingAddressText ?? undefined}
+                          >
+                            {item.shippingAddressText ?? "—"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div
+                            className="line-clamp-2"
+                            title={item.lineItemsSummary || undefined}
+                          >
+                            {item.lineItemsSummary || "—"}
+                          </div>
+                          <div className="mt-1 font-medium whitespace-nowrap">
+                            {formatMoney(item.totalPrice, item.currency)}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            className={cn(
+                              "inline-flex rounded-md border px-2 py-0.5 text-xs font-medium",
+                              followUpStatusClass(item.followUpStatus)
+                            )}
+                          >
+                            {FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="line-clamp-3" title={responseText}>
+                            {responseText}
+                          </span>
+                        </td>
+                        {canManage && (
+                          <td className="px-3 py-3 text-right">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void openEditor(item)}
+                              disabled={loading || saveBusy}
+                            >
+                              Update
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -448,7 +502,6 @@ export function AbandonedOrdersPanel({
             />
           </div>
 
-          {/* Placeholder for US2/US3 controls (will be implemented in later tasks). */}
           {!canManage && (
             <div className="text-muted-foreground text-xs">
               View-only: follow-up editing is not available for your role.
