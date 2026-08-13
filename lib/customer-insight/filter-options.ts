@@ -47,6 +47,16 @@ function pushItemOption(
   out.push({ value: canonical, label: canonical, sku: skuTrim });
 }
 
+/** True when any alphanumeric word in text starts with needle (letter-wise name typeahead). */
+export function textHasWordPrefix(text: string, needle: string): boolean {
+  const n = needle.trim().toLowerCase();
+  if (!n) return false;
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .some((word) => word.length > 0 && word.startsWith(n));
+}
+
 export function rankInsightItemOptions(
   items: FilterOptionDto[],
   q: string
@@ -62,8 +72,10 @@ export function rankInsightItemOptions(
       if (sku.startsWith(needle)) rank = 0;
       else if (sku.includes(needle)) rank = 1;
       else if (label.startsWith(needle) || value.startsWith(needle)) rank = 2;
+      // Letter-wise remembered names: "nia" → Niacinamide, not mid-word "ord" → Original
+      else if (textHasWordPrefix(label, needle) || textHasWordPrefix(value, needle)) rank = 3;
       else if (textContainsBrandWord(label, needle) || textContainsBrandWord(value, needle))
-        rank = 3;
+        rank = 4;
       return { item, rank };
     })
     .filter((row) => row.rank < 99);
@@ -162,6 +174,7 @@ export async function listInsightItemOptions(
         OR: [
           { sku: { contains: qNeedle, mode: "insensitive" as const } },
           { productTitle: { contains: qNeedle, mode: "insensitive" as const } },
+          { variantTitle: { contains: qNeedle, mode: "insensitive" as const } },
         ],
       }
     : null;
@@ -300,4 +313,69 @@ export async function listInsightCityOptions(
   const needle = q?.trim().toLowerCase();
   if (!needle) return cities;
   return cities.filter((c) => c.label.toLowerCase().includes(needle));
+}
+
+export async function listInsightAssignedMerchantOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  const needle = q?.trim();
+  const rows = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      AND: [
+        { assignedMerchant: { not: null } },
+        ...(needle
+          ? [
+              {
+                assignedMerchant: {
+                  contains: needle,
+                  mode: "insensitive" as const,
+                },
+              },
+            ]
+          : []),
+      ],
+    },
+    distinct: ["assignedMerchant"],
+    select: { assignedMerchant: true },
+    take: 400,
+    orderBy: { assignedMerchant: "asc" },
+  });
+  const seen = new Set<string>();
+  const out: FilterOptionDto[] = [];
+  for (const row of rows) {
+    const value = row.assignedMerchant?.trim();
+    if (!value) continue;
+    pushUnique(seen, out, value);
+  }
+  return out;
+}
+
+export async function listInsightPurchaseLocationOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  const rows = await prisma.companyLocation.findMany({
+    where: {
+      companyId,
+      ...(q?.trim()
+        ? {
+            OR: [
+              { name: { contains: q.trim(), mode: "insensitive" } },
+              { shortName: { contains: q.trim(), mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    select: { id: true, name: true, shortName: true },
+    orderBy: { name: "asc" },
+    take: 300,
+  });
+  return rows.map((row) => {
+    const label = row.shortName?.trim()
+      ? `${row.name} (${row.shortName})`
+      : row.name;
+    return { value: row.id, label };
+  });
 }

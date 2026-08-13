@@ -11,6 +11,12 @@ const ITEM_ORDER_CAP = 4_000;
 const ITEM_ADAPT_CAP = 6_000;
 const ITEM_VERIFY_CAP = 2_000;
 
+export type ItemPurchaseRank = {
+  contactId: string;
+  /** Spend on this item only (verified via contact purchase lookup). */
+  itemSpend: number;
+};
+
 function norm(s: string): string {
   return s.trim().toLowerCase();
 }
@@ -29,6 +35,13 @@ function skuMatches(sku: string | null | undefined, needle: string): boolean {
   return s === n || s.includes(n) || n.includes(s);
 }
 
+function lineSpend(quantity: number, price: string | number): number {
+  const q = Number.isFinite(quantity) ? quantity : 0;
+  const p = typeof price === "number" ? price : Number.parseFloat(String(price).replace(/,/g, ""));
+  if (!Number.isFinite(p)) return 0;
+  return q * p;
+}
+
 function adaptItemLabel(item: unknown): string {
   if (!item || typeof item !== "object") return "";
   const obj = item as Record<string, unknown>;
@@ -38,19 +51,64 @@ function adaptItemLabel(item: unknown): string {
   return variant ? `${title} — ${variant}` : title;
 }
 
+function lineMatchesItem(
+  line: {
+    productTitle?: string | null;
+    variantTitle?: string | null;
+    sku?: string | null;
+  },
+  needle: string
+): boolean {
+  const title = line.productTitle?.trim() || "Unknown item";
+  const variant = line.variantTitle?.trim();
+  const label = variant ? `${title} — ${variant}` : title;
+  const sku = line.sku?.trim() || "";
+  return (
+    labelMatches(label, needle) ||
+    labelMatches(title, needle) ||
+    skuMatches(sku, needle)
+  );
+}
+
+function adaptLineMatchesItem(
+  raw: unknown,
+  needle: string,
+  brandNeedle: string | null
+): boolean {
+  const label = adaptItemLabel(raw);
+  const sku =
+    raw && typeof raw === "object"
+      ? String(
+          (raw as Record<string, unknown>).itemCode ??
+            (raw as Record<string, unknown>).sku ??
+            ""
+        ).trim()
+      : "";
+  if (!labelMatches(label, needle) && !skuMatches(sku, needle)) return false;
+  if (brandNeedle && !brandsMatch(brandFromAdaptLineItem(raw), brandNeedle)) {
+    return false;
+  }
+  return true;
+}
+
 /**
- * Contact IDs that purchased the given item (case-insensitive label match).
+ * Contacts who purchased the item, ranked by item spend highest first.
  * Optional brand scopes Cosmo vendor / Adapt brand.
  */
-export async function findContactsByPurchasedItem(
+export async function findContactsByPurchasedItemRanked(
   companyId: string,
   itemLabel: string,
   brand?: string | null
-): Promise<string[]> {
+): Promise<ItemPurchaseRank[]> {
   const needle = itemLabel.trim();
   if (!needle) return [];
   const brandNeedle = brand?.trim() || null;
-  const hits = new Set<string>();
+
+  const spendByContact = new Map<string, number>();
+  const addSpend = (contactId: string, amount: number) => {
+    if (!contactId || !(amount > 0)) return;
+    spendByContact.set(contactId, (spendByContact.get(contactId) ?? 0) + amount);
+  };
 
   const adaptRows = await prisma.adaptPurchaseHistory.findMany({
     where: { companyId },
@@ -58,24 +116,19 @@ export async function findContactsByPurchasedItem(
     take: ITEM_ADAPT_CAP,
   });
   for (const row of adaptRows) {
+    if (!row.contactId) continue;
     const lines = Array.isArray(row.lineItems) ? row.lineItems : [];
+    let spend = 0;
     for (const raw of lines) {
-      const label = adaptItemLabel(raw);
-      const sku =
-        raw && typeof raw === "object"
-          ? String(
-              (raw as Record<string, unknown>).itemCode ??
-                (raw as Record<string, unknown>).sku ??
-                ""
-            ).trim()
-          : "";
-      if (!labelMatches(label, needle) && !skuMatches(sku, needle)) continue;
-      if (brandNeedle && !brandsMatch(brandFromAdaptLineItem(raw), brandNeedle)) {
-        continue;
-      }
-      hits.add(row.contactId);
-      break;
+      if (!adaptLineMatchesItem(raw, needle, brandNeedle)) continue;
+      if (!raw || typeof raw !== "object") continue;
+      const obj = raw as Record<string, unknown>;
+      spend += lineSpend(
+        Number(obj.quantity ?? 0),
+        String(obj.unitPrice ?? obj.price ?? "0")
+      );
     }
+    if (spend > 0) addSpend(row.contactId, spend);
   }
 
   const titleNeedle = needle.split("—")[0]?.trim() || needle;
@@ -104,6 +157,8 @@ export async function findContactsByPurchasedItem(
       customerEmail: true,
       lineItems: {
         select: {
+          quantity: true,
+          price: true,
           productItem: {
             select: {
               productTitle: true,
@@ -118,22 +173,23 @@ export async function findContactsByPurchasedItem(
     take: ITEM_ORDER_CAP,
   });
 
-  type HitOrder = { phoneVariants: string[]; email: string | null };
+  type HitOrder = { phoneVariants: string[]; email: string | null; spend: number };
   const scored: HitOrder[] = [];
   const allPhones = new Set<string>();
   const allEmails = new Set<string>();
 
   for (const order of orders) {
-    let matched = false;
+    let spend = 0;
     for (const li of order.lineItems) {
-      const title = li.productItem.productTitle?.trim() || "Unknown item";
-      const variant = li.productItem.variantTitle?.trim();
-      const label = variant ? `${title} — ${variant}` : title;
-      const sku = li.productItem.sku?.trim() || "";
       if (
-        !labelMatches(label, needle) &&
-        !labelMatches(title, needle) &&
-        !skuMatches(sku, needle)
+        !lineMatchesItem(
+          {
+            productTitle: li.productItem.productTitle,
+            variantTitle: li.productItem.variantTitle,
+            sku: li.productItem.sku,
+          },
+          needle
+        )
       ) {
         continue;
       }
@@ -143,20 +199,27 @@ export async function findContactsByPurchasedItem(
       ) {
         continue;
       }
-      matched = true;
-      break;
+      spend += lineSpend(li.quantity, li.price.toString());
     }
-    if (!matched) continue;
+    if (!(spend > 0)) continue;
     const phone = order.customerPhone?.trim();
     const variants = phone ? buildPhoneLookupVariants(phone) : [];
     const email = order.customerEmail?.trim().toLowerCase() || null;
     for (const v of variants) allPhones.add(v);
     if (email) allEmails.add(email);
-    scored.push({ phoneVariants: variants, email });
+    scored.push({ phoneVariants: variants, email, spend });
   }
 
+  const finalize = () =>
+    [...spendByContact.entries()]
+      .map(([contactId, itemSpend]) => ({
+        contactId,
+        itemSpend: Math.round(itemSpend * 100) / 100,
+      }))
+      .sort((a, b) => b.itemSpend - a.itemSpend);
+
   if (scored.length === 0 || (allPhones.size === 0 && allEmails.size === 0)) {
-    return [...hits];
+    return finalize();
   }
 
   const orClauses = [];
@@ -211,19 +274,34 @@ export async function findContactsByPurchasedItem(
 
   for (const order of scored) {
     let attributed: string | null = null;
-    for (const v of order.phoneVariants) {
-      const set = phoneToContacts.get(v);
-      if (set && set.size === 1) {
-        attributed = [...set][0]!;
-        break;
+    if (order.phoneVariants.length > 0) {
+      const hits = new Set<string>();
+      for (const v of order.phoneVariants) {
+        const set = phoneToContacts.get(v);
+        if (!set) continue;
+        for (const id of set) hits.add(id);
       }
-    }
-    if (!attributed && order.email) {
+      if (hits.size === 1) attributed = [...hits][0]!;
+    } else if (order.email) {
       const set = emailToContacts.get(order.email);
       if (set && set.size === 1) attributed = [...set][0]!;
     }
-    if (attributed) hits.add(attributed);
+    if (attributed) addSpend(attributed, order.spend);
   }
 
-  return [...hits];
+  return finalize();
+}
+
+/** Contact IDs that purchased the given item. */
+export async function findContactsByPurchasedItem(
+  companyId: string,
+  itemLabel: string,
+  brand?: string | null
+): Promise<string[]> {
+  const ranked = await findContactsByPurchasedItemRanked(
+    companyId,
+    itemLabel,
+    brand
+  );
+  return ranked.map((r) => r.contactId);
 }

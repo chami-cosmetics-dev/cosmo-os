@@ -161,30 +161,24 @@ export async function findMatchingContacts(
   return { candidates, emailMatches, phoneMatches, phoneVariants };
 }
 
-export async function listContactEmails(contactId: string, primaryEmail?: string | null) {
+export function collectContactEmailsSync(
+  primaryEmail?: string | null,
+  aliasEmails: string[] = []
+): string[] {
   const values = new Set<string>();
   const normalizedPrimary = normalizeContactEmail(primaryEmail);
   if (normalizedPrimary) values.add(normalizedPrimary);
-
-  const model = getContactEmailModel();
-  if (!model) {
-    return [...values];
-  }
-
-  const rows = await model.findMany({
-    where: { contactId },
-    select: { email: true, contact: { select: { id: true, name: true, email: true, phoneNumber: true, recentMerchant: true, lastPurchaseAt: true } } },
-  });
-
-  for (const row of rows) {
-    const normalized = normalizeContactEmail(row.email);
+  for (const email of aliasEmails) {
+    const normalized = normalizeContactEmail(email);
     if (normalized && normalized !== normalizedPrimary) values.add(normalized);
   }
-
   return [...values];
 }
 
-export async function listContactPhones(contactId: string, primaryPhone?: string | null) {
+export function collectContactPhonesSync(
+  primaryPhone?: string | null,
+  aliasPhones: string[] = []
+): string[] {
   const values = new Set<string>();
   const normalizedPrimary = normalizeContactPhone(primaryPhone);
   const primaryVariants = normalizedPrimary ? buildPhoneLookupVariants(normalizedPrimary) : [];
@@ -193,19 +187,8 @@ export async function listContactPhones(contactId: string, primaryPhone?: string
       values.add(variant);
     }
   }
-
-  const model = getContactPhoneModel();
-  if (!model) {
-    return [...values];
-  }
-
-  const rows = await model.findMany({
-    where: { contactId },
-    select: { phoneNumber: true, contact: { select: { id: true, name: true, email: true, phoneNumber: true, recentMerchant: true, lastPurchaseAt: true } } },
-  });
-
-  for (const row of rows) {
-    const normalized = normalizeContactPhone(row.phoneNumber);
+  for (const phone of aliasPhones) {
+    const normalized = normalizeContactPhone(phone);
     if (!normalized) continue;
     const variants = buildPhoneLookupVariants(normalized);
     if (primaryVariants.some((variant) => variants.includes(variant))) continue;
@@ -213,8 +196,41 @@ export async function listContactPhones(contactId: string, primaryPhone?: string
       values.add(variant);
     }
   }
-
   return [...values];
+}
+
+export async function listContactEmails(contactId: string, primaryEmail?: string | null) {
+  const model = getContactEmailModel();
+  if (!model) {
+    return collectContactEmailsSync(primaryEmail);
+  }
+
+  const rows = await model.findMany({
+    where: { contactId },
+    select: { email: true, contact: { select: { id: true, name: true, email: true, phoneNumber: true, recentMerchant: true, lastPurchaseAt: true } } },
+  });
+
+  return collectContactEmailsSync(
+    primaryEmail,
+    rows.map((row) => row.email)
+  );
+}
+
+export async function listContactPhones(contactId: string, primaryPhone?: string | null) {
+  const model = getContactPhoneModel();
+  if (!model) {
+    return collectContactPhonesSync(primaryPhone);
+  }
+
+  const rows = await model.findMany({
+    where: { contactId },
+    select: { phoneNumber: true, contact: { select: { id: true, name: true, email: true, phoneNumber: true, recentMerchant: true, lastPurchaseAt: true } } },
+  });
+
+  return collectContactPhonesSync(
+    primaryPhone,
+    rows.map((row) => row.phoneNumber)
+  );
 }
 
 export async function ensureSecondaryContactIdentifiers(input: {

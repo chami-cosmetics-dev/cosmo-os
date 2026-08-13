@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
+import {
+  FILTER_EXPORT_CAP,
+  filterAllocatedContacts,
+} from "@/lib/customer-insight/filters";
 import {
   canFilterAllInsightContacts,
   hasInsightAdminView,
 } from "@/lib/customer-insight/ownership";
-import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
-import { customerInsightFilterQuerySchema } from "@/lib/validation/customer-insight";
+import { logReportDownload } from "@/lib/report-download-log";
+import { requirePermission } from "@/lib/rbac";
+import { buildCsv, formatIsoDate, type CsvPrimitive } from "@/lib/reports/csv";
+import { customerInsightFilterExportQuerySchema } from "@/lib/validation/customer-insight";
 
 function queryParam(value: string | null): string | undefined {
   const trimmed = (value ?? "").trim();
@@ -29,8 +34,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const roleNames = (auth.context!.roleNames as string[]) ?? [];
+  const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
+  if (!hasInsightAdminView({ roleNames, permissionKeys })) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const sp = request.nextUrl.searchParams;
-  const parsed = customerInsightFilterQuerySchema.safeParse({
+  const parsed = customerInsightFilterExportQuerySchema.safeParse({
     brand: queryParam(sp.get("brand")),
     item: queryParam(sp.get("item")),
     city: queryParam(sp.get("city")),
@@ -47,24 +58,12 @@ export async function GET(request: NextRequest) {
     noPurchaseFrom: queryParam(sp.get("noPurchaseFrom")),
     noPurchaseTo: queryParam(sp.get("noPurchaseTo")),
     noPurchaseMonths: queryParam(sp.get("noPurchaseMonths")),
-    page: queryParam(sp.get("page")),
-    pageSize: queryParam(sp.get("pageSize")),
   });
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Validation failed", details: parsed.error.flatten() },
       { status: 400 }
     );
-  }
-
-  const roleNames = (auth.context!.roleNames as string[]) ?? [];
-  const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
-  const isAdminView = hasInsightAdminView({ roleNames, permissionKeys });
-  if (
-    (parsed.data.assignedMerchant || parsed.data.purchaseLocationId) &&
-    !isAdminView
-  ) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const dbUser = await prisma.user.findUnique({
@@ -87,7 +86,7 @@ export async function GET(request: NextRequest) {
   const result = await filterAllocatedContacts({
     companyId,
     viewer,
-    isAdmin: isAdminView,
+    isAdmin: true,
     scopeAllContacts,
     brand: parsed.data.brand,
     item: parsed.data.item,
@@ -105,9 +104,64 @@ export async function GET(request: NextRequest) {
     noPurchaseFrom: parsed.data.noPurchaseFrom,
     noPurchaseTo: parsed.data.noPurchaseTo,
     noPurchaseMonths: parsed.data.noPurchaseMonths,
-    page: parsed.data.page,
-    pageSize: parsed.data.pageSize,
+    page: 1,
+    pageSize: 25,
+    forExport: true,
   });
 
-  return NextResponse.json(result);
+  const includeBrand = Boolean(parsed.data.brand?.trim());
+  const includeItem = Boolean(parsed.data.item?.trim());
+  const headers = [
+    "contact_id",
+    "name",
+    "phone_number",
+    "assigned_merchant",
+    "lifetime_total",
+    "loyalty_tier",
+    "loyalty_code",
+    "last_purchased_date",
+    ...(includeBrand ? (["brand_spend"] as const) : []),
+    ...(includeItem ? (["item_spend"] as const) : []),
+  ] as const;
+
+  const rows: Array<Record<string, CsvPrimitive>> = result.items.map((row) => ({
+    contact_id: row.contactId,
+    name: row.name,
+    phone_number: row.phoneNumber ?? "",
+    assigned_merchant: row.assignedMerchant ?? "",
+    lifetime_total: row.lifetimeTotal.toFixed(2),
+    loyalty_tier: row.loyalty.label,
+    loyalty_code: row.loyalty.code ?? "",
+    last_purchased_date: row.lastPurchaseAt
+      ? formatIsoDate(new Date(row.lastPurchaseAt))
+      : "",
+    ...(includeBrand
+      ? { brand_spend: (row.brandSpend ?? 0).toFixed(2) }
+      : {}),
+    ...(includeItem ? { item_spend: (row.itemSpend ?? 0).toFixed(2) } : {}),
+  }));
+
+  const fileName = "customer-insight-filter-export.csv";
+  await logReportDownload({
+    companyId,
+    userId: user.id,
+    reportKey: "customer_insight:filter_export",
+    reportLabel: "Customer Insight Filter Export",
+    filters: sp.toString(),
+    fileName,
+  });
+
+  const csv = buildCsv(headers, rows);
+  const truncatedNote =
+    result.pagination.total > FILTER_EXPORT_CAP
+      ? `\r\n# truncated_to,${FILTER_EXPORT_CAP},of,${result.pagination.total}`
+      : "";
+
+  return new NextResponse(`${csv}${truncatedNote}`, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${fileName}"`,
+      "Cache-Control": "no-store",
+    },
+  });
 }

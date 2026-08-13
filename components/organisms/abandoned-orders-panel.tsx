@@ -17,7 +17,7 @@ import type {
 } from "@/lib/page-data/abandoned-orders-types";
 import {
   FOLLOW_UP_STATUS_LABELS,
-  getCustomerResponseLabel,
+  getAbandonedOrdersResponseDisplay,
   MANUAL_CUSTOMER_RESPONSES,
   CUSTOMER_RESPONSE_LABELS,
 } from "@/lib/abandoned-orders-constants";
@@ -152,11 +152,10 @@ export function AbandonedOrdersPanel({
     try {
       const payload: Record<string, unknown> = {
         followUpStatus: values.followUpStatus,
+        customerResponse:
+          values.followUpStatus === "closed" ? values.customerResponse : null,
       };
 
-      if (values.followUpStatus === "closed") {
-        payload.customerResponse = values.customerResponse;
-      }
       if (values.remark !== undefined) payload.remark = values.remark;
 
       const res = await fetch(`/api/admin/abandoned-orders/${selectedItem.id}/follow-up`, {
@@ -404,8 +403,13 @@ export function AbandonedOrdersPanel({
                       <td className="px-3 py-2 whitespace-nowrap">
                         {FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerResponse ? getCustomerResponseLabel(item.customerResponse) : "—"}
+                      <td className="px-3 py-2 max-w-[240px]">
+                        <span
+                          className="line-clamp-3"
+                          title={getAbandonedOrdersResponseDisplay(item)}
+                        >
+                          {getAbandonedOrdersResponseDisplay(item)}
+                        </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {item.lastFollowUpBy?.name ?? "—"}

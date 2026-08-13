@@ -90,7 +90,32 @@ describe("rankInsightItemOptions", () => {
       ],
       "ord"
     );
-    expect(ranked.map((i) => i.sku)).toEqual(["ORD01_1", "XORD99", "PAD01"]);
+    // SKU first; Order/Ordinary via word-prefix — not "Original" mid-word
+    expect(ranked.map((i) => i.sku)).toEqual([
+      "ORD01_1",
+      "XORD99",
+      "PAD01",
+      "TO01_1",
+    ]);
+  });
+
+  it("matches remembered product names letter-wise", () => {
+    const ranked = rankInsightItemOptions(
+      [
+        {
+          value: "The Ordinary Niacinamide 10%",
+          label: "The Ordinary Niacinamide 10%",
+          sku: "TO01_1",
+        },
+        {
+          value: "Caffeine Solution 5%",
+          label: "Caffeine Solution 5%",
+          sku: "TO02",
+        },
+      ],
+      "nia"
+    );
+    expect(ranked.map((i) => i.sku)).toEqual(["TO01_1"]);
   });
 
   it("does not rank Extraordinary for ordinary", () => {

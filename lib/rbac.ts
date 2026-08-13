@@ -130,7 +130,8 @@ const DEFAULT_PERMISSIONS = [
   },
   {
     key: "contacts.merge",
-    description: "Merge Contact Master records from Customer Insight",
+    description:
+      "Customer Insight: add/link a new phone number (keeps previous numbers for search and purchase history)",
   },
   {
     key: "contacts.updates.read",

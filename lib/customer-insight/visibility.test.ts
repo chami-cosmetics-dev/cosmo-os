@@ -29,6 +29,8 @@ const sampleOwner: CustomerInsightDto = {
     birthDay: 1,
     assignedMerchant: "Dinuli",
     category: "Interested",
+    lastPurchaseAt: "2026-01-15T00:00:00.000Z",
+    removedEmails: [],
   },
   frequency: {
     orderCount: 2,

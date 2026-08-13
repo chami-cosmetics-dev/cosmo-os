@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildContactOrderLookupOr,
+  contactOrderLookupKeys,
   emailsForPurchaseLookup,
 } from "@/lib/contact-purchase-lookup";
 
@@ -32,5 +33,23 @@ describe("contact purchase lookup", () => {
         emails: ["sales@cosmetics.lk", "customer@ex.com"],
       })
     ).toEqual([{ customerEmail: { equals: "customer@ex.com", mode: "insensitive" } }]);
+  });
+
+  it("lookup keys drop emails when phone present", () => {
+    const keys = contactOrderLookupKeys({
+      primaryPhone: "0777651973",
+      primaryEmail: "real@ex.com",
+    });
+    expect(keys.emails).toEqual([]);
+    expect(keys.phones).toContain("0777651973");
+  });
+
+  it("lookup keys drop shared merchant emails when no phone", () => {
+    expect(
+      contactOrderLookupKeys({
+        primaryEmail: "sales@cosmetics.lk",
+        aliasEmails: ["customer@ex.com"],
+      })
+    ).toEqual({ phones: [], emails: ["customer@ex.com"] });
   });
 });

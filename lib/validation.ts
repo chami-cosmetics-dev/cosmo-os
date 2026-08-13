@@ -361,31 +361,21 @@ export const abandonedOrdersListQuerySchema = z.object({
   limit: limitSchema.optional(),
 });
 
-export const abandonedOrderFollowUpPatchBodySchema = z
-  .object({
-    followUpStatus: abandonedOrdersFollowUpStatusSchema,
-    customerResponse: abandonedOrdersCustomerResponseSchema.optional(),
-    remark: z
-      .string()
-      .optional()
-      .transform((s) => {
-        const t = s?.trim() ?? "";
-        return t ? t : undefined;
-      })
-      .refine(
-        (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
-        "Remark is too long"
-      ),
-  })
-  .superRefine((data, ctx) => {
-    if (data.followUpStatus === "closed" && !data.customerResponse) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "customerResponse is required when followUpStatus is closed",
-        path: ["customerResponse"],
-      });
-    }
-  });
+export const abandonedOrderFollowUpPatchBodySchema = z.object({
+  followUpStatus: abandonedOrdersFollowUpStatusSchema,
+  customerResponse: abandonedOrdersCustomerResponseSchema.nullish(),
+  remark: z
+    .string()
+    .optional()
+    .transform((s) => {
+      const t = s?.trim() ?? "";
+      return t ? t : undefined;
+    })
+    .refine(
+      (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
+      "Remark is too long"
+    ),
+});
 
 /** Waybill Lookup page-data query (pending queue + upload history). */
 export const waybillLookupPageDataQuerySchema = z.object({
