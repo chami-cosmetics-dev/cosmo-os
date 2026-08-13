@@ -151,6 +151,7 @@ export type MerchantDashboardPageData = {
     name: string;
     phoneNumber: string | null;
     lifetimeTotal: number;
+    suggestedTier: "gold" | "platinum";
     status: string;
     lastContactedAt: string | null;
   }>;
@@ -423,7 +424,7 @@ export async function getMerchantDashboardPageData(input: {
         email: profileUser.email,
         couponCodes: profileUser.couponCodes,
       },
-      take: 15,
+      take: 25,
     }),
     prisma.$queryRaw<
       Array<{ merchantName: string | null; category: string | null; count: bigint }>

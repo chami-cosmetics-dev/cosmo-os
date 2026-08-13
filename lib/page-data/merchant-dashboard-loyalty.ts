@@ -1,10 +1,9 @@
-import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
-import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
-import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
+import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
   isLoyaltyEligibleByTotal,
   LOYALTY_OUTREACH_QUEUE_STATUSES,
+  suggestedLoyaltyTier,
 } from "@/lib/customer-insight/loyalty-outreach";
 import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
@@ -14,12 +13,19 @@ export type MerchantLoyaltyOutreachItem = {
   name: string;
   phoneNumber: string | null;
   lifetimeTotal: number;
+  /** Computed Gold/Platinum from spend — customer still Standard until assigned. */
+  suggestedTier: "gold" | "platinum";
   status: string;
   lastContactedAt: string | null;
 };
 
+const CANDIDATE_CAP = 2_000;
+const LIFETIME_CHUNK = 400;
+
 /**
- * Allocated customers eligible for loyalty outreach or mid-flow (not yet assigned).
+ * Allocated customers eligible for Gold/Platinum by lifetime spend, but still
+ * Standard (no loyaltyAssignedTier — not registered in ERP/Shopify via OS).
+ * Includes mid-outreach (contacted / responded / not_responded).
  */
 export async function fetchMerchantLoyaltyOutreach(input: {
   companyId: string;
@@ -34,9 +40,12 @@ export async function fetchMerchantLoyaltyOutreach(input: {
   const labels = merchantMatchKeysForUser(input.viewer);
   if (labels.length === 0) return [];
 
+  const limit = input.take ?? 25;
+
   const rows = await prisma.contactMaster.findMany({
     where: {
       companyId: input.companyId,
+      // Still Standard — Gold/Platinum not assigned (ERP/Shopify registration via OS)
       loyaltyAssignedTier: null,
       AND: [
         {
@@ -62,59 +71,42 @@ export async function fetchMerchantLoyaltyOutreach(input: {
       phoneNumber: true,
       email: true,
       loyaltyOutreachStatus: true,
+      emails: { select: { email: true } },
+      phones: { select: { phoneNumber: true } },
     },
-    take: 400,
+    take: CANDIDATE_CAP,
     orderBy: { updatedAt: "desc" },
   });
 
-  const items: MerchantLoyaltyOutreachItem[] = [];
-  const limit = input.take ?? 25;
+  if (rows.length === 0) return [];
+
+  const lifetimeById = new Map<string, number>();
+  for (let i = 0; i < rows.length; i += LIFETIME_CHUNK) {
+    const slice = rows.slice(i, i + LIFETIME_CHUNK);
+    const chunk = await lifetimeTotalsByContactId(input.companyId, slice);
+    for (const [id, total] of chunk) lifetimeById.set(id, total);
+  }
+
+  const eligible: Array<{
+    contactId: string;
+    name: string;
+    phoneNumber: string | null;
+    lifetimeTotal: number;
+    suggestedTier: "gold" | "platinum";
+    status: string;
+  }> = [];
+
+  const markEligibleIds: string[] = [];
 
   for (const c of rows) {
-    const emails = await listContactEmails(c.id, c.email);
-    const phones = await listContactPhones(c.id, c.phoneNumber);
-    const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
-    const [orders, adaptRows] = await Promise.all([
-      orderLookupOr.length > 0
-        ? prisma.order.findMany({
-            where: {
-              companyId: input.companyId,
-              OR: orderLookupOr,
-              ...customerLifetimeTotalOrderWhere(),
-            },
-            select: {
-              totalPrice: true,
-              cancelledAt: true,
-              financialStatus: true,
-              fulfillmentStage: true,
-            },
-          })
-        : Promise.resolve([]),
-      prisma.adaptPurchaseHistory.findMany({
-        where: { contactId: c.id, companyId: input.companyId },
-        select: { ttlAmount: true },
-      }),
-    ]);
-    const lifetimeTotal = computeLifetimeTotal({
-      orders: orders.map((o) => ({
-        totalPrice: o.totalPrice.toString(),
-        cancelledAt: o.cancelledAt,
-        financialStatus: o.financialStatus,
-        fulfillmentStage: o.fulfillmentStage,
-      })),
-      adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
-    });
+    const lifetimeTotal = lifetimeById.get(c.id) ?? 0;
+    const suggested = suggestedLoyaltyTier(lifetimeTotal);
+    if (!suggested || !isLoyaltyEligibleByTotal(lifetimeTotal)) continue;
 
     let status = c.loyaltyOutreachStatus;
     if (!status || status === "eligible") {
-      if (!isLoyaltyEligibleByTotal(lifetimeTotal)) continue;
-      if (!status) {
-        await prisma.contactMaster.update({
-          where: { id: c.id },
-          data: { loyaltyOutreachStatus: "eligible" },
-        });
-        status = "eligible";
-      }
+      if (!status) markEligibleIds.push(c.id);
+      status = "eligible";
     } else if (
       status !== "contacted" &&
       status !== "responded" &&
@@ -123,20 +115,41 @@ export async function fetchMerchantLoyaltyOutreach(input: {
       continue;
     }
 
-    const lastContactedAt = await getLastContactedAt({
-      companyId: input.companyId,
-      contactId: c.id,
-    });
-
-    items.push({
+    eligible.push({
       contactId: c.id,
       name: c.name,
       phoneNumber: c.phoneNumber,
       lifetimeTotal,
+      suggestedTier: suggested,
       status,
+    });
+  }
+
+  eligible.sort((a, b) => b.lifetimeTotal - a.lifetimeTotal);
+  const top = eligible.slice(0, limit);
+
+  if (markEligibleIds.length > 0) {
+    const toMark = markEligibleIds.filter((id) =>
+      top.some((t) => t.contactId === id)
+    );
+    if (toMark.length > 0) {
+      await prisma.contactMaster.updateMany({
+        where: { id: { in: toMark }, loyaltyOutreachStatus: null },
+        data: { loyaltyOutreachStatus: "eligible" },
+      });
+    }
+  }
+
+  const items: MerchantLoyaltyOutreachItem[] = [];
+  for (const row of top) {
+    const lastContactedAt = await getLastContactedAt({
+      companyId: input.companyId,
+      contactId: row.contactId,
+    });
+    items.push({
+      ...row,
       lastContactedAt,
     });
-    if (items.length >= limit) break;
   }
 
   return items;
