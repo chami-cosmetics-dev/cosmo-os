@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/popover";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
+import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
 import { isCompletePhoneSearch } from "@/lib/phone-lookup";
 import {
   LOYALTY_GOLD_MIN,
@@ -416,6 +417,11 @@ export function CustomerInsightPanel({
   const [itemSearchDebounced, setItemSearchDebounced] = useState("");
   const [filterCity, setFilterCity] = useState("");
   const [cityOptions, setCityOptions] = useState<string[]>([]);
+  const [filterAssignedMerchant, setFilterAssignedMerchant] = useState("");
+  const [merchantOptions, setMerchantOptions] = useState<string[]>([]);
+  const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
+  const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
+  const [exportMerchant, setExportMerchant] = useState("");
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -558,6 +564,41 @@ export function CustomerInsightPanel({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!canExportFilteredCsv) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [merchantsRes, locationsRes] = await Promise.all([
+          fetch(`/api/admin/customer-insight/filter-options?type=merchants`),
+          fetch(`/api/admin/customer-insight/filter-options?type=locations`),
+        ]);
+        const merchantsData = await merchantsRes.json().catch(() => ({}));
+        const locationsData = await locationsRes.json().catch(() => ({}));
+        if (cancelled) return;
+        if (merchantsRes.ok && Array.isArray(merchantsData.options)) {
+          setMerchantOptions(
+            (merchantsData.options as Array<{ value?: string }>)
+              .map((o) => o.value)
+              .filter((v): v is string => typeof v === "string")
+          );
+        }
+        if (locationsRes.ok && Array.isArray(locationsData.options)) {
+          setLocationOptions(
+            (locationsData.options as Array<{ value?: string; label?: string }>)
+              .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
+              .map((o) => ({ value: o.value, label: o.label ?? o.value }))
+          );
+        }
+      } catch {
+        // optional
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canExportFilteredCsv]);
 
   useEffect(() => {
     if (!canManageLoyalty) return;
@@ -833,6 +874,12 @@ export function CustomerInsightPanel({
     if (filterBrand.trim()) params.set("brand", filterBrand.trim());
     if (filterItem.trim()) params.set("item", filterItem.trim());
     if (filterCity.trim()) params.set("city", filterCity.trim());
+    if (canExportFilteredCsv && filterAssignedMerchant.trim()) {
+      params.set("assignedMerchant", filterAssignedMerchant.trim());
+    }
+    if (canExportFilteredCsv && filterPurchaseLocationId.trim()) {
+      params.set("purchaseLocationId", filterPurchaseLocationId.trim());
+    }
     if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
       params.set("birthdayFrom", filterBirthdayFrom.trim());
       params.set("birthdayTo", filterBirthdayTo.trim());
@@ -890,6 +937,40 @@ export function CustomerInsightPanel({
     }
   }
 
+  async function exportMerchantCsv() {
+    if (!canExportFilteredCsv || !exportMerchant.trim()) return;
+    setBusyKey("export-merchant");
+    try {
+      const params = new URLSearchParams({
+        assignedMerchant: exportMerchant.trim(),
+      });
+      const res = await fetch(
+        `/api/admin/customer-insight/export/by-merchant?${params.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(
+          typeof data.error === "string" ? data.error : "Merchant export failed."
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `customer-insight-merchant-export.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify.success("Merchant contact export downloaded.");
+    } catch {
+      notify.error("Merchant export failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   function focusInvoicesForItem(itemName: string) {
     setItemFilter(itemName);
     invoicesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -909,6 +990,8 @@ export function CustomerInsightPanel({
       filterBrand.trim() ||
         filterItem.trim() ||
         filterCity.trim() ||
+        filterAssignedMerchant.trim() ||
+        filterPurchaseLocationId.trim() ||
         filterBirthdayFrom.trim() ||
         filterBirthdayTo.trim() ||
         filterLastFrom.trim() ||
@@ -928,6 +1011,8 @@ export function CustomerInsightPanel({
     setItemSearch("");
     setItemSearchDebounced("");
     setFilterCity("");
+    setFilterAssignedMerchant("");
+    setFilterPurchaseLocationId("");
     setFilterBirthdayFrom("");
     setFilterBirthdayTo("");
     setFilterLastFrom("");
@@ -1104,6 +1189,9 @@ export function CustomerInsightPanel({
             full set. Without a brand, highest lifetime totals first. With a brand, customers who
             bought that brand (vendor or product title), ranked by brand spend — same rules as
             Contact Master.
+            {canExportFilteredCsv
+              ? " Last purchase location keeps contacts whose newest Cosmo/Adapt purchase was at that outlet."
+              : null}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1185,6 +1273,32 @@ export function CustomerInsightPanel({
                 onChange={setFilterCity}
               />
             </label>
+            {canExportFilteredCsv ? (
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Allocated merchant</span>
+                <InsightSearchableSelect
+                  value={filterAssignedMerchant}
+                  options={merchantOptions}
+                  placeholder="Any"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={setFilterAssignedMerchant}
+                />
+              </label>
+            ) : null}
+            {canExportFilteredCsv ? (
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Last purchase location</span>
+                <InsightSearchableSelect
+                  value={filterPurchaseLocationId}
+                  options={locationOptions}
+                  placeholder="Any"
+                  searchPlaceholder="Search locations…"
+                  disabled={isBusy}
+                  onChange={setFilterPurchaseLocationId}
+                />
+              </label>
+            ) : null}
             <div className="grid grid-cols-2 gap-2 sm:col-span-2">
               <label className="space-y-1 text-sm">
                 <span className="text-muted-foreground">Min total</span>
@@ -1427,6 +1541,49 @@ export function CustomerInsightPanel({
         </CardContent>
       </Card>
 
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Export by allocated merchant</CardTitle>
+            <CardDescription>
+              Download all contacts currently allocated to one merchant (admin /
+              Insight admin view).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="min-w-0 flex-1 space-y-1 text-sm">
+              <span className="text-muted-foreground">Merchant</span>
+              <InsightSearchableSelect
+                value={exportMerchant}
+                options={merchantOptions}
+                placeholder="Select merchant"
+                searchPlaceholder="Search merchants…"
+                disabled={isBusy}
+                onChange={setExportMerchant}
+              />
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy || !exportMerchant.trim()}
+              onClick={() => void exportMerchantCsv()}
+            >
+              {busyKey === "export-merchant" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="size-4" aria-hidden />
+                  Export merchant CSV
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {searched && matches && matches.length === 0 && !insight && (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
@@ -1608,6 +1765,21 @@ export function CustomerInsightPanel({
                               <span className="text-foreground">-</span>
                             </span>
                           )}
+                          {canExportFilteredCsv &&
+                          insight.contact.removedEmails &&
+                          insight.contact.removedEmails.length > 0
+                            ? insight.contact.removedEmails.map((row) => (
+                                <span
+                                  key={`${row.reason}-${row.email}-${row.removedAt}`}
+                                  className="inline-flex items-center gap-1.5 text-muted-foreground"
+                                >
+                                  <Mail className="size-3.5 shrink-0" aria-hidden />
+                                  <span className="truncate">
+                                    {formatRemovedEmailLabel(row.reason, row.email)}
+                                  </span>
+                                </span>
+                              ))
+                            : null}
                           <span className="inline-flex items-center gap-1.5">
                             <MapPin className="size-3.5 shrink-0" aria-hidden />
                             <span className="text-foreground">

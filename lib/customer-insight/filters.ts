@@ -1,4 +1,5 @@
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
+import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
   buildLoyaltyDto,
@@ -28,6 +29,10 @@ export type FilterQueryInput = {
   brand?: string;
   item?: string;
   city?: string;
+  /** Admin-only: ContactMaster.assignedMerchant exact (insensitive). */
+  assignedMerchant?: string;
+  /** Admin-only: company location id of the contact's latest purchase. */
+  purchaseLocationId?: string;
   minTotal?: number;
   maxTotal?: number;
   birthdayFrom?: MonthDay;
@@ -224,6 +229,24 @@ function buildAllocationWhere(input: FilterQueryInput): {
     ];
   }
 
+  const assignedNeedle = input.assignedMerchant?.trim();
+  if (assignedNeedle) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [
+      ...existingAnd,
+      {
+        assignedMerchant: {
+          equals: assignedNeedle,
+          mode: "insensitive" as const,
+        },
+      },
+    ];
+  }
+
   return { empty: false, where };
 }
 
@@ -283,6 +306,21 @@ export async function filterAllocatedContacts(
 
   const { empty, where } = buildAllocationWhere(input);
   if (empty) return emptyResult();
+
+  const purchaseLocationId = input.purchaseLocationId?.trim() || null;
+  if (purchaseLocationId) {
+    const locationContactIds = await findContactIdsByLastPurchaseLocation(
+      input.companyId,
+      purchaseLocationId
+    );
+    if (locationContactIds.length === 0) return emptyResult();
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, { id: { in: locationContactIds } }];
+  }
 
   const brandNeedle = input.brand?.trim() || null;
   const itemNeedle = input.item?.trim() || null;

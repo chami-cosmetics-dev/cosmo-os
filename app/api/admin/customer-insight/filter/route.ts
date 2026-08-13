@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
     brand: queryParam(sp.get("brand")),
     item: queryParam(sp.get("item")),
     city: queryParam(sp.get("city")),
+    assignedMerchant: queryParam(sp.get("assignedMerchant")),
+    purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
     minTotal: queryParam(sp.get("minTotal")),
     maxTotal: queryParam(sp.get("maxTotal")),
     birthdayFrom: queryParam(sp.get("birthdayFrom")),
@@ -57,6 +59,14 @@ export async function GET(request: NextRequest) {
 
   const roleNames = (auth.context!.roleNames as string[]) ?? [];
   const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
+  const isAdminView = hasInsightAdminView({ roleNames, permissionKeys });
+  if (
+    (parsed.data.assignedMerchant || parsed.data.purchaseLocationId) &&
+    !isAdminView
+  ) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const dbUser = await prisma.user.findUnique({
     where: { id: user.id },
     select: { couponCodes: true },
@@ -77,11 +87,13 @@ export async function GET(request: NextRequest) {
   const result = await filterAllocatedContacts({
     companyId,
     viewer,
-    isAdmin: hasInsightAdminView({ roleNames, permissionKeys }),
+    isAdmin: isAdminView,
     scopeAllContacts,
     brand: parsed.data.brand,
     item: parsed.data.item,
     city: parsed.data.city,
+    assignedMerchant: parsed.data.assignedMerchant,
+    purchaseLocationId: parsed.data.purchaseLocationId,
     minTotal: parsed.data.minTotal,
     maxTotal: parsed.data.maxTotal,
     birthdayFrom: parsed.data.birthdayFrom,

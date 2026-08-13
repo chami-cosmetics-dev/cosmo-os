@@ -8,6 +8,7 @@ export const CUSTOMER_RESPONSES = [
   "internal_staff",
   "customer_doesnt_want_order",
   "already_placed_order",
+  "placed_order_from_another_place",
   "recovered_sale",
 ] as const;
 export type CustomerResponse = (typeof CUSTOMER_RESPONSES)[number];
@@ -47,6 +48,7 @@ export const CUSTOMER_RESPONSE_LABELS: Record<CustomerResponse, string> = {
   internal_staff: "Internal staff",
   customer_doesnt_want_order: "Customer doesn't want the order",
   already_placed_order: "Already placed an order by another merchant",
+  placed_order_from_another_place: "Customer placed an order from another place",
   recovered_sale: "Recovered sale",
 };
 
@@ -86,6 +88,10 @@ export const REMARK_TEMPLATES = [
   {
     id: "already_placed_order",
     label: "Already placed an order by another merchant",
+  },
+  {
+    id: "placed_order_from_another_place",
+    label: "Customer placed an order from another place",
   },
   {
     id: "custom",

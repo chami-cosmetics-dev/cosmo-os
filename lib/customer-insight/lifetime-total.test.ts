@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   attributeOrderTotalsByContact,
+  attributeLastOrderEventByContact,
   combineLifetimeTotals,
   computeLifetimeTotal,
   isOrderIncludedInCustomerLifetimeTotal,
+  orderPurchaseAt,
   sumAdaptTotals,
   sumEligibleOrderTotals,
 } from "@/lib/customer-insight/lifetime-total";
@@ -149,5 +151,45 @@ describe("combineLifetimeTotals", () => {
     );
     expect(combined.get("a")).toBe(125);
     expect(combined.get("b")).toBe(10);
+  });
+});
+
+describe("attributeLastOrderEventByContact", () => {
+  it("keeps latest order location per contact", () => {
+    const latest = attributeLastOrderEventByContact({
+      lookupByContactId: new Map([
+        ["c1", { phones: ["0771111111"], emails: [] }],
+      ]),
+      orders: [
+        {
+          customerPhone: "0771111111",
+          customerEmail: null,
+          companyLocationId: "loc-old",
+          at: new Date("2026-01-01T00:00:00Z"),
+        },
+        {
+          customerPhone: "0771111111",
+          customerEmail: null,
+          companyLocationId: "loc-new",
+          at: new Date("2026-06-01T00:00:00Z"),
+        },
+      ],
+    });
+    expect(latest.get("c1")?.companyLocationId).toBe("loc-new");
+  });
+});
+
+describe("orderPurchaseAt", () => {
+  it("prefers delivery then invoice then created", () => {
+    const createdAt = new Date("2026-01-01T00:00:00Z");
+    const invoiceCompleteAt = new Date("2026-01-02T00:00:00Z");
+    const deliveryCompleteAt = new Date("2026-01-03T00:00:00Z");
+    expect(
+      orderPurchaseAt({ createdAt, invoiceCompleteAt, deliveryCompleteAt })
+    ).toEqual(deliveryCompleteAt);
+    expect(orderPurchaseAt({ createdAt, invoiceCompleteAt })).toEqual(
+      invoiceCompleteAt
+    );
+    expect(orderPurchaseAt({ createdAt })).toEqual(createdAt);
   });
 });

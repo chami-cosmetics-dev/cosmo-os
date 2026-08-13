@@ -81,6 +81,7 @@ model Company {
   shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
   adaptPurchaseHistories        AdaptPurchaseHistory[]
+  contactRemovedEmails          ContactRemovedEmail[]
   bookNoteDays                  BookNoteDay[]
   merchantMonthlyTargets        MerchantMonthlyTarget[]
   merchantMonthlyTargetHistory  MerchantMonthlyTargetHistory[]
@@ -369,6 +370,7 @@ model User {
   merchantMonthlyTargetHistoryAsMerchant MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryUser")
   merchantMonthlyTargetHistoryAssigned   MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryAssignedBy")
   loyaltyAssignments                     ContactMaster[]                @relation("ContactLoyaltyAssignedBy")
+  contactEmailsRemoved                   ContactRemovedEmail[]          @relation("ContactRemovedEmailBy")
 }
 
 /// Monthly sales target for a merchant-role user (Asia/Colombo calendar month).
@@ -1670,6 +1672,7 @@ model ContactMaster {
   // Call center performance tracking: records each allocation update event for this contact
   allocationUpdates ContactAllocationUpdate[]
   adaptPurchases    AdaptPurchaseHistory[]
+  removedEmails     ContactRemovedEmail[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1729,6 +1732,25 @@ model ContactEmail {
   @@unique([contactId, email])
   @@index([email])
   @@index([contactId])
+}
+
+/** Emails cleared by contact email cleanup; kept for admin Insight display. */
+model ContactRemovedEmail {
+  id              String        @id @default(cuid())
+  companyId       String
+  contactId       String
+  email           String
+  /// invalid | cosmetics_pattern
+  reason          String
+  removedAt       DateTime      @default(now())
+  removedByUserId String?
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact         ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  removedBy       User?         @relation("ContactRemovedEmailBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([contactId, removedAt(sort: Desc)])
+  @@index([companyId, contactId])
+  @@index([companyId, reason])
 }
 
 model ContactPhone {

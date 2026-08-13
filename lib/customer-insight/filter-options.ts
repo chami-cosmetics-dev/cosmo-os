@@ -314,3 +314,68 @@ export async function listInsightCityOptions(
   if (!needle) return cities;
   return cities.filter((c) => c.label.toLowerCase().includes(needle));
 }
+
+export async function listInsightAssignedMerchantOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  const needle = q?.trim();
+  const rows = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      AND: [
+        { assignedMerchant: { not: null } },
+        ...(needle
+          ? [
+              {
+                assignedMerchant: {
+                  contains: needle,
+                  mode: "insensitive" as const,
+                },
+              },
+            ]
+          : []),
+      ],
+    },
+    distinct: ["assignedMerchant"],
+    select: { assignedMerchant: true },
+    take: 400,
+    orderBy: { assignedMerchant: "asc" },
+  });
+  const seen = new Set<string>();
+  const out: FilterOptionDto[] = [];
+  for (const row of rows) {
+    const value = row.assignedMerchant?.trim();
+    if (!value) continue;
+    pushUnique(seen, out, value);
+  }
+  return out;
+}
+
+export async function listInsightPurchaseLocationOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  const rows = await prisma.companyLocation.findMany({
+    where: {
+      companyId,
+      ...(q?.trim()
+        ? {
+            OR: [
+              { name: { contains: q.trim(), mode: "insensitive" } },
+              { shortName: { contains: q.trim(), mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    select: { id: true, name: true, shortName: true },
+    orderBy: { name: "asc" },
+    take: 300,
+  });
+  return rows.map((row) => {
+    const label = row.shortName?.trim()
+      ? `${row.name} (${row.shortName})`
+      : row.name;
+    return { value: row.id, label };
+  });
+}

@@ -7,6 +7,7 @@ import {
   isInvalidContactEmail,
   matchesCosmeticsPattern,
 } from "@/lib/contacts/email-cleanup";
+import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
 
 describe("email-cleanup helpers", () => {
   describe("isInvalidContactEmail", () => {
@@ -71,6 +72,15 @@ describe("email-cleanup helpers", () => {
       expect(emailMatchesReason("not-an-email", "invalid")).toBe(true);
       expect(emailMatchesReason("cosmetics@x.com", "invalid")).toBe(false);
       expect(emailMatchesReason("cosmetics@x.com", "cosmetics_pattern")).toBe(true);
+    });
+  });
+
+  describe("formatRemovedEmailLabel", () => {
+    it("formats admin display strings", () => {
+      expect(formatRemovedEmailLabel("invalid", "bad@")).toBe("invalid mail - 'bad@'");
+      expect(formatRemovedEmailLabel("cosmetics_pattern", "sales@cosmetics.lk")).toBe(
+        "cosmetic mail - 'sales@cosmetics.lk'"
+      );
     });
   });
 });

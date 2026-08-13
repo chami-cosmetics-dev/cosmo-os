@@ -15,6 +15,7 @@ import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
 import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
 import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
 import {
+  hasInsightAdminView,
   insightVisibility,
   type ViewerIdentity,
 } from "@/lib/customer-insight/ownership";
@@ -77,6 +78,7 @@ export async function loadCustomerInsight(input: {
   if (!contact) return null;
 
   const visibility = insightVisibility(input.viewer, contact.assignedMerchant);
+  const includeRemovedEmails = hasInsightAdminView(input.viewer);
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
   const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
@@ -142,10 +144,20 @@ export async function loadCustomerInsight(input: {
         })
       : Promise.resolve(null);
 
-  const [orders, adaptRows, lastContactedAt] = await Promise.all([
+  const removedEmailsPromise = includeRemovedEmails
+    ? prisma.contactRemovedEmail.findMany({
+        where: { companyId: input.companyId, contactId: contact.id },
+        orderBy: { removedAt: "desc" },
+        select: { email: true, reason: true, removedAt: true },
+        take: 50,
+      })
+    : Promise.resolve([]);
+
+  const [orders, adaptRows, lastContactedAt, removedEmailRows] = await Promise.all([
     ordersPromise,
     adaptPromise,
     lastContactedPromise,
+    removedEmailsPromise,
   ]);
 
   const historyScope: HistoryScopeInput = {
@@ -282,6 +294,7 @@ export async function loadCustomerInsight(input: {
       assignedMerchant: contact.assignedMerchant,
       category: contact.category,
       lastPurchaseAt: contact.lastPurchaseAt,
+      removedEmails: includeRemovedEmails ? removedEmailRows : undefined,
     }),
     loyalty: (() => {
       const computed = serializeLoyalty(lifetimeTotal, "LKR");

@@ -62,6 +62,14 @@ export type ContactInsightDto = {
   category: string | null;
   /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
   lastPurchaseAt: string | null;
+  /** Admin / Insight admin view only — emails cleared by cleanup. */
+  removedEmails?: ContactRemovedEmailDto[];
+};
+
+export type ContactRemovedEmailDto = {
+  email: string;
+  reason: "invalid" | "cosmetics_pattern";
+  removedAt: string;
 };
 
 export type FrequencyDto = {

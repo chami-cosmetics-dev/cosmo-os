@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { emailSchema } from "@/lib/validation";
 import type { ContactEmailCleanupReason } from "@/lib/validation/contact-email-cleanup";
 
+export { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
+
 export type SuspectEmailReviewItem = {
   contactId: string;
   name: string;
@@ -170,7 +172,12 @@ async function promoteOldestValidSecondary(input: {
 
   const candidate = rows.find((row) => {
     const normalized = normalizeContactEmail(row.email);
-    return normalized && !input.excluded.has(normalized) && !isInvalidContactEmail(normalized);
+    return (
+      normalized &&
+      !input.excluded.has(normalized) &&
+      !isInvalidContactEmail(normalized) &&
+      !matchesCosmeticsPattern(normalized)
+    );
   });
 
   if (!candidate) return null;
@@ -243,6 +250,18 @@ export async function clearSuspectEmails(input: {
       if (secondaryIdsToDelete.length > 0) {
         await tx.contactEmail.deleteMany({
           where: { id: { in: secondaryIdsToDelete } },
+        });
+      }
+
+      if (removeEmails.length > 0) {
+        await tx.contactRemovedEmail.createMany({
+          data: removeEmails.map((email) => ({
+            companyId: input.companyId,
+            contactId: contact.id,
+            email,
+            reason: input.reason,
+            removedByUserId: input.actorUserId,
+          })),
         });
       }
     });

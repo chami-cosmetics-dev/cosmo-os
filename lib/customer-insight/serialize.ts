@@ -32,6 +32,11 @@ export function serializeContactInsight(input: {
   assignedMerchant?: string | null;
   category?: string | null;
   lastPurchaseAt?: Date | string | null;
+  removedEmails?: Array<{
+    email: string;
+    reason: string;
+    removedAt: Date | string;
+  }>;
 }): ContactInsightDto {
   return {
     id: input.id,
@@ -54,6 +59,23 @@ export function serializeContactInsight(input: {
         : typeof input.lastPurchaseAt === "string" && input.lastPurchaseAt
           ? input.lastPurchaseAt
           : null,
+    removedEmails: (input.removedEmails ?? [])
+      .map((row) => {
+        const reason =
+          row.reason === "cosmetics_pattern" || row.reason === "invalid"
+            ? row.reason
+            : null;
+        if (!reason) return null;
+        return {
+          email: row.email,
+          reason,
+          removedAt:
+            row.removedAt instanceof Date
+              ? row.removedAt.toISOString()
+              : String(row.removedAt),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row != null),
   };
 }
 
