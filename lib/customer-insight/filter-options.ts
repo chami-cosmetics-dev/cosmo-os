@@ -1,6 +1,7 @@
 import { brandFromAdaptLineItem, lineMatchesBrand, textContainsBrandWord } from "@/lib/customer-insight/brand";
 import { cityForDisplay, extractCityFromAddress } from "@/lib/customer-insight/city";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
+import { listInsightMerchantRosterOptions } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
 export type FilterOptionDto = { value: string; label: string; sku?: string | null };
@@ -319,37 +320,8 @@ export async function listInsightAssignedMerchantOptions(
   companyId: string,
   q?: string
 ): Promise<FilterOptionDto[]> {
-  const needle = q?.trim();
-  const rows = await prisma.contactMaster.findMany({
-    where: {
-      companyId,
-      AND: [
-        { assignedMerchant: { not: null } },
-        ...(needle
-          ? [
-              {
-                assignedMerchant: {
-                  contains: needle,
-                  mode: "insensitive" as const,
-                },
-              },
-            ]
-          : []),
-      ],
-    },
-    distinct: ["assignedMerchant"],
-    select: { assignedMerchant: true },
-    take: 400,
-    orderBy: { assignedMerchant: "asc" },
-  });
-  const seen = new Set<string>();
-  const out: FilterOptionDto[] = [];
-  for (const row of rows) {
-    const value = row.assignedMerchant?.trim();
-    if (!value) continue;
-    pushUnique(seen, out, value);
-  }
-  return out;
+  // Clean roster: merchant-role users + DM-General / STAFF SALES buckets.
+  return listInsightMerchantRosterOptions(companyId, q);
 }
 
 export async function listInsightPurchaseLocationOptions(
