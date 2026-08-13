@@ -51,14 +51,14 @@ function formatMoney(value: string | null, currency: string) {
   return `${n.toLocaleString(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
-function followUpStatusClass(status: FollowUpStatus) {
+function followUpRowBorderClass(status: FollowUpStatus) {
   if (status === "follow_up") {
-    return "border-amber-500/30 bg-amber-500/10 text-amber-900";
+    return "border-l-4 border-l-amber-500";
   }
   if (status === "closed") {
-    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-900";
+    return "border-l-4 border-l-emerald-500";
   }
-  return "border-border/70 bg-secondary/40 text-foreground";
+  return "border-l-4 border-l-slate-400";
 }
 
 export function AbandonedOrdersPanel({
@@ -363,19 +363,35 @@ export function AbandonedOrdersPanel({
               No abandoned checkouts found for the selected filters.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-border/70">
-              <table className="w-full min-w-[1100px] table-fixed text-sm">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-1 rounded-sm bg-slate-400" aria-hidden />
+                  Pending
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-1 rounded-sm bg-amber-500" aria-hidden />
+                  Follow up
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-3 w-1 rounded-sm bg-emerald-500" aria-hidden />
+                  Closed
+                </span>
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-border/70">
+              <table className="w-full min-w-[1200px] table-fixed text-sm">
                 <thead className="bg-secondary/25">
                   <tr className="text-left text-muted-foreground">
-                    <th className="w-[11%] px-3 py-2.5 font-medium">Abandoned</th>
-                    <th className="w-[15%] px-3 py-2.5 font-medium">Customer</th>
-                    <th className="w-[14%] px-3 py-2.5 font-medium">Billing</th>
-                    <th className="w-[14%] px-3 py-2.5 font-medium">Shipping</th>
-                    <th className="w-[15%] px-3 py-2.5 font-medium">Cart</th>
-                    <th className="w-[9%] px-3 py-2.5 font-medium">Follow-up</th>
-                    <th className="w-[12%] px-3 py-2.5 font-medium">Response</th>
+                    <th className="w-[12%] px-3 py-2.5 font-medium">Abandoned</th>
+                    <th className="w-[13%] px-3 py-2.5 font-medium">Customer</th>
+                    <th className="w-[12%] px-3 py-2.5 font-medium">Phone</th>
+                    <th className="w-[14%] px-3 py-2.5 font-medium">Email</th>
+                    <th className="w-[13%] px-3 py-2.5 font-medium">Billing</th>
+                    <th className="w-[13%] px-3 py-2.5 font-medium">Shipping</th>
+                    <th className="w-[13%] px-3 py-2.5 font-medium">Cart</th>
+                    <th className="w-[10%] px-3 py-2.5 font-medium">Response</th>
                     {canManage && (
-                      <th className="w-[10%] px-3 py-2.5 font-medium text-right">Action</th>
+                      <th className="w-[8%] px-3 py-2.5 font-medium text-right">Action</th>
                     )}
                   </tr>
                 </thead>
@@ -385,7 +401,11 @@ export function AbandonedOrdersPanel({
                     return (
                       <tr
                         key={item.id}
-                        className="border-t border-border/50 align-top hover:bg-secondary/10"
+                        className={cn(
+                          "border-t border-border/50 align-top hover:bg-secondary/10",
+                          followUpRowBorderClass(item.followUpStatus)
+                        )}
+                        title={`Follow-up: ${FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}`}
                       >
                         <td className="px-3 py-3">
                           <div className="font-medium whitespace-nowrap">
@@ -402,29 +422,37 @@ export function AbandonedOrdersPanel({
                           )}
                         </td>
                         <td className="px-3 py-3">
-                          <div className="font-medium" title={item.customerName ?? undefined}>
+                          <div className="font-medium break-words" title={item.customerName ?? undefined}>
                             {item.customerName ?? "—"}
                           </div>
+                        </td>
+                        <td className="px-3 py-3">
                           {item.customerPhone ? (
                             <a
                               href={`tel:${item.customerPhone}`}
-                              className="mt-1 inline-flex items-center gap-1 text-xs text-foreground/80 hover:underline"
+                              className="inline-flex items-center gap-1.5 font-medium hover:underline"
                               onClick={(e) => e.stopPropagation()}
                             >
                               <Phone className="size-3.5 shrink-0" aria-hidden />
-                              {item.customerPhone}
+                              <span className="break-all">{item.customerPhone}</span>
                             </a>
                           ) : (
-                            <div className="mt-1 text-xs text-muted-foreground">No phone</div>
+                            <span>—</span>
                           )}
+                        </td>
+                        <td className="px-3 py-3">
                           {item.customerEmail ? (
-                            <div
-                              className="mt-0.5 truncate text-xs text-muted-foreground"
+                            <a
+                              href={`mailto:${item.customerEmail}`}
+                              className="break-all font-medium hover:underline"
                               title={item.customerEmail}
+                              onClick={(e) => e.stopPropagation()}
                             >
                               {item.customerEmail}
-                            </div>
-                          ) : null}
+                            </a>
+                          ) : (
+                            <span>—</span>
+                          )}
                         </td>
                         <td className="px-3 py-3">
                           <span
@@ -454,16 +482,6 @@ export function AbandonedOrdersPanel({
                           </div>
                         </td>
                         <td className="px-3 py-3">
-                          <span
-                            className={cn(
-                              "inline-flex rounded-md border px-2 py-0.5 text-xs font-medium",
-                              followUpStatusClass(item.followUpStatus)
-                            )}
-                          >
-                            {FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3">
                           <span className="line-clamp-3" title={responseText}>
                             {responseText}
                           </span>
@@ -486,6 +504,7 @@ export function AbandonedOrdersPanel({
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
 
