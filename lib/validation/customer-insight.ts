@@ -153,30 +153,61 @@ const optionalIsoDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
   .optional();
 
-export const customerInsightFilterQuerySchema = z
-  .object({
-    brand: trimmedString(1, LIMITS.name.max).optional(),
-    item: trimmedString(1, LIMITS.name.max).optional(),
-    city: trimmedString(1, 100).optional(),
-    minTotal: z.coerce.number().min(0).optional(),
-    maxTotal: z.coerce.number().min(0).optional(),
-    birthdayFrom: monthDaySchema.optional(),
-    birthdayTo: monthDaySchema.optional(),
-    lastContactedFrom: optionalIsoDate,
-    lastContactedTo: optionalIsoDate,
-    loyaltyRegisteredFrom: optionalIsoDate,
-    loyaltyRegisteredTo: optionalIsoDate,
-    noPurchaseFrom: optionalIsoDate,
-    noPurchaseTo: optionalIsoDate,
-    /** Legacy presets still accepted. */
-    noPurchaseMonths: z
-      .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
-      .optional()
-      .transform((v) => {
-        if (v === "3" || v === 3) return 3 as const;
-        if (v === "6" || v === 6) return 6 as const;
-        return undefined;
-      }),
+const customerInsightFilterFieldsSchema = z.object({
+  brand: trimmedString(1, LIMITS.name.max).optional(),
+  item: trimmedString(1, LIMITS.name.max).optional(),
+  city: trimmedString(1, 100).optional(),
+  minTotal: z.coerce.number().min(0).optional(),
+  maxTotal: z.coerce.number().min(0).optional(),
+  birthdayFrom: monthDaySchema.optional(),
+  birthdayTo: monthDaySchema.optional(),
+  lastContactedFrom: optionalIsoDate,
+  lastContactedTo: optionalIsoDate,
+  loyaltyRegisteredFrom: optionalIsoDate,
+  loyaltyRegisteredTo: optionalIsoDate,
+  noPurchaseFrom: optionalIsoDate,
+  noPurchaseTo: optionalIsoDate,
+  /** Legacy presets still accepted. */
+  noPurchaseMonths: z
+    .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
+    .optional()
+    .transform((v) => {
+      if (v === "3" || v === 3) return 3 as const;
+      if (v === "6" || v === 6) return 6 as const;
+      return undefined;
+    }),
+});
+
+function refineCustomerInsightFilterRanges<
+  T extends {
+    minTotal?: number;
+    maxTotal?: number;
+    birthdayFrom?: unknown;
+    birthdayTo?: unknown;
+  },
+>(val: T, ctx: z.RefinementCtx) {
+  if (
+    val.minTotal != null &&
+    val.maxTotal != null &&
+    val.minTotal > val.maxTotal
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "minTotal cannot exceed maxTotal",
+      path: ["minTotal"],
+    });
+  }
+  if ((val.birthdayFrom && !val.birthdayTo) || (!val.birthdayFrom && val.birthdayTo)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "birthdayFrom and birthdayTo must both be set",
+      path: ["birthdayFrom"],
+    });
+  }
+}
+
+export const customerInsightFilterQuerySchema = customerInsightFilterFieldsSchema
+  .extend({
     page: z.coerce
       .number()
       .int()
@@ -185,26 +216,11 @@ export const customerInsightFilterQuerySchema = z
       .default(1),
     pageSize: z.coerce.number().int().min(1).max(50).default(25),
   })
-  .superRefine((val, ctx) => {
-    if (
-      val.minTotal != null &&
-      val.maxTotal != null &&
-      val.minTotal > val.maxTotal
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "minTotal cannot exceed maxTotal",
-        path: ["minTotal"],
-      });
-    }
-    if ((val.birthdayFrom && !val.birthdayTo) || (!val.birthdayFrom && val.birthdayTo)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "birthdayFrom and birthdayTo must both be set",
-        path: ["birthdayFrom"],
-      });
-    }
-  });
+  .superRefine(refineCustomerInsightFilterRanges);
+
+/** Same filters as list endpoint; no pagination (CSV export). */
+export const customerInsightFilterExportQuerySchema =
+  customerInsightFilterFieldsSchema.superRefine(refineCustomerInsightFilterRanges);
 
 export const customerInsightMergeBodySchema = z
   .object({

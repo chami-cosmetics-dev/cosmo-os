@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attributeOrderTotalsByContact,
+  combineLifetimeTotals,
   computeLifetimeTotal,
   isOrderIncludedInCustomerLifetimeTotal,
   sumAdaptTotals,
@@ -99,5 +101,53 @@ describe("computeLifetimeTotal", () => {
         adaptRows: [{ ttlAmount: 25_000 }],
       })
     ).toBe(125_000);
+  });
+});
+
+describe("attributeOrderTotalsByContact", () => {
+  it("matches phone contacts by phone only", () => {
+    const totals = attributeOrderTotalsByContact({
+      lookupByContactId: new Map([
+        ["phone-c", { phones: ["0771111111"], emails: [] }],
+        ["email-c", { phones: [], emails: ["a@ex.com"] }],
+      ]),
+      orders: [
+        {
+          customerPhone: "0771111111",
+          customerEmail: "a@ex.com",
+          totalPrice: 1000,
+        },
+      ],
+    });
+    expect(totals.get("phone-c")).toBe(1000);
+    expect(totals.get("email-c")).toBe(1000);
+  });
+
+  it("does not attribute phone-contact via email", () => {
+    const totals = attributeOrderTotalsByContact({
+      lookupByContactId: new Map([
+        ["phone-c", { phones: ["0771111111"], emails: ["a@ex.com"] }],
+      ]),
+      orders: [
+        {
+          customerPhone: "0779999999",
+          customerEmail: "a@ex.com",
+          totalPrice: 500,
+        },
+      ],
+    });
+    expect(totals.get("phone-c")).toBeUndefined();
+  });
+});
+
+describe("combineLifetimeTotals", () => {
+  it("adds order and adapt and defaults missing to 0", () => {
+    const combined = combineLifetimeTotals(
+      ["a", "b"],
+      new Map([["a", 100]]),
+      new Map([["a", 25], ["b", 10]])
+    );
+    expect(combined.get("a")).toBe(125);
+    expect(combined.get("b")).toBe(10);
   });
 });

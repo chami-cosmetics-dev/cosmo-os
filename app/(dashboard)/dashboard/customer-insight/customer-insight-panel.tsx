@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Calendar, Check, ChevronsUpDown, Crown, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
+import { Calendar, Check, ChevronsUpDown, Crown, Download, Loader2, Mail, MapPin, Phone, Search, ShieldCheck, UserRound, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -58,7 +58,7 @@ import {
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
 import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
-import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
@@ -385,12 +385,15 @@ function birthDateInputToParts(value: string): {
 
 export function CustomerInsightPanel({
   canFilterAllContacts = false,
-  canMergeContacts = false,
+  canExportFilteredCsv = false,
+  canAddContactPhone = false,
   canManageLoyalty = false,
   canAssignLoyalty = false,
 }: {
   canFilterAllContacts?: boolean;
-  canMergeContacts?: boolean;
+  canExportFilteredCsv?: boolean;
+  /** contacts.merge — link extra phones (old numbers kept). */
+  canAddContactPhone?: boolean;
   canManageLoyalty?: boolean;
   canAssignLoyalty?: boolean;
 }) {
@@ -429,7 +432,6 @@ export function CustomerInsightPanel({
   const [filterTotal, setFilterTotal] = useState(0);
   const [filterPage, setFilterPage] = useState(1);
   const filterPageSize = 25;
-  const [mergeSourceId, setMergeSourceId] = useState("");
   const [contactHistory, setContactHistory] = useState<
     Array<{
       id: string;
@@ -456,6 +458,7 @@ export function CustomerInsightPanel({
     }>
   >([]);
   const invoicesRef = useRef<HTMLDivElement>(null);
+  const detailsRef = useRef<HTMLDivElement>(null);
 
   const isBusy = busyKey !== null;
   const isOwner = insight?.visibility === "owner";
@@ -689,6 +692,11 @@ export function CustomerInsightPanel({
         setProfileForm(null);
         setContactHistory([]);
       }
+      if (page === 1) {
+        requestAnimationFrame(() => {
+          detailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
     } catch {
       notify.error("Failed to load customer insight.");
       setInsight(null);
@@ -715,6 +723,11 @@ export function CustomerInsightPanel({
         birthDay: dob.birthDay,
       };
       if (addPhone) {
+        if (!canAddContactPhone) {
+          notify.error("You do not have permission to add phone numbers.");
+          setBusyKey(null);
+          return;
+        }
         body.addPhoneNumber = addPhone;
       }
       const res = await fetch(
@@ -799,30 +812,7 @@ export function CustomerInsightPanel({
     setBusyKey("filter");
     setFilterPage(page);
     try {
-      const params = new URLSearchParams();
-      if (filterBrand.trim()) params.set("brand", filterBrand.trim());
-      if (filterItem.trim()) params.set("item", filterItem.trim());
-      if (filterCity.trim()) params.set("city", filterCity.trim());
-      if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
-        params.set("birthdayFrom", filterBirthdayFrom.trim());
-        params.set("birthdayTo", filterBirthdayTo.trim());
-      }
-      if (filterLastFrom.trim()) params.set("lastContactedFrom", filterLastFrom.trim());
-      if (filterLastTo.trim()) params.set("lastContactedTo", filterLastTo.trim());
-      if (filterLoyaltyRegFrom.trim()) {
-        params.set("loyaltyRegisteredFrom", filterLoyaltyRegFrom.trim());
-      }
-      if (filterLoyaltyRegTo.trim()) {
-        params.set("loyaltyRegisteredTo", filterLoyaltyRegTo.trim());
-      }
-      if (filterNoPurchaseFrom.trim() && filterNoPurchaseTo.trim()) {
-        params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
-        params.set("noPurchaseTo", filterNoPurchaseTo.trim());
-      }
-      if (filterMin.trim()) params.set("minTotal", filterMin.trim());
-      if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
-      params.set("page", String(page));
-      params.set("pageSize", String(filterPageSize));
+      const params = buildFilterParams(page);
       const res = await fetch(`/api/admin/customer-insight/filter?${params}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -833,6 +823,68 @@ export function CustomerInsightPanel({
       setFilterTotal(data.pagination?.total ?? 0);
     } catch {
       notify.error("Filter failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function buildFilterParams(page = 1) {
+    const params = new URLSearchParams();
+    if (filterBrand.trim()) params.set("brand", filterBrand.trim());
+    if (filterItem.trim()) params.set("item", filterItem.trim());
+    if (filterCity.trim()) params.set("city", filterCity.trim());
+    if (filterBirthdayFrom.trim() && filterBirthdayTo.trim()) {
+      params.set("birthdayFrom", filterBirthdayFrom.trim());
+      params.set("birthdayTo", filterBirthdayTo.trim());
+    }
+    if (filterLastFrom.trim()) params.set("lastContactedFrom", filterLastFrom.trim());
+    if (filterLastTo.trim()) params.set("lastContactedTo", filterLastTo.trim());
+    if (filterLoyaltyRegFrom.trim()) {
+      params.set("loyaltyRegisteredFrom", filterLoyaltyRegFrom.trim());
+    }
+    if (filterLoyaltyRegTo.trim()) {
+      params.set("loyaltyRegisteredTo", filterLoyaltyRegTo.trim());
+    }
+    if (filterNoPurchaseFrom.trim() && filterNoPurchaseTo.trim()) {
+      params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
+      params.set("noPurchaseTo", filterNoPurchaseTo.trim());
+    }
+    if (filterMin.trim()) params.set("minTotal", filterMin.trim());
+    if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
+    params.set("page", String(page));
+    params.set("pageSize", String(filterPageSize));
+    return params;
+  }
+
+  async function exportFilteredCsv() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("export-filter");
+    try {
+      const params = buildFilterParams(1);
+      params.delete("page");
+      params.delete("pageSize");
+      const res = await fetch(
+        `/api/admin/customer-insight/filter/export?${params.toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(
+          typeof data.error === "string" ? data.error : "Export failed."
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "customer-insight-filter-export.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify.success("Filter export downloaded.");
+    } catch {
+      notify.error("Export failed.");
     } finally {
       setBusyKey(null);
     }
@@ -1048,9 +1100,10 @@ export function CustomerInsightPanel({
             {canFilterAllContacts
               ? "Results include all company contacts matching your filters (allocated and unallocated)."
               : "Results are limited to your allocated customers."}{" "}
-            Without a brand, highest lifetime totals first. With a brand, customers who bought
-            that brand (vendor or product title), ranked by brand spend — same rules as Contact
-            Master.
+            Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
+            full set. Without a brand, highest lifetime totals first. With a brand, customers who
+            bought that brand (vendor or product title), ranked by brand spend — same rules as
+            Contact Master.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -1270,6 +1323,26 @@ export function CustomerInsightPanel({
                 "Apply filters"
               )}
             </Button>
+            {canExportFilteredCsv ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy || !filterResults || filterTotal === 0}
+                onClick={() => void exportFilteredCsv()}
+              >
+                {busyKey === "export-filter" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download className="size-4" aria-hidden />
+                    Export CSV
+                  </>
+                )}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -1301,7 +1374,9 @@ export function CustomerInsightPanel({
                   <li key={row.contactId}>
                     <button
                       type="button"
-                      className="flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+                      className={`flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between ${
+                        selectedContactId === row.contactId ? "bg-muted/60" : ""
+                      }`}
                       disabled={isBusy}
                       onClick={() => void loadInsight(row.contactId, 1)}
                     >
@@ -1311,7 +1386,15 @@ export function CustomerInsightPanel({
                         {row.brandSpend != null
                           ? `Brand ${formatMoney(row.brandSpend)} · `
                           : null}
+                        {row.itemSpend != null
+                          ? `Item ${formatMoney(row.itemSpend)} · `
+                          : null}
                         {formatMoney(row.lifetimeTotal)} · {row.loyalty.label}
+                        {" · "}
+                        Last purchased{" "}
+                        {row.lastPurchaseAt
+                          ? formatAppDate(row.lastPurchaseAt, "—")
+                          : "never"}
                       </span>
                     </button>
                   </li>
@@ -1388,7 +1471,7 @@ export function CustomerInsightPanel({
       )}
 
       {insight && (
-        <>
+        <div ref={detailsRef} className="scroll-mt-4 space-y-6">
           {insight.historyScope ? (
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1538,6 +1621,15 @@ export function CustomerInsightPanel({
                               {formatMemberSince(insight.frequency?.firstOrderAt)}
                             </span>
                           ) : null}
+                          <span className="inline-flex items-center gap-1.5">
+                            <Calendar className="size-3.5 shrink-0" aria-hidden />
+                            Last purchased{" "}
+                            <span className="text-foreground">
+                              {insight.contact.lastPurchaseAt
+                                ? formatAppDate(insight.contact.lastPurchaseAt, "—")
+                                : "never"}
+                            </span>
+                          </span>
                         </div>
                       </div>
 
@@ -1545,6 +1637,14 @@ export function CustomerInsightPanel({
                         <DetailField
                           label="Allocated to"
                           value={insight.assignedMerchant ?? "—"}
+                        />
+                        <DetailField
+                          label="Last purchased"
+                          value={
+                            insight.contact.lastPurchaseAt
+                              ? formatAppDate(insight.contact.lastPurchaseAt, "—")
+                              : "Never"
+                          }
                         />
                         <DetailField
                           label="Date of birth"
@@ -1801,20 +1901,26 @@ export function CustomerInsightPanel({
                           <li className="text-muted-foreground">No phone on file</li>
                         ) : null}
                       </ul>
-                      <label className="mt-2 block space-y-1 text-sm">
-                        <span className="text-muted-foreground">Add new phone number</span>
-                        <Input
-                          value={profileForm.addPhoneNumber}
-                          onChange={(e) =>
-                            setProfileForm((prev) =>
-                              prev ? { ...prev, addPhoneNumber: e.target.value } : prev
-                            )
-                          }
-                          placeholder="e.g. 0771234567"
-                          disabled={isBusy}
-                          inputMode="tel"
-                        />
-                      </label>
+                      {canAddContactPhone ? (
+                        <label className="mt-2 block space-y-1 text-sm">
+                          <span className="text-muted-foreground">Add new phone number</span>
+                          <Input
+                            value={profileForm.addPhoneNumber}
+                            onChange={(e) =>
+                              setProfileForm((prev) =>
+                                prev ? { ...prev, addPhoneNumber: e.target.value } : prev
+                              )
+                            }
+                            placeholder="e.g. 0771234567"
+                            disabled={isBusy}
+                            inputMode="tel"
+                          />
+                        </label>
+                      ) : (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Linking a new phone needs contacts.merge permission.
+                        </p>
+                      )}
                     </div>
                     <div className="sm:col-span-2">
                       <Button
@@ -1931,9 +2037,9 @@ export function CustomerInsightPanel({
                   <p className="text-sm font-medium">No purchases found</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-border/70">
+                <div className="max-h-[28rem] overflow-auto rounded-xl border border-border/70">
                   <table className="w-full text-sm">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-card">
                       <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                         <th className="px-4 py-2 text-left font-medium">Order</th>
                         {isOwner ? (
@@ -2283,72 +2389,7 @@ export function CustomerInsightPanel({
               </CardContent>
             </Card>
           ) : null}
-          {canMergeContacts && selectedContactId ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Merge contact</CardTitle>
-                <CardDescription>
-                  Merge another contact into the open customer (requires contacts.merge).
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap items-end gap-2">
-                <label className="space-y-1 text-sm">
-                  <span className="text-muted-foreground">Source contact id</span>
-                  <Input
-                    value={mergeSourceId}
-                    onChange={(e) => setMergeSourceId(e.target.value)}
-                    disabled={isBusy}
-                    placeholder="cuid to merge away"
-                  />
-                </label>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={isBusy || !mergeSourceId.trim()}
-                  onClick={() => {
-                    void (async () => {
-                      setBusyKey("merge");
-                      try {
-                        const res = await fetch(
-                          "/api/admin/customer-insight/merge",
-                          {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              sourceContactId: mergeSourceId.trim(),
-                              targetContactId: selectedContactId,
-                            }),
-                          }
-                        );
-                        const data = await res.json().catch(() => ({}));
-                        if (!res.ok) {
-                          notify.error(data.error ?? "Merge failed");
-                          return;
-                        }
-                        notify.success("Contacts merged");
-                        setMergeSourceId("");
-                        await loadInsight(selectedContactId, 1);
-                      } catch {
-                        notify.error("Merge failed");
-                      } finally {
-                        setBusyKey(null);
-                      }
-                    })();
-                  }}
-                >
-                  {busyKey === "merge" ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden />
-                      Merging...
-                    </>
-                  ) : (
-                    "Merge into this contact"
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
-          ) : null}
-        </>
+        </div>
       )}
     </div>
   );

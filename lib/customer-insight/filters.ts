@@ -1,7 +1,5 @@
-import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
-import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
-import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
+import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
   buildLoyaltyDto,
   classifyLoyaltyTierKey,
@@ -11,7 +9,7 @@ import {
 import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import type { AllocatedFilterResultDto, LoyaltyTierKey } from "@/lib/customer-insight/types";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
-import { findContactsByPurchasedItem } from "@/lib/customer-insight/item-filter";
+import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -43,10 +41,16 @@ export type FilterQueryInput = {
   noPurchaseMonths?: 3 | 6;
   page: number;
   pageSize: number;
+  /** When true, return all matches (up to export cap) instead of one page. */
+  forExport?: boolean;
 };
 
+/** Item-rank slice only. Unranked tot/city/birthday filters scan full admin or assigned set. */
 const FILTER_CANDIDATE_CAP = 800;
 const BRAND_FILTER_RANK_CAP = 2_000;
+const LAST_CONTACTED_ID_CHUNK = 4_000;
+/** Safety cap for admin CSV export of filtered insight rows. */
+export const FILTER_EXPORT_CAP = 25_000;
 
 export function matchesBirthdayThisMonth(
   birthMonth: number | null | undefined,
@@ -134,59 +138,19 @@ function endOfColomboDay(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
-async function lifetimeTotalForContact(
-  companyId: string,
-  contactId: string
-): Promise<number> {
-  const contact = await prisma.contactMaster.findFirst({
-    where: { id: contactId, companyId },
-    select: { email: true, phoneNumber: true },
-  });
-  if (!contact) return 0;
-
-  const emails = await listContactEmails(contactId, contact.email);
-  const phones = await listContactPhones(contactId, contact.phoneNumber);
-  const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
-
-  const [orders, adaptRows] = await Promise.all([
-    orderLookupOr.length > 0
-      ? prisma.order.findMany({
-          where: { companyId, OR: orderLookupOr, ...customerLifetimeTotalOrderWhere() },
-          select: {
-            totalPrice: true,
-            cancelledAt: true,
-            financialStatus: true,
-            fulfillmentStage: true,
-          },
-        })
-      : Promise.resolve([]),
-    prisma.adaptPurchaseHistory.findMany({
-      where: { contactId, companyId },
-      select: { ttlAmount: true },
-    }),
-  ]);
-
-  return computeLifetimeTotal({
-    orders: orders.map((o) => ({
-      totalPrice: o.totalPrice.toString(),
-      cancelledAt: o.cancelledAt,
-      financialStatus: o.financialStatus,
-      fulfillmentStage: o.fulfillmentStage,
-    })),
-    adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
-  });
-}
-
 type ContactCandidate = {
   id: string;
   name: string;
   phoneNumber: string | null;
+  email: string | null;
   assignedMerchant: string | null;
   birthMonth: number | null;
   birthDay: number | null;
   lastPurchaseAt: Date | null;
   loyaltyAssignedAt: Date | null;
   loyaltyAssignedTier: string | null;
+  phones: { phoneNumber: string }[];
+  emails: { email: string }[];
 };
 
 function buildAllocationWhere(input: FilterQueryInput): {
@@ -269,17 +233,30 @@ async function lastContactedMap(
 ): Promise<Map<string, Date>> {
   const map = new Map<string, Date>();
   if (contactIds.length === 0) return map;
-  const rows = await prisma.contactAllocationUpdate.findMany({
-    where: {
-      companyId,
-      contactId: { in: contactIds },
-      NOT: { category: "allocation" },
-    },
-    orderBy: { createdAt: "desc" },
-    select: { contactId: true, createdAt: true },
-  });
-  for (const row of rows) {
-    if (!map.has(row.contactId)) map.set(row.contactId, row.createdAt);
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < contactIds.length; i += LAST_CONTACTED_ID_CHUNK) {
+    chunks.push(contactIds.slice(i, i + LAST_CONTACTED_ID_CHUNK));
+  }
+
+  const grouped = await Promise.all(
+    chunks.map((slice) =>
+      prisma.contactAllocationUpdate.groupBy({
+        by: ["contactId"],
+        where: {
+          companyId,
+          contactId: { in: slice },
+          NOT: { category: "allocation" },
+        },
+        _max: { createdAt: true },
+      })
+    )
+  );
+
+  for (const rows of grouped) {
+    for (const row of rows) {
+      if (row._max.createdAt) map.set(row.contactId, row._max.createdAt);
+    }
   }
   return map;
 }
@@ -321,15 +298,21 @@ export async function filterAllocatedContacts(
     return emptyResult();
   }
 
-  let itemContactIds: Set<string> | null = null;
-  if (itemNeedle) {
-    const itemHits = await findContactsByPurchasedItem(
-      input.companyId,
-      itemNeedle,
-      brandNeedle
-    );
-    itemContactIds = new Set(itemHits);
-    if (itemContactIds.size === 0) return emptyResult();
+  const itemRanks = itemNeedle
+    ? await findContactsByPurchasedItemRanked(
+        input.companyId,
+        itemNeedle,
+        brandNeedle
+      )
+    : [];
+  const itemSpendById = new Map(
+    itemRanks.map((r) => [r.contactId, r.itemSpend] as const)
+  );
+  const itemContactIds = itemNeedle
+    ? new Set(itemRanks.map((r) => r.contactId))
+    : null;
+  if (itemNeedle && (!itemContactIds || itemContactIds.size === 0)) {
+    return emptyResult();
   }
 
   let candidates: ContactCandidate[];
@@ -338,12 +321,15 @@ export async function filterAllocatedContacts(
     id: true,
     name: true,
     phoneNumber: true,
+    email: true,
     assignedMerchant: true,
     birthMonth: true,
     birthDay: true,
     lastPurchaseAt: true,
     loyaltyAssignedAt: true,
     loyaltyAssignedTier: true,
+    phones: { select: { phoneNumber: true } },
+    emails: { select: { email: true } },
   } as const;
 
   if (brandNeedle) {
@@ -362,35 +348,38 @@ export async function filterAllocatedContacts(
       if (row) candidates.push(row);
     }
   } else if (itemContactIds) {
-    const ids = [...itemContactIds].slice(0, FILTER_CANDIDATE_CAP);
-    candidates = await prisma.contactMaster.findMany({
+    const ids = itemRanks
+      .slice(0, FILTER_CANDIDATE_CAP)
+      .map((r) => r.contactId);
+    const rows = await prisma.contactMaster.findMany({
       where: { ...where, id: { in: ids } } as never,
       select,
     });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    candidates = [];
+    for (const id of ids) {
+      const row = byId.get(id);
+      if (row) candidates.push(row);
+    }
   } else {
     candidates = await prisma.contactMaster.findMany({
       where: where as never,
       select,
-      take: FILTER_CANDIDATE_CAP,
       orderBy: { updatedAt: "desc" },
     });
   }
 
-  const contacted = await lastContactedMap(
-    input.companyId,
-    candidates.map((c) => c.id)
+  const needLastContacted = Boolean(
+    input.lastContactedFrom || input.lastContactedTo
   );
+  const contacted = needLastContacted
+    ? await lastContactedMap(
+        input.companyId,
+        candidates.map((c) => c.id)
+      )
+    : new Map<string, Date>();
 
-  const scored: Array<{
-    contactId: string;
-    name: string;
-    phoneNumber: string | null;
-    lifetimeTotal: number;
-    brandSpend: number | null;
-    assignedMerchant: string | null;
-    key: LoyaltyTierKey;
-  }> = [];
-
+  const eligible: ContactCandidate[] = [];
   for (const contact of candidates) {
     if (input.birthdayFrom && input.birthdayTo) {
       if (
@@ -406,6 +395,7 @@ export async function filterAllocatedContacts(
     }
 
     if (
+      needLastContacted &&
       !inLastContactedRange(
         contacted.get(contact.id),
         input.lastContactedFrom,
@@ -427,10 +417,28 @@ export async function filterAllocatedContacts(
       }
     }
 
-    const lifetimeTotal = await lifetimeTotalForContact(
-      input.companyId,
-      contact.id
-    );
+    eligible.push(contact);
+  }
+
+  const lifetimeById = await lifetimeTotalsByContactId(
+    input.companyId,
+    eligible
+  );
+
+  const scored: Array<{
+    contactId: string;
+    name: string;
+    phoneNumber: string | null;
+    lifetimeTotal: number;
+    brandSpend: number | null;
+    itemSpend: number | null;
+    assignedMerchant: string | null;
+    lastPurchaseAt: Date | null;
+    key: LoyaltyTierKey;
+  }> = [];
+
+  for (const contact of eligible) {
+    const lifetimeTotal = lifetimeById.get(contact.id) ?? 0;
 
     const key = effectiveLoyaltyTierKey(
       contact.loyaltyAssignedTier,
@@ -444,18 +452,31 @@ export async function filterAllocatedContacts(
       : null;
     if (brandNeedle && !(brandSpend && brandSpend > 0)) continue;
 
+    const itemSpend = itemNeedle
+      ? itemSpendById.get(contact.id) ?? 0
+      : null;
+    if (itemNeedle && !(itemSpend && itemSpend > 0)) continue;
+
     scored.push({
       contactId: contact.id,
       name: contact.name,
       phoneNumber: contact.phoneNumber,
       lifetimeTotal,
       brandSpend,
+      itemSpend,
       assignedMerchant: contact.assignedMerchant,
+      lastPurchaseAt: contact.lastPurchaseAt,
       key,
     });
   }
 
-  if (brandNeedle) {
+  if (itemNeedle) {
+    scored.sort((a, b) => {
+      const spendDiff = (b.itemSpend ?? 0) - (a.itemSpend ?? 0);
+      if (spendDiff !== 0) return spendDiff;
+      return b.lifetimeTotal - a.lifetimeTotal;
+    });
+  } else if (brandNeedle) {
     scored.sort((a, b) => {
       const spendDiff = (b.brandSpend ?? 0) - (a.brandSpend ?? 0);
       if (spendDiff !== 0) return spendDiff;
@@ -466,8 +487,11 @@ export async function filterAllocatedContacts(
   }
 
   const total = scored.length;
+  const exportRows = input.forExport
+    ? scored.slice(0, FILTER_EXPORT_CAP)
+    : null;
   const start = (input.page - 1) * input.pageSize;
-  const pageItems = scored.slice(start, start + input.pageSize);
+  const pageItems = exportRows ?? scored.slice(start, start + input.pageSize);
 
   return {
     items: pageItems.map((row) => {
@@ -478,17 +502,19 @@ export async function filterAllocatedContacts(
         phoneNumber: row.phoneNumber,
         lifetimeTotal: row.lifetimeTotal,
         brandSpend: row.brandSpend,
+        itemSpend: row.itemSpend,
         loyalty: {
           key: loyalty.key,
           label: loyaltyLabel(row.key),
           code: loyaltyCode(row.key),
         },
         assignedMerchant: row.assignedMerchant,
+        lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
       };
     }),
     pagination: {
-      page: input.page,
-      pageSize: input.pageSize,
+      page: input.forExport ? 1 : input.page,
+      pageSize: input.forExport ? pageItems.length : input.pageSize,
       total,
     },
   };

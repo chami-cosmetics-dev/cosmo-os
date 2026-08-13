@@ -65,6 +65,7 @@ export async function loadCustomerInsight(input: {
       city: true,
       assignedMerchant: true,
       category: true,
+      lastPurchaseAt: true,
       loyaltyAssignedTier: true,
       loyaltyAssignedAt: true,
       loyaltyAssignedByUserId: true,
@@ -280,6 +281,7 @@ export async function loadCustomerInsight(input: {
       birthDay: contact.birthDay,
       assignedMerchant: contact.assignedMerchant,
       category: contact.category,
+      lastPurchaseAt: contact.lastPurchaseAt,
     }),
     loyalty: (() => {
       const computed = serializeLoyalty(lifetimeTotal, "LKR");

@@ -60,6 +60,8 @@ export type ContactInsightDto = {
   birthDay: number | null;
   assignedMerchant: string | null;
   category: string | null;
+  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  lastPurchaseAt: string | null;
 };
 
 export type FrequencyDto = {
@@ -152,7 +154,6 @@ export type CustomerInsightDto = {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
-  canMergeContacts?: boolean;
 };
 
 export type AllocatedFilterItemDto = {
@@ -162,8 +163,12 @@ export type AllocatedFilterItemDto = {
   lifetimeTotal: number;
   /** Present when brand filter is applied — spend on that brand only. */
   brandSpend?: number | null;
+  /** Present when item filter is applied — spend on that item only. */
+  itemSpend?: number | null;
   loyalty: Pick<LoyaltyDto, "key" | "label" | "code">;
   assignedMerchant: string | null;
+  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  lastPurchaseAt: string | null;
 };
 
 export type AllocatedFilterResultDto = {

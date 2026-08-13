@@ -141,6 +141,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     );
   }
 
+  if (parsed.data.addPhoneNumber) {
+    const keys = (auth.context?.permissionKeys as string[]) ?? [];
+    if (!keys.includes("contacts.merge")) {
+      return NextResponse.json(
+        { error: "Missing permission: contacts.merge" },
+        { status: 403 }
+      );
+    }
+  }
+
   try {
     const updated = await updateContactInsightProfile({
       companyId,

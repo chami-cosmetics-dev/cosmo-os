@@ -47,6 +47,16 @@ function pushItemOption(
   out.push({ value: canonical, label: canonical, sku: skuTrim });
 }
 
+/** True when any alphanumeric word in text starts with needle (letter-wise name typeahead). */
+export function textHasWordPrefix(text: string, needle: string): boolean {
+  const n = needle.trim().toLowerCase();
+  if (!n) return false;
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .some((word) => word.length > 0 && word.startsWith(n));
+}
+
 export function rankInsightItemOptions(
   items: FilterOptionDto[],
   q: string
@@ -62,8 +72,10 @@ export function rankInsightItemOptions(
       if (sku.startsWith(needle)) rank = 0;
       else if (sku.includes(needle)) rank = 1;
       else if (label.startsWith(needle) || value.startsWith(needle)) rank = 2;
+      // Letter-wise remembered names: "nia" → Niacinamide, not mid-word "ord" → Original
+      else if (textHasWordPrefix(label, needle) || textHasWordPrefix(value, needle)) rank = 3;
       else if (textContainsBrandWord(label, needle) || textContainsBrandWord(value, needle))
-        rank = 3;
+        rank = 4;
       return { item, rank };
     })
     .filter((row) => row.rank < 99);
@@ -162,6 +174,7 @@ export async function listInsightItemOptions(
         OR: [
           { sku: { contains: qNeedle, mode: "insensitive" as const } },
           { productTitle: { contains: qNeedle, mode: "insensitive" as const } },
+          { variantTitle: { contains: qNeedle, mode: "insensitive" as const } },
         ],
       }
     : null;

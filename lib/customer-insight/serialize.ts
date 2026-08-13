@@ -31,6 +31,7 @@ export function serializeContactInsight(input: {
   birthDay?: number | null;
   assignedMerchant?: string | null;
   category?: string | null;
+  lastPurchaseAt?: Date | string | null;
 }): ContactInsightDto {
   return {
     id: input.id,
@@ -47,6 +48,12 @@ export function serializeContactInsight(input: {
     birthDay: input.birthDay ?? null,
     assignedMerchant: input.assignedMerchant ?? null,
     category: input.category ?? null,
+    lastPurchaseAt:
+      input.lastPurchaseAt instanceof Date
+        ? input.lastPurchaseAt.toISOString()
+        : typeof input.lastPurchaseAt === "string" && input.lastPurchaseAt
+          ? input.lastPurchaseAt
+          : null,
   };
 }
 
@@ -69,7 +76,6 @@ export function buildCustomerInsightDto(input: {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
-  canMergeContacts?: boolean;
   historyScope?: HistoryScopeDto | null;
 }): CustomerInsightDto {
   const owner: CustomerInsightDto = {
@@ -86,7 +92,6 @@ export function buildCustomerInsightDto(input: {
     canEditProfile: input.canEditProfile ?? true,
     canMarkContacted: input.canMarkContacted ?? true,
     loyaltyAssignment: input.loyaltyAssignment ?? null,
-    canMergeContacts: input.canMergeContacts ?? false,
     invoices: input.invoices,
     invoicePagination: input.invoicePagination,
     historyScope: input.historyScope ?? null,

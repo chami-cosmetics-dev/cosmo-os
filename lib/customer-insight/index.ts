@@ -65,7 +65,6 @@ export {
   listContactEventHistory,
   CONTACTED_ALLOCATION_CATEGORY,
 } from "@/lib/customer-insight/contacted";
-export { mergeContactMasters } from "@/lib/customer-insight/merge";
 export {
   canAssignLoyaltyTier,
   isLoyaltyEligibleByTotal,
