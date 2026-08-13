@@ -2,8 +2,6 @@ import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
-  buildLoyaltyDto,
-  classifyLoyaltyTierKey,
   loyaltyCode,
   loyaltyLabel,
 } from "@/lib/customer-insight/loyalty-tier";
@@ -492,10 +490,8 @@ export async function filterAllocatedContacts(
   for (const contact of eligible) {
     const lifetimeTotal = lifetimeById.get(contact.id) ?? 0;
 
-    const key = effectiveLoyaltyTierKey(
-      contact.loyaltyAssignedTier,
-      classifyLoyaltyTierKey(lifetimeTotal)
-    );
+    // Badge = registered only; spend stays on lifetimeTotal / filters.
+    const key = effectiveLoyaltyTierKey(contact.loyaltyAssignedTier);
     if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
     if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
 
@@ -547,7 +543,6 @@ export async function filterAllocatedContacts(
 
   return {
     items: pageItems.map((row) => {
-      const loyalty = buildLoyaltyDto(row.lifetimeTotal);
       return {
         contactId: row.contactId,
         name: row.name,
@@ -556,7 +551,7 @@ export async function filterAllocatedContacts(
         brandSpend: row.brandSpend,
         itemSpend: row.itemSpend,
         loyalty: {
-          key: loyalty.key,
+          key: row.key,
           label: loyaltyLabel(row.key),
           code: loyaltyCode(row.key),
         },

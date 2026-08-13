@@ -297,11 +297,9 @@ export async function loadCustomerInsight(input: {
       removedEmails: includeRemovedEmails ? removedEmailRows : undefined,
     }),
     loyalty: (() => {
+      // lifetimeTotal / thresholds from spend; badge key from registration only.
       const computed = serializeLoyalty(lifetimeTotal, "LKR");
-      const key = effectiveLoyaltyTierKey(
-        contact.loyaltyAssignedTier,
-        computed.key
-      );
+      const key = effectiveLoyaltyTierKey(contact.loyaltyAssignedTier);
       return {
         ...computed,
         key,

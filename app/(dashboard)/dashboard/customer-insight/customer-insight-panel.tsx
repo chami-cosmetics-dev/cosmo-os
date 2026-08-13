@@ -1028,9 +1028,9 @@ export function CustomerInsightPanel({
     ? Math.round(progressBarFillRatio(insight.progressBar.currentTotal) * 100)
     : 0;
   const nextTierLabel =
-    insight?.loyalty.key === "platinum"
+    insight?.progressBar?.tier === "platinum"
       ? "Platinum"
-      : insight?.loyalty.key === "gold"
+      : insight?.progressBar?.tier === "gold"
         ? "Platinum"
         : "Gold";
 
@@ -2069,8 +2069,8 @@ export function CustomerInsightPanel({
                       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="text-sm font-semibold">
-                            {insight.loyalty.key === "platinum"
-                              ? "Platinum reached"
+                            {insight.progressBar.tier === "platinum"
+                              ? "Platinum spend reached"
                               : `Progress to ${nextTierLabel}`}
                           </p>
                           <p className="text-xs text-muted-foreground">
