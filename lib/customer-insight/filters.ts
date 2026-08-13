@@ -11,6 +11,7 @@ import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import type { AllocatedFilterResultDto, LoyaltyTierKey } from "@/lib/customer-insight/types";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
+import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
 export type MonthDay = { month: number; day: number };
@@ -29,7 +30,7 @@ export type FilterQueryInput = {
   brand?: string;
   item?: string;
   city?: string;
-  /** Admin-only: ContactMaster.assignedMerchant exact (insensitive). */
+  /** Admin-only: ContactMaster.assignedMerchant (alias groups expanded). */
   assignedMerchant?: string;
   /** Admin-only: company location id of the contact's latest purchase. */
   purchaseLocationId?: string;
@@ -158,10 +159,10 @@ type ContactCandidate = {
   emails: { email: string }[];
 };
 
-function buildAllocationWhere(input: FilterQueryInput): {
+async function buildAllocationWhere(input: FilterQueryInput): Promise<{
   empty: boolean;
   where: Record<string, unknown>;
-} {
+}> {
   const labels = merchantMatchKeysForUser(input.viewer);
   const scopeAll = Boolean(input.scopeAllContacts ?? input.isAdmin);
 
@@ -236,14 +237,27 @@ function buildAllocationWhere(input: FilterQueryInput): {
       : where.AND
         ? [where.AND]
         : [];
+    const assignedAliases = await resolveAssignedMerchantFilterLabels(
+      input.companyId,
+      assignedNeedle
+    );
     where.AND = [
       ...existingAnd,
-      {
-        assignedMerchant: {
-          equals: assignedNeedle,
-          mode: "insensitive" as const,
-        },
-      },
+      assignedAliases.length <= 1
+        ? {
+            assignedMerchant: {
+              equals: assignedAliases[0] ?? assignedNeedle,
+              mode: "insensitive" as const,
+            },
+          }
+        : {
+            OR: assignedAliases.map((alias) => ({
+              assignedMerchant: {
+                equals: alias,
+                mode: "insensitive" as const,
+              },
+            })),
+          },
     ];
   }
 
@@ -304,7 +318,7 @@ export async function filterAllocatedContacts(
     pagination: { page: input.page, pageSize: input.pageSize, total: 0 },
   });
 
-  const { empty, where } = buildAllocationWhere(input);
+  const { empty, where } = await buildAllocationWhere(input);
   if (empty) return emptyResult();
 
   const purchaseLocationId = input.purchaseLocationId?.trim() || null;
