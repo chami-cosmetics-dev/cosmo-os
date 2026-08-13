@@ -252,7 +252,3 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   brand: trimmedString(1, LIMITS.name.max).optional(),
   q: trimmedString(1, 100).optional(),
 });
-
-export const customerInsightMerchantExportQuerySchema = z.object({
-  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
-});

@@ -421,7 +421,6 @@ export function CustomerInsightPanel({
   const [merchantOptions, setMerchantOptions] = useState<string[]>([]);
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
-  const [exportMerchant, setExportMerchant] = useState("");
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
   const [filterBirthdayTo, setFilterBirthdayTo] = useState("");
   const [filterLastFrom, setFilterLastFrom] = useState("");
@@ -932,40 +931,6 @@ export function CustomerInsightPanel({
       notify.success("Filter export downloaded.");
     } catch {
       notify.error("Export failed.");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function exportMerchantCsv() {
-    if (!canExportFilteredCsv || !exportMerchant.trim()) return;
-    setBusyKey("export-merchant");
-    try {
-      const params = new URLSearchParams({
-        assignedMerchant: exportMerchant.trim(),
-      });
-      const res = await fetch(
-        `/api/admin/customer-insight/export/by-merchant?${params.toString()}`
-      );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        notify.error(
-          typeof data.error === "string" ? data.error : "Merchant export failed."
-        );
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `customer-insight-merchant-export.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      notify.success("Merchant contact export downloaded.");
-    } catch {
-      notify.error("Merchant export failed.");
     } finally {
       setBusyKey(null);
     }
@@ -1488,28 +1453,60 @@ export function CustomerInsightPanel({
                   <li key={row.contactId}>
                     <button
                       type="button"
-                      className={`flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between ${
-                        selectedContactId === row.contactId ? "bg-muted/60" : ""
+                      className={`flex w-full flex-col gap-3 px-3 py-3 text-left transition-colors sm:flex-row sm:items-center sm:justify-between sm:gap-4 ${
+                        selectedContactId === row.contactId
+                          ? "border-l-2 border-l-primary bg-primary/15 hover:bg-primary/20"
+                          : "hover:bg-muted/50"
                       }`}
                       disabled={isBusy}
                       onClick={() => void loadInsight(row.contactId, 1)}
                     >
-                      <span className="font-medium">{row.name}</span>
-                      <span className="text-muted-foreground">
-                        {row.phoneNumber ?? "—"} ·{" "}
-                        {row.brandSpend != null
-                          ? `Brand ${formatMoney(row.brandSpend)} · `
-                          : null}
-                        {row.itemSpend != null
-                          ? `Item ${formatMoney(row.itemSpend)} · `
-                          : null}
-                        {formatMoney(row.lifetimeTotal)} · {row.loyalty.label}
-                        {" · "}
-                        Last purchased{" "}
-                        {row.lastPurchaseAt
-                          ? formatAppDate(row.lastPurchaseAt, "—")
-                          : "never"}
-                      </span>
+                      <div className="min-w-0 space-y-1">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {row.name}
+                        </p>
+                        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                          <Phone className="size-3 shrink-0" aria-hidden />
+                          <span className="truncate">{row.phoneNumber ?? "No phone"}</span>
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        <span
+                          className={`inline-flex whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-semibold ${tierBadgeClass(row.loyalty.key)}`}
+                        >
+                          {row.loyalty.label}
+                        </span>
+                        {row.brandSpend != null ? (
+                          <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+                            Brand{" "}
+                            <span className="font-medium text-foreground">
+                              {formatMoney(row.brandSpend)}
+                            </span>
+                          </span>
+                        ) : null}
+                        {row.itemSpend != null ? (
+                          <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+                            Item{" "}
+                            <span className="font-medium text-foreground">
+                              {formatMoney(row.itemSpend)}
+                            </span>
+                          </span>
+                        ) : null}
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
+                          Lifetime{" "}
+                          <span className="font-medium text-foreground">
+                            {formatMoney(row.lifetimeTotal)}
+                          </span>
+                        </span>
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                          Last purchased{" "}
+                          <span className="font-medium text-foreground">
+                            {row.lastPurchaseAt
+                              ? formatAppDate(row.lastPurchaseAt, "—")
+                              : "never"}
+                          </span>
+                        </span>
+                      </div>
                     </button>
                   </li>
                 ))}
@@ -1540,49 +1537,6 @@ export function CustomerInsightPanel({
           )}
         </CardContent>
       </Card>
-
-      {canExportFilteredCsv ? (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Export by allocated merchant</CardTitle>
-            <CardDescription>
-              Download all contacts currently allocated to one merchant (admin /
-              Insight admin view).
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <label className="min-w-0 flex-1 space-y-1 text-sm">
-              <span className="text-muted-foreground">Merchant</span>
-              <InsightSearchableSelect
-                value={exportMerchant}
-                options={merchantOptions}
-                placeholder="Select merchant"
-                searchPlaceholder="Search merchants…"
-                disabled={isBusy}
-                onChange={setExportMerchant}
-              />
-            </label>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isBusy || !exportMerchant.trim()}
-              onClick={() => void exportMerchantCsv()}
-            >
-              {busyKey === "export-merchant" ? (
-                <>
-                  <Loader2 className="animate-spin" aria-hidden />
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <Download className="size-4" aria-hidden />
-                  Export merchant CSV
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-      ) : null}
 
       {searched && matches && matches.length === 0 && !insight && (
         <Card>
