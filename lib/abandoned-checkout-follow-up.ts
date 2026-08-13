@@ -113,7 +113,9 @@ export async function updateAbandonedCheckoutFollowUp(input: {
   }
 
   const nextCustomerResponse =
-    followUpStatus === "closed" ? customerResponse ?? null : row.customerResponse;
+    followUpStatus === "closed"
+      ? customerResponse ?? null
+      : null;
 
   const nextRemark = remark === undefined ? row.remark : remark ?? null;
 

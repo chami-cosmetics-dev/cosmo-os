@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -52,12 +52,6 @@ export function AbandonedOrderFollowUpForm({
   const isClosing = followUpStatus === "closed";
   const [error, setError] = useState<string | null>(null);
 
-  const responseRequiredError = useMemo(() => {
-    if (!isClosing) return null;
-    if (customerResponse) return null;
-    return "Customer response is required when closing follow-up.";
-  }, [customerResponse, isClosing]);
-
   function applyRemarkTemplate(id: RemarkTemplateId) {
     setRemarkTemplateId(id);
     if (id === "custom") {
@@ -75,14 +69,9 @@ export function AbandonedOrderFollowUpForm({
         e.preventDefault();
         setError(null);
 
-        if (responseRequiredError) {
-          setError(responseRequiredError);
-          return;
-        }
-
         void onSubmit({
           followUpStatus,
-          customerResponse: isClosing ? customerResponse : customerResponse,
+          customerResponse: isClosing ? customerResponse : null,
           remark: remark.trim() ? remark.trim() : undefined,
         }).catch((err) => {
           setError(err instanceof Error ? err.message : "Failed to save follow-up");
@@ -107,7 +96,7 @@ export function AbandonedOrderFollowUpForm({
 
       {isClosing && (
         <div className="space-y-1">
-          <label className="text-sm font-medium">Customer response</label>
+          <label className="text-sm font-medium">Customer response (optional)</label>
           <Select
             value={customerResponse ?? undefined}
             onValueChange={(v) => {

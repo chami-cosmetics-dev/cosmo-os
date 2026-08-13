@@ -3,6 +3,7 @@ import { buildLoyaltyDto } from "@/lib/customer-insight/loyalty-tier";
 import { buildProgressBarDto } from "@/lib/customer-insight/progress-bar";
 import type {
   ContactInsightDto,
+  ContactRemovedEmailDto,
   CustomerInsightDto,
   FrequencyDto,
   InvoicePaginationDto,
@@ -60,22 +61,20 @@ export function serializeContactInsight(input: {
           ? input.lastPurchaseAt
           : null,
     removedEmails: (input.removedEmails ?? [])
-      .map((row) => {
-        const reason =
-          row.reason === "cosmetics_pattern" || row.reason === "invalid"
-            ? row.reason
-            : null;
-        if (!reason) return null;
+      .map((row): ContactRemovedEmailDto | null => {
+        if (row.reason !== "cosmetics_pattern" && row.reason !== "invalid") {
+          return null;
+        }
         return {
           email: row.email,
-          reason,
+          reason: row.reason,
           removedAt:
             row.removedAt instanceof Date
               ? row.removedAt.toISOString()
               : String(row.removedAt),
         };
       })
-      .filter((row): row is NonNullable<typeof row> => row != null),
+      .filter((row): row is ContactRemovedEmailDto => row != null),
   };
 }
 

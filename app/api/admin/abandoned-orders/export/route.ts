@@ -109,9 +109,10 @@ export async function GET(request: NextRequest) {
         item.followUpStatus
           ? (FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus)
           : "",
-      "Customer Response": item.customerResponse
-        ? getCustomerResponseLabel(item.customerResponse)
-        : "",
+      "Customer Response":
+        item.customerResponse && item.customerResponse !== "recovered_sale"
+          ? getCustomerResponseLabel(item.customerResponse)
+          : "",
       Remark: item.remark ?? "",
       "Last Updated By": item.lastFollowUpBy?.name ?? "",
       "Last Updated At": item.lastFollowUpAt ? formatIsoDateTime(new Date(item.lastFollowUpAt)) : "",

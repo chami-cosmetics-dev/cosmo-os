@@ -9,6 +9,7 @@ export const CUSTOMER_RESPONSES = [
   "customer_doesnt_want_order",
   "already_placed_order",
   "placed_order_from_another_place",
+  "sent_an_email",
   "recovered_sale",
 ] as const;
 export type CustomerResponse = (typeof CUSTOMER_RESPONSES)[number];
@@ -49,6 +50,7 @@ export const CUSTOMER_RESPONSE_LABELS: Record<CustomerResponse, string> = {
   customer_doesnt_want_order: "Customer doesn't want the order",
   already_placed_order: "Already placed an order by another merchant",
   placed_order_from_another_place: "Customer placed an order from another place",
+  sent_an_email: "Sent an email",
   recovered_sale: "Recovered sale",
 };
 
@@ -66,6 +68,17 @@ export function getCustomerResponseLabel(value: string | null | undefined): stri
     return LEGACY_CUSTOMER_RESPONSE_LABELS[value as LegacyCustomerResponse];
   }
   return value;
+}
+
+/** Table/CSV Response cell: prefer merchant remark; hide system-only recovered_sale. */
+export function getAbandonedOrdersResponseDisplay(item: {
+  remark?: string | null;
+  customerResponse?: string | null;
+}): string {
+  const remark = item.remark?.trim();
+  if (remark) return remark;
+  if (!item.customerResponse || item.customerResponse === "recovered_sale") return "—";
+  return getCustomerResponseLabel(item.customerResponse);
 }
 
 export const REMARK_TEMPLATES = [
@@ -92,6 +105,10 @@ export const REMARK_TEMPLATES = [
   {
     id: "placed_order_from_another_place",
     label: "Customer placed an order from another place",
+  },
+  {
+    id: "sent_an_email",
+    label: "Sent an email",
   },
   {
     id: "custom",
