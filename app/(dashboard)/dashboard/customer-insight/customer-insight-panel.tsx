@@ -418,7 +418,7 @@ export function CustomerInsightPanel({
   const [filterCity, setFilterCity] = useState("");
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [filterAssignedMerchant, setFilterAssignedMerchant] = useState("");
-  const [merchantOptions, setMerchantOptions] = useState<string[]>([]);
+  const [merchantOptions, setMerchantOptions] = useState<InsightSelectOption[]>([]);
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
@@ -578,9 +578,9 @@ export function CustomerInsightPanel({
         if (cancelled) return;
         if (merchantsRes.ok && Array.isArray(merchantsData.options)) {
           setMerchantOptions(
-            (merchantsData.options as Array<{ value?: string }>)
-              .map((o) => o.value)
-              .filter((v): v is string => typeof v === "string")
+            (merchantsData.options as Array<{ value?: string; label?: string }>)
+              .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
+              .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
         }
         if (locationsRes.ok && Array.isArray(locationsData.options)) {
