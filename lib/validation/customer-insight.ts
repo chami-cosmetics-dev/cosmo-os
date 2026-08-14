@@ -4,6 +4,7 @@ import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
+import { INSIGHT_FILTER_LIST_MAX } from "@/lib/customer-insight/filter-query-params";
 import {
   cuidSchema,
   emailSchema,
@@ -40,8 +41,8 @@ export const customerInsightInvoicesQuerySchema = z.object({
     .max(LIMITS.pagination.pageMax)
     .default(1),
   invoicesPageSize: z.coerce.number().int().min(1).max(50).default(25),
-  brand: z.string().trim().max(200).optional(),
-  item: z.string().trim().max(500).optional(),
+  brand: insightFilterListSchema(200),
+  item: insightFilterListSchema(500),
 });
 
 export const customerInsightProfilePatchSchema = z
@@ -153,9 +154,15 @@ const optionalIsoDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
   .optional();
 
+const insightFilterListSchema = (maxLen: number) =>
+  z
+    .array(trimmedString(1, maxLen))
+    .max(INSIGHT_FILTER_LIST_MAX)
+    .optional();
+
 const customerInsightFilterFieldsSchema = z.object({
-  brand: trimmedString(1, LIMITS.name.max).optional(),
-  item: trimmedString(1, LIMITS.name.max).optional(),
+  brand: insightFilterListSchema(LIMITS.name.max),
+  item: insightFilterListSchema(500),
   city: trimmedString(1, 100).optional(),
   assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   purchaseLocationId: cuidSchema.optional(),
@@ -249,6 +256,6 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   type: z
     .enum(["brands", "items", "cities", "merchants", "locations"])
     .default("brands"),
-  brand: trimmedString(1, LIMITS.name.max).optional(),
+  brand: insightFilterListSchema(LIMITS.name.max),
   q: trimmedString(1, 100).optional(),
 });

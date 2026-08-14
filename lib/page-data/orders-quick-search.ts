@@ -3,6 +3,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 
 import { formatBusinessOrderNumber } from "@/lib/order-display-label";
+import { enrichOrdersWithReplaceLinks } from "@/lib/order-replace-link-enrich";
 import { prisma } from "@/lib/prisma";
 
 function extractCustomerName(shippingAddress: unknown, billingAddress: unknown) {
@@ -78,12 +79,15 @@ export async function quickSearchOrders(params: {
       fulfillmentStage: true,
       totalPrice: true,
       currency: true,
+      replacedByOrderId: true,
     },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
 
-  return orders.map((order) => ({
+  const enriched = await enrichOrdersWithReplaceLinks(params.companyId, orders);
+
+  return enriched.map((order) => ({
     id: order.id,
     orderNumber: order.orderNumber,
     name: order.name,
@@ -93,5 +97,12 @@ export async function quickSearchOrders(params: {
     fulfillmentStage: order.fulfillmentStage,
     totalPrice: order.totalPrice.toString(),
     currency: order.currency,
+    replacedByOrder: order.replacedByOrder
+      ? { id: order.replacedByOrder.id, orderLabel: order.replacedByOrder.orderLabel }
+      : null,
+    replacedFromOrders: order.replacedFromOrders.map((row) => ({
+      id: row.id,
+      orderLabel: row.orderLabel,
+    })),
   }));
 }

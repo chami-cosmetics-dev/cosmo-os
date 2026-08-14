@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { filterAllocatedContacts } from "@/lib/customer-insight/filters";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import {
   canFilterAllInsightContacts,
   hasInsightAdminView,
@@ -31,8 +32,8 @@ export async function GET(request: NextRequest) {
 
   const sp = request.nextUrl.searchParams;
   const parsed = customerInsightFilterQuerySchema.safeParse({
-    brand: queryParam(sp.get("brand")),
-    item: queryParam(sp.get("item")),
+    brand: readInsightFilterList(sp, "brand"),
+    item: readInsightFilterList(sp, "item"),
     city: queryParam(sp.get("city")),
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
@@ -89,8 +90,8 @@ export async function GET(request: NextRequest) {
     viewer,
     isAdmin: isAdminView,
     scopeAllContacts,
-    brand: parsed.data.brand,
-    item: parsed.data.item,
+    brands: parsed.data.brand,
+    items: parsed.data.item,
     city: parsed.data.city,
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,

@@ -7,6 +7,7 @@ import {
   listInsightItemOptions,
   listInsightPurchaseLocationOptions,
 } from "@/lib/customer-insight/filter-options";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
 import { customerInsightFilterOptionsQuerySchema } from "@/lib/validation/customer-insight";
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const parsed = customerInsightFilterOptionsQuerySchema.safeParse({
     type: sp.get("type") ?? "brands",
-    brand: sp.get("brand") ?? undefined,
+    brand: readInsightFilterList(sp, "brand"),
     q: sp.get("q") ?? undefined,
   });
   if (!parsed.success) {
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
 
   if (parsed.data.type === "items") {
     const options = await listInsightItemOptions(companyId, {
-      brand: parsed.data.brand,
+      brands: parsed.data.brand,
       q: parsed.data.q,
     });
     return NextResponse.json({ options, brands: [] });

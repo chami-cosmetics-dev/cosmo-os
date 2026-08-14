@@ -73,7 +73,7 @@ function lineMatchesItem(
 function adaptLineMatchesItem(
   raw: unknown,
   needle: string,
-  brandNeedle: string | null
+  brandNeedles: string[] | null
 ): boolean {
   const label = adaptItemLabel(raw);
   const sku =
@@ -85,24 +85,27 @@ function adaptLineMatchesItem(
         ).trim()
       : "";
   if (!labelMatches(label, needle) && !skuMatches(sku, needle)) return false;
-  if (brandNeedle && !brandsMatch(brandFromAdaptLineItem(raw), brandNeedle)) {
-    return false;
+  if (brandNeedles?.length) {
+    const lineBrand = brandFromAdaptLineItem(raw);
+    if (!brandNeedles.some((brand) => brandsMatch(lineBrand, brand))) return false;
   }
   return true;
 }
 
 /**
  * Contacts who purchased the item, ranked by item spend highest first.
- * Optional brand scopes Cosmo vendor / Adapt brand.
+ * Optional brands scope Cosmo vendor / Adapt brand (any selected brand matches).
  */
 export async function findContactsByPurchasedItemRanked(
   companyId: string,
   itemLabel: string,
-  brand?: string | null
+  brands?: string[] | string | null
 ): Promise<ItemPurchaseRank[]> {
   const needle = itemLabel.trim();
   if (!needle) return [];
-  const brandNeedle = brand?.trim() || null;
+  const brandNeedles = (Array.isArray(brands) ? brands : brands ? [brands] : [])
+    .map((b) => b.trim())
+    .filter(Boolean);
 
   const spendByContact = new Map<string, number>();
   const addSpend = (contactId: string, amount: number) => {
@@ -120,7 +123,7 @@ export async function findContactsByPurchasedItemRanked(
     const lines = Array.isArray(row.lineItems) ? row.lineItems : [];
     let spend = 0;
     for (const raw of lines) {
-      if (!adaptLineMatchesItem(raw, needle, brandNeedle)) continue;
+      if (!adaptLineMatchesItem(raw, needle, brandNeedles.length ? brandNeedles : null)) continue;
       if (!raw || typeof raw !== "object") continue;
       const obj = raw as Record<string, unknown>;
       spend += lineSpend(
@@ -194,8 +197,10 @@ export async function findContactsByPurchasedItemRanked(
         continue;
       }
       if (
-        brandNeedle &&
-        !brandsMatch(li.productItem.vendor?.name, brandNeedle)
+        brandNeedles.length > 0 &&
+        !brandNeedles.some((brand) =>
+          brandsMatch(li.productItem.vendor?.name, brand)
+        )
       ) {
         continue;
       }
@@ -296,12 +301,12 @@ export async function findContactsByPurchasedItemRanked(
 export async function findContactsByPurchasedItem(
   companyId: string,
   itemLabel: string,
-  brand?: string | null
+  brands?: string[] | string | null
 ): Promise<string[]> {
   const ranked = await findContactsByPurchasedItemRanked(
     companyId,
     itemLabel,
-    brand
+    brands
   );
   return ranked.map((r) => r.contactId);
 }

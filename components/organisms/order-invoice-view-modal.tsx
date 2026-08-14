@@ -55,7 +55,9 @@ import {
   shouldBlockShopifyCancelInOs,
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppStoredDateTime } from "@/lib/format-datetime";
+import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -178,6 +180,21 @@ type OrderDetail = {
   cancelledBy?: UserRef;
   cancelReason?: string | null;
   hasPendingCancelApproval?: boolean;
+  replacedByOrder?: {
+    id: string;
+    orderLabel: string;
+    name?: string | null;
+    orderNumber?: string | null;
+    erpnextInvoiceId?: string | null;
+  } | null;
+  replacedFromOrders?: Array<{
+    id: string;
+    orderLabel: string;
+    name?: string | null;
+    orderNumber?: string | null;
+    erpnextInvoiceId?: string | null;
+    cancelledAt?: string | null;
+  }>;
   paymentApproval?: {
     id: string;
     status: string;
@@ -1544,6 +1561,17 @@ export function OrderInvoiceViewModal({
                   Cancel Order
                 </Button>
               </div>
+            ) : null}
+
+            {!isVaultOsDeployment() ? (
+              <OrderReplaceLinkPanel
+                orderId={orderDetail.id}
+                isCancelled={Boolean(orderDetail.cancelledAt) || orderDetail.financialStatus?.toLowerCase() === "voided"}
+                canEdit={Boolean(canCancelOrder)}
+                replacedByOrder={orderDetail.replacedByOrder}
+                replacedFromOrders={orderDetail.replacedFromOrders}
+                onSaved={() => onRefresh?.()}
+              />
             ) : null}
 
             {/* Remarks */}

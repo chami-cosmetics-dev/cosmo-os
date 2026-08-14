@@ -25,8 +25,8 @@ export type FilterQueryInput = {
   };
   isAdmin: boolean;
   scopeAllContacts?: boolean;
-  brand?: string;
-  item?: string;
+  brands?: string[];
+  items?: string[];
   city?: string;
   /** Admin-only: ContactMaster.assignedMerchant (alias groups expanded). */
   assignedMerchant?: string;
@@ -67,6 +67,24 @@ export function matchesBirthdayThisMonth(
 /** Ordinal day-of-year style key for month-day (non-leap Feb 29 → 60). */
 export function monthDayKey(month: number, day: number): number {
   return month * 100 + day;
+}
+
+function mergeRankedSpendMaps(
+  rankLists: Array<Array<{ contactId: string; spend: number }>>
+): { spendById: Map<string, number>; sortedContactIds: string[] } {
+  const spendById = new Map<string, number>();
+  for (const ranks of rankLists) {
+    for (const row of ranks) {
+      spendById.set(
+        row.contactId,
+        (spendById.get(row.contactId) ?? 0) + row.spend
+      );
+    }
+  }
+  const sortedContactIds = [...spendById.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([contactId]) => contactId);
+  return { spendById, sortedContactIds };
 }
 
 /**
@@ -334,34 +352,48 @@ export async function filterAllocatedContacts(
     where.AND = [...existingAnd, { id: { in: locationContactIds } }];
   }
 
-  const brandNeedle = input.brand?.trim() || null;
-  const itemNeedle = input.item?.trim() || null;
+  const brandNeedles = (input.brands ?? []).map((b) => b.trim()).filter(Boolean);
+  const itemNeedles = (input.items ?? []).map((i) => i.trim()).filter(Boolean);
+  const hasBrands = brandNeedles.length > 0;
+  const hasItems = itemNeedles.length > 0;
 
-  const brandRanks = brandNeedle
-    ? await findContactsByPurchasedBrandRanked(input.companyId, brandNeedle)
+  const brandRankLists = hasBrands
+    ? await Promise.all(
+        brandNeedles.map((brand) =>
+          findContactsByPurchasedBrandRanked(input.companyId, brand)
+        )
+      )
     : [];
-  const brandSpendById = new Map(
-    brandRanks.map((r) => [r.contactId, r.brandSpend] as const)
-  );
+  const { spendById: brandSpendById, sortedContactIds: brandSortedIds } =
+    mergeRankedSpendMaps(
+      brandRankLists.map((ranks) =>
+        ranks.map((r) => ({ contactId: r.contactId, spend: r.brandSpend }))
+      )
+    );
 
-  if (brandNeedle && brandRanks.length === 0) {
+  if (hasBrands && brandSortedIds.length === 0) {
     return emptyResult();
   }
 
-  const itemRanks = itemNeedle
-    ? await findContactsByPurchasedItemRanked(
-        input.companyId,
-        itemNeedle,
-        brandNeedle
+  const itemRankLists = hasItems
+    ? await Promise.all(
+        itemNeedles.map((item) =>
+          findContactsByPurchasedItemRanked(
+            input.companyId,
+            item,
+            hasBrands ? brandNeedles : null
+          )
+        )
       )
     : [];
-  const itemSpendById = new Map(
-    itemRanks.map((r) => [r.contactId, r.itemSpend] as const)
-  );
-  const itemContactIds = itemNeedle
-    ? new Set(itemRanks.map((r) => r.contactId))
-    : null;
-  if (itemNeedle && (!itemContactIds || itemContactIds.size === 0)) {
+  const { spendById: itemSpendById, sortedContactIds: itemSortedIds } =
+    mergeRankedSpendMaps(
+      itemRankLists.map((ranks) =>
+        ranks.map((r) => ({ contactId: r.contactId, spend: r.itemSpend }))
+      )
+    );
+  const itemContactIds = hasItems ? new Set(itemSortedIds) : null;
+  if (hasItems && (!itemContactIds || itemContactIds.size === 0)) {
     return emptyResult();
   }
 
@@ -382,10 +414,9 @@ export async function filterAllocatedContacts(
     emails: { select: { email: true } },
   } as const;
 
-  if (brandNeedle) {
-    const brandIds = brandRanks
+  if (hasBrands) {
+    const brandIds = brandSortedIds
       .slice(0, BRAND_FILTER_RANK_CAP)
-      .map((r) => r.contactId)
       .filter((id) => (itemContactIds ? itemContactIds.has(id) : true));
     const rows = await prisma.contactMaster.findMany({
       where: { ...where, id: { in: brandIds } } as never,
@@ -398,9 +429,7 @@ export async function filterAllocatedContacts(
       if (row) candidates.push(row);
     }
   } else if (itemContactIds) {
-    const ids = itemRanks
-      .slice(0, FILTER_CANDIDATE_CAP)
-      .map((r) => r.contactId);
+    const ids = itemSortedIds.slice(0, FILTER_CANDIDATE_CAP);
     const rows = await prisma.contactMaster.findMany({
       where: { ...where, id: { in: ids } } as never,
       select,
@@ -495,15 +524,11 @@ export async function filterAllocatedContacts(
     if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
     if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
 
-    const brandSpend = brandNeedle
-      ? brandSpendById.get(contact.id) ?? 0
-      : null;
-    if (brandNeedle && !(brandSpend && brandSpend > 0)) continue;
+    const brandSpend = hasBrands ? brandSpendById.get(contact.id) ?? 0 : null;
+    if (hasBrands && !(brandSpend && brandSpend > 0)) continue;
 
-    const itemSpend = itemNeedle
-      ? itemSpendById.get(contact.id) ?? 0
-      : null;
-    if (itemNeedle && !(itemSpend && itemSpend > 0)) continue;
+    const itemSpend = hasItems ? itemSpendById.get(contact.id) ?? 0 : null;
+    if (hasItems && !(itemSpend && itemSpend > 0)) continue;
 
     scored.push({
       contactId: contact.id,
@@ -518,13 +543,13 @@ export async function filterAllocatedContacts(
     });
   }
 
-  if (itemNeedle) {
+  if (hasItems) {
     scored.sort((a, b) => {
       const spendDiff = (b.itemSpend ?? 0) - (a.itemSpend ?? 0);
       if (spendDiff !== 0) return spendDiff;
       return b.lifetimeTotal - a.lifetimeTotal;
     });
-  } else if (brandNeedle) {
+  } else if (hasBrands) {
     scored.sort((a, b) => {
       const spendDiff = (b.brandSpend ?? 0) - (a.brandSpend ?? 0);
       if (spendDiff !== 0) return spendDiff;

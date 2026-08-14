@@ -757,6 +757,8 @@ model Order {
   cancelledAt                     DateTime?
   cancelledById                   String?
   cancelReason                    String?
+  /// Cosmo cancel→replace: cancelled order points at the ERP/Cosmo order that supersedes it.
+  replacedByOrderId               String?
   assignedMerchant                User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
   company                         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation                 CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
@@ -773,6 +775,8 @@ model Order {
   packageReadyBy                  User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy       User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
   cancelledBy                     User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
+  replacedByOrder                 Order?                 @relation("OrderReplacedBy", fields: [replacedByOrderId], references: [id], onDelete: SetNull)
+  replacedFromOrders              Order[]                @relation("OrderReplacedBy")
   lineItems                       OrderLineItem[]
   exchangesAsOriginal             OrderExchange[]        @relation("OrderExchangeOriginalOrder")
   exchangesAsReplacement          OrderExchange[]        @relation("OrderExchangeReplacementOrder")
@@ -817,6 +821,7 @@ model Order {
   @@index([erpnextInvoiceId])
   @@index([companyId, erpnextCustomerId])
   @@index([companyId, erpnextSyncNextAutoRetryAt])
+  @@index([companyId, replacedByOrderId])
 }
 
 model PickListGroup {

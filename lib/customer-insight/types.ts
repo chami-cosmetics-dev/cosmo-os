@@ -129,8 +129,8 @@ export type InvoicePaginationDto = {
 };
 
 export type HistoryScopeDto = {
-  brand: string | null;
-  item: string | null;
+  brands: string[];
+  items: string[];
   scopedSpend: number;
 };
 

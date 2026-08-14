@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { decideErpItemPriceProductSync } from "@/lib/erp-item-price-decision";
+import {
+  decideErpItemPriceProductSync,
+  planStandardSellingPriceUpdates,
+} from "@/lib/erp-item-price-decision";
 
 describe("decideErpItemPriceProductSync", () => {
   const base = {
@@ -43,5 +46,28 @@ describe("decideErpItemPriceProductSync", () => {
     expect(
       decideErpItemPriceProductSync({ ...base, price_list: "standard selling" }),
     ).toMatchObject({ apply: true, rate: "6250.00" });
+  });
+});
+
+describe("planStandardSellingPriceUpdates", () => {
+  it("updates mismatched SKUs and skips already-matching prices", () => {
+    expect(
+      planStandardSellingPriceUpdates(
+        [
+          { id: "a", sku: "DRRA30_1", price: "975.00" },
+          { id: "b", sku: "drra30_1", price: "1950.00" },
+          { id: "c", sku: "OLA11_1", price: "1550.00" },
+        ],
+        { DRRA30_1: "1950.00", OLA11_1: "1550.00" },
+      ),
+    ).toEqual([{ price: "1950.00", ids: ["a"] }]);
+  });
+
+  it("skips SKUs with no ERP rate", () => {
+    expect(
+      planStandardSellingPriceUpdates([{ id: "a", sku: "NOPE_1", price: "10.00" }], {
+        DRRA30_1: "1950.00",
+      }),
+    ).toEqual([]);
   });
 });

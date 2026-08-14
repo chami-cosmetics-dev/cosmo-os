@@ -14,7 +14,7 @@ describe("history-scope", () => {
           variantTitle: "30ml",
           brand: "Anua",
         },
-        { brand: "Anua" }
+        { brands: ["Anua"] }
       )
     ).toBe(true);
     expect(
@@ -25,7 +25,7 @@ describe("history-scope", () => {
           sku: "ANU-123",
           brand: "Anua",
         },
-        { item: "ANU-123" }
+        { items: ["ANU-123"] }
       )
     ).toBe(true);
     expect(
@@ -34,7 +34,7 @@ describe("history-scope", () => {
           productTitle: "Other Product",
           brand: "Other",
         },
-        { brand: "Anua" }
+        { brands: ["Anua"] }
       )
     ).toBe(false);
   });
@@ -70,7 +70,7 @@ describe("history-scope", () => {
           ],
         },
       ],
-      { brand: "Anua" }
+      { brands: ["Anua"] }
     );
     expect(orders.length).toBe(1);
     expect(orders[0].lineItems.length).toBe(1);

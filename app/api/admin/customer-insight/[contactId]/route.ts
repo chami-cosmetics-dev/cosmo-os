@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadCustomerInsight } from "@/lib/customer-insight/load";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import { updateContactInsightProfile } from "@/lib/customer-insight/profile";
 import { prisma } from "@/lib/prisma";
@@ -70,8 +71,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   const queryParsed = customerInsightInvoicesQuerySchema.safeParse({
     invoicesPage: request.nextUrl.searchParams.get("invoicesPage") ?? undefined,
     invoicesPageSize: request.nextUrl.searchParams.get("invoicesPageSize") ?? undefined,
-    brand: request.nextUrl.searchParams.get("brand") ?? undefined,
-    item: request.nextUrl.searchParams.get("item") ?? undefined,
+    brand: readInsightFilterList(request.nextUrl.searchParams, "brand"),
+    item: readInsightFilterList(request.nextUrl.searchParams, "item"),
   });
   if (!queryParsed.success) {
     return NextResponse.json(
@@ -85,8 +86,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     contactId: idParsed.data.contactId,
     invoicesPage: queryParsed.data.invoicesPage,
     invoicesPageSize: queryParsed.data.invoicesPageSize,
-    historyBrand: queryParsed.data.brand,
-    historyItem: queryParsed.data.item,
+    historyBrands: queryParsed.data.brand,
+    historyItems: queryParsed.data.item,
     viewer: await viewerFromAuth(auth),
   });
   if (!insight) {
