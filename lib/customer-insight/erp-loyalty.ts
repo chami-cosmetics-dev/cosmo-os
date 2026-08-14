@@ -36,11 +36,18 @@ export function higherAssignedLoyaltyTier(
   return null;
 }
 
+/**
+ * OS loyalty badge = registered tier only (ERP sync / Shopify assign).
+ * Spend still drives eligibility + progress; it must not paint Gold/Platinum
+ * on contacts who are still Standard externally.
+ *
+ * `@param _computed` kept for call-site compat; ignored on purpose.
+ */
 export function effectiveLoyaltyTierKey(
   assigned: string | null | undefined,
-  computed: LoyaltyTierKey
+  _computed?: LoyaltyTierKey
 ): LoyaltyTierKey {
-  return higherAssignedLoyaltyTier(assigned, computed) ?? computed;
+  return higherAssignedLoyaltyTier(assigned, null) ?? "standard";
 }
 
 export async function applyErpLoyaltyTierToContact(input: {

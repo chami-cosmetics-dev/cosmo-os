@@ -32,11 +32,16 @@ describe("higherAssignedLoyaltyTier", () => {
 });
 
 describe("effectiveLoyaltyTierKey", () => {
-  it("lets ERP Gold override computed Standard", () => {
+  it("uses ERP Gold even when spend is Standard", () => {
     expect(effectiveLoyaltyTierKey("gold", "standard")).toBe("gold");
   });
 
-  it("keeps computed platinum over assigned gold", () => {
-    expect(effectiveLoyaltyTierKey("gold", "platinum")).toBe("platinum");
+  it("stays Gold when spend would be Platinum but ERP is only Gold", () => {
+    expect(effectiveLoyaltyTierKey("gold", "platinum")).toBe("gold");
+  });
+
+  it("stays Standard when unregistered even if spend is Platinum", () => {
+    expect(effectiveLoyaltyTierKey(null, "platinum")).toBe("standard");
+    expect(effectiveLoyaltyTierKey(undefined, "gold")).toBe("standard");
   });
 });
