@@ -40,3 +40,36 @@ export function decideErpItemPriceProductSync(
 
   return { apply: true, sku, rate: rate.toFixed(2) };
 }
+
+export type StandardSellingPriceUpdatePlan = { price: string; ids: string[] };
+
+/**
+ * Group OS rows that must change to match ERP Standard Selling.
+ * SKU match is case-insensitive. Unchanged prices and SKUs missing from ERP are skipped.
+ */
+export function planStandardSellingPriceUpdates(
+  osItems: Array<{ id: string; sku: string | null; price: string }>,
+  erpRatesBySku: Record<string, string>,
+): StandardSellingPriceUpdatePlan[] {
+  const rateByKey = new Map<string, string>();
+  for (const [sku, money] of Object.entries(erpRatesBySku)) {
+    const n = Number(money);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    const key = sku.trim().toUpperCase();
+    if (!key) continue;
+    rateByKey.set(key, n.toFixed(2));
+  }
+
+  const idsByPrice = new Map<string, string[]>();
+  for (const item of osItems) {
+    const key = (item.sku ?? "").trim().toUpperCase();
+    if (!key) continue;
+    const next = rateByKey.get(key);
+    if (!next || item.price === next) continue;
+    const list = idsByPrice.get(next) ?? [];
+    list.push(item.id);
+    idsByPrice.set(next, list);
+  }
+
+  return [...idsByPrice.entries()].map(([price, ids]) => ({ price, ids }));
+}

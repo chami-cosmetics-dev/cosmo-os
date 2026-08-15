@@ -15,6 +15,8 @@ type QuickSearchOrder = {
   fulfillmentStage: string;
   totalPrice: string;
   currency: string | null;
+  replacedByOrder?: { id: string; orderLabel: string } | null;
+  replacedFromOrders?: Array<{ id: string; orderLabel: string }>;
 };
 
 export function DashboardOrderSearch() {
@@ -87,6 +89,35 @@ export function DashboardOrderSearch() {
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
+                {order.replacedByOrder ? (
+                  <span className="text-xs text-blue-700">
+                    Replaced by{" "}
+                    <Link
+                      href={`/dashboard/orders?orderId=${order.replacedByOrder.id}`}
+                      className="underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {order.replacedByOrder.orderLabel}
+                    </Link>
+                  </span>
+                ) : null}
+                {order.replacedFromOrders && order.replacedFromOrders.length > 0 ? (
+                  <span className="text-xs text-blue-700">
+                    Supersedes{" "}
+                    {order.replacedFromOrders.map((row, index) => (
+                      <span key={row.id}>
+                        {index > 0 ? ", " : null}
+                        <Link
+                          href={`/dashboard/orders?orderId=${row.id}`}
+                          className="underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {row.orderLabel}
+                        </Link>
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}

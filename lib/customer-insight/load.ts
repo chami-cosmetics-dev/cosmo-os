@@ -47,8 +47,8 @@ export async function loadCustomerInsight(input: {
   invoicesPage: number;
   invoicesPageSize: number;
   viewer: ViewerIdentity;
-  historyBrand?: string | null;
-  historyItem?: string | null;
+  historyBrands?: string[];
+  historyItems?: string[];
 }): Promise<CustomerInsightDto | null> {
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
@@ -161,8 +161,8 @@ export async function loadCustomerInsight(input: {
   ]);
 
   const historyScope: HistoryScopeInput = {
-    brand: input.historyBrand,
-    item: input.historyItem,
+    brands: input.historyBrands,
+    items: input.historyItems,
   };
   const scopedCosmo = scopeCosmoOrdersForHistory(orders, historyScope);
   const scopedAdapt = scopeAdaptRowsForHistory(adaptRows, historyScope);

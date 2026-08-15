@@ -3,9 +3,19 @@ import type { HistoryScopeDto } from "@/lib/customer-insight/types";
 import { lineMatchesBrand } from "@/lib/page-data/contact-brand-ids";
 
 export type HistoryScopeInput = {
-  brand?: string | null;
-  item?: string | null;
+  brands?: string[];
+  items?: string[];
 };
+
+function normalizeHistoryScope(scope: HistoryScopeInput): {
+  brands: string[];
+  items: string[];
+} {
+  return {
+    brands: (scope.brands ?? []).map((value) => value.trim()).filter(Boolean),
+    items: (scope.items ?? []).map((value) => value.trim()).filter(Boolean),
+  };
+}
 
 function norm(value: string): string {
   return value.trim().toLowerCase();
@@ -58,24 +68,28 @@ export function lineMatchesHistoryScope(
   },
   scope: HistoryScopeInput
 ): boolean {
-  const brandNeedle = scope.brand?.trim() || null;
-  const itemNeedle = scope.item?.trim() || null;
-  if (!brandNeedle && !itemNeedle) return true;
+  const { brands, items } = normalizeHistoryScope(scope);
+  if (brands.length === 0 && items.length === 0) return true;
   if (
-    brandNeedle &&
-    !lineMatchesBrand(brandNeedle, {
-      vendorName: line.brand,
-      productTitle: line.productTitle,
-    })
+    brands.length > 0 &&
+    !brands.some((brand) =>
+      lineMatchesBrand(brand, {
+        vendorName: line.brand,
+        productTitle: line.productTitle,
+      })
+    )
   ) {
     return false;
   }
-  if (itemNeedle && !lineMatchesItemLabel(line, itemNeedle)) return false;
+  if (items.length > 0 && !items.some((item) => lineMatchesItemLabel(line, item))) {
+    return false;
+  }
   return true;
 }
 
 export function hasHistoryScope(scope: HistoryScopeInput): boolean {
-  return Boolean(scope.brand?.trim() || scope.item?.trim());
+  const { brands, items } = normalizeHistoryScope(scope);
+  return brands.length > 0 || items.length > 0;
 }
 
 type CosmoLine = {
@@ -197,10 +211,11 @@ export function buildHistoryScopeDto(
   scope: HistoryScopeInput,
   scopedSpend: number
 ): HistoryScopeDto | null {
-  if (!hasHistoryScope(scope)) return null;
+  const { brands, items } = normalizeHistoryScope(scope);
+  if (brands.length === 0 && items.length === 0) return null;
   return {
-    brand: scope.brand?.trim() || null,
-    item: scope.item?.trim() || null,
+    brands,
+    items,
     scopedSpend: Math.round(scopedSpend * 100) / 100,
   };
 }

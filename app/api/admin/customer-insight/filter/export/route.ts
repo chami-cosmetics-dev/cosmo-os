@@ -4,6 +4,7 @@ import {
   FILTER_EXPORT_CAP,
   filterAllocatedContacts,
 } from "@/lib/customer-insight/filters";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import {
   canFilterAllInsightContacts,
   hasInsightAdminView,
@@ -42,8 +43,8 @@ export async function GET(request: NextRequest) {
 
   const sp = request.nextUrl.searchParams;
   const parsed = customerInsightFilterExportQuerySchema.safeParse({
-    brand: queryParam(sp.get("brand")),
-    item: queryParam(sp.get("item")),
+    brand: readInsightFilterList(sp, "brand"),
+    item: readInsightFilterList(sp, "item"),
     city: queryParam(sp.get("city")),
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
@@ -88,8 +89,8 @@ export async function GET(request: NextRequest) {
     viewer,
     isAdmin: true,
     scopeAllContacts,
-    brand: parsed.data.brand,
-    item: parsed.data.item,
+    brands: parsed.data.brand,
+    items: parsed.data.item,
     city: parsed.data.city,
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,
@@ -109,8 +110,8 @@ export async function GET(request: NextRequest) {
     forExport: true,
   });
 
-  const includeBrand = Boolean(parsed.data.brand?.trim());
-  const includeItem = Boolean(parsed.data.item?.trim());
+  const includeBrand = Boolean(parsed.data.brand?.length);
+  const includeItem = Boolean(parsed.data.item?.length);
   const headers = [
     "contact_id",
     "name",

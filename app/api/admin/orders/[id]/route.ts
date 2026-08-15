@@ -24,6 +24,7 @@ import {
   resolveStoredOrderCustomerName,
 } from "@/lib/erpnext-customer-display-name";
 import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
+import { formatBusinessOrderNumber } from "@/lib/order-display-label";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -146,6 +147,27 @@ const orderSelect = {
   cancelledAt: true,
   cancelReason: true,
   cancelledBy: { select: { id: true, name: true, email: true } },
+  replacedByOrderId: true,
+  replacedByOrder: {
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      erpnextInvoiceId: true,
+      shopifyOrderId: true,
+    },
+  },
+  replacedFromOrders: {
+    orderBy: { cancelledAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      orderNumber: true,
+      erpnextInvoiceId: true,
+      shopifyOrderId: true,
+      cancelledAt: true,
+    },
+  },
   approvalRequests: {
     where: {
       type: {
@@ -691,5 +713,22 @@ export async function GET(
     hasPendingCancelApproval: details.approvalRequests.some(
       (a) => a.type === ORDER_CANCEL_APPROVAL && a.status === "pending"
     ),
+    replacedByOrder: details.replacedByOrder
+      ? {
+          id: details.replacedByOrder.id,
+          orderLabel: formatBusinessOrderNumber(details.replacedByOrder),
+          name: details.replacedByOrder.name,
+          orderNumber: details.replacedByOrder.orderNumber,
+          erpnextInvoiceId: details.replacedByOrder.erpnextInvoiceId,
+        }
+      : null,
+    replacedFromOrders: details.replacedFromOrders.map((row) => ({
+      id: row.id,
+      orderLabel: formatBusinessOrderNumber(row),
+      name: row.name,
+      orderNumber: row.orderNumber,
+      erpnextInvoiceId: row.erpnextInvoiceId,
+      cancelledAt: row.cancelledAt?.toISOString() ?? null,
+    })),
   });
 }

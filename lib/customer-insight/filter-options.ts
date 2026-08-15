@@ -132,19 +132,19 @@ const productItemSelect = {
   vendor: { select: { name: true } },
 } as const;
 
-function productItemBaseWhere(companyId: string, brandNeedle: string | null) {
+function productItemBaseWhere(companyId: string, brandNeedles: string[]) {
   const notCoupon = { NOT: { sku: { equals: "coupon", mode: "insensitive" as const } } };
-  if (!brandNeedle) {
+  if (brandNeedles.length === 0) {
     return { companyId, ...notCoupon };
   }
   return {
     companyId,
     AND: [
       {
-        OR: [
+        OR: brandNeedles.flatMap((brandNeedle) => [
           { vendor: { name: { contains: brandNeedle, mode: "insensitive" as const } } },
           { productTitle: { contains: brandNeedle, mode: "insensitive" as const } },
-        ],
+        ]),
       },
       notCoupon,
     ],
@@ -163,13 +163,13 @@ function productItemVendorWhere(companyId: string, brandNeedle: string) {
 
 export async function listInsightItemOptions(
   companyId: string,
-  input: { brand?: string; q?: string }
+  input: { brands?: string[]; q?: string }
 ): Promise<FilterOptionDto[]> {
-  const brandNeedle = input.brand?.trim() || null;
+  const brandNeedles = (input.brands ?? []).map((b) => b.trim()).filter(Boolean);
   const qNeedle = input.q?.trim() || null;
   const seen = new Set<string>();
   const items: FilterOptionDto[] = [];
-  const productWhere = productItemBaseWhere(companyId, brandNeedle);
+  const productWhere = productItemBaseWhere(companyId, brandNeedles);
   const searchOr = qNeedle
     ? {
         OR: [
@@ -194,11 +194,24 @@ export async function listInsightItemOptions(
           orderBy: { sku: "asc" },
         })
       : Promise.resolve([]),
-    brandNeedle
+    brandNeedles.length
       ? prisma.productItem.findMany({
           where: searchOr
-            ? { AND: [productItemVendorWhere(companyId, brandNeedle), searchOr] }
-            : productItemVendorWhere(companyId, brandNeedle),
+            ? {
+                AND: [
+                  {
+                    OR: brandNeedles.map((brandNeedle) =>
+                      productItemVendorWhere(companyId, brandNeedle)
+                    ),
+                  },
+                  searchOr,
+                ],
+              }
+            : {
+                OR: brandNeedles.map((brandNeedle) =>
+                  productItemVendorWhere(companyId, brandNeedle)
+                ),
+              },
           select: productItemSelect,
           take: 3_000,
           orderBy: { productTitle: "asc" },
@@ -214,11 +227,13 @@ export async function listInsightItemOptions(
 
   for (const p of [...skuPrefixProducts, ...vendorProducts, ...products]) {
     if (
-      brandNeedle &&
-      !lineMatchesBrand(brandNeedle, {
-        vendorName: p.vendor?.name,
-        productTitle: p.productTitle,
-      })
+      brandNeedles.length > 0 &&
+      !brandNeedles.some((brandNeedle) =>
+        lineMatchesBrand(brandNeedle, {
+          vendorName: p.vendor?.name,
+          productTitle: p.productTitle,
+        })
+      )
     ) {
       continue;
     }
@@ -249,11 +264,13 @@ export async function listInsightItemOptions(
       const title = String(obj.itemName ?? obj.productTitle ?? obj.name ?? "").trim();
       if (!title) continue;
       if (
-        brandNeedle &&
-        !lineMatchesBrand(brandNeedle, {
-          vendorName: brandFromAdaptLineItem(raw),
-          productTitle: title,
-        })
+        brandNeedles.length > 0 &&
+        !brandNeedles.some((brandNeedle) =>
+          lineMatchesBrand(brandNeedle, {
+            vendorName: brandFromAdaptLineItem(raw),
+            productTitle: title,
+          })
+        )
       ) {
         continue;
       }

@@ -36,6 +36,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
+import { appendInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
 import { isCompletePhoneSearch } from "@/lib/phone-lookup";
@@ -234,6 +235,140 @@ function normalizeSelectOptions(
   );
 }
 
+function InsightSearchableMultiSelect({
+  values,
+  options,
+  placeholder,
+  searchPlaceholder,
+  allLabel = "Any",
+  disabled,
+  disableLocalFilter,
+  onChange,
+  onQueryChange,
+}: {
+  values: string[];
+  options: string[] | InsightSelectOption[];
+  placeholder: string;
+  searchPlaceholder: string;
+  allLabel?: string;
+  disabled?: boolean;
+  disableLocalFilter?: boolean;
+  onChange: (next: string[]) => void;
+  onQueryChange?: (q: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const normalized = normalizeSelectOptions(options);
+  const selected = values
+    .map(
+      (value) =>
+        normalized.find((option) => option.value === value) ?? {
+          value,
+          label: value,
+          sku: undefined,
+          keywords: "",
+        }
+    )
+    .filter(Boolean);
+
+  const triggerLabel =
+    selected.length === 0
+      ? allLabel
+      : selected.length === 1
+        ? selected[0]?.sku
+          ? `${selected[0].label} · ${selected[0].sku}`
+          : selected[0]?.label
+        : `${selected.length} selected`;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) onQueryChange?.("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="border-input h-9 w-full justify-between px-3 font-normal"
+        >
+          <span
+            className={cn(
+              "min-w-0 truncate text-left",
+              selected.length === 0 && "text-muted-foreground"
+            )}
+            title={selected.map((option) => option.label).join(", ") || allLabel}
+          >
+            {triggerLabel}
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(var(--radix-popover-trigger-width),100vw)] min-w-[22rem] p-0"
+        align="start"
+      >
+        <Command shouldFilter={!disableLocalFilter}>
+          <CommandInput
+            placeholder={searchPlaceholder}
+            onValueChange={(q) => onQueryChange?.(q)}
+          />
+          <CommandList>
+            <CommandEmpty>No matches.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value={allLabel}
+                onSelect={() => {
+                  onChange([]);
+                }}
+              >
+                <Check className={cn("size-4", values.length === 0 ? "opacity-100" : "opacity-0")} />
+                {allLabel}
+              </CommandItem>
+              {normalized.map((option) => {
+                const checked = values.includes(option.value);
+                return (
+                  <CommandItem
+                    key={option.value}
+                    value={`${option.label} ${option.sku ?? ""} ${option.keywords ?? ""}`.trim()}
+                    onSelect={() => {
+                      onChange(
+                        checked
+                          ? values.filter((value) => value !== option.value)
+                          : [...values, option.value]
+                      );
+                    }}
+                    className="items-start"
+                  >
+                    <Check
+                      className={cn(
+                        "mt-0.5 size-4 shrink-0",
+                        checked ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{option.label}</span>
+                      {option.sku ? (
+                        <span className="text-muted-foreground block truncate text-xs">
+                          SKU: {option.sku}
+                        </span>
+                      ) : null}
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function InsightSearchableSelect({
   value,
   options,
@@ -409,9 +544,9 @@ export function CustomerInsightPanel({
   const [itemFilter, setItemFilter] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm | null>(null);
-  const [filterBrand, setFilterBrand] = useState("");
+  const [filterBrands, setFilterBrands] = useState<string[]>([]);
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
-  const [filterItem, setFilterItem] = useState("");
+  const [filterItems, setFilterItems] = useState<string[]>([]);
   const [itemOptions, setItemOptions] = useState<InsightSelectOption[]>([]);
   const [itemSearch, setItemSearch] = useState("");
   const [itemSearchDebounced, setItemSearchDebounced] = useState("");
@@ -504,7 +639,7 @@ export function CustomerInsightPanel({
     void (async () => {
       try {
         const params = new URLSearchParams({ type: "items" });
-        if (filterBrand.trim()) params.set("brand", filterBrand.trim());
+        appendInsightFilterList(params, "brand", filterBrands);
         if (itemSearchDebounced.trim()) params.set("q", itemSearchDebounced.trim());
         const res = await fetch(
           `/api/admin/customer-insight/filter-options?${params.toString()}`
@@ -538,7 +673,7 @@ export function CustomerInsightPanel({
     return () => {
       cancelled = true;
     };
-  }, [filterBrand, itemSearchDebounced]);
+  }, [filterBrands, itemSearchDebounced]);
 
   useEffect(() => {
     let cancelled = false;
@@ -665,7 +800,7 @@ export function CustomerInsightPanel({
       await loadInsight(
         autoOpenId,
         1,
-        exactNumber ? { brand: "", item: "" } : undefined
+        exactNumber ? { brands: [], items: [] } : undefined
       );
     }
   }
@@ -673,21 +808,21 @@ export function CustomerInsightPanel({
   async function loadInsight(
     contactId: string,
     page: number,
-    scopeOverride?: { brand?: string; item?: string }
+    scopeOverride?: { brands?: string[]; items?: string[] }
   ) {
     setBusyKey(`insight-${contactId}`);
     setEditing(false);
     setSelectedContactId(contactId);
     setItemFilter(null);
     try {
-      const brand = scopeOverride?.brand ?? filterBrand;
-      const item = scopeOverride?.item ?? filterItem;
+      const brands = scopeOverride?.brands ?? filterBrands;
+      const items = scopeOverride?.items ?? filterItems;
       const params = new URLSearchParams({
         invoicesPage: String(page),
         invoicesPageSize: "25",
       });
-      if (brand.trim()) params.set("brand", brand.trim());
-      if (item.trim()) params.set("item", item.trim());
+      appendInsightFilterList(params, "brand", brands);
+      appendInsightFilterList(params, "item", items);
       const res = await fetch(
         `/api/admin/customer-insight/${encodeURIComponent(contactId)}?${params}`
       );
@@ -870,8 +1005,8 @@ export function CustomerInsightPanel({
 
   function buildFilterParams(page = 1) {
     const params = new URLSearchParams();
-    if (filterBrand.trim()) params.set("brand", filterBrand.trim());
-    if (filterItem.trim()) params.set("item", filterItem.trim());
+    appendInsightFilterList(params, "brand", filterBrands);
+    appendInsightFilterList(params, "item", filterItems);
     if (filterCity.trim()) params.set("city", filterCity.trim());
     if (canExportFilteredCsv && filterAssignedMerchant.trim()) {
       params.set("assignedMerchant", filterAssignedMerchant.trim());
@@ -952,8 +1087,8 @@ export function CustomerInsightPanel({
 
   const hasActiveFilters =
     Boolean(
-      filterBrand.trim() ||
-        filterItem.trim() ||
+      filterBrands.length > 0 ||
+        filterItems.length > 0 ||
         filterCity.trim() ||
         filterAssignedMerchant.trim() ||
         filterPurchaseLocationId.trim() ||
@@ -971,8 +1106,8 @@ export function CustomerInsightPanel({
     );
 
   function clearFilters() {
-    setFilterBrand("");
-    setFilterItem("");
+    setFilterBrands([]);
+    setFilterItems([]);
     setItemSearch("");
     setItemSearchDebounced("");
     setFilterCity("");
@@ -1151,9 +1286,9 @@ export function CustomerInsightPanel({
               ? "Results include all company contacts matching your filters (allocated and unallocated)."
               : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
-            full set. Without a brand, highest lifetime totals first. With a brand, customers who
-            bought that brand (vendor or product title), ranked by brand spend — same rules as
-            Contact Master.
+            full set. Without brands, highest lifetime totals first. With brands, customers who
+            bought any selected brand (vendor or product title), ranked by combined brand spend.
+            With items, customers who bought any selected item, ranked by combined item spend.
             {canExportFilteredCsv
               ? " Last purchase location keeps contacts whose newest Cosmo/Adapt purchase was at that outlet."
               : null}
@@ -1202,28 +1337,28 @@ export function CustomerInsightPanel({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Brand</span>
-              <InsightSearchableSelect
-                value={filterBrand}
+              <InsightSearchableMultiSelect
+                values={filterBrands}
                 options={brandOptions}
                 placeholder="Any"
                 searchPlaceholder="Search brands…"
                 disabled={isBusy}
                 onChange={(next) => {
-                  setFilterBrand(next);
-                  setFilterItem("");
+                  setFilterBrands(next);
+                  setFilterItems([]);
                 }}
               />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">Item</span>
-              <InsightSearchableSelect
-                value={filterItem}
+              <InsightSearchableMultiSelect
+                values={filterItems}
                 options={itemOptions}
                 placeholder="Any"
                 searchPlaceholder="Search items or SKU…"
                 disabled={isBusy}
                 disableLocalFilter
-                onChange={setFilterItem}
+                onChange={setFilterItems}
                 onQueryChange={setItemSearch}
               />
             </label>
@@ -1565,7 +1700,7 @@ export function CustomerInsightPanel({
                   void loadInsight(
                     m.id,
                     1,
-                    isCompletePhoneSearch(phone) ? { brand: "", item: "" } : undefined
+                    isCompletePhoneSearch(phone) ? { brands: [], items: [] } : undefined
                   )
                 }
                 className="flex w-full flex-col rounded-md border px-3 py-2 text-left text-sm transition hover:bg-muted/50 disabled:opacity-50 sm:flex-row sm:items-center sm:justify-between"
@@ -1589,12 +1724,15 @@ export function CustomerInsightPanel({
                 <div className="space-y-1">
                   <p className="font-medium">Filtered purchase history</p>
                   <p className="text-muted-foreground text-xs">
-                    {insight.historyScope.brand
-                      ? `Brand: ${insight.historyScope.brand}`
+                    {insight.historyScope.brands.length
+                      ? `Brands: ${insight.historyScope.brands.join(", ")}`
                       : null}
-                    {insight.historyScope.brand && insight.historyScope.item ? " · " : null}
-                    {insight.historyScope.item
-                      ? `Item: ${insight.historyScope.item}`
+                    {insight.historyScope.brands.length &&
+                    insight.historyScope.items.length
+                      ? " · "
+                      : null}
+                    {insight.historyScope.items.length
+                      ? `Items: ${insight.historyScope.items.join(", ")}`
                       : null}
                     {" · "}
                     Scoped spend{" "}
@@ -1613,10 +1751,10 @@ export function CustomerInsightPanel({
                   variant="outline"
                   disabled={isBusy || !selectedContactId}
                   onClick={() => {
-                    setFilterBrand("");
-                    setFilterItem("");
+                    setFilterBrands([]);
+                    setFilterItems([]);
                     if (selectedContactId) {
-                      void loadInsight(selectedContactId, 1, { brand: "", item: "" });
+                      void loadInsight(selectedContactId, 1, { brands: [], items: [] });
                     }
                   }}
                 >

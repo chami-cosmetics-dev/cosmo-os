@@ -283,33 +283,44 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     vendorFilter,
   ]);
 
-  const syncPriorities = useCallback(async (opts?: { silent?: boolean }) => {
+  const syncFromErp = useCallback(async (opts?: { silent?: boolean }) => {
     setSyncing(true);
     try {
       if (!opts?.silent) {
-        notify.success("Syncing priorities from ERP…");
+        notify.success("Syncing priorities and prices from ERP…");
       }
       const res = await fetch("/api/admin/product-items/sync-erp-priorities", { method: "POST" });
       const data = (await res.json()) as {
         error?: string;
         updatedRows?: number;
         sources?: Array<{ id: string; label: string; status: string; error?: string | null }>;
+        prices?: { status?: string; updated?: number; error?: string | null };
       };
       if (!res.ok) {
-        notify.error(data.error ?? "Priority sync failed");
+        notify.error(data.error ?? "ERP sync failed");
         return;
       }
       const failed = (data.sources ?? []).filter((s) => s.status === "failed");
       if (failed.length > 0) {
         notify.error(
-          `Partial sync: ${failed.map((s) => s.label).join(", ")} unavailable. Other ERP updated.`,
+          `Partial priority sync: ${failed.map((s) => s.label).join(", ")} unavailable. Other ERP updated.`,
         );
-      } else {
+      }
+      if (data.prices?.status === "failed") {
+        notify.error(data.prices.error ?? "Price sync failed");
+      } else if (data.prices?.status === "not_configured") {
+        notify.error(data.prices.error ?? "No Cosmo ERP instance for price sync");
+      }
+      if (failed.length === 0 && data.prices?.status !== "failed" && data.prices?.status !== "not_configured") {
+        notify.success(
+          `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Prices synced (${(data.prices?.updated ?? 0).toLocaleString()} rows).`,
+        );
+      } else if (failed.length === 0) {
         notify.success(`Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows).`);
       }
       await fetchPageData();
     } catch {
-      notify.error("Priority sync failed");
+      notify.error("ERP sync failed");
     } finally {
       setSyncing(false);
     }
@@ -342,10 +353,10 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
     if (syncedOnce.current) return;
     syncedOnce.current = true;
     const timer = setTimeout(() => {
-      void syncPriorities({ silent: true });
+      void syncFromErp({ silent: true });
     }, 400);
     return () => clearTimeout(timer);
-  }, [syncPriorities]);
+  }, [syncFromErp]);
 
   function clearFilters() {
     setSearch("");
@@ -393,7 +404,8 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             Product Items
           </h1>
           <p className="text-muted-foreground mt-1 text-xs">
-            Product Priority comes from ERP1 / ERP2 (Manufacturing). Syncs when you open this page.
+            Product Priority from ERP1 / ERP2 (Manufacturing). Price from Cosmo ERP Standard Selling.
+            Syncs when you open this page.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -409,12 +421,12 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             type="button"
             size="sm"
             variant="outline"
-            onClick={() => void syncPriorities()}
+            onClick={() => void syncFromErp()}
             disabled={isBusy}
             className="h-9 border-border/70"
           >
             {syncing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <RefreshCw className="size-4" aria-hidden />}
-            {syncing ? "Syncing…" : "Sync priorities"}
+            {syncing ? "Syncing…" : "Sync from ERP"}
           </Button>
           <Button
             type="button"
