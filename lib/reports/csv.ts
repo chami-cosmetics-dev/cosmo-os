@@ -27,6 +27,17 @@ export function buildCsv<T extends Record<string, CsvPrimitive>>(
   return `\uFEFF${lines.join("\r\n")}`;
 }
 
+export function formatCsvHeaderLine(headers: readonly string[]) {
+  return `\uFEFF${headers.map(formatCsvHeader).join(",")}\r\n`;
+}
+
+export function formatCsvDataLine<T extends Record<string, CsvPrimitive>>(
+  headers: readonly string[],
+  row: T,
+) {
+  return `${headers.map((header) => escapeCsvCell(row[header])).join(",")}\r\n`;
+}
+
 /** YYYY-MM-DD in Asia/Colombo (report date columns). */
 export function formatIsoDate(value: Date | null | undefined) {
   return formatAppIsoDate(value, "");
