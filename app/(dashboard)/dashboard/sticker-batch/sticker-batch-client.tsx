@@ -566,25 +566,27 @@ export function StickerBatchClient({
     }
   }
 
-  async function handleSaveBatchItems() {
+  async function saveBatchItems(options?: {
+    silentSuccess?: boolean;
+  }): Promise<{ ok: boolean; count: number }> {
     if (!selectedBatchId) {
       notify.error("Select batch name");
-      return;
+      return { ok: false, count: 0 };
     }
     const validRows = getValidRowsForSave();
     if (validRows.length === 0) {
       notify.error("Add at least one complete item row");
-      return;
+      return { ok: false, count: 0 };
+    }
+
+    const hasLocationGap = validRows.some((row) => !row.locationId.trim());
+    if (hasLocationGap) {
+      notify.error("Select location for each item row");
+      return { ok: false, count: 0 };
     }
 
     setSavingItems(true);
     try {
-      const hasLocationGap = validRows.some((row) => !row.locationId.trim());
-      if (hasLocationGap) {
-        notify.error("Select location for each item row");
-        return;
-      }
-
       const payload = {
         mode: "multiple" as const,
         items: validRows.map((row) => ({
@@ -605,7 +607,7 @@ export function StickerBatchClient({
       const data = (await res.json()) as { error?: string; count?: number };
       if (!res.ok) {
         notify.error(data.error ?? "Failed to save sticker batch items");
-        return;
+        return { ok: false, count: 0 };
       }
       const savedLocationIds = new Set(
         validRows.map((row) => row.locationId.trim())
@@ -636,12 +638,25 @@ export function StickerBatchClient({
           expireDate: row.expireDate.trim(),
         })),
       });
-      notify.success(`Saved ${validRows.length} sticker batch items.`);
+      if (!options?.silentSuccess) {
+        notify.success(`Saved ${validRows.length} sticker batch items.`);
+      }
+      // Clear same-day browser draft so the next visit loads from server history.
+      if (typeof window !== "undefined") {
+        skipNextDraftPersistRef.current = true;
+        window.localStorage.removeItem(ITEMS_DRAFT_STORAGE_KEY);
+      }
+      return { ok: true, count: validRows.length };
     } catch {
       notify.error("Failed to save sticker batch items");
+      return { ok: false, count: 0 };
     } finally {
       setSavingItems(false);
     }
+  }
+
+  async function handleSaveBatchItems() {
+    await saveBatchItems();
   }
 
   function getRowsToAddCount() {
@@ -942,7 +957,14 @@ export function StickerBatchClient({
     }
   }
 
-  function handlePrintStickers() {
+  async function handlePrintStickers() {
+    if (!selectedBatchId.trim()) {
+      notify.error(
+        "Select or create a sticker batch before printing so items are saved to history"
+      );
+      return;
+    }
+
     const printableRows = rows.filter((row) =>
       Boolean(
         row.itemCode.trim() &&
@@ -955,6 +977,27 @@ export function StickerBatchClient({
       notify.error("Add complete sticker rows before printing");
       return;
     }
+
+    const validForSave = getValidRowsForSave();
+    const incompletePrintable = printableRows.some(
+      (row) =>
+        !row.locationId.trim() ||
+        !row.unitPrice.trim() ||
+        !row.itemName.trim()
+    );
+    if (incompletePrintable || validForSave.length === 0) {
+      notify.error(
+        "Fill location, price, and quantity on every row before printing — items are auto-saved to history on print"
+      );
+      return;
+    }
+
+    // Persist before print so history has what was printed even if user forgot Save.
+    const saved = await saveBatchItems({ silentSuccess: true });
+    if (!saved.ok) return;
+    notify.success(
+      `Saved ${saved.count} item(s) to batch history — opening print…`
+    );
 
     const previewSheetEl = document.querySelector<HTMLElement>(
       ".sticker-preview-sheet"
@@ -1200,10 +1243,18 @@ export function StickerBatchClient({
           const manufactureDate = formatDateFromApi(item.manufactureDate);
           const expireDate = formatDateFromApi(item.expireDate);
           const locationIdForRow = item.locationId ?? "";
-          const catalogItem = matchItem(item.itemCode ?? "", locationIdForRow || undefined);
-          const resolvedPrice = catalogItem
-            ? resolveUnitPriceForItem(catalogItem, locationIdForRow)
-            : formatToTwoDecimals(item.unitPrice ?? "");
+          const savedPrice = formatToTwoDecimals(item.unitPrice ?? "");
+          // Prefer the price that was saved with the batch so history reloads
+          // match what was printed even if ERP/catalog rates changed later.
+          const catalogItem = matchItem(
+            item.itemCode ?? "",
+            locationIdForRow || undefined
+          );
+          const resolvedPrice =
+            savedPrice ||
+            (catalogItem
+              ? resolveUnitPriceForItem(catalogItem, locationIdForRow)
+              : "");
           return {
             id: String(index + 1),
             locationId: locationIdForRow,
@@ -1380,10 +1431,10 @@ export function StickerBatchClient({
                 size="sm"
                 className="border-border/70 bg-background/85 hover:bg-secondary/10"
                 onClick={() => void handlePrintStickers()}
-                disabled={rows.length === 0}
+                disabled={rows.length === 0 || savingItems}
               >
                 <Printer className="size-4" />
-                Print Stickers
+                {savingItems ? "Saving…" : "Print Stickers"}
               </Button>
             </div>
           </div>
@@ -1768,11 +1819,11 @@ export function StickerBatchClient({
                 <Button
                   type="button"
                   onClick={() => void handlePrintStickers()}
-                  disabled={rows.length === 0}
+                  disabled={rows.length === 0 || savingItems}
                   className="shadow-[0_10px_24px_-18px_var(--primary)]"
                 >
                   <Printer className="size-4" />
-                  Print Stickers
+                  {savingItems ? "Saving…" : "Print Stickers"}
                 </Button>
               </div>
               <div className="sticker-preview-sheet flex flex-wrap gap-3">
@@ -1855,11 +1906,14 @@ export function StickerBatchClient({
             <div
               role="alert"
               aria-live="polite"
-              className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2"
+              className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2"
             >
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-              <p className="text-sm font-medium text-destructive">
-                Warning: One sticker batch is saved only for 3 days from the created date.
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                Unsaved item rows stay in this browser for today only. Use{" "}
+                <span className="font-semibold">Save Items</span> or{" "}
+                <span className="font-semibold">Print Stickers</span> to store
+                them in history so you can load them on another day.
               </p>
             </div>
             <p className="text-sm text-muted-foreground">

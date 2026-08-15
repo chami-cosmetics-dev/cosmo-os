@@ -1,0 +1,7 @@
+slot,erp_customer_id,customer_name,erp_mobile,erp_email,has_email
+erp1,0123455555,MR FORIGNER,0123455555,,no
+erp1,0123456780,Error Number,0123456780,,no
+erp1,0123456789,Local Customer,0123456789,,no
+erp2,0123455555,Foreign Customer,0123455555,,no
+erp2,0123456780,Foriegner,0123456780,,no
+erp2,0123456789,Local Customer,0123456789,,no

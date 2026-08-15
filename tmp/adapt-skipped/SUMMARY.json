@@ -1,0 +1,17 @@
+{
+  "file": "C:\\Users\\Bad-Boy\\Downloads\\Archive (5)\\invoice_data_headers.csv",
+  "rowsRead": 180120,
+  "skippedPurchases": {
+    "cancelled_or_deleted": 8220,
+    "no_identifier": 2944,
+    "bad_amount_or_date": 1737
+  },
+  "totalSkipped": 12901,
+  "note": "ambiguous (~225) were counted in import report but purchases still upserted to one matched contact — not in these drop files.",
+  "files": {
+    "all": "C:\\dev\\cosmo-os\\tmp\\adapt-skipped\\adapt-skipped-ALL.csv",
+    "cancelled_or_deleted": "C:\\dev\\cosmo-os\\tmp\\adapt-skipped\\adapt-skipped-cancelled_or_deleted.csv",
+    "no_identifier": "C:\\dev\\cosmo-os\\tmp\\adapt-skipped\\adapt-skipped-no_identifier.csv",
+    "bad_amount_or_date": "C:\\dev\\cosmo-os\\tmp\\adapt-skipped\\adapt-skipped-bad_amount_or_date.csv"
+  }
+}
