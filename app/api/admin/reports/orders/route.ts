@@ -28,7 +28,11 @@ import {
 import { getOrderDiscountCouponCode, resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
-import { normalizeZeroValueShippingLabel, resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
+import {
+  normalizeZeroValueShippingLabel,
+  resolveOrderShippingDisplay,
+  resolveOrderShippingDisplayForOrder,
+} from "@/lib/order-shipping-display";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
@@ -460,14 +464,21 @@ export async function GET(request: NextRequest) {
         rawPayload: order.rawPayload,
         assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       });
-      const couponCode = await resolveOrderDiscountCouponForOrder({
+      let couponCode = getOrderDiscountCouponCode({
         sourceName: order.sourceName,
         discountCodes: order.discountCodes,
         rawPayload: order.rawPayload,
-        name: order.name,
-        erpnextInvoiceId: order.erpnextInvoiceId,
-        erpnextInstance: order.companyLocation.erpnextInstance,
       });
+      if (!couponCode) {
+        couponCode = await resolveOrderDiscountCouponForOrder({
+          sourceName: order.sourceName,
+          discountCodes: order.discountCodes,
+          rawPayload: order.rawPayload,
+          name: order.name,
+          erpnextInvoiceId: order.erpnextInvoiceId,
+          erpnextInstance: order.companyLocation.erpnextInstance,
+        });
+      }
       const merchantName = resolveMerchantName({
         couponCode: merchantCouponCode,
         couponToMerchant,
@@ -615,7 +626,7 @@ export async function GET(request: NextRequest) {
       erpnextUsernameToEmail,
     });
     const shippingAddress = formatAddress(order.shippingAddress);
-    const shippingRule = (await resolveOrderShippingDisplayForOrder({
+    const shippingLookup = {
       totalShipping: decimalToString(order.totalShipping),
       shippingLines: order.shippingLines,
       rawPayload: order.rawPayload,
@@ -624,7 +635,13 @@ export async function GET(request: NextRequest) {
       erpnextInvoiceId: order.erpnextInvoiceId,
       erpnextInstance: order.companyLocation.erpnextInstance,
       discountCodes: order.discountCodes,
-    })).label ?? shippingRuleFallbackFromOrder(order, shippingAddress);
+    };
+    const storedShippingRule =
+      resolveOrderShippingDisplay(shippingLookup).label ?? shippingRuleFallbackFromOrder(order, shippingAddress);
+    const shippingRule = storedShippingRule?.trim()
+      ? storedShippingRule
+      : (await resolveOrderShippingDisplayForOrder(shippingLookup)).label
+        ?? shippingRuleFallbackFromOrder(order, shippingAddress);
 
     return formatCsvDataLine(csvHeaders, createOrderInvoiceRow({
       invoiceNo,
