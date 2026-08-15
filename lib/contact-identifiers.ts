@@ -1,4 +1,4 @@
-import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
+import { buildPhoneLookupVariants, canonicalPhoneForErpCustomerId } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { LIMITS } from "@/lib/validation";
 
@@ -48,7 +48,8 @@ export function normalizeContactEmail(value: string | null | undefined) {
 
 export function normalizeContactPhone(value: string | null | undefined) {
   const trimmed = value?.trim() ?? "";
-  return trimmed ? trimmed.slice(0, LIMITS.mobile.max) : null;
+  if (!trimmed) return null;
+  return canonicalPhoneForErpCustomerId(trimmed) ?? trimmed.slice(0, LIMITS.mobile.max);
 }
 
 export async function findMatchingContacts(

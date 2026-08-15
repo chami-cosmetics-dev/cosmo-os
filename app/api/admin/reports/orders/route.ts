@@ -7,23 +7,25 @@ import {
   addDays,
   endOfDay,
   formatAddress,
+  formatCsvDataLine,
+  formatCsvHeaderLine,
   getCustomerName,
   startOfDay,
 } from "@/lib/reports/csv";
+import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import {
-  buildOrderInvoiceCsv,
-  buildOrderInvoiceCsvWithoutCustomerPhone,
-  buildOrderInvoiceItemCsv,
-  buildOrderInvoiceItemCsvWithoutCustomerPhone,
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
+  getOrderInvoiceCsvHeaders,
+  getOrderInvoiceItemCsvHeaders,
+  joinDumpCouponCodes,
 } from "@/lib/reports/order-dump";
 import {
   applyMerchantGroup,
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
-import { resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
+import { getOrderDiscountCouponCode, resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
 import { normalizeZeroValueShippingLabel, resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
@@ -87,6 +89,24 @@ async function mapWithConcurrency<T, R>(
   }));
 
   return results;
+}
+
+async function writeOrderedConcurrentLines<T>(
+  items: T[],
+  write: (text: string) => void,
+  mapper: (item: T, index: number) => Promise<string>,
+) {
+  if (items.length === 0) return;
+  const pending: Array<string | undefined> = new Array(items.length);
+  let next = 0;
+  await mapWithConcurrency(items, 4, async (item, index) => {
+    pending[index] = await mapper(item, index);
+    while (next < pending.length && pending[next] != null) {
+      write(pending[next]!);
+      next += 1;
+    }
+    return pending[index]!;
+  });
 }
 
 function shippingRuleFallbackFromOrder(order: { dispatchedToCustomer?: boolean | null }, shippingAddress: string): string | null {
@@ -262,7 +282,37 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
   return "Web-site Invoice Detail (Invoice Wise) [Last 90 Days]";
 }
 
+const ORDER_DUMP_INCLUDE = {
+  companyLocation: {
+    select: {
+      name: true,
+      erpnextCompany: true,
+      erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } },
+    },
+  },
+  assignedMerchant: { select: { id: true, knownName: true, name: true, email: true, couponCodes: true } },
+  dispatchedBy: { select: { knownName: true, name: true, email: true } },
+  dispatchedByRider: { select: { knownName: true, name: true, mobile: true } },
+  dispatchedByCourierService: { select: { name: true } },
+  lastPrintedBy: { select: { knownName: true, name: true, email: true } },
+  deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
+  invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
+  lineItems: {
+    include: {
+      productItem: {
+        select: {
+          sku: true,
+          barcode: true,
+          productTitle: true,
+          vendor: { select: { name: true } },
+        },
+      },
+    },
+  },
+} as const;
+
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const report = parseReportKind(request.nextUrl.searchParams.get("report"));
@@ -287,96 +337,51 @@ export async function GET(request: NextRequest) {
   const yearParam = request.nextUrl.searchParams.get("year");
   const parsedYear = yearParam ? Number.parseInt(yearParam, 10) : null;
   const { from, to, label } = getRangeBounds(range, parsedYear);
+  const orderWhere = {
+    companyId,
+    createdAt: {
+      gte: from,
+      lte: to,
+    },
+  };
 
-  const orders = await prisma.order.findMany({
-    where: {
-      companyId,
-      createdAt: {
-        gte: from,
-        lte: to,
+  const [totalOrders, merchantUsers, userToGroup, creatorUsers, totalLineItems] = await Promise.all([
+    prisma.order.count({ where: orderWhere }),
+    prisma.user.findMany({
+      where: {
+        companyId,
+        couponCodes: { isEmpty: false },
       },
-    },
-    orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
-    include: {
-      companyLocation: {
-        select: {
-          name: true,
-          erpnextCompany: true,
-          erpnextInstance: { select: { baseUrl: true, apiKey: true, apiSecret: true } },
-        },
+      select: {
+        id: true,
+        knownName: true,
+        name: true,
+        email: true,
+        couponCodes: true,
       },
-      assignedMerchant: { select: { id: true, knownName: true, name: true, email: true, couponCodes: true } },
-      dispatchedBy: { select: { knownName: true, name: true, email: true } },
-      dispatchedByRider: { select: { knownName: true, name: true, mobile: true } },
-      dispatchedByCourierService: { select: { name: true } },
-      lastPrintedBy: { select: { knownName: true, name: true, email: true } },
-      deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
-      invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
-      lineItems: {
-        include: {
-          productItem: {
-            select: {
-              sku: true,
-              barcode: true,
-              productTitle: true,
-              vendor: { select: { name: true } },
-            },
-          },
-        },
+    }),
+    getMerchantGroupUserMap(companyId),
+    prisma.user.findMany({
+      where: {
+        companyId,
+        OR: [
+          { shopifyUserIds: { isEmpty: false } },
+          { erpnextUsername: { not: null } },
+        ],
       },
-    },
-  });
-  const merchantUsers = await prisma.user.findMany({
-    where: {
-      companyId,
-      couponCodes: { isEmpty: false },
-    },
-    select: {
-      id: true,
-      knownName: true,
-      name: true,
-      email: true,
-      couponCodes: true,
-    },
-  });
-  const userToGroup = await getMerchantGroupUserMap(companyId);
+      select: {
+        email: true,
+        shopifyUserIds: true,
+        erpnextUsername: true,
+      },
+    }),
+    report === "invoice-item"
+      ? prisma.orderLineItem.count({ where: { order: orderWhere } })
+      : Promise.resolve(0),
+  ]);
   const couponToMerchant = buildCouponToMerchantMap(merchantUsers, userToGroup);
-  const creatorUsers = await prisma.user.findMany({
-    where: {
-      companyId,
-      OR: [
-        { shopifyUserIds: { isEmpty: false } },
-        { erpnextUsername: { not: null } },
-      ],
-    },
-    select: {
-      email: true,
-      shopifyUserIds: true,
-      erpnextUsername: true,
-    },
-  });
   const shopifyUserIdToEmail = buildShopifyUserIdToEmailMap(creatorUsers);
   const erpnextUsernameToEmail = buildErpnextUsernameToEmailMap(creatorUsers);
-  const manualOrderCreatedLogs = await prisma.auditLog.findMany({
-    where: {
-      companyId,
-      action: "manual_order_created",
-      entityType: "Order",
-      entityId: { in: orders.map((order) => order.id) },
-    },
-    orderBy: { createdAt: "asc" },
-    select: {
-      entityId: true,
-      actorUser: { select: { email: true } },
-    },
-  });
-  const orderIdToManualCreatorEmail = new Map<string, string>();
-  for (const log of manualOrderCreatedLogs) {
-    const email = log.actorUser?.email?.trim();
-    if (log.entityId && email && !orderIdToManualCreatorEmail.has(log.entityId)) {
-      orderIdToManualCreatorEmail.set(log.entityId, email);
-    }
-  }
 
   const filterParts = [`report=${report}`, `range=${range}`];
   if (range === "historical-year") filterParts.push(`year=${label}`);
@@ -384,9 +389,53 @@ export async function GET(request: NextRequest) {
   const filters = filterParts.join(";");
   const baseReportLabel = getReportLabel(report, range);
   const reportLabel = omitCustomerPhone ? `Utility ${baseReportLabel}` : baseReportLabel;
+  const csvHeaders = report === "invoice-item"
+    ? getOrderInvoiceItemCsvHeaders(omitCustomerPhone)
+    : getOrderInvoiceCsvHeaders(omitCustomerPhone);
+  const totalCsvRows = report === "invoice-item" ? totalLineItems : totalOrders;
+  const fileName = omitCustomerPhone
+    ? report === "invoice-item"
+      ? `utility-order-invoice-item-${label}.csv`
+      : `utility-order-invoice-${label}.csv`
+    : report === "invoice-item"
+      ? `order-invoice-item-${label}.csv`
+      : `order-invoice-${label}.csv`;
 
-  if (report === "invoice-item") {
-    const rowsByOrder = await Promise.all(orders.map(async (order) => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (text: string) => controller.enqueue(encoder.encode(text));
+      try {
+        write(formatCsvHeaderLine(csvHeaders));
+
+        const orders = await prisma.order.findMany({
+          where: orderWhere,
+          orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
+          include: ORDER_DUMP_INCLUDE,
+        });
+        const manualOrderCreatedLogs = await prisma.auditLog.findMany({
+          where: {
+            companyId,
+            action: "manual_order_created",
+            entityType: "Order",
+            entityId: { in: orders.map((order) => order.id) },
+          },
+          orderBy: { createdAt: "asc" },
+          select: {
+            entityId: true,
+            actorUser: { select: { email: true } },
+          },
+        });
+        const orderIdToManualCreatorEmail = new Map<string, string>();
+        for (const log of manualOrderCreatedLogs) {
+          const email = log.actorUser?.email?.trim();
+          if (log.entityId && email && !orderIdToManualCreatorEmail.has(log.entityId)) {
+            orderIdToManualCreatorEmail.set(log.entityId, email);
+          }
+        }
+
+        if (report === "invoice-item") {
+          await writeOrderedConcurrentLines(orders, write, async (order) => {
       const customerName =
         getCustomerName(order.shippingAddress) ||
         getCustomerName(order.billingAddress) ||
@@ -455,7 +504,7 @@ export async function GET(request: NextRequest) {
           )
         : new Prisma.Decimal(0);
 
-      return order.lineItems.map((item, index) => {
+      const itemRows = order.lineItems.map((item, index) => {
         const pricing = linePricing[index];
         const unitPrice = pricing?.originalPrice ?? pricing?.salePrice ?? item.price.toString();
         const lineTotal = pricing?.originalTotal ?? pricing?.saleTotal ?? new Prisma.Decimal(item.price).mul(item.quantity).toString();
@@ -510,35 +559,10 @@ export async function GET(request: NextRequest) {
           createdBy,
         });
       });
-    }));
-    const rows = rowsByOrder.flat();
-
-    const csv = omitCustomerPhone
-      ? buildOrderInvoiceItemCsvWithoutCustomerPhone(rows)
-      : buildOrderInvoiceItemCsv(rows);
-    const fileName = omitCustomerPhone
-      ? `utility-order-invoice-item-${label}.csv`
-      : `order-invoice-item-${label}.csv`;
-
-    await logReportDownload({
-      companyId,
-      userId: auth.context?.user?.id,
-      reportKey: `orders:${report}:${range}`,
-      reportLabel,
-      filters,
-      fileName,
-    });
-
-    return new NextResponse(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
-        "Cache-Control": "no-store",
-      },
-    });
-  }
-
-  const rows = await mapWithConcurrency(orders, 4, async (order) => {
+            return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
+          });
+        } else {
+          await writeOrderedConcurrentLines(orders, write, async (order) => {
     const customerName =
       getCustomerName(order.shippingAddress) ||
       getCustomerName(order.billingAddress) ||
@@ -552,6 +576,27 @@ export async function GET(request: NextRequest) {
       assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       joinAllDiscountCodes: true,
     });
+    let discountCoupon = getOrderDiscountCouponCode({
+      sourceName: order.sourceName,
+      discountCodes: order.discountCodes,
+      rawPayload: order.rawPayload,
+    });
+    if (
+      !discountCoupon &&
+      order.sourceName.startsWith("erpnext") &&
+      order.totalDiscounts != null &&
+      order.totalDiscounts.gt(0)
+    ) {
+      discountCoupon = await resolveOrderDiscountCouponForOrder({
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+        name: order.name,
+        erpnextInvoiceId: order.erpnextInvoiceId,
+        erpnextInstance: order.companyLocation.erpnextInstance,
+      });
+    }
+    const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
     const merchantName = resolveMerchantName({
       couponCode: merchantCouponCode,
       couponToMerchant,
@@ -581,11 +626,12 @@ export async function GET(request: NextRequest) {
       discountCodes: order.discountCodes,
     })).label ?? shippingRuleFallbackFromOrder(order, shippingAddress);
 
-    return createOrderInvoiceRow({
+    return formatCsvDataLine(csvHeaders, createOrderInvoiceRow({
       invoiceNo,
       erpInvoiceId: order.erpnextInvoiceId,
       sourceName: order.sourceName,
       merchantCouponCode,
+      couponCode,
       merchantName,
       fulfillmentStage: order.fulfillmentStage,
       shippingService: getShippingService({
@@ -622,30 +668,34 @@ export async function GET(request: NextRequest) {
       invoiceCompleteBy: getUserDisplayName(order.invoiceCompleteBy),
       shippingRule,
       createdBy,
-    });
+    }));
+          });
+        }
+
+        if (!request.signal.aborted) {
+          await logReportDownload({
+            companyId,
+            userId: auth.context?.user?.id,
+            reportKey: `orders:${report}:${range}`,
+            reportLabel,
+            filters,
+            fileName,
+          });
+        }
+        controller.close();
+      } catch (error) {
+        controller.error(error instanceof Error ? error : new Error("Dump failed"));
+      }
+    },
   });
 
-  const csv = omitCustomerPhone
-    ? buildOrderInvoiceCsvWithoutCustomerPhone(rows)
-    : buildOrderInvoiceCsv(rows);
-  const fileName = omitCustomerPhone
-    ? `utility-order-invoice-${label}.csv`
-    : `order-invoice-${label}.csv`;
-
-  await logReportDownload({
-    companyId,
-    userId: auth.context?.user?.id,
-    reportKey: `orders:${report}:${range}`,
-    reportLabel,
-    filters,
-    fileName,
-  });
-
-  return new NextResponse(csv, {
+  return new NextResponse(stream, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store",
+      [DUMP_TOTAL_HEADER]: String(totalCsvRows),
+      "Access-Control-Expose-Headers": DUMP_TOTAL_HEADER,
     },
   });
 }

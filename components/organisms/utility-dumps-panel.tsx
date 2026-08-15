@@ -1,8 +1,9 @@
 "use client";
 
-import { Download, FileText } from "lucide-react";
+import { useState } from "react";
+import { FileText } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { DumpDownloadButton } from "@/components/molecules/dump-download-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 
@@ -17,24 +18,38 @@ type ReportAction = {
   permission: string;
 };
 
-function ReportRow({ title, subtitle, action }: { title: string; subtitle: string; action: ReportAction }) {
+function ReportRow({
+  title,
+  subtitle,
+  action,
+  busyHref,
+  onBusyChange,
+}: {
+  title: string;
+  subtitle: string;
+  action: ReportAction;
+  busyHref: string | null;
+  onBusyChange: (href: string, busy: boolean) => void;
+}) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/80 p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
       <div className="space-y-1">
         <p className="font-medium text-foreground">{title}</p>
         <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
-      <Button asChild className="bg-sky-500 text-white hover:bg-sky-600">
-        <a href={action.href}>
-          <Download className="mr-2 size-4" />
-          {action.label}
-        </a>
-      </Button>
+      <DumpDownloadButton
+        href={action.href}
+        label={action.label}
+        className="bg-sky-500 hover:bg-sky-600"
+        disabled={busyHref !== null && busyHref !== action.href}
+        onBusyChange={(busy) => onBusyChange(action.href, busy)}
+      />
     </div>
   );
 }
 
 export function UtilityDumpsPanel({ permissionKeys, roleNames = [] }: UtilityDumpsPanelProps) {
+  const [busyHref, setBusyHref] = useState<string | null>(null);
   const can = (permission: string) =>
     roleNames.includes("super_admin") ||
     roleNames.includes("admin") ||
@@ -78,6 +93,8 @@ export function UtilityDumpsPanel({ permissionKeys, roleNames = [] }: UtilityDum
               title="Web-site Invoice Detail (Invoice Wise) [Last 90 Days]"
               subtitle="Invoice-wise website and manual order export for the last 90 days."
               action={dump2Action}
+              busyHref={busyHref}
+              onBusyChange={(href, busy) => setBusyHref(busy ? href : null)}
             />
           )}
           {dump3Action && (
@@ -85,6 +102,8 @@ export function UtilityDumpsPanel({ permissionKeys, roleNames = [] }: UtilityDum
               title="Web-site Invoice Item Detail (Invoice/Item Wise) [Last 90 Days]"
               subtitle="Line-item level export for the last 90 days."
               action={dump3Action}
+              busyHref={busyHref}
+              onBusyChange={(href, busy) => setBusyHref(busy ? href : null)}
             />
           )}
         </CardContent>
