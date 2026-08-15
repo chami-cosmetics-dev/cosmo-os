@@ -33,6 +33,12 @@ export const customerInsightContactParamsSchema = z.object({
   contactId: cuidSchema,
 });
 
+const insightFilterListSchema = (maxLen: number) =>
+  z
+    .array(trimmedString(1, maxLen))
+    .max(INSIGHT_FILTER_LIST_MAX)
+    .optional();
+
 export const customerInsightInvoicesQuerySchema = z.object({
   invoicesPage: z.coerce
     .number()
@@ -153,12 +159,6 @@ const optionalIsoDate = z
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
   .optional();
-
-const insightFilterListSchema = (maxLen: number) =>
-  z
-    .array(trimmedString(1, maxLen))
-    .max(INSIGHT_FILTER_LIST_MAX)
-    .optional();
 
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
