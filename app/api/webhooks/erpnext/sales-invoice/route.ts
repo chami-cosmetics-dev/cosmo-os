@@ -473,8 +473,10 @@ export async function POST(request: NextRequest) {
   function parseErpAddress(
     html: string | null | undefined,
     customerName: string,
+    phone?: string | null,
   ): object {
-    if (!html?.trim()) return { name: customerName };
+    const phoneField = phone?.trim() ? { phone: phone.trim() } : {};
+    if (!html?.trim()) return { name: customerName, ...phoneField };
     // Strip HTML tags, split on <br> variants into lines
     const lines = html
       .replace(/<br\s*\/?>/gi, "\n")
@@ -493,6 +495,7 @@ export async function POST(request: NextRequest) {
       address2: addrLines.length > 2 ? addrLines[1] : null,
       city: addrLines.length > 1 ? addrLines[addrLines.length - 2] : null,
       country: addrLines.length > 1 ? addrLines[addrLines.length - 1] : null,
+      ...phoneField,
     };
   }
 
@@ -512,6 +515,7 @@ export async function POST(request: NextRequest) {
   const shippingAddressObj = parseErpAddress(
     nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
     erpCustomerName,
+    customerPhone,
   );
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
