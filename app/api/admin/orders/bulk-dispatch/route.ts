@@ -117,7 +117,10 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
+      const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(
+        order.erpnextSyncError,
+        order.erpnextInvoiceId,
+      );
       if (erpOutOfStockBlock) {
         results.push({ orderId, ref, success: false, error: erpOutOfStockBlock });
         continue;

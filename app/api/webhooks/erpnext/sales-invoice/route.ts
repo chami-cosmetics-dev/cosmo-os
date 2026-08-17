@@ -27,6 +27,7 @@ import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
 import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
+import { linkedVaultOrderSubmittedInvoicePatch } from "@/lib/erp-fulfillment-block";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -358,15 +359,13 @@ export async function POST(request: NextRequest) {
         ? data.contact_mobile.trim()
         : null;
 
-    if (data.customer?.trim()) {
-      await prisma.order.update({
-        where: { id: linkedVaultOrder.id },
-        data: {
-          erpnextInvoiceId: data.name,
-          erpnextCustomerId: data.customer.trim(),
-        },
-      });
-    }
+    await prisma.order.update({
+      where: { id: linkedVaultOrder.id },
+      data: linkedVaultOrderSubmittedInvoicePatch({
+        invoiceName: data.name,
+        customer: data.customer,
+      }),
+    });
 
     if (linkedEmail || linkedPhone) {
       const linkedNameResolution = await resolveErpWebhookCustomerName(data, {

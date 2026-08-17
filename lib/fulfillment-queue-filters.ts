@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 
-/** Exclude orders blocked because ERP sync failed with out-of-stock. */
+/** Exclude orders blocked because ERP sync failed with out-of-stock and no real SI exists yet. */
 export const excludeErpOutOfStockBlockedOrdersWhere = {
   NOT: {
     AND: [
@@ -9,6 +9,13 @@ export const excludeErpOutOfStockBlockedOrdersWhere = {
         OR: [
           { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
           { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+        ],
+      },
+      {
+        OR: [
+          { erpnextInvoiceId: null },
+          { erpnextInvoiceId: "pending" },
+          { erpnextInvoiceId: "pending_approval" },
         ],
       },
     ],
