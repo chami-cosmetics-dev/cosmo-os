@@ -1,7 +1,24 @@
-import type { OldItemCollectionStatus, Prisma } from "@prisma/client";
+import type { FulfillmentStage, OldItemCollectionStatus, Prisma } from "@prisma/client";
 
+import { applyPostDeliveryInvoiceAndPayment } from "@/lib/delivery-payment-approval";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { prisma } from "@/lib/prisma";
+
+export function isRiderDeliveryAlreadyCompletedStage(stage: FulfillmentStage | string): boolean {
+  return stage === "delivery_complete" || stage === "invoice_complete";
+}
+
+async function applyPostDeliverySafe(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+}) {
+  try {
+    await applyPostDeliveryInvoiceAndPayment(input);
+  } catch (err) {
+    console.error("[Delivery] post-delivery invoice/payment failed:", err);
+  }
+}
 
 export type CompleteRiderDeliveryResult =
   | { success: true; alreadyCompleted: true }
@@ -97,7 +114,14 @@ export async function completeRiderDeliveryByToken(input: {
     return { success: false, error: "Invalid or expired link", status: 404 };
   }
 
-  if (order.fulfillmentStage === "delivery_complete") {
+  if (isRiderDeliveryAlreadyCompletedStage(order.fulfillmentStage)) {
+    if (order.fulfillmentStage === "delivery_complete") {
+      await applyPostDeliverySafe({
+        companyId: order.companyId,
+        orderId: order.id,
+        requestedById: order.riderDeliveryTask?.riderId ?? null,
+      });
+    }
     return { success: true, alreadyCompleted: true };
   }
 
@@ -110,6 +134,12 @@ export async function completeRiderDeliveryByToken(input: {
       taskId: task?.id,
     }),
   );
+
+  await applyPostDeliverySafe({
+    companyId: order.companyId,
+    orderId: order.id,
+    requestedById: task?.riderId ?? null,
+  });
 
   return {
     success: true,
@@ -149,7 +179,14 @@ export async function completeRiderDeliveryTask(input: {
     return { success: false, error: "Delivery not found", status: 404 };
   }
 
-  if (task.order.fulfillmentStage === "delivery_complete") {
+  if (isRiderDeliveryAlreadyCompletedStage(task.order.fulfillmentStage)) {
+    if (task.order.fulfillmentStage === "delivery_complete") {
+      await applyPostDeliverySafe({
+        companyId: task.order.companyId,
+        orderId: task.orderId,
+        requestedById: input.riderId,
+      });
+    }
     return { success: true, alreadyCompleted: true };
   }
 
@@ -167,6 +204,12 @@ export async function completeRiderDeliveryTask(input: {
       },
     }),
   );
+
+  await applyPostDeliverySafe({
+    companyId: task.order.companyId,
+    orderId: task.orderId,
+    requestedById: input.riderId,
+  });
 
   return {
     success: true,

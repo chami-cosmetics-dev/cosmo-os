@@ -30,6 +30,7 @@ import { formatAppDateTime, formatAppIsoCalendarDate, formatAppIsoDate } from "@
 import {
   canRequestPaymentMethodChange,
   getPaymentMethodInfo,
+  isUnpaidCardOnDeliveryFinance,
 } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -78,6 +79,11 @@ type SampleOrderDetail = {
     showOnInvoice?: boolean;
     addedBy: { id: string; name: string | null; email: string | null } | null;
   }>;
+  paymentApproval?: {
+    id: string;
+    status: string;
+    requestNote?: string | null;
+  } | null;
 };
 
 function formatPrice(value?: string | null, currency?: string | null) {
@@ -402,12 +408,20 @@ export function FulfillmentSampleFreeIssuePanel({
   });
 
   const requiresFinanceApproval = useMemo(() => {
-    const gateways = [
-      detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
-      ...(detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? []),
+    const gateways = {
+      paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary ?? null,
+      paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? [],
+    };
+    const names = [
+      gateways.paymentGatewayPrimary,
+      ...gateways.paymentGatewayNames,
     ].map((g) => g?.toLowerCase().trim() ?? "").filter(Boolean);
-    return gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"));
+    return (
+      names.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank")) ||
+      isUnpaidCardOnDeliveryFinance(gateways)
+    );
   }, [detail, order]);
+  const financeApprovalPending = detail?.paymentApproval?.status === "pending";
 
   async function handleConfirmBankTransfer() {
     if (!orderId) return;
@@ -925,14 +939,19 @@ export function FulfillmentSampleFreeIssuePanel({
           </div>
         )}
 
-        {requiresFinanceApproval && !order?.pendingMethodChangeApproval && orderId && (
+        {requiresFinanceApproval && !order?.pendingMethodChangeApproval && financeApprovalPending && orderId && (
           <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
             <div>
               <p className="font-medium text-amber-800 dark:text-amber-400">Finance approval required</p>
               <p className="text-amber-700 dark:text-amber-500">
                 This order uses {paymentMethod} which requires finance team approval before it can proceed to print.
-                An approval request has been sent automatically when samples were added.
+                {isUnpaidCardOnDeliveryFinance({
+                  paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary ?? null,
+                  paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? [],
+                })
+                  ? " After approve, order stays unpaid and moves to print. Payment is collected at delivery."
+                  : " An approval request has been sent automatically when samples were added."}
               </p>
             </div>
           </div>
@@ -942,7 +961,7 @@ export function FulfillmentSampleFreeIssuePanel({
             <div className="flex justify-end">
               <Button
                 onClick={() => void confirmSample()}
-                disabled={!orderId || isBusy || remarkBusy || !!order?.pendingMethodChangeApproval}
+                disabled={!orderId || isBusy || remarkBusy || !!order?.pendingMethodChangeApproval || financeApprovalPending}
                 className="h-11 bg-green-600 px-8 text-white hover:bg-green-700"
               >
                 {busyKey === "advance_to_print" || remarkBusy ? (

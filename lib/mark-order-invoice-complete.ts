@@ -28,6 +28,19 @@ export type MarkOrderInvoiceCompleteResult =
     }
   | { success: false; ref: string; error: string };
 
+export function resolveInvoiceCompleteStamp(input: {
+  invoiceCompleteAt: Date | null;
+  invoiceCompleteById: string | null;
+  now: Date;
+  userId: string;
+}): { invoiceCompleteAt: Date; invoiceCompleteById: string | null } {
+  const actor = input.userId.trim() || null;
+  return {
+    invoiceCompleteAt: input.invoiceCompleteAt ?? input.now,
+    invoiceCompleteById: input.invoiceCompleteById ?? actor,
+  };
+}
+
 export async function markOrderInvoiceComplete(input: {
   companyId: string;
   orderId: string;
@@ -80,6 +93,13 @@ export async function markOrderInvoiceComplete(input: {
       : null) ??
     undefined;
 
+  const stamp = resolveInvoiceCompleteStamp({
+    invoiceCompleteAt: order.invoiceCompleteAt,
+    invoiceCompleteById: order.invoiceCompleteById,
+    now,
+    userId: input.userId,
+  });
+
   await prisma.$transaction(async (tx) => {
     await tx.order.update({
       where: { id: order.id },
@@ -87,8 +107,8 @@ export async function markOrderInvoiceComplete(input: {
         ...orderStageUpdate("invoice_complete", now),
         fulfillmentStatus: "fulfilled",
         financialStatus: "paid",
-        invoiceCompleteAt: now,
-        invoiceCompleteById: input.userId,
+        invoiceCompleteAt: stamp.invoiceCompleteAt,
+        invoiceCompleteById: stamp.invoiceCompleteById,
       },
     });
 
@@ -150,7 +170,7 @@ export async function markOrderInvoiceComplete(input: {
   const orderNum = order.orderNumber ?? order.name ?? order.id;
   await writeAuditLog({
     companyId: input.companyId,
-    actorUserId: input.userId,
+    actorUserId: input.userId.trim() || stamp.invoiceCompleteById,
     module: "orders",
     action: "fulfillment_updated",
     entityType: "Order",
