@@ -138,9 +138,9 @@ export async function resolveCosmoCatalogErpInstance(
   return instances.find((row) => row.id === picked.id) ?? null;
 }
 
-/** Fetch OGF Price List rates for specific item codes (SKU). */
-export async function fetchLwkItemPricesBySku(input: {
+async function fetchSellingPricesBySku(input: {
   cfg: OsfErpCredentials;
+  priceList: string;
   itemCodes: string[];
 }): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
@@ -150,7 +150,7 @@ export async function fetchLwkItemPricesBySku(input: {
   for (let i = 0; i < items.length; i += ITEM_BATCH) {
     const batch = items.slice(i, i + ITEM_BATCH);
     const filters = JSON.stringify([
-      ["price_list", "=", LWK_STICKER_PRICE_LIST],
+      ["price_list", "=", input.priceList],
       ["item_code", "in", batch],
       ["selling", "=", 1],
     ]);
@@ -172,6 +172,30 @@ export async function fetchLwkItemPricesBySku(input: {
   }
 
   return out;
+}
+
+/** Fetch OGF Price List rates for specific item codes (SKU). */
+export async function fetchLwkItemPricesBySku(input: {
+  cfg: OsfErpCredentials;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  return fetchSellingPricesBySku({
+    cfg: input.cfg,
+    priceList: LWK_STICKER_PRICE_LIST,
+    itemCodes: input.itemCodes,
+  });
+}
+
+/** Fetch Standard Selling rates for specific item codes (SKU). */
+export async function fetchStandardSellingPricesBySku(input: {
+  cfg: OsfErpCredentials;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  return fetchSellingPricesBySku({
+    cfg: input.cfg,
+    priceList: STANDARD_SELLING_PRICE_LIST,
+    itemCodes: input.itemCodes,
+  });
 }
 
 /** Paginate all selling rates on the LWK/OGF price list. */
