@@ -1,0 +1,15 @@
+{
+  "contactsTotal": 83073,
+  "liveWithPhoneOrEmail": 82137,
+  "phoneCards": 82103,
+  "emailOnlyLive": 34,
+  "strippedShellsNoPhoneNoEmail": 936,
+  "samePhoneGroups": 2,
+  "sameEmailGroups": 1260,
+  "emailPhoneSplits": 9,
+  "extraPhonesOnCards": 9,
+  "extraSameFormat": 0,
+  "extraOtherNumber": 9,
+  "secondaryPhoneClash": 7,
+  "files": "C:\\dev\\cosmo-os\\tmp\\audit-contacts"
+}

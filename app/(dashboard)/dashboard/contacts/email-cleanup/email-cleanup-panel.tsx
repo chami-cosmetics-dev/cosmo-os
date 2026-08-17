@@ -67,9 +67,12 @@ export function EmailCleanupPanel() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmAllOpen, setConfirmAllOpen] = useState(false);
+  const [clearProgress, setClearProgress] = useState<string | null>(null);
 
   const isBusy = busyKey !== null;
   const pageSize = 50;
+  const bulkPageSize = 250;
 
   const loadList = useCallback(async () => {
     setBusyKey("load");
@@ -157,6 +160,62 @@ export function EmailCleanupPanel() {
     }
   };
 
+  const runClearAllMatching = async () => {
+    const total = data?.total ?? 0;
+    if (total === 0) return;
+    setBusyKey("clearAll");
+    let clearedTotal = 0;
+    let skippedTotal = 0;
+    try {
+      for (;;) {
+        const params = new URLSearchParams({
+          reason,
+          page: "1",
+          pageSize: String(bulkPageSize),
+        });
+        const listRes = await fetch(`/api/admin/contacts/email-cleanup?${params.toString()}`);
+        const listJson = (await listRes.json()) as ListResponse & { error?: unknown };
+        if (!listRes.ok) {
+          throw new Error(
+            typeof listJson.error === "string" ? listJson.error : "Failed to load email cleanup list"
+          );
+        }
+        const ids = listJson.items.map((row) => row.contactId);
+        if (ids.length === 0) break;
+        setClearProgress(`Removing ${clearedTotal + ids.length} / ${total}…`);
+        const res = await fetch("/api/admin/contacts/email-cleanup/clear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason, contactIds: ids }),
+        });
+        const json = (await res.json()) as {
+          cleared?: number;
+          skipped?: Array<{ contactId: string; error: string }>;
+          error?: unknown;
+        };
+        if (!res.ok) {
+          throw new Error(
+            typeof json.error === "string" ? json.error : "Failed to clear emails"
+          );
+        }
+        clearedTotal += json.cleared ?? 0;
+        skippedTotal += json.skipped?.length ?? 0;
+      }
+      notify.success(`Cleared emails on ${clearedTotal} contact(s).`);
+      if (skippedTotal) {
+        notify.error(`${skippedTotal} contact(s) skipped (no longer matched).`);
+      }
+      setConfirmAllOpen(false);
+      setClearProgress(null);
+      await loadList();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to clear emails");
+    } finally {
+      setBusyKey(null);
+      setClearProgress(null);
+    }
+  };
+
   const activeTab = REASON_TABS.find((tab) => tab.value === reason)!;
 
   return (
@@ -208,6 +267,24 @@ export function EmailCleanupPanel() {
                 <>
                   <Trash2 className="size-4" aria-hidden />
                   Remove selected ({selected.size})
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={isBusy || !data?.total}
+              onClick={() => setConfirmAllOpen(true)}
+            >
+              {busyKey === "clearAll" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  {clearProgress ?? "Removing all..."}
+                </>
+              ) : (
+                <>
+                  <Trash2 className="size-4" aria-hidden />
+                  Remove all matching{data?.total ? ` (${data.total})` : ""}
                 </>
               )}
             </Button>
@@ -330,6 +407,36 @@ export function EmailCleanupPanel() {
                 </>
               ) : (
                 "Confirm remove"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmAllOpen} onOpenChange={setConfirmAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove all matching emails?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This clears {activeTab.label.toLowerCase()} matches on all {data?.total ?? 0}{" "}
+              contact(s), in batches. Contacts are not deleted. Valid emails on the same contact
+              are kept. This can take a few minutes for thousands of rows.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBusy}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={isBusy}
+              onClick={() => void runClearAllMatching()}
+            >
+              {busyKey === "clearAll" ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  {clearProgress ?? "Removing..."}
+                </>
+              ) : (
+                "Confirm remove all"
               )}
             </Button>
           </AlertDialogFooter>
