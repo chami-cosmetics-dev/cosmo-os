@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { isUnpaidCardOnDeliveryFinance, orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
 export const ORDER_VOIDED_APPROVAL_CANCEL_NOTE =
@@ -153,21 +154,28 @@ export async function getFinanceApprovalUserIds(companyId: string, locationId?: 
   return users.map((u) => u.id);
 }
 
-export function isOrderPaymentRequiresApproval(order: {
-  paymentGatewayPrimary: string | null;
-  paymentGatewayNames: string[];
-}): boolean {
+export function isOrderPaymentRequiresApproval(
+  order: {
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+  },
+  options?: { vaultOs?: boolean },
+): boolean {
   // When primary is known, check only that — paymentGatewayNames includes all
   // payment methods available at checkout, not just the one the customer used,
   // which causes false positives (e.g. "Bank Deposit" alongside a COD order).
   if (order.paymentGatewayPrimary) {
     const g = order.paymentGatewayPrimary.toLowerCase().trim();
-    return g.includes("koko") || g.includes("mintpay") || g.includes("bank");
+    if (g.includes("koko") || g.includes("mintpay") || g.includes("bank")) return true;
+  } else {
+    const gateways = order.paymentGatewayNames
+      .map((g) => g.toLowerCase().trim())
+      .filter(Boolean);
+    if (gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"))) {
+      return true;
+    }
   }
-  const gateways = order.paymentGatewayNames
-    .map((g) => g.toLowerCase().trim())
-    .filter(Boolean);
-  return gateways.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank"));
+  return isUnpaidCardOnDeliveryFinance(order, options);
 }
 
 export function isPlaceholderErpInvoiceId(id: string | null | undefined) {
@@ -266,6 +274,8 @@ export async function reconcilePendingDeliveryApprovalsForPrepaidOrders(companyI
   const ids = pending
     .filter((row) => {
       if (!row.order) return false;
+      // Card on Delivery still collects at the door after intake finance.
+      if (orderHasCardOnDeliveryGateway(row.order)) return false;
       if (isOrderPaymentRequiresApproval(row.order)) return true;
       const primary = row.order.paymentGatewayPrimary?.toLowerCase().trim() ?? "";
       if (primary.includes("koko") || primary.includes("mintpay") || primary.includes("bank") || primary.includes("webxpay")) {

@@ -76,6 +76,7 @@ describe("isPrePaidGateway", () => {
     expect(isPrePaidGateway("bank_transfer")).toBe(true);
     expect(isPrePaidGateway("cc_checkout")).toBe(true);
     expect(isPrePaidGateway("cod")).toBe(false);
+    expect(isPrePaidGateway("card on delivery")).toBe(false);
   });
 });
 
@@ -121,6 +122,15 @@ describe("shouldSkipDeliveryPaymentApproval", () => {
       shouldSkipDeliveryPaymentApproval({
         paymentGatewayPrimary: "cod",
         paymentGatewayNames: ["cod", "bank_transfer"],
+      }),
+    ).toBe(false);
+  });
+
+  it("does not skip card on delivery — door collection still required", () => {
+    expect(
+      shouldSkipDeliveryPaymentApproval({
+        paymentGatewayPrimary: "card on delivery",
+        paymentGatewayNames: ["card on delivery"],
       }),
     ).toBe(false);
   });

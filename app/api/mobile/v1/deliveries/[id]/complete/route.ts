@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRiderMobileSession, mobileError } from "@/lib/mobile/api";
 import { findRiderTaskById } from "@/lib/mobile/orders";
 import { riderDeliveryCompleteSchema, mobileRouteIdSchema } from "@/lib/mobile/validation";
+import { completeRiderDeliveryTask } from "@/lib/complete-rider-delivery";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
-import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
-import { completeRiderDeliveryTask } from "@/lib/complete-rider-delivery";
 
 export async function POST(
   request: NextRequest,
@@ -34,7 +33,14 @@ export async function POST(
     return mobileError("Delivery not found", 404);
   }
 
-  if (task.order.fulfillmentStage === "delivery_complete") {
+  if (task.order.fulfillmentStage === "delivery_complete" || task.order.fulfillmentStage === "invoice_complete") {
+    const result = await completeRiderDeliveryTask({
+      taskId: task.id,
+      riderId: auth.session.userId,
+    });
+    if (!result.success) {
+      return mobileError(result.error, result.status);
+    }
     return NextResponse.json({ success: true, alreadyCompleted: true });
   }
 
@@ -70,12 +76,6 @@ export async function POST(
   if (result.alreadyCompleted) {
     return NextResponse.json({ success: true, alreadyCompleted: true });
   }
-
-  void triggerDeliveryPaymentApprovalIfNeeded({
-    companyId: result.order.companyId,
-    orderId: result.order.id,
-    requestedById: auth.session.userId,
-  }).catch((err) => console.error("[Mobile delivery] payment approval failed:", err));
 
   void sendOrderSms(result.order.companyId, result.order.id, "delivery_complete", {
     orderNumber: result.order.orderNumber ?? result.order.name ?? result.order.shopifyOrderId,

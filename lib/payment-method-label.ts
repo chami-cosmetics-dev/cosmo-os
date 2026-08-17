@@ -1,4 +1,6 @@
-﻿export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
+﻿import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+
+export type PaymentMethodVariant = "cod" | "bank" | "card" | "cash" | "paid" | "other";
 
 export type PaymentMethodInfo = {
   label: string;
@@ -70,7 +72,7 @@ export function formatPaymentMethodLabel(input?: {
 }
 
 /**
- * COD and Cash (POS/web “Cash”) can be switched to Bank Transfer / KOKO.
+ * COD and Cash (POS/web “Cash”) can be switched to Bank Transfer / KOKO / Mintpay.
  * Already bank / card / paid gateways cannot.
  */
 export function canRequestPaymentMethodChange(input?: {
@@ -86,4 +88,87 @@ export function canRequestPaymentMethodChange(input?: {
     return true;
   }
   return false;
+}
+
+export function isCardOnDeliveryGateway(gateway: string | null | undefined): boolean {
+  const normalized = gateway?.toLowerCase().replace(/[_\-\s]+/g, " ").trim() ?? "";
+  return (
+    normalized.includes("card payment on delivery") ||
+    normalized.includes("card on delivery") ||
+    normalized.includes("card delivery")
+  );
+}
+
+export type PaymentMethodChangeTarget = "bank_transfer" | "koko" | "mintpay";
+
+export function paymentMethodChangeTargetLabel(target: PaymentMethodChangeTarget): string {
+  switch (target) {
+    case "koko":
+      return "KOKO";
+    case "mintpay":
+      return "Mintpay";
+    default:
+      return "Bank Transfer";
+  }
+}
+
+export function paymentMethodChangeGateway(target: PaymentMethodChangeTarget): string {
+  switch (target) {
+    case "koko":
+      return "koko";
+    case "mintpay":
+      return "mintpay";
+    default:
+      return "bank_transfer";
+  }
+}
+
+export function parsePaymentMethodChangeTarget(
+  requestNote: string | null | undefined,
+): PaymentMethodChangeTarget | null {
+  const note = requestNote?.trim().toLowerCase() ?? "";
+  if (!note) return null;
+  if (note.startsWith("bank transfer")) return "bank_transfer";
+  if (note.includes("mintpay")) return "mintpay";
+  if (note.startsWith("koko")) return "koko";
+  return null;
+}
+
+export function orderHasCardOnDeliveryGateway(order: {
+  paymentGatewayPrimary?: string | null;
+  paymentGatewayNames?: string[] | null;
+}): boolean {
+  if (order.paymentGatewayPrimary) {
+    return isCardOnDeliveryGateway(order.paymentGatewayPrimary);
+  }
+  return (order.paymentGatewayNames ?? []).some((g) => isCardOnDeliveryGateway(g));
+}
+
+/**
+ * Vault OS Card on Delivery: finance gates fulfillment, SI stays unpaid, PE waits for door collection.
+ * Cosmo: treat as normal unpaid delivery collection (no intake finance).
+ */
+export function isUnpaidCardOnDeliveryFinance(
+  order: {
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
+  },
+  options?: { vaultOs?: boolean },
+): boolean {
+  const vaultOs = options?.vaultOs ?? isVaultOsDeployment();
+  if (!vaultOs) return false;
+  return orderHasCardOnDeliveryGateway(order);
+}
+
+/** ORDER_PAYMENT finance approve must never mark Card on Delivery paid. */
+export function orderPaymentFinanceApproveMarksPaid(
+  order: {
+    paymentGatewayPrimary?: string | null;
+    paymentGatewayNames?: string[] | null;
+  },
+  extra?: { requestNote?: string | null },
+): boolean {
+  if (orderHasCardOnDeliveryGateway(order)) return false;
+  if (isCardOnDeliveryGateway(extra?.requestNote)) return false;
+  return true;
 }

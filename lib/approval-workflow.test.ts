@@ -90,6 +90,27 @@ describe("isOrderPaymentRequiresApproval", () => {
       }),
     ).toBe(false);
   });
+
+  it("requires Vault card on delivery approval, not Cosmo", () => {
+    expect(
+      isOrderPaymentRequiresApproval(
+        { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
+        { vaultOs: false },
+      ),
+    ).toBe(false);
+    expect(
+      isOrderPaymentRequiresApproval(
+        { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
+        { vaultOs: true },
+      ),
+    ).toBe(true);
+    expect(
+      isOrderPaymentRequiresApproval(
+        { paymentGatewayPrimary: null, paymentGatewayNames: ["card_on_delivery"] },
+        { vaultOs: true },
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("orderPaymentRejectionReasonSchema", () => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createPerfLogger } from "@/lib/perf";
+import { reconcileDeliveredInvoiceCompleteStage } from "@/lib/delivery-payment-approval";
 import { fetchOrdersPageData } from "@/lib/page-data/orders";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -83,6 +84,9 @@ export async function GET(request: NextRequest) {
     returnFilterParam === "normal" || returnFilterParam === "rearrange"
       ? returnFilterParam
       : undefined;
+
+  await reconcileDeliveredInvoiceCompleteStage(companyId);
+  perf.mark("reconcile-delivered-invoice");
 
   const data = await fetchOrdersPageData(companyId, {
     page: pageResult.success ? pageResult.data : 1,

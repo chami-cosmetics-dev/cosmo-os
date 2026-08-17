@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   completeRiderDeliveryByToken,
+  isRiderDeliveryAlreadyCompletedStage,
 } from "@/lib/complete-rider-delivery";
-import { triggerDeliveryPaymentApprovalIfNeeded } from "@/lib/delivery-payment-approval";
 import { prisma } from "@/lib/prisma";
 import { sendOrderSms } from "@/lib/order-sms";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
@@ -33,7 +33,7 @@ export async function GET(
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
 
-  if (order.fulfillmentStage === "delivery_complete") {
+  if (isRiderDeliveryAlreadyCompletedStage(order.fulfillmentStage)) {
     return NextResponse.json({
       orderName: order.name ?? order.orderNumber ?? order.shopifyOrderId,
       message: "Delivery already confirmed",
@@ -72,12 +72,6 @@ export async function POST(
       return NextResponse.json({ success: true, message: "Already confirmed" });
     }
 
-    void triggerDeliveryPaymentApprovalIfNeeded({
-      companyId: result.order.companyId,
-      orderId: result.order.id,
-      requestedById: result.riderId,
-    }).catch((err) => console.error("[Rider delivery] payment approval failed:", err));
-
     void sendOrderSms(result.order.companyId, result.order.id, "delivery_complete", {
       orderNumber: result.order.orderNumber ?? result.order.name ?? result.order.shopifyOrderId,
       customerPhone: resolveCustomerPhone(result.order),
@@ -96,7 +90,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid or expired link" }, { status: 404 });
   }
 
-  if (order.fulfillmentStage === "delivery_complete") {
+  if (isRiderDeliveryAlreadyCompletedStage(order.fulfillmentStage)) {
     return NextResponse.json({ success: true, message: "Already confirmed" });
   }
 

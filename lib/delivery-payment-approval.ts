@@ -1,3 +1,5 @@
+import type { FulfillmentStage } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import {
   createOrGetDeliveryPaymentApproval,
@@ -5,6 +7,8 @@ import {
   isOrderPaymentRequiresApproval,
   ORDER_PAYMENT_APPROVAL,
 } from "@/lib/approval-workflow";
+import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
+import { orderHasCardOnDeliveryGateway } from "@/lib/payment-method-label";
 
 export type PostDeliveryInvoiceResult =
   | { kind: "awaiting_manual_invoice_complete" }
@@ -87,6 +91,7 @@ export function shouldSkipDeliveryPaymentApproval(order: {
     paymentGatewayPrimary: order.paymentGatewayPrimary ?? null,
     paymentGatewayNames: order.paymentGatewayNames ?? [],
   };
+  if (orderHasCardOnDeliveryGateway(normalized)) return false;
   if (isOrderPaymentRequiresApproval(normalized)) return true;
 
   if (normalized.paymentGatewayPrimary) {
@@ -114,9 +119,19 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
       paymentGatewayPrimary: true,
       paymentGatewayNames: true,
       invoiceCompleteAt: true,
+      revertedFromInvoiceCompleteAt: true,
     },
   });
   if (!order) {
+    return { kind: "awaiting_manual_invoice_complete" };
+  }
+
+  const financial = order.financialStatus?.toLowerCase() ?? "";
+  if (
+    order.revertedFromInvoiceCompleteAt ||
+    financial === "refunded" ||
+    financial === "voided"
+  ) {
     return { kind: "awaiting_manual_invoice_complete" };
   }
 
@@ -128,7 +143,8 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   }
 
   const earlyFinanceUserId = await getApprovedOrderPaymentReviewerId(order.id);
-  if (earlyFinanceUserId) {
+  // Card-on-delivery intake finance is approved but stays unpaid — still need door collection.
+  if (earlyFinanceUserId && order.financialStatus?.toLowerCase() === "paid") {
     return { kind: "close_invoice_complete", financeUserId: earlyFinanceUserId };
   }
 
@@ -141,6 +157,72 @@ export async function resolvePostDeliveryInvoiceComplete(input: {
   }
 
   return { kind: "awaiting_manual_invoice_complete" };
+}
+
+export type PostDeliveryApplyResult = {
+  afterStage: FulfillmentStage;
+  needsPaymentApproval: boolean;
+};
+
+/**
+ * After delivery: close prepaid (KOKO / bank / CC / …) to invoice_complete,
+ * or queue Delivery Collection for door-cash orders.
+ */
+export async function applyPostDeliveryInvoiceAndPayment(input: {
+  companyId: string;
+  orderId: string;
+  requestedById: string | null;
+}): Promise<PostDeliveryApplyResult> {
+  const postDelivery = await resolvePostDeliveryInvoiceComplete(input);
+  if (postDelivery.kind === "close_invoice_complete") {
+    const actorId = postDelivery.financeUserId.trim() || input.requestedById?.trim() || "";
+    const outcome = await markOrderInvoiceComplete({
+      companyId: input.companyId,
+      orderId: input.orderId,
+      userId: actorId,
+    });
+    if (!outcome.success) {
+      console.error(
+        `[Delivery] close invoice complete failed for ${input.orderId}: ${outcome.error}`,
+      );
+      return { afterStage: "delivery_complete", needsPaymentApproval: false };
+    }
+    return { afterStage: "invoice_complete", needsPaymentApproval: false };
+  }
+
+  const deliveryApproval = await triggerDeliveryPaymentApprovalIfNeeded(input);
+  return {
+    afterStage: "delivery_complete",
+    needsPaymentApproval: Boolean(deliveryApproval),
+  };
+}
+
+/**
+ * Rider complete historically left prepaid orders on delivery_complete even when
+ * invoiceCompleteAt was already set at finance approval. Close that lag.
+ * Does not touch finance-reverted (partial void) orders.
+ */
+export async function reconcileDeliveredInvoiceCompleteStage(companyId: string): Promise<number> {
+  const now = new Date();
+  const result = await prisma.order.updateMany({
+    where: {
+      companyId,
+      fulfillmentStage: "delivery_complete",
+      invoiceCompleteAt: { not: null },
+      revertedFromInvoiceCompleteAt: null,
+      cancelledAt: null,
+      NOT: [
+        { financialStatus: { equals: "refunded", mode: "insensitive" } },
+        { financialStatus: { equals: "voided", mode: "insensitive" } },
+      ],
+    },
+    data: {
+      fulfillmentStage: "invoice_complete",
+      fulfillmentStageEnteredAt: now,
+      fulfillmentStatus: "fulfilled",
+    },
+  });
+  return result.count;
 }
 
 /** Trigger a delivery payment approval so finance can confirm payment was collected at the door. */
@@ -181,8 +263,8 @@ export async function triggerDeliveryPaymentApprovalIfNeeded(input: {
   // KOKO / bank / other prepaid: use Order Payment approval, never Delivery Collection.
   if (shouldSkipDeliveryPaymentApproval(order)) return null;
 
-  // Already has (or waiting on) order-payment finance confirmation — do not double-queue.
-  if (order.approvalRequests.length > 0) return null;
+  // Prepaid order-payment finance covers the same confirmation. Card on Delivery still needs door collection.
+  if (order.approvalRequests.length > 0 && !orderHasCardOnDeliveryGateway(order)) return null;
 
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId;
   const paymentType = order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "payment";
