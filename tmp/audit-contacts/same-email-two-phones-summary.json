@@ -1,0 +1,15 @@
+{
+  "liveContactsWithEmail": 38266,
+  "leftoverStaffEmailHitsSkipped": 12667,
+  "reviewRows": 1174,
+  "likelySameNameTwoPhones": 444,
+  "differentNameSameEmail": 730,
+  "leftoverSharedEmail8PlusCards": 48,
+  "alreadyOneCardTwoPhones": 8,
+  "files": {
+    "review": "C:\\dev\\cosmo-os\\tmp\\audit-contacts\\same-email-two-phones-REVIEW.csv",
+    "leftover": "C:\\dev\\cosmo-os\\tmp\\audit-contacts\\same-email-two-phones-leftover-shared.csv",
+    "oneCard": "C:\\dev\\cosmo-os\\tmp\\audit-contacts\\same-email-one-card-two-phones.csv",
+    "downloads": "C:\\Users\\Bad-Boy\\Downloads"
+  }
+}
