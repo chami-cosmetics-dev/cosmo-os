@@ -1511,7 +1511,7 @@ model RolePermission {
   roleId       String
   permissionId String
   assignedAt   DateTime   @default(now())
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
