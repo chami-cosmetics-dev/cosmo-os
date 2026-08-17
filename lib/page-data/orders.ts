@@ -11,7 +11,7 @@ import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
-import { isErpOutOfStockSyncError } from "@/lib/failed-erp-sync-classification";
+import { isErpOutOfStockFulfillmentBlocked } from "@/lib/erp-fulfillment-block";
 import {
   deliveryPipelineWhere,
   deliveryStageOrWhere,
@@ -588,7 +588,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     pendingDeliveryPaymentApproval:
       DELIVERY_PAYMENT_FINANCE_UI_ENABLED &&
       o.approvalRequests.some((a) => a.type === DELIVERY_PAYMENT_APPROVAL),
-    erpOutOfStockBlocked: isErpOutOfStockSyncError(o.erpnextSyncError),
+    erpOutOfStockBlocked: isErpOutOfStockFulfillmentBlocked({
+      erpnextSyncError: o.erpnextSyncError,
+      erpnextInvoiceId: o.erpnextInvoiceId,
+    }),
     merchantCouponCode: getMerchantCouponCode({
       sourceName: o.sourceName,
       discountCodes: o.discountCodes,
