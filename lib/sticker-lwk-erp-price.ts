@@ -2,6 +2,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
+import { pickCosmoCatalogErpInstance } from "@/lib/cosmo-catalog-erp";
 import { planStandardSellingPriceUpdates } from "@/lib/erp-item-price-decision";
 import {
   getAllOsfErpInstances,
@@ -102,6 +103,39 @@ export async function resolveLwkErpInstance(
   if (byUrl) return byUrl;
 
   return instances[0] ?? null;
+}
+
+/**
+ * Cosmetics.lk / ERP_1 Standard Selling. Never LWK (ERP_2) — trading list can lag the shop.
+ */
+export async function resolveCosmoCatalogErpInstance(
+  companyId: string
+): Promise<OsfErpInstance | null> {
+  const [locations, instances] = await Promise.all([
+    prisma.companyLocation.findMany({
+      where: { companyId },
+      select: {
+        name: true,
+        locationReference: true,
+        erpnextInstanceId: true,
+      },
+    }),
+    getAllOsfErpInstances(companyId),
+  ]);
+  const picked = pickCosmoCatalogErpInstance({
+    locations: locations.map((loc) => ({
+      name: loc.name,
+      locationReference: loc.locationReference,
+      instanceId: loc.erpnextInstanceId,
+    })),
+    instances: instances.map((row) => ({
+      id: row.id,
+      label: row.label,
+      baseUrl: row.cfg.baseUrl,
+    })),
+  });
+  if (!picked) return null;
+  return instances.find((row) => row.id === picked.id) ?? null;
 }
 
 /** Fetch OGF Price List rates for specific item codes (SKU). */
@@ -208,12 +242,12 @@ export async function loadLwkStickerPricesBySku(
 }
 
 /**
- * Load Standard Selling rates from Cosmo ERP for non-LWK stickers / OS sync.
+ * Load Standard Selling rates from Cosmo ERP (Cosmetics.lk / ERP_1).
  */
 export async function loadStandardSellingPricesBySku(
   companyId: string
 ): Promise<Record<string, string>> {
-  const instance = await resolveLwkErpInstance(companyId);
+  const instance = await resolveCosmoCatalogErpInstance(companyId);
   if (!instance) return {};
   try {
     return await fetchAllStandardSellingPrices(instance.cfg);
@@ -229,7 +263,7 @@ export async function loadStandardSellingPricesBySku(
 export async function syncStandardSellingToProductItems(
   companyId: string
 ): Promise<{ status: "ok" | "failed" | "not_configured"; updated: number; error: string | null }> {
-  const instance = await resolveLwkErpInstance(companyId);
+  const instance = await resolveCosmoCatalogErpInstance(companyId);
   if (!instance) {
     return { status: "not_configured", updated: 0, error: "No Cosmo ERP instance" };
   }

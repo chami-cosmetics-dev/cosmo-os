@@ -295,6 +295,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
         updatedRows?: number;
         sources?: Array<{ id: string; label: string; status: string; error?: string | null }>;
         prices?: { status?: string; updated?: number; error?: string | null };
+        ogfPrices?: { status?: string; updated?: number; error?: string | null };
       };
       if (!res.ok) {
         notify.error(data.error ?? "ERP sync failed");
@@ -311,9 +312,16 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
       } else if (data.prices?.status === "not_configured") {
         notify.error(data.prices.error ?? "No Cosmo ERP instance for price sync");
       }
-      if (failed.length === 0 && data.prices?.status !== "failed" && data.prices?.status !== "not_configured") {
+      if (data.ogfPrices?.status === "failed") {
+        notify.error(data.ogfPrices.error ?? "LWK OGF price sync failed");
+      } else if (data.ogfPrices?.status === "not_configured") {
+        notify.error(data.ogfPrices.error ?? "No LWK ERP instance for OGF price sync");
+      }
+      const catalogOk =
+        data.prices?.status !== "failed" && data.prices?.status !== "not_configured";
+      if (failed.length === 0 && catalogOk) {
         notify.success(
-          `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Prices synced (${(data.prices?.updated ?? 0).toLocaleString()} rows).`,
+          `Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows). Standard Selling (${(data.prices?.updated ?? 0).toLocaleString()}). LWK OGF (${(data.ogfPrices?.updated ?? 0).toLocaleString()}).`,
         );
       } else if (failed.length === 0) {
         notify.success(`Priorities synced (${data.updatedRows?.toLocaleString() ?? 0} rows).`);
@@ -404,7 +412,7 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
             Product Items
           </h1>
           <p className="text-muted-foreground mt-1 text-xs">
-            Product Priority from ERP1 / ERP2 (Manufacturing). Price from Cosmo ERP Standard Selling.
+            Product Priority from ERP1 / ERP2 (Manufacturing). LWK location = OGF Price List. Other locations = Cosmo Standard Selling.
             Syncs when you open this page.
           </p>
         </div>
