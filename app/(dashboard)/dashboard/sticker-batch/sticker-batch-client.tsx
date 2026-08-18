@@ -64,6 +64,18 @@ type LocationOption = {
   invoicePhone: string | null;
 };
 
+function formatLocationShort(location: Pick<LocationOption, "name" | "locationReference">): string {
+  const reference = location.locationReference?.trim();
+  if (reference) return reference;
+  return location.name;
+}
+
+function formatLocationFull(location: Pick<LocationOption, "name" | "locationReference">): string {
+  const reference = location.locationReference?.trim();
+  if (reference) return `${reference} — ${location.name}`;
+  return location.name;
+}
+
 type ItemCatalogRow = {
   id: string;
   companyLocationId: string;
@@ -323,14 +335,19 @@ export function StickerBatchClient({
     [rows, activeRowId]
   );
 
+  const locationById = useMemo(
+    () => new Map(locations.map((location) => [location.id, location])),
+    [locations]
+  );
+
   const selectedLocation = useMemo(
-    () => locations.find((location) => location.id === selectedLocationId) ?? null,
-    [locations, selectedLocationId]
+    () => locationById.get(selectedLocationId) ?? null,
+    [locationById, selectedLocationId]
   );
   const activeRowLocation = useMemo(() => {
     if (!activeRow?.locationId) return null;
-    return locations.find((location) => location.id === activeRow.locationId) ?? null;
-  }, [locations, activeRow]);
+    return locationById.get(activeRow.locationId) ?? null;
+  }, [locationById, activeRow]);
 
   const lwkLocationIds = useMemo(
     () =>
@@ -1639,20 +1656,25 @@ export function StickerBatchClient({
                 </SelectContent>
               </Select>
             </div>
-            <div className="min-w-[240px] flex-1 space-y-2">
+            <div className="w-[120px] min-w-[120px] space-y-2">
               <label className="text-sm font-medium">Default Location (Optional)</label>
               <Select
                 key={`default-location-select-${itemsResetKey}`}
                 value={selectedLocationId || undefined}
                 onValueChange={(value) => handleLocationChange(value)}
               >
-                <SelectTrigger className={`border-border/70 bg-background/90 ${selectClassName}`}>
-                  <SelectValue placeholder="Select default location" />
+                <SelectTrigger
+                  className={`border-border/70 bg-background/90 ${selectClassName}`}
+                  title={selectedLocation ? formatLocationFull(selectedLocation) : undefined}
+                >
+                  <SelectValue placeholder="Select default location">
+                    {selectedLocation ? formatLocationShort(selectedLocation) : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {locations.map((location) => (
                     <SelectItem key={location.id} value={location.id}>
-                      {location.locationReference?.trim() ? `${location.locationReference.trim()} — ${location.name}` : location.name}
+                      {formatLocationFull(location)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1709,11 +1731,11 @@ export function StickerBatchClient({
           </datalist>
 
           <div className="overflow-x-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
-            <table className="w-full min-w-[1100px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] text-left">
-                  <th className="p-3 font-medium">Location</th>
-                  <th className="p-3 font-medium">Item Code</th>
+                  <th className="w-[88px] p-3 font-medium">Location</th>
+                  <th className="min-w-[140px] p-3 font-medium">Item Code</th>
                   <th className="p-3 font-medium">Item Name</th>
                   <th className="p-3 font-medium">Unit Price</th>
                   <th className="p-3 font-medium">Quantity</th>
@@ -1725,32 +1747,40 @@ export function StickerBatchClient({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => (
+                {rows.map((row, index) => {
+                  const rowLocation = row.locationId ? locationById.get(row.locationId) ?? null : null;
+
+                  return (
                   <tr
                     key={row.id}
                     onClick={() => handleRowFocus(row.id)}
                     className={`border-b border-border/50 last:border-b-0 ${activeRowId === row.id ? "bg-secondary/10" : "hover:bg-secondary/5"}`}
                   >
-                    <td className="p-3">
+                    <td className="w-[88px] p-3">
                       <Select
                         value={row.locationId || undefined}
                         onValueChange={(value) =>
                           handleRowLocationChange(row.id, value)
                         }
                       >
-                        <SelectTrigger className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.locationId)}`}>
-                          <SelectValue placeholder="Select location" />
+                        <SelectTrigger
+                          className={`w-[72px] border-border/70 bg-background/90 ${getInlineChangeClass(row.locationId)}`}
+                          title={rowLocation ? formatLocationFull(rowLocation) : undefined}
+                        >
+                          <SelectValue placeholder="Loc">
+                            {rowLocation ? formatLocationShort(rowLocation) : undefined}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {locations.map((location) => (
                             <SelectItem key={location.id} value={location.id}>
-                              {location.locationReference?.trim() ? `${location.locationReference.trim()} — ${location.name}` : location.name}
-    </SelectItem>
+                              {formatLocationFull(location)}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="p-3">
+                    <td className="min-w-[140px] p-3">
                       <Input
                         value={row.itemCode}
                         list="item-code-options"
@@ -1834,7 +1864,8 @@ export function StickerBatchClient({
                       ) : null}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
