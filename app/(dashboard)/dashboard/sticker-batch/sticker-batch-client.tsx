@@ -1731,12 +1731,11 @@ export function StickerBatchClient({
           </datalist>
 
           <div className="overflow-x-auto rounded-2xl border border-border/70 bg-background/90 shadow-xs">
-            <table className="w-full min-w-[980px] text-sm">
+            <table className="w-full min-w-[860px] text-sm">
               <thead>
                 <tr className="border-b border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_94%,white),color-mix(in_srgb,var(--secondary)_10%,transparent))] text-left">
                   <th className="w-[88px] p-3 font-medium">Location</th>
-                  <th className="min-w-[140px] p-3 font-medium">Item Code</th>
-                  <th className="p-3 font-medium">Item Name</th>
+                  <th className="min-w-[220px] p-3 font-medium">Item</th>
                   <th className="p-3 font-medium">Unit Price</th>
                   <th className="p-3 font-medium">Quantity</th>
                   <th className="p-3 font-medium">Manufac Date</th>
@@ -1780,20 +1779,27 @@ export function StickerBatchClient({
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="min-w-[140px] p-3">
-                      <Input
-                        value={row.itemCode}
-                        list="item-code-options"
-                        onChange={(e) =>
-                          handleItemCodeChange(row.id, e.target.value)
-                        }
-                        onFocus={() => handleRowFocus(row.id)}
-                        placeholder="Type code"
-                        className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.itemCode)}`}
-                      />
-                    </td>
-                    <td className="p-3">
-                      <Input value={row.itemName} readOnly className="border-border/70 bg-background/80" />
+                    <td className="min-w-[220px] p-3">
+                      <div className="space-y-1">
+                        <Input
+                          value={row.itemCode}
+                          list="item-code-options"
+                          onChange={(e) =>
+                            handleItemCodeChange(row.id, e.target.value)
+                          }
+                          onFocus={() => handleRowFocus(row.id)}
+                          placeholder="Type code"
+                          className={`border-border/70 bg-background/90 ${getInlineChangeClass(row.itemCode)}`}
+                        />
+                        {row.itemName.trim() ? (
+                          <p
+                            className="text-muted-foreground text-xs leading-snug break-words"
+                            title={row.itemName}
+                          >
+                            {row.itemName}
+                          </p>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="p-3">
                       <Input value={row.unitPrice} readOnly className="border-border/70 bg-background/80" />
