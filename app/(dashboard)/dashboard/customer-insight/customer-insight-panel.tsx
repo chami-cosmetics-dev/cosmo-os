@@ -61,6 +61,7 @@ import {
 } from "@/lib/customer-insight/contact-profile-options";
 import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
+import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
@@ -215,8 +216,34 @@ type ProfileForm = {
   language: string;
   address: string;
   city: string;
-  birthDate: string;
+  birthYear: string;
+  birthMonth: string;
+  birthDay: string;
 };
+
+const BIRTH_MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => index + 1);
+const BIRTH_DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1);
+
+function birthPartsToForm(
+  year: number | null | undefined,
+  month: number | null | undefined,
+  day: number | null | undefined
+) {
+  return {
+    birthYear: year != null && year >= 1900 && year <= 2100 ? String(year) : "",
+    birthMonth: month != null && month >= 1 && month <= 12 ? String(month) : "",
+    birthDay: day != null && day >= 1 && day <= 31 ? String(day) : "",
+  };
+}
+
+function formBirthPartsToDb(form: Pick<ProfileForm, "birthYear" | "birthMonth" | "birthDay">) {
+  const birthMonth = form.birthMonth ? Number(form.birthMonth) : null;
+  const birthDay = form.birthDay ? Number(form.birthDay) : null;
+  const yearText = form.birthYear.trim();
+  const birthYear =
+    yearText && Number.isFinite(Number(yearText)) ? Number(yearText) : null;
+  return { birthYear, birthMonth, birthDay };
+}
 
 type InsightSelectOption = {
   value: string;
@@ -489,36 +516,6 @@ function InsightSearchableSelect({
   );
 }
 
-function dobPartsToInputValue(
-  year: number | null | undefined,
-  month: number | null | undefined,
-  day: number | null | undefined
-) {
-  if (year == null || month == null || day == null) return "";
-  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) return "";
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function birthDateInputToParts(value: string): {
-  birthYear: number | null;
-  birthMonth: number | null;
-  birthDay: number | null;
-} {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return { birthYear: null, birthMonth: null, birthDay: null };
-  }
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-  if (!match) {
-    return { birthYear: null, birthMonth: null, birthDay: null };
-  }
-  return {
-    birthYear: Number(match[1]),
-    birthMonth: Number(match[2]),
-    birthDay: Number(match[3]),
-  };
-}
-
 export function CustomerInsightPanel({
   canFilterAllContacts = false,
   canExportFilteredCsv = false,
@@ -595,6 +592,7 @@ export function CustomerInsightPanel({
       erpGroup: string | null;
       shopifyTag: string | null;
       assignedMerchant: string | null;
+      missingProfileFields: string[];
     }>
   >([]);
   const invoicesRef = useRef<HTMLDivElement>(null);
@@ -844,7 +842,7 @@ export function CustomerInsightPanel({
           language: next.contact.language ?? "",
           address: next.contact.address ?? "",
           city: next.contact.city ?? "",
-          birthDate: dobPartsToInputValue(
+          ...birthPartsToForm(
             next.contact.birthYear,
             next.contact.birthMonth,
             next.contact.birthDay
@@ -884,7 +882,7 @@ export function CustomerInsightPanel({
     if (!selectedContactId || !profileForm) return;
     setBusyKey("profile");
     try {
-      const dob = birthDateInputToParts(profileForm.birthDate);
+      const dob = formBirthPartsToDb(profileForm);
       const addPhone = profileForm.addPhoneNumber.trim();
       const body: Record<string, unknown> = {
         name: profileForm.name.trim(),
@@ -1217,6 +1215,11 @@ export function CustomerInsightPanel({
                         {row.erpGroup ? ` · ERP ${row.erpGroup}` : null}
                         {row.shopifyTag ? ` · Shopify “${row.shopifyTag}”` : null}
                       </p>
+                      {row.missingProfileFields?.length ? (
+                        <p className="text-amber-700 dark:text-amber-400 text-xs">
+                          Missing details: {row.missingProfileFields.join(", ")}
+                        </p>
+                      ) : null}
                     </div>
                     {canAssignLoyalty && row.suggestedTier ? (
                       <Button
@@ -1225,6 +1228,12 @@ export function CustomerInsightPanel({
                         disabled={isBusy}
                         onClick={() => {
                           void (async () => {
+                            if (row.missingProfileFields?.length) {
+                              notify.error(
+                                loyaltyProfileIncompleteMessage(row.missingProfileFields)
+                              );
+                              return;
+                            }
                             setBusyKey("loyalty-assign");
                             try {
                               const res = await fetch(
@@ -2088,19 +2097,59 @@ export function CustomerInsightPanel({
                       </select>
                     </label>
                     <label className="space-y-1 text-sm sm:col-span-2">
-                      <span className="text-muted-foreground">Birth date</span>
-                      <Input
-                        type="date"
-                        value={profileForm.birthDate}
-                        onChange={(e) =>
-                          setProfileForm((prev) =>
-                            prev ? { ...prev, birthDate: e.target.value } : prev
-                          )
-                        }
-                        disabled={isBusy}
-                        max="2100-12-31"
-                        min="1900-01-01"
-                      />
+                      <span className="text-muted-foreground">
+                        Birth date (month &amp; day required; year optional)
+                      </span>
+                      <div className="grid grid-cols-3 gap-2">
+                        <select
+                          className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                          value={profileForm.birthMonth}
+                          onChange={(e) =>
+                            setProfileForm((prev) =>
+                              prev ? { ...prev, birthMonth: e.target.value } : prev
+                            )
+                          }
+                          disabled={isBusy}
+                        >
+                          <option value="">Month</option>
+                          {BIRTH_MONTH_OPTIONS.map((month) => (
+                            <option key={month} value={String(month)}>
+                              {String(month).padStart(2, "0")}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="border-input bg-background flex h-9 w-full rounded-md border px-3 text-sm"
+                          value={profileForm.birthDay}
+                          onChange={(e) =>
+                            setProfileForm((prev) =>
+                              prev ? { ...prev, birthDay: e.target.value } : prev
+                            )
+                          }
+                          disabled={isBusy}
+                        >
+                          <option value="">Day</option>
+                          {BIRTH_DAY_OPTIONS.map((day) => (
+                            <option key={day} value={String(day)}>
+                              {String(day).padStart(2, "0")}
+                            </option>
+                          ))}
+                        </select>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          placeholder="Year (optional)"
+                          value={profileForm.birthYear}
+                          onChange={(e) =>
+                            setProfileForm((prev) =>
+                              prev ? { ...prev, birthYear: e.target.value } : prev
+                            )
+                          }
+                          disabled={isBusy}
+                          min={1900}
+                          max={2100}
+                        />
+                      </div>
                     </label>
                     <label className="space-y-1 text-sm">
                       <span className="text-muted-foreground">City</span>

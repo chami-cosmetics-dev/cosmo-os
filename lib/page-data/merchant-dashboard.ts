@@ -154,6 +154,7 @@ export type MerchantDashboardPageData = {
     suggestedTier: "gold" | "platinum";
     status: string;
     lastContactedAt: string | null;
+    missingProfileFields: string[];
   }>;
   callCenterPerformance: Array<{
     merchantName: string;
