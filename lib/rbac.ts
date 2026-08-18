@@ -73,6 +73,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Assign which OSF Excel columns other purchasing users may download",
   },
   {
+    key: "reports.stock_comparer",
+    description: "Use Cosmetics Stock Comparer upload and export",
+  },
+  {
     key: "purchasing.tools.read",
     description: "Use purchasing calculator, price compare, and filtered reorder OSF",
   },
