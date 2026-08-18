@@ -6,6 +6,10 @@ import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import { nextOutreachStatus, suggestedLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
 import { notifyMerchantAdminsLoyaltyResponded } from "@/lib/customer-insight/loyalty-notify";
+import {
+  getLoyaltyProfileMissingFields,
+  loyaltyProfileIncompleteMessage,
+} from "@/lib/customer-insight/loyalty-profile-complete";
 import { loyaltyExternalTargets } from "@/lib/customer-insight/loyalty-push";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import {
@@ -50,7 +54,20 @@ export async function POST(request: NextRequest) {
 
   const contact = await prisma.contactMaster.findFirst({
     where: { id: parsed.data.contactId, companyId },
-    select: { id: true, name: true, assignedMerchant: true },
+    select: {
+      id: true,
+      name: true,
+      assignedMerchant: true,
+      email: true,
+      phoneNumber: true,
+      gender: true,
+      language: true,
+      birthMonth: true,
+      birthDay: true,
+      city: true,
+      address: true,
+      phones: { select: { phoneNumber: true } },
+    },
   });
   if (!contact) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
@@ -75,6 +92,30 @@ export async function POST(request: NextRequest) {
 
   if (!viewerIsAdmin && !isAllocatedOwner(viewer, contact.assignedMerchant)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (parsed.data.action === "responded") {
+    const profileMissing = getLoyaltyProfileMissingFields({
+      name: contact.name,
+      email: contact.email,
+      phoneNumber: contact.phoneNumber,
+      phones: contact.phones.map((p) => p.phoneNumber),
+      gender: contact.gender,
+      language: contact.language,
+      birthMonth: contact.birthMonth,
+      birthDay: contact.birthDay,
+      city: contact.city,
+      address: contact.address,
+    });
+    if (profileMissing.length > 0) {
+      return NextResponse.json(
+        {
+          error: loyaltyProfileIncompleteMessage(profileMissing),
+          missingFields: profileMissing,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const status = nextOutreachStatus(parsed.data.action);

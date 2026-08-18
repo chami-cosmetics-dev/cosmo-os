@@ -4,6 +4,10 @@ import { writeAuditLog } from "@/lib/audit-log";
 import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
+import {
+  getLoyaltyProfileMissingFields,
+  loyaltyProfileIncompleteMessage,
+} from "@/lib/customer-insight/loyalty-profile-complete";
 import { canAssignLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
 import { pushLoyaltyAssignmentToErpAndShopify } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
@@ -58,8 +62,15 @@ export async function POST(request: NextRequest, { params }: Params) {
       name: true,
       phoneNumber: true,
       email: true,
+      gender: true,
+      language: true,
+      birthMonth: true,
+      birthDay: true,
+      city: true,
+      address: true,
       loyaltyOutreachStatus: true,
       loyaltyAssignedTier: true,
+      phones: { select: { phoneNumber: true } },
     },
   });
   if (!contact) {
@@ -71,6 +82,28 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (contact.loyaltyOutreachStatus !== "responded") {
     return NextResponse.json(
       { error: "Customer must be in Responded status" },
+      { status: 400 }
+    );
+  }
+
+  const profileMissing = getLoyaltyProfileMissingFields({
+    name: contact.name,
+    email: contact.email,
+    phoneNumber: contact.phoneNumber,
+    phones: contact.phones.map((p) => p.phoneNumber),
+    gender: contact.gender,
+    language: contact.language,
+    birthMonth: contact.birthMonth,
+    birthDay: contact.birthDay,
+    city: contact.city,
+    address: contact.address,
+  });
+  if (profileMissing.length > 0) {
+    return NextResponse.json(
+      {
+        error: loyaltyProfileIncompleteMessage(profileMissing),
+        missingFields: profileMissing,
+      },
       { status: 400 }
     );
   }

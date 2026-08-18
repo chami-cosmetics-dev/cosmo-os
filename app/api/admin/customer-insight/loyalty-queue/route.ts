@@ -4,6 +4,7 @@ import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers"
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
 import { suggestedLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
+import { getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { loyaltyExternalTargets } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -38,6 +39,13 @@ export async function GET() {
       phoneNumber: true,
       assignedMerchant: true,
       email: true,
+      gender: true,
+      language: true,
+      birthMonth: true,
+      birthDay: true,
+      city: true,
+      address: true,
+      phones: { select: { phoneNumber: true } },
     },
     take: 200,
     orderBy: { updatedAt: "desc" },
@@ -86,6 +94,18 @@ export async function GET() {
       erpGroup: targets?.erpGroup ?? null,
       shopifyTag: targets?.shopifyTag ?? null,
       assignedMerchant: c.assignedMerchant,
+      missingProfileFields: getLoyaltyProfileMissingFields({
+        name: c.name,
+        email: c.email,
+        phoneNumber: c.phoneNumber,
+        phones: c.phones.map((p) => p.phoneNumber),
+        gender: c.gender,
+        language: c.language,
+        birthMonth: c.birthMonth,
+        birthDay: c.birthDay,
+        city: c.city,
+        address: c.address,
+      }),
     });
   }
 

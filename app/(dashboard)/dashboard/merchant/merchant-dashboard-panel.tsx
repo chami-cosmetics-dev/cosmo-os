@@ -39,6 +39,7 @@ import {
 } from "@/lib/contact-call-center-categories";
 import { formatAppTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
+import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-profile-complete";
 import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
@@ -932,6 +933,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       eligible · still Standard · {row.status}
                       {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
                     </p>
+                    {row.missingProfileFields?.length ? (
+                      <p className="text-amber-700 dark:text-amber-400 text-xs">
+                        Missing details: {row.missingProfileFields.join(", ")}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-1">
                     <Button
@@ -941,6 +947,21 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       disabled={isBusy}
                       onClick={() => {
                         void (async () => {
+                          const action =
+                            row.status === "contacted"
+                              ? "responded"
+                              : "loyalty_informed";
+                          if (
+                            action === "responded" &&
+                            row.missingProfileFields?.length
+                          ) {
+                            notify.error(
+                              loyaltyProfileIncompleteMessage(
+                                row.missingProfileFields
+                              )
+                            );
+                            return;
+                          }
                           setBusyKey("loyalty");
                           try {
                             const res = await fetch(
@@ -950,10 +971,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
                                   contactId: row.contactId,
-                                  action:
-                                    row.status === "contacted"
-                                      ? "responded"
-                                      : "loyalty_informed",
+                                  action,
                                 }),
                               },
                             );

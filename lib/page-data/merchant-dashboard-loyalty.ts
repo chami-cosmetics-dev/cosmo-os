@@ -5,6 +5,7 @@ import {
   LOYALTY_OUTREACH_QUEUE_STATUSES,
   suggestedLoyaltyTier,
 } from "@/lib/customer-insight/loyalty-outreach";
+import { getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
 
@@ -17,6 +18,8 @@ export type MerchantLoyaltyOutreachItem = {
   suggestedTier: "gold" | "platinum";
   status: string;
   lastContactedAt: string | null;
+  /** Empty when profile is complete enough for Responded / loyalty send. */
+  missingProfileFields: string[];
 };
 
 const CANDIDATE_CAP = 2_000;
@@ -70,6 +73,12 @@ export async function fetchMerchantLoyaltyOutreach(input: {
       name: true,
       phoneNumber: true,
       email: true,
+      gender: true,
+      language: true,
+      birthMonth: true,
+      birthDay: true,
+      city: true,
+      address: true,
       loyaltyOutreachStatus: true,
       emails: { select: { email: true } },
       phones: { select: { phoneNumber: true } },
@@ -94,6 +103,7 @@ export async function fetchMerchantLoyaltyOutreach(input: {
     lifetimeTotal: number;
     suggestedTier: "gold" | "platinum";
     status: string;
+    missingProfileFields: string[];
   }> = [];
 
   const markEligibleIds: string[] = [];
@@ -122,6 +132,18 @@ export async function fetchMerchantLoyaltyOutreach(input: {
       lifetimeTotal,
       suggestedTier: suggested,
       status,
+      missingProfileFields: getLoyaltyProfileMissingFields({
+        name: c.name,
+        email: c.email,
+        phoneNumber: c.phoneNumber,
+        phones: c.phones.map((p) => p.phoneNumber),
+        gender: c.gender,
+        language: c.language,
+        birthMonth: c.birthMonth,
+        birthDay: c.birthDay,
+        city: c.city,
+        address: c.address,
+      }),
     });
   }
 
