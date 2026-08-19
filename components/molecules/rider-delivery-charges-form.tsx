@@ -59,6 +59,9 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
       });
       const data = (await res.json()) as {
         imported?: number;
+        created?: number;
+        updated?: number;
+        skippedBlank?: number;
         error?: string;
         warnings?: string[];
       };
@@ -66,7 +69,13 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
         notify.error(data.error ?? "Upload failed");
         return;
       }
-      notify.success(`Imported ${data.imported ?? 0} rider delivery charge rules.`);
+      const parts = [
+        `Imported ${data.imported ?? 0}`,
+        data.created != null ? `${data.created} created` : null,
+        data.updated != null ? `${data.updated} updated` : null,
+        data.skippedBlank != null ? `${data.skippedBlank} blank rider-charge rows skipped` : null,
+      ].filter(Boolean);
+      notify.success(`${parts.join(" · ")}. Labels not in the file were kept.`);
       if (data.warnings?.length) {
         notify.error(`${data.warnings.length} row warning(s) — check sheet amounts.`);
       }
@@ -86,9 +95,10 @@ export function RiderDeliveryChargesForm({ canEdit }: RiderDeliveryChargesFormPr
           Rider delivery charges
         </CardTitle>
         <CardDescription>
-          Upload the shipping rules Excel (Shipping Rule Label + Delivery Charges for riders). Rider
-          incentives use the rider charge column matched by shipping rule label — not the customer
-          shipping amount when they differ.
+          Upload the shipping rules Excel (Shipping Rule Label + Delivery Charges for riders). Blank
+          rider-charge cells are skipped (non-rider areas). Upload upserts by label and keeps rules
+          that are not in the file. Rider incentives match the rider charge column by shipping rule
+          label — not the customer shipping amount when they differ.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

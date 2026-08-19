@@ -17,6 +17,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -24,9 +25,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  CALL_CENTER_CATEGORY_VALUES,
+  CALL_CENTER_CHART_EXCLUDED_CATEGORIES,
+  callCenterCategoryColor,
+  sortCallCenterCategories,
+} from "@/lib/contact-call-center-categories";
 import { cn } from "@/lib/utils";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type PerformanceRow = {
   merchantName: string;
@@ -41,40 +47,19 @@ type ChartRow = {
   [category: string]: string | number;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const CHART_COLORS = [
-  "#6366f1", // indigo  – Interested
-  "#22c55e", // green   – N/A
-  "#f97316", // orange  – Not Responding
-  "#ef4444", // red     – Not Interested
-  "#a855f7", // purple  – Wrong Number
-  "#ec4899", // pink    – Black List
-  "#eab308", // yellow  – Busy
-  "#14b8a6", // teal    – Interested-SMS
-  "#3b82f6", // blue
-  "#f59e0b", // amber
-  "#d946ef", // fuchsia
-  "#84cc16", // lime
-];
-
 const CHART_TYPE_OPTIONS: { label: string; value: ChartType }[] = [
   { label: "Column", value: "column" },
-  { label: "Area",   value: "area" },
-  { label: "Line",   value: "line" },
-  { label: "Bar",    value: "bar" },
+  { label: "Area", value: "area" },
+  { label: "Line", value: "line" },
+  { label: "Bar", value: "bar" },
   { label: "Spline", value: "spline" },
 ];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatCompact(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return String(value);
 }
-
-// ─── Legend ───────────────────────────────────────────────────────────────────
 
 function CustomLegend({
   payload,
@@ -121,8 +106,6 @@ function CustomLegend({
   );
 }
 
-// ─── Tooltip ──────────────────────────────────────────────────────────────────
-
 function CustomTooltip({
   active,
   payload,
@@ -158,8 +141,6 @@ function CustomTooltip({
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export function CallCenterPerformanceChart({
   fromDate,
   toDate,
@@ -172,6 +153,17 @@ export function CallCenterPerformanceChart({
   const [error, setError] = useState<string | null>(null);
   const [chartType, setChartType] = useState<ChartType>("column");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [rangeFrom, setRangeFrom] = useState(fromDate ?? "");
+  const [rangeTo, setRangeTo] = useState(toDate ?? "");
+  const [appliedFrom, setAppliedFrom] = useState(fromDate ?? "");
+  const [appliedTo, setAppliedTo] = useState(toDate ?? "");
+
+  useEffect(() => {
+    setRangeFrom(fromDate ?? "");
+    setRangeTo(toDate ?? "");
+    setAppliedFrom(fromDate ?? "");
+    setAppliedTo(toDate ?? "");
+  }, [fromDate, toDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -179,8 +171,8 @@ export function CallCenterPerformanceChart({
     setError(null);
 
     const params = new URLSearchParams();
-    if (fromDate) params.set("from", fromDate);
-    if (toDate) params.set("to", toDate);
+    if (appliedFrom) params.set("from", appliedFrom);
+    if (appliedTo) params.set("to", appliedTo);
     const query = params.toString();
 
     fetch(`/api/admin/contacts/allocation/performance${query ? `?${query}` : ""}`)
@@ -200,33 +192,34 @@ export function CallCenterPerformanceChart({
     return () => {
       cancelled = true;
     };
-  }, [fromDate, toDate]);
+  }, [appliedFrom, appliedTo]);
 
-  // Derive sorted unique categories and merchants from the raw rows
   const { categories, merchants, colorMap, chartData } = useMemo(() => {
-    const catSet = new Set<string>();
+    const catSet = new Set<string>([...CALL_CENTER_CATEGORY_VALUES]);
     const merchantSet = new Set<string>();
 
     for (const row of rows) {
-      catSet.add(row.category);
+      if (CALL_CENTER_CHART_EXCLUDED_CATEGORIES.has(row.category)) continue;
+      catSet.add(row.category || "N/A");
       merchantSet.add(row.merchantName);
     }
 
-    const cats = Array.from(catSet);
-    const mercs = Array.from(merchantSet);
+    const cats = sortCallCenterCategories(Array.from(catSet));
+    const mercs = Array.from(merchantSet).sort((a, b) => a.localeCompare(b));
     const cMap = new Map<string, string>(
-      cats.map((cat, i) => [cat, CHART_COLORS[i % CHART_COLORS.length]])
+      cats.map((cat, i) => [cat, callCenterCategoryColor(cat, i)]),
     );
 
-    // Build one row per merchant with a key per category
     const data: ChartRow[] = mercs.map((merchant) => {
       const row: ChartRow = { merchant };
       for (const cat of cats) {
         row[cat] = 0;
       }
       for (const r of rows) {
+        if (CALL_CENTER_CHART_EXCLUDED_CATEGORIES.has(r.category)) continue;
         if (r.merchantName === merchant) {
-          row[r.category] = r.count;
+          const cat = r.category || "N/A";
+          row[cat] = Number(row[cat] ?? 0) + r.count;
         }
       }
       return row;
@@ -246,7 +239,6 @@ export function CallCenterPerformanceChart({
 
   const visibleCategories = categories.filter((c) => !hidden.has(c));
 
-  // Shared axis / grid props
   const gridProps = { strokeDasharray: "3 3", stroke: "hsl(var(--border))" } as const;
   const xAxisProps = {
     dataKey: "merchant",
@@ -256,19 +248,27 @@ export function CallCenterPerformanceChart({
     textAnchor: merchants.length > 5 ? ("end" as const) : ("middle" as const),
     height: merchants.length > 5 ? 60 : 30,
   } as const;
-  const yAxisProps = { tick: { fontSize: 11 }, width: 36 } as const;
+  const yAxisProps = {
+    tick: { fontSize: 11 },
+    width: 44,
+    label: {
+      value: "Progress",
+      angle: -90,
+      position: "insideLeft",
+      style: { fontSize: 11, fill: "hsl(var(--muted-foreground))" },
+    },
+  } as const;
 
   function renderSeries(cat: string) {
     const color = colorMap.get(cat) ?? "#888";
-    const isHorizontal = chartType === "bar";
 
     if (chartType === "column") {
       return (
-        <Bar key={cat} dataKey={cat} name={cat} fill={color} stackId={undefined} maxBarSize={28}>
+        <Bar key={cat} dataKey={cat} name={cat} fill={color} maxBarSize={28}>
           <LabelList
             dataKey={cat}
             position="top"
-            style={{ fontSize: 11, fontWeight: 700, fill: color }}
+            style={{ fontSize: 10, fontWeight: 700, fill: color }}
             formatter={(v: number) => (v > 0 ? String(v) : "")}
           />
         </Bar>
@@ -280,7 +280,7 @@ export function CallCenterPerformanceChart({
           <LabelList
             dataKey={cat}
             position="right"
-            style={{ fontSize: 11, fontWeight: 700, fill: color }}
+            style={{ fontSize: 10, fontWeight: 700, fill: color }}
             formatter={(v: number) => (v > 0 ? String(v) : "")}
           />
         </Bar>
@@ -319,7 +319,7 @@ export function CallCenterPerformanceChart({
   function renderChart() {
     const commonProps = {
       data: chartData,
-      margin: { top: 18, right: 16, left: 0, bottom: 8 },
+      margin: { top: 18, right: 16, left: 8, bottom: 8 },
     };
 
     if (chartType === "bar") {
@@ -390,7 +390,6 @@ export function CallCenterPerformanceChart({
       );
     }
 
-    // Default: column (vertical bars)
     return (
       <BarChart {...commonProps}>
         <CartesianGrid {...gridProps} />
@@ -418,27 +417,62 @@ export function CallCenterPerformanceChart({
           <div>
             <CardTitle>Call Center Performance Analysis</CardTitle>
             <CardDescription className="mt-1">
-              Assessing Customer Interactions and Response Metrics
+              Assessing Customer Interactions and Response Metrics — outcomes
+              merchants set on Contact Updates / Customer Insight.
             </CardDescription>
           </div>
 
-          {/* Chart type switcher */}
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5 text-xs">
-            {CHART_TYPE_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap items-end justify-end gap-2">
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">From</span>
+                <Input
+                  type="date"
+                  value={rangeFrom}
+                  disabled={loading}
+                  className="w-auto"
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">To</span>
+                <Input
+                  type="date"
+                  value={rangeTo}
+                  disabled={loading}
+                  className="w-auto"
+                  onChange={(e) => setRangeTo(e.target.value)}
+                />
+              </label>
+              <Button
                 type="button"
-                onClick={() => setChartType(opt.value)}
-                className={cn(
-                  "rounded-md px-3 py-1 transition-colors",
-                  chartType === opt.value
-                    ? "bg-background font-medium shadow-xs text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
+                size="sm"
+                disabled={loading}
+                onClick={() => {
+                  setAppliedFrom(rangeFrom);
+                  setAppliedTo(rangeTo);
+                }}
               >
-                {opt.label}
-              </button>
-            ))}
+                Apply range
+              </Button>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5 text-xs">
+              {CHART_TYPE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setChartType(opt.value)}
+                  className={cn(
+                    "rounded-md px-3 py-1 transition-colors",
+                    chartType === opt.value
+                      ? "bg-background font-medium shadow-xs text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -456,11 +490,12 @@ export function CallCenterPerformanceChart({
         )}
         {!loading && !error && chartData.length === 0 && (
           <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-            No allocation updates recorded yet.
+            No call outcomes recorded yet. Merchants set status templates on
+            Contact Updates or Customer Insight.
           </div>
         )}
         {!loading && !error && chartData.length > 0 && (
-          <ResponsiveContainer width="100%" height={360}>
+          <ResponsiveContainer width="100%" height={400}>
             {renderChart()}
           </ResponsiveContainer>
         )}

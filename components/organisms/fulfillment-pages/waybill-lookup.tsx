@@ -115,7 +115,7 @@ export function WaybillLookupFulfillmentPage({
 
   const isBusy = loading || saving || importing || pageLoading || rematching || Boolean(deletingUploadId);
 
-  async function loadPageData(options?: { page?: number; rematch?: boolean }) {
+  async function loadPageData(options?: { page?: number }) {
     const page = options?.page ?? pendingPage;
     setPageLoading(true);
     try {
@@ -123,7 +123,6 @@ export function WaybillLookupFulfillmentPage({
         page: String(page),
         limit: String(pageData?.pagination.limit ?? 50),
       });
-      if (options?.rematch) params.set("rematch", "1");
       const response = await fetch(`/api/admin/waybills/page-data?${params.toString()}`);
       const data = (await response.json().catch(() => null)) as
         | (WaybillLookupPageData & { error?: string })
@@ -134,11 +133,6 @@ export function WaybillLookupFulfillmentPage({
       }
       setPageData(data);
       setPendingPage(data.pagination.page);
-      if (options?.rematch && data.rematch) {
-        notify.success(
-          `Re-checked ${data.rematch.attempted} unmatched waybill(s); matched ${data.rematch.matched}.`
-        );
-      }
     } catch {
       notify.error("Could not load waybill queue.");
     } finally {

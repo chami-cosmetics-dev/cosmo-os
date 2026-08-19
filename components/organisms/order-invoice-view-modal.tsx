@@ -55,7 +55,9 @@ import {
   shouldBlockShopifyCancelInOs,
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppStoredDateTime } from "@/lib/format-datetime";
+import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGE_LABELS: Record<string, string> = {
   order_received: "Order Received",
@@ -178,6 +180,21 @@ type OrderDetail = {
   cancelledBy?: UserRef;
   cancelReason?: string | null;
   hasPendingCancelApproval?: boolean;
+  replacedByOrder?: {
+    id: string;
+    orderLabel: string;
+    name?: string | null;
+    orderNumber?: string | null;
+    erpnextInvoiceId?: string | null;
+  } | null;
+  replacedFromOrders?: Array<{
+    id: string;
+    orderLabel: string;
+    name?: string | null;
+    orderNumber?: string | null;
+    erpnextInvoiceId?: string | null;
+    cancelledAt?: string | null;
+  }>;
   paymentApproval?: {
     id: string;
     status: string;
@@ -1546,6 +1563,17 @@ export function OrderInvoiceViewModal({
               </div>
             ) : null}
 
+            {!isVaultOsDeployment() ? (
+              <OrderReplaceLinkPanel
+                orderId={orderDetail.id}
+                isCancelled={Boolean(orderDetail.cancelledAt) || orderDetail.financialStatus?.toLowerCase() === "voided"}
+                canEdit={Boolean(canCancelOrder)}
+                replacedByOrder={orderDetail.replacedByOrder}
+                replacedFromOrders={orderDetail.replacedFromOrders}
+                onSaved={() => onRefresh?.()}
+              />
+            ) : null}
+
             {/* Remarks */}
             {orderDetail.remarks && orderDetail.remarks.length > 0 && (
               <div className="rounded-lg border p-4">
@@ -1624,7 +1652,7 @@ export function OrderInvoiceViewModal({
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? ""}</AlertDialogTitle>
           <AlertDialogDescription>
-            {orderDetail && ["koko", "bank_transfer", "cc_checkout"].some((g) => orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g))
+            {orderDetail && ["koko", "mintpay", "bank_transfer", "cc_checkout"].some((g) => orderDetail.paymentGatewayPrimary?.toLowerCase().includes(g))
               ? "This is a paid order — a finance approval request will be created. The order will be blocked from dispatch until finance processes the cancellation."
               : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
           </AlertDialogDescription>

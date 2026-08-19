@@ -2,6 +2,8 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 
+import { pickCosmoCatalogErpInstance } from "@/lib/cosmo-catalog-erp";
+import { planStandardSellingPriceUpdates } from "@/lib/erp-item-price-decision";
 import {
   getAllOsfErpInstances,
   OsfErpError,
@@ -23,6 +25,7 @@ import {
 const PAGE_LENGTH = 500;
 const MAX_PAGES = 80;
 const ITEM_BATCH = 100;
+const UPDATE_CHUNK = 200;
 
 function authHeaders(cfg: OsfErpCredentials): Record<string, string> {
   return {
@@ -102,9 +105,42 @@ export async function resolveLwkErpInstance(
   return instances[0] ?? null;
 }
 
-/** Fetch OGF Price List rates for specific item codes (SKU). */
-export async function fetchLwkItemPricesBySku(input: {
+/**
+ * Cosmetics.lk / ERP_1 Standard Selling. Never LWK (ERP_2) — trading list can lag the shop.
+ */
+export async function resolveCosmoCatalogErpInstance(
+  companyId: string
+): Promise<OsfErpInstance | null> {
+  const [locations, instances] = await Promise.all([
+    prisma.companyLocation.findMany({
+      where: { companyId },
+      select: {
+        name: true,
+        locationReference: true,
+        erpnextInstanceId: true,
+      },
+    }),
+    getAllOsfErpInstances(companyId),
+  ]);
+  const picked = pickCosmoCatalogErpInstance({
+    locations: locations.map((loc) => ({
+      name: loc.name,
+      locationReference: loc.locationReference,
+      instanceId: loc.erpnextInstanceId,
+    })),
+    instances: instances.map((row) => ({
+      id: row.id,
+      label: row.label,
+      baseUrl: row.cfg.baseUrl,
+    })),
+  });
+  if (!picked) return null;
+  return instances.find((row) => row.id === picked.id) ?? null;
+}
+
+async function fetchSellingPricesBySku(input: {
   cfg: OsfErpCredentials;
+  priceList: string;
   itemCodes: string[];
 }): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
@@ -114,7 +150,7 @@ export async function fetchLwkItemPricesBySku(input: {
   for (let i = 0; i < items.length; i += ITEM_BATCH) {
     const batch = items.slice(i, i + ITEM_BATCH);
     const filters = JSON.stringify([
-      ["price_list", "=", LWK_STICKER_PRICE_LIST],
+      ["price_list", "=", input.priceList],
       ["item_code", "in", batch],
       ["selling", "=", 1],
     ]);
@@ -136,6 +172,30 @@ export async function fetchLwkItemPricesBySku(input: {
   }
 
   return out;
+}
+
+/** Fetch OGF Price List rates for specific item codes (SKU). */
+export async function fetchLwkItemPricesBySku(input: {
+  cfg: OsfErpCredentials;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  return fetchSellingPricesBySku({
+    cfg: input.cfg,
+    priceList: LWK_STICKER_PRICE_LIST,
+    itemCodes: input.itemCodes,
+  });
+}
+
+/** Fetch Standard Selling rates for specific item codes (SKU). */
+export async function fetchStandardSellingPricesBySku(input: {
+  cfg: OsfErpCredentials;
+  itemCodes: string[];
+}): Promise<Record<string, string>> {
+  return fetchSellingPricesBySku({
+    cfg: input.cfg,
+    priceList: STANDARD_SELLING_PRICE_LIST,
+    itemCodes: input.itemCodes,
+  });
 }
 
 /** Paginate all selling rates on the LWK/OGF price list. */
@@ -206,12 +266,12 @@ export async function loadLwkStickerPricesBySku(
 }
 
 /**
- * Load Standard Selling rates from Cosmo ERP for non-LWK stickers / OS sync.
+ * Load Standard Selling rates from Cosmo ERP (Cosmetics.lk / ERP_1).
  */
 export async function loadStandardSellingPricesBySku(
   companyId: string
 ): Promise<Record<string, string>> {
-  const instance = await resolveLwkErpInstance(companyId);
+  const instance = await resolveCosmoCatalogErpInstance(companyId);
   if (!instance) return {};
   try {
     return await fetchAllStandardSellingPrices(instance.cfg);
@@ -227,34 +287,39 @@ export async function loadStandardSellingPricesBySku(
 export async function syncStandardSellingToProductItems(
   companyId: string
 ): Promise<{ status: "ok" | "failed" | "not_configured"; updated: number; error: string | null }> {
-  const instance = await resolveLwkErpInstance(companyId);
+  const instance = await resolveCosmoCatalogErpInstance(companyId);
   if (!instance) {
     return { status: "not_configured", updated: 0, error: "No Cosmo ERP instance" };
   }
   try {
     const prices = await fetchAllStandardSellingPrices(instance.cfg);
-    const entries = Object.entries(prices);
-    if (entries.length === 0) {
+    if (Object.keys(prices).length === 0) {
       return { status: "ok", updated: 0, error: null };
     }
 
+    const osItems = await prisma.productItem.findMany({
+      where: { companyId, sku: { not: null } },
+      select: { id: true, sku: true, price: true },
+    });
+    const planned = planStandardSellingPriceUpdates(
+      osItems.map((row) => ({
+        id: row.id,
+        sku: row.sku,
+        price: row.price.toFixed(2),
+      })),
+      prices,
+    );
+
     let updated = 0;
-    for (let i = 0; i < entries.length; i += ITEM_BATCH) {
-      const chunk = entries.slice(i, i + ITEM_BATCH);
-      await Promise.all(
-        chunk.map(async ([erpSku, money]) => {
-          const n = Number(money);
-          if (!Number.isFinite(n) || n <= 0) return;
-          const result = await prisma.productItem.updateMany({
-            where: {
-              companyId,
-              sku: { equals: erpSku, mode: "insensitive" },
-            },
-            data: { price: new Prisma.Decimal(n.toFixed(2)) },
-          });
-          updated += result.count;
-        })
-      );
+    for (const { price, ids } of planned) {
+      for (let i = 0; i < ids.length; i += UPDATE_CHUNK) {
+        const chunk = ids.slice(i, i + UPDATE_CHUNK);
+        const result = await prisma.productItem.updateMany({
+          where: { companyId, id: { in: chunk } },
+          data: { price: new Prisma.Decimal(price) },
+        });
+        updated += result.count;
+      }
     }
     return { status: "ok", updated, error: null };
   } catch (err) {

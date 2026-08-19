@@ -1,0 +1,22 @@
+status,contact_id,name,primary_phone,previous_phones,email,source,loyalty_tier,assigned_merchant,last_purchase_at,cosmo_orders,adapt_invoices,notes
+active_previous,cmr6qcemq002xl704t156vq9f,Hiruni Perera,0741145153,0707165921,hiruperera275@gmail.com,adapt,,Ishadi,2026-07-04,0,5,legit previous phone(s) — review if name-linked
+active_previous,cmpl4bqnz003tla04zpnq63lb,Mr. John,+94763520381,0776169135,johnck@gmail.com,erp2,platinum,Maheshi Priyadarshani,2026-08-04,1,45,legit previous phone(s) — review if name-linked
+active_previous,cmphxifv0004tla04qizyiaqq,Ms Rasika Sanjeewanie,+94763519837,0741027264,hansinisashindi2005@gmail.com,erp2,platinum,Maheshi Priyadarshani,2026-08-03,0,50,legit previous phone(s) — review if name-linked
+active_previous,cmr44iue40005lb041m437fb2,Ruwani Adikari,0712149449,0769668149,ruwaniadikari87@gmail.com,adapt,,Kanchana,2026-07-02,0,9,legit previous phone(s) — review if name-linked
+active_previous,cmsd01odl0m1jwcbsocan7995,Samitha Udalagama,0715601753,0768978361,samdamn.u@gmail.com,adapt,,Ishadi,2026-08-04,0,2,legit previous phone(s) — review if name-linked
+active_previous,cmsd3014v1asxwcbsekq27m4k,Shanthini Balasiri,0112524701,0773460854,vignajabalasiri@yahoo.com,adapt,gold,Ishadi,2026-08-04,0,26,legit previous phone(s) — review if name-linked
+active_previous,cmseka5022t47wcyg2cfjc0f2,Shehani Abeywardena,0775256997,0702110238,shehanichathurika03@gmail.com,adapt,,Ishadi,2026-08-07,0,4,legit previous phone(s) — review if name-linked
+active_previous,cmsczhzoe0hppwcbseqgsbv4v,chamodi tennakoon,0718011485,0712749930,chamoditennakoon01@gmail.com,adapt,,Ishadi,2026-08-08,0,5,legit previous phone(s) — review if name-linked
+deduped_2026-08-14,cmsrh914p000bla04v1j1ca5a,Dinithi Darshana,0774460361,0774460361,darshana.dinithi@gmail.com,erp2,,,2026-08-13,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmsrha4u2004jjr048r28qqmd,Thilini Gamlath,0714722318,0714722318,kt.gamlath1@gmail.com,erp2,,MER115,2026-08-14,2,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmsrlw32i000pl704zjkqmbre,Tharuka Senadheera,0768541089,0768541089,ventharuka@gmail.com,erp2,,MER115,2026-08-14,2,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmsrn4buv0009l204vvvfw8ij,Harinth Pathirana,0772355334,0772355334,harinthpathirana@gmail.com,erp2,,,2026-08-13,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmsryp8y00005jo045a0r08dd,Hashini Hettiarachchi,0761918333,0761918333,hashinishamika66@gmail.com,erp2,,,2026-08-14,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssczm70000jlf04h29o9wsj,Kaushalya Rathnayaka,0763967144,0763967144,kaushirathnayaka21@gmail.com,erp2,,,2026-08-14,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssd3gga001hlf04qovfot2i,Budara Gunasekara,0742930950,0742930950,budaragunasekara@gmail.com,erp2,,MER115,2026-08-14,2,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssl45ux005vkv04pyfmenie,Nadeesha Lakmali,0761268107,0761268107,nlakmali902@gmail.com,erp2,,MER115,2026-08-14,2,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssn83u7000xi804nyp61smp,Prabuddha Dulakara Rathnayake Herath Mudiyanselage,0767133830,0767133830,thennakoon2025@gmail.com,erp2,,MER115,2026-08-14,2,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssulul8004ll104nho3cgsj,Shamik Haleem,0767420133,0767420133,shamhaleem123@gmail.com,erp2,,,2026-08-14,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssv7c3y006dl1049d2g0rxj,Hansini Wickramaarachchi,0716999096,0716999096,wickey123@gmail.com,erp2,,,2026-08-14,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssvram50009l504otf1ft5k,Buwendri Wijeratne,0773181996,0773181996,anjiwijeratne@gmail.com,erp2,,,2026-08-14,1,0,duplicate removed — same number as primary
+deduped_2026-08-14,cmssyd9ya000bjm04hkrsvppj,Shalindu Nimsara,0773088903,0773088903,shalindunimsara61@gmail.com,erp2,,,2026-08-14,1,0,duplicate removed — same number as primary

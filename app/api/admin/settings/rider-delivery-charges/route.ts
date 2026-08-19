@@ -84,27 +84,46 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  let created = 0;
+  let updated = 0;
+
   await prisma.$transaction(async (tx) => {
-    await tx.riderDeliveryChargeRule.deleteMany();
-    const chunkSize = 500;
-    for (let i = 0; i < parsed.rows.length; i += chunkSize) {
-      const chunk = parsed.rows.slice(i, i + chunkSize);
-      await tx.riderDeliveryChargeRule.createMany({
-        data: chunk.map((row) => ({
-          labelKey: row.labelKey,
-          label: row.label.slice(0, LABEL_MAX),
-          district: row.district,
-          shippingAmount: row.shippingAmount,
-          riderDeliveryCharge: row.riderDeliveryCharge,
-          shippingAccount: row.shippingAccount,
-          costCenter: row.costCenter,
-        })),
+    for (const row of parsed.rows) {
+      const data = {
+        label: row.label.slice(0, LABEL_MAX),
+        district: row.district,
+        shippingAmount: row.shippingAmount,
+        riderDeliveryCharge: row.riderDeliveryCharge,
+        shippingAccount: row.shippingAccount,
+        costCenter: row.costCenter,
+      };
+      const existing = await tx.riderDeliveryChargeRule.findUnique({
+        where: { labelKey: row.labelKey },
+        select: { id: true },
       });
+      if (existing) {
+        await tx.riderDeliveryChargeRule.update({
+          where: { labelKey: row.labelKey },
+          data,
+        });
+        updated += 1;
+      } else {
+        await tx.riderDeliveryChargeRule.create({
+          data: {
+            labelKey: row.labelKey,
+            ...data,
+          },
+        });
+        created += 1;
+      }
     }
   });
 
   return NextResponse.json({
     imported: parsed.rows.length,
+    created,
+    updated,
+    skippedBlank: parsed.skippedBlank,
     warnings: parsed.errors.slice(0, 50),
   });
 }

@@ -10,6 +10,11 @@ import {
 } from "@/lib/book-notes/access";
 import { sendBookNoteRowsToErp } from "@/lib/book-notes/erp-verify";
 import { loadBookNoteDayDto } from "@/lib/book-notes/load";
+import {
+  collectBookNoteNamesFromVerifyRows,
+  loadReceiptsForDay,
+  pushDayReceiptsToErp,
+} from "@/lib/book-notes/receipts";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { bookNoteSendToErpBodySchema } from "@/lib/validation/book-notes";
@@ -168,6 +173,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // After verify, attach day-level receipt photos to each Book Note Entry
+  // docname (ss9 book_note_name) so bank-recon INFO can show them (ss5).
+  const bookNoteNames = collectBookNoteNamesFromVerifyRows(result.rows);
+  const receipts = await loadReceiptsForDay({
+    companyId,
+    companyLocationId,
+    postingDateYmd: postingDate,
+  });
+  let receiptUpload = null;
+  if (receipts.length > 0 && bookNoteNames.length > 0) {
+    receiptUpload = await pushDayReceiptsToErp({
+      erpnextInstance: location.erpnextInstance,
+      bookNoteNames,
+      receipts,
+    });
+  } else if (receipts.length > 0 && bookNoteNames.length === 0) {
+    receiptUpload = {
+      receiptCount: receipts.length,
+      bookNoteCount: 0,
+      uploaded: 0,
+      failed: 0,
+      errors: [
+        "Receipts saved in Cosmo but ERP returned no book_note_name — deploy updated ss9_verify_book_note.py",
+      ],
+    };
+  }
+
   return NextResponse.json({
     success: true,
     method: result.method,
@@ -177,5 +209,6 @@ export async function POST(request: NextRequest) {
     locationName: shopLabel,
     summary: result.summary,
     rows: result.rows,
+    receiptUpload,
   });
 }

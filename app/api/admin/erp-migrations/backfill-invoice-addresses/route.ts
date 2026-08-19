@@ -63,7 +63,8 @@ function resolvePaymentType(
   paymentGatewayNames: string[],
   instance: {
     cashMop: string | null; codMop: string | null; cardDeliveryMop: string | null;
-    bankTransferMop: string | null; kokoMop: string | null; webxpayMop: string | null;
+    bankTransferMop: string | null; kokoMop: string | null; mintpayMop: string | null;
+    webxpayMop: string | null;
   } | null,
 ): string | null {
   const gateways = paymentGatewayNames.length > 0 ? paymentGatewayNames : paymentGatewayPrimary ? [paymentGatewayPrimary] : [];
@@ -72,11 +73,13 @@ function resolvePaymentType(
   const cardMop = instance?.cardDeliveryMop ?? process.env.ERPNEXT_CARD_DELIVERY_MOP ?? "Credit Card";
   const bankMop = instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer";
   const kokoMop = instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko";
+  const mintpayMop = instance?.mintpayMop ?? process.env.ERPNEXT_MINTPAY_MOP ?? "Mintpay";
   const webxMop = instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "";
 
   for (const g of gateways) {
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return kokoMop;
+    if (lower.includes("mintpay")) return mintpayMop;
     if (lower.includes("webxpay")) return webxMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cardMop;
     if (lower.includes("bank transfer") || lower.includes("wire")) return bankMop;
@@ -247,7 +250,7 @@ export async function POST(request: NextRequest) {
         select: {
           baseUrl: true, apiKey: true, apiSecret: true,
           cashMop: true, codMop: true, cardDeliveryMop: true,
-          bankTransferMop: true, kokoMop: true, webxpayMop: true,
+          bankTransferMop: true, kokoMop: true, webxpayMop: true, mintpayMop: true,
         },
       },
     },

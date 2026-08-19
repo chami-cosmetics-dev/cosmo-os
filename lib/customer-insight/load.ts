@@ -3,10 +3,19 @@ import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers"
 import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
 import { brandFromAdaptLineItem, brandFromVendorName } from "@/lib/customer-insight/brand";
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
+import {
+  buildHistoryScopeDto,
+  scopeAdaptRowsForHistory,
+  scopeCosmoOrdersForHistory,
+  type HistoryScopeInput,
+} from "@/lib/customer-insight/history-scope";
+import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
 import { buildFrequencyMetrics } from "@/lib/customer-insight/frequency";
 import { mergeAndPaginateInvoices } from "@/lib/customer-insight/invoices";
-import { computeLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { computeLifetimeTotal, isOrderIncludedInCustomerLifetimeTotal } from "@/lib/customer-insight/lifetime-total";
+import { loyaltyCode, loyaltyLabel } from "@/lib/customer-insight/loyalty-tier";
 import {
+  hasInsightAdminView,
   insightVisibility,
   type ViewerIdentity,
 } from "@/lib/customer-insight/ownership";
@@ -38,6 +47,8 @@ export async function loadCustomerInsight(input: {
   invoicesPage: number;
   invoicesPageSize: number;
   viewer: ViewerIdentity;
+  historyBrands?: string[];
+  historyItems?: string[];
 }): Promise<CustomerInsightDto | null> {
   const contact = await prisma.contactMaster.findFirst({
     where: { id: input.contactId, companyId: input.companyId },
@@ -52,7 +63,14 @@ export async function loadCustomerInsight(input: {
       gender: true,
       language: true,
       address: true,
+      city: true,
       assignedMerchant: true,
+      category: true,
+      lastPurchaseAt: true,
+      loyaltyAssignedTier: true,
+      loyaltyAssignedAt: true,
+      loyaltyAssignedByUserId: true,
+      loyaltyAssignedBy: { select: { id: true, name: true, knownName: true } },
       emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
       phones: { orderBy: { createdAt: "asc" }, select: { phoneNumber: true } },
     },
@@ -60,6 +78,7 @@ export async function loadCustomerInsight(input: {
   if (!contact) return null;
 
   const visibility = insightVisibility(input.viewer, contact.assignedMerchant);
+  const includeRemovedEmails = hasInsightAdminView(input.viewer);
   const emails = await listContactEmails(contact.id, contact.email);
   const phones = await listContactPhones(contact.id, contact.phoneNumber);
   const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
@@ -96,6 +115,7 @@ export async function loadCustomerInsight(input: {
             currency: true,
             cancelledAt: true,
             financialStatus: true,
+            fulfillmentStage: true,
             fulfillmentStatus: true,
             lineItems: {
               select: {
@@ -124,15 +144,38 @@ export async function loadCustomerInsight(input: {
         })
       : Promise.resolve(null);
 
-  const [orders, adaptRows, lastContactedAt] = await Promise.all([
+  const removedEmailsPromise = includeRemovedEmails
+    ? prisma.contactRemovedEmail.findMany({
+        where: { companyId: input.companyId, contactId: contact.id },
+        orderBy: { removedAt: "desc" },
+        select: { email: true, reason: true, removedAt: true },
+        take: 50,
+      })
+    : Promise.resolve([]);
+
+  const [orders, adaptRows, lastContactedAt, removedEmailRows] = await Promise.all([
     ordersPromise,
     adaptPromise,
     lastContactedPromise,
+    removedEmailsPromise,
   ]);
+
+  const historyScope: HistoryScopeInput = {
+    brands: input.historyBrands,
+    items: input.historyItems,
+  };
+  const scopedCosmo = scopeCosmoOrdersForHistory(orders, historyScope);
+  const scopedAdapt = scopeAdaptRowsForHistory(adaptRows, historyScope);
+  const historyOrders = scopedCosmo.orders;
+  const historyAdaptRows = scopedAdapt.adaptRows;
+  const scopedSpend = scopedCosmo.scopedSpend + scopedAdapt.scopedSpend;
+  const historyScopeDto = buildHistoryScopeDto(historyScope, scopedSpend);
 
   const orderAmounts = orders.map((o) => ({
     totalPrice: o.totalPrice.toString(),
     cancelledAt: o.cancelledAt,
+    financialStatus: o.financialStatus,
+    fulfillmentStage: o.fulfillmentStage,
   }));
   const adaptAmounts = adaptRows.map((r) => ({
     ttlAmount: r.ttlAmount.toString(),
@@ -144,19 +187,19 @@ export async function loadCustomerInsight(input: {
 
   const loyaltyEligibleDates: Date[] = [];
   for (const o of orders) {
-    if (!o.cancelledAt) loyaltyEligibleDates.push(o.createdAt);
+    if (isOrderIncludedInCustomerLifetimeTotal(o)) loyaltyEligibleDates.push(o.createdAt);
   }
   for (const r of adaptRows) {
     loyaltyEligibleDates.push(r.invoiceDate);
   }
 
   const seriesEvents = [
-    ...orders.map((o) => ({
+    ...historyOrders.map((o) => ({
       date: o.createdAt,
       amount: Number(o.totalPrice.toString()),
-      includedInLoyaltyTotal: !o.cancelledAt,
+      includedInLoyaltyTotal: isOrderIncludedInCustomerLifetimeTotal(o),
     })),
-    ...adaptRows.map((r) => ({
+    ...historyAdaptRows.map((r) => ({
       date: r.invoiceDate,
       amount: Number(r.ttlAmount.toString()),
       includedInLoyaltyTotal: true,
@@ -166,8 +209,10 @@ export async function loadCustomerInsight(input: {
   const { series, chartsAvailable } = buildMonthlySeries(seriesEvents);
   const frequency = buildFrequencyMetrics(loyaltyEligibleDates);
   const topItems = aggregateTopItems({
-    orders: orders.map((o) => ({
+    orders: historyOrders.map((o) => ({
       cancelledAt: o.cancelledAt,
+      financialStatus: o.financialStatus,
+      fulfillmentStage: o.fulfillmentStage,
       lineItems: o.lineItems.map((li) => ({
         quantity: li.quantity,
         price: li.price.toString(),
@@ -175,11 +220,11 @@ export async function loadCustomerInsight(input: {
         variantTitle: li.productItem.variantTitle,
       })),
     })),
-    adaptRows: adaptRows.map((r) => ({ lineItems: r.lineItems })),
+    adaptRows: historyAdaptRows.map((r) => ({ lineItems: r.lineItems })),
   });
 
   const paged = mergeAndPaginateInvoices({
-    orders: orders.map((o) => {
+    orders: historyOrders.map((o) => {
       const lineItems: InvoiceLineDto[] = o.lineItems.map((li) => ({
         id: li.id,
         productTitle: li.productItem.productTitle,
@@ -199,11 +244,12 @@ export async function loadCustomerInsight(input: {
         currency: o.currency,
         cancelledAt: o.cancelledAt,
         financialStatus: o.financialStatus,
+        fulfillmentStage: o.fulfillmentStage,
         fulfillmentStatus: o.fulfillmentStatus,
         lineItems,
       };
     }),
-    adaptRows: adaptRows.map((r) => {
+    adaptRows: historyAdaptRows.map((r) => {
       const rawItems = Array.isArray(r.lineItems) ? r.lineItems : [];
       const lineItems: InvoiceLineDto[] = adaptLineItemsForPurchaseUi(r.lineItems).map(
         (li, idx) => ({
@@ -241,12 +287,26 @@ export async function loadCustomerInsight(input: {
       gender: contact.gender,
       language: contact.language,
       address: contact.address,
+      city: contact.city,
       birthYear: contact.birthYear,
       birthMonth: contact.birthMonth,
       birthDay: contact.birthDay,
       assignedMerchant: contact.assignedMerchant,
+      category: contact.category,
+      lastPurchaseAt: contact.lastPurchaseAt,
+      removedEmails: includeRemovedEmails ? removedEmailRows : undefined,
     }),
-    loyalty: serializeLoyalty(lifetimeTotal, "LKR"),
+    loyalty: (() => {
+      // lifetimeTotal / thresholds from spend; badge key from registration only.
+      const computed = serializeLoyalty(lifetimeTotal, "LKR");
+      const key = effectiveLoyaltyTierKey(contact.loyaltyAssignedTier);
+      return {
+        ...computed,
+        key,
+        label: loyaltyLabel(key),
+        code: loyaltyCode(key),
+      };
+    })(),
     frequency,
     topItems,
     series,
@@ -260,5 +320,19 @@ export async function loadCustomerInsight(input: {
     lastContactedAt,
     canEditProfile: visibility === "owner",
     canMarkContacted: visibility === "owner",
+    loyaltyAssignment:
+      contact.loyaltyAssignedTier === "gold" ||
+      contact.loyaltyAssignedTier === "platinum"
+        ? {
+            tier: contact.loyaltyAssignedTier,
+            assignedAt: contact.loyaltyAssignedAt?.toISOString() ?? "",
+            assignedByName:
+              contact.loyaltyAssignedBy?.knownName?.trim() ||
+              contact.loyaltyAssignedBy?.name?.trim() ||
+              (contact.loyaltyAssignedByUserId ? null : "ERP"),
+            assignedByUserId: contact.loyaltyAssignedByUserId,
+          }
+        : null,
+    historyScope: historyScopeDto,
   });
 }

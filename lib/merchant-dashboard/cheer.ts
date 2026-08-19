@@ -1,4 +1,8 @@
+import type { MerchantPeerBand } from "@/lib/merchant-dashboard/motivation-types";
+
 export type MerchantCheerBand = "start" | "halfway" | "almost" | "done" | "none";
+
+export type { MerchantPeerBand };
 
 export function getMerchantTargetPercent(achieved: number, target: number): number | null {
   if (!Number.isFinite(target) || target <= 0) return null;
@@ -27,5 +31,29 @@ export function getMerchantCheerMessage(band: MerchantCheerBand, displayName: st
       return `Let's go, ${name}! Every order counts toward this month's target.`;
     default:
       return `Set a monthly target to track your progress, ${name}.`;
+  }
+}
+
+/** Peer-relative copy — encourage / celebrate / nudge, never punitive. */
+export function getMerchantPeerCheerMessage(
+  band: MerchantPeerBand,
+  displayName: string,
+): string {
+  const name = displayName.trim() || "Merchant";
+  switch (band) {
+    case "solo":
+      return `You're flying solo, ${name} — set the pace and own the board.`;
+    case "leader":
+      return `You're #1 right now, ${name}! Keep the lead with every order.`;
+    case "chasing":
+      return `You're close to the top, ${name}. One strong push and you can take the lead.`;
+    case "mid":
+      return `Solid mid-pack pace, ${name}. Climb a few spots — you've got this.`;
+    case "behind":
+      return `Plenty of runway left, ${name}. Focus on the next win and climb the board.`;
+    case "no_sales":
+      return `Fresh start, ${name}. Your first sale today puts you on the board.`;
+    default:
+      return `Keep going, ${name} — every order moves you up.`;
   }
 }

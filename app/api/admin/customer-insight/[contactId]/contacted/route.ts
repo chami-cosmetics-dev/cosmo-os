@@ -49,6 +49,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     name: user.name ?? null,
     email: user.email ?? null,
     roleNames: (auth.context!.roleNames as string[]) ?? [],
+    permissionKeys: (auth.context!.permissionKeys as string[]) ?? [],
+    couponCodes: (await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { couponCodes: true },
+    }))?.couponCodes,
   };
   if (!isAllocatedOwner(viewer, contact.assignedMerchant)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -68,7 +73,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     contactId: contact.id,
     actorUserId: user.id,
     merchantName: getMerchantDisplayName(user) ?? contact.assignedMerchant,
+    category: parsed.data.category,
     note: parsed.data.note,
+    remark: parsed.data.remark,
+    outcome: parsed.data.outcome,
   });
   if (!result) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });

@@ -1,0 +1,4 @@
+keep_reason,phone,names,sources,ids
+not_simple_erp1_erp2_pair,0123455555,Foreign Customer | Foreign Customer,adapt | erp1,cmp0r74ye00g7l604iuo7l6g0 | cms78gex10001wca44gx5a5zo
+names_do_not_match,0702889179,DTD Trading  (Pvt) Ltd | DRO QB,erp1 | erp2,cmst1ihfs0019wc04a2wyu529 | cmst1j6lw00r7wc04bq244pwd
+names_do_not_match,0773853297,MNK Trading Lanka (Pvt) Ltd | MNK QB Customer,erp1 | erp2,cmst1iyd800jvwc04w0lzrw2b | cmst1jo9g01adwc04ndb23n7d

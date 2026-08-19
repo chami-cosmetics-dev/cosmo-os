@@ -30,6 +30,7 @@ import { formatAppDateTime, formatAppIsoCalendarDate, formatAppIsoDate } from "@
 import {
   canRequestPaymentMethodChange,
   getPaymentMethodInfo,
+  isUnpaidCardOnDeliveryFinance,
 } from "@/lib/payment-method-label";
 import { LIMITS } from "@/lib/validation";
 import type { FulfillmentOrder } from "./fulfillment-order-selector";
@@ -78,6 +79,11 @@ type SampleOrderDetail = {
     showOnInvoice?: boolean;
     addedBy: { id: string; name: string | null; email: string | null } | null;
   }>;
+  paymentApproval?: {
+    id: string;
+    status: string;
+    requestNote?: string | null;
+  } | null;
 };
 
 function formatPrice(value?: string | null, currency?: string | null) {
@@ -139,6 +145,8 @@ export function FulfillmentSampleFreeIssuePanel({
   const [bankTransferBusy, setBankTransferBusy] = useState(false);
   const [showKokoDialog, setShowKokoDialog] = useState(false);
   const [kokoBusy, setKokoBusy] = useState(false);
+  const [showMintpayDialog, setShowMintpayDialog] = useState(false);
+  const [mintpayBusy, setMintpayBusy] = useState(false);
   const isBusy = busyKey !== null;
 
   useEffect(() => {
@@ -400,12 +408,20 @@ export function FulfillmentSampleFreeIssuePanel({
   });
 
   const requiresFinanceApproval = useMemo(() => {
-    const gateways = [
-      detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary,
-      ...(detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? []),
+    const gateways = {
+      paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary ?? null,
+      paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? [],
+    };
+    const names = [
+      gateways.paymentGatewayPrimary,
+      ...gateways.paymentGatewayNames,
     ].map((g) => g?.toLowerCase().trim() ?? "").filter(Boolean);
-    return gateways.some((g) => g.includes("koko") || g.includes("bank"));
+    return (
+      names.some((g) => g.includes("koko") || g.includes("mintpay") || g.includes("bank")) ||
+      isUnpaidCardOnDeliveryFinance(gateways)
+    );
   }, [detail, order]);
+  const financeApprovalPending = detail?.paymentApproval?.status === "pending";
 
   async function handleConfirmBankTransfer() {
     if (!orderId) return;
@@ -451,6 +467,29 @@ export function FulfillmentSampleFreeIssuePanel({
       notify.error("Failed to request KOKO payment change");
     } finally {
       setKokoBusy(false);
+    }
+  }
+  async function handleRequestMintpayChange() {
+    if (!orderId) return;
+    setMintpayBusy(true);
+    try {
+      const res = await fetch(`/api/admin/orders/${orderId}/payment-method`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPaymentMethod: "mintpay" }),
+      });
+      const data = (await res.json()) as { error?: string; pendingApproval?: boolean };
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to request Mintpay payment change");
+        return;
+      }
+      notify.success("Mintpay payment change request sent to finance for approval.");
+      setShowMintpayDialog(false);
+      onRefresh(false);
+    } catch {
+      notify.error("Failed to request Mintpay payment change");
+    } finally {
+      setMintpayBusy(false);
     }
   }
 
@@ -533,6 +572,15 @@ export function FulfillmentSampleFreeIssuePanel({
                         className="h-6 px-2 text-xs border-emerald-500 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 dark:border-emerald-400 dark:text-emerald-400 dark:hover:bg-emerald-950"
                       >
                         KOKO
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowMintpayDialog(true)}
+                        className="h-6 px-2 text-xs border-violet-500 text-violet-600 hover:bg-violet-50 hover:text-violet-700 dark:border-violet-400 dark:text-violet-400 dark:hover:bg-violet-950"
+                      >
+                        Mintpay
                       </Button>
                     </>
                   )}
@@ -891,14 +939,19 @@ export function FulfillmentSampleFreeIssuePanel({
           </div>
         )}
 
-        {requiresFinanceApproval && !order?.pendingMethodChangeApproval && orderId && (
+        {requiresFinanceApproval && !order?.pendingMethodChangeApproval && financeApprovalPending && orderId && (
           <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
             <div>
               <p className="font-medium text-amber-800 dark:text-amber-400">Finance approval required</p>
               <p className="text-amber-700 dark:text-amber-500">
                 This order uses {paymentMethod} which requires finance team approval before it can proceed to print.
-                An approval request has been sent automatically when samples were added.
+                {isUnpaidCardOnDeliveryFinance({
+                  paymentGatewayPrimary: detail?.paymentGatewayPrimary ?? order?.paymentGatewayPrimary ?? null,
+                  paymentGatewayNames: detail?.paymentGatewayNames ?? order?.paymentGatewayNames ?? [],
+                })
+                  ? " After approve, order stays unpaid and moves to print. Payment is collected at delivery."
+                  : " An approval request has been sent automatically when samples were added."}
               </p>
             </div>
           </div>
@@ -908,7 +961,7 @@ export function FulfillmentSampleFreeIssuePanel({
             <div className="flex justify-end">
               <Button
                 onClick={() => void confirmSample()}
-                disabled={!orderId || isBusy || remarkBusy || !!order?.pendingMethodChangeApproval}
+                disabled={!orderId || isBusy || remarkBusy || !!order?.pendingMethodChangeApproval || financeApprovalPending}
                 className="h-11 bg-green-600 px-8 text-white hover:bg-green-700"
               >
                 {busyKey === "advance_to_print" || remarkBusy ? (
@@ -970,6 +1023,31 @@ export function FulfillmentSampleFreeIssuePanel({
           <AlertDialogCancel disabled={kokoBusy}>Cancel</AlertDialogCancel>
           <Button disabled={kokoBusy} onClick={() => void handleRequestKokoChange()}>
             {kokoBusy ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
+            ) : (
+              "Send for Approval"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog
+      open={showMintpayDialog}
+      onOpenChange={(open) => { if (!open) setShowMintpayDialog(false); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Change to Mintpay</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will send a payment method change request to the finance team for approval.
+            Once approved, the payment type will be changed to Mintpay and the ERP payment entry will be created under Mintpay.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mintpayBusy}>Cancel</AlertDialogCancel>
+          <Button disabled={mintpayBusy} onClick={() => void handleRequestMintpayChange()}>
+            {mintpayBusy ? (
               <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
             ) : (
               "Send for Approval"

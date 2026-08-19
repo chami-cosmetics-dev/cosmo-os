@@ -1,10 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-import { prisma } from "@/lib/prisma";
+import {
+  listInsightAssignedMerchantOptions,
+  listInsightBrandOptions,
+  listInsightCityOptions,
+  listInsightItemOptions,
+  listInsightPurchaseLocationOptions,
+} from "@/lib/customer-insight/filter-options";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
+import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
+import { customerInsightFilterOptionsQuerySchema } from "@/lib/validation/customer-insight";
 
-/** Brands for Insight filters: dashboard brand configs + Vendor names. */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const auth = await requirePermission("contacts.insight.read");
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -18,31 +26,61 @@ export async function GET() {
     );
   }
 
-  const [brandConfigs, vendors] = await Promise.all([
-    prisma.dashboardBrandConfig.findMany({
-      where: { companyId },
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { name: true },
-    }),
-    prisma.vendor.findMany({
-      where: { companyId },
-      orderBy: { name: "asc" },
-      select: { name: true },
-    }),
-  ]);
-
-  const seen = new Set<string>();
-  const brands: string[] = [];
-  for (const name of [
-    ...brandConfigs.map((b) => b.name.trim()),
-    ...vendors.map((v) => v.name.trim()),
-  ]) {
-    if (!name) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    brands.push(name);
+  const sp = request.nextUrl.searchParams;
+  const parsed = customerInsightFilterOptionsQuerySchema.safeParse({
+    type: sp.get("type") ?? "brands",
+    brand: readInsightFilterList(sp, "brand"),
+    q: sp.get("q") ?? undefined,
+  });
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: parsed.error.flatten() },
+      { status: 400 }
+    );
   }
 
-  return NextResponse.json({ brands });
+  const roleNames = (auth.context!.roleNames as string[]) ?? [];
+  const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
+  const isAdminView = hasInsightAdminView({ roleNames, permissionKeys });
+
+  if (parsed.data.type === "merchants" || parsed.data.type === "locations") {
+    if (!isAdminView) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+
+  if (parsed.data.type === "items") {
+    const options = await listInsightItemOptions(companyId, {
+      brands: parsed.data.brand,
+      q: parsed.data.q,
+    });
+    return NextResponse.json({ options, brands: [] });
+  }
+
+  if (parsed.data.type === "cities") {
+    const options = await listInsightCityOptions(companyId, parsed.data.q);
+    return NextResponse.json({ options, brands: [] });
+  }
+
+  if (parsed.data.type === "merchants") {
+    const options = await listInsightAssignedMerchantOptions(
+      companyId,
+      parsed.data.q
+    );
+    return NextResponse.json({ options, brands: [] });
+  }
+
+  if (parsed.data.type === "locations") {
+    const options = await listInsightPurchaseLocationOptions(
+      companyId,
+      parsed.data.q
+    );
+    return NextResponse.json({ options, brands: [] });
+  }
+
+  const options = await listInsightBrandOptions(companyId, parsed.data.q);
+  return NextResponse.json({
+    options,
+    brands: options.map((o) => o.value),
+  });
 }

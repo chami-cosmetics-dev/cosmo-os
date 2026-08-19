@@ -17,6 +17,7 @@ export const LIMITS = {
   companyName: { max: 200 },
   employeeSize: { max: 50 },
   address: { max: 500 },
+  city: { max: 80 },
   itemName: { max: 255 },
   permissionKey: { max: 64 },
   nicNo: { max: 15 },
@@ -85,6 +86,10 @@ export const LIMITS = {
   bookNoteIdxNo: { max: 32 },
   bookNoteRowsMax: 500,
   bookNoteRetrieveMaxDays: 31,
+  /** Max receipt photos per book-note day. */
+  bookNoteReceiptsMax: 12,
+  /** Max bytes per receipt image (8MB). */
+  bookNoteReceiptMaxBytes: 8 * 1024 * 1024,
 } as const;
 
 /** Parse and validate page number from query string */
@@ -356,31 +361,21 @@ export const abandonedOrdersListQuerySchema = z.object({
   limit: limitSchema.optional(),
 });
 
-export const abandonedOrderFollowUpPatchBodySchema = z
-  .object({
-    followUpStatus: abandonedOrdersFollowUpStatusSchema,
-    customerResponse: abandonedOrdersCustomerResponseSchema.optional(),
-    remark: z
-      .string()
-      .optional()
-      .transform((s) => {
-        const t = s?.trim() ?? "";
-        return t ? t : undefined;
-      })
-      .refine(
-        (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
-        "Remark is too long"
-      ),
-  })
-  .superRefine((data, ctx) => {
-    if (data.followUpStatus === "closed" && !data.customerResponse) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "customerResponse is required when followUpStatus is closed",
-        path: ["customerResponse"],
-      });
-    }
-  });
+export const abandonedOrderFollowUpPatchBodySchema = z.object({
+  followUpStatus: abandonedOrdersFollowUpStatusSchema,
+  customerResponse: abandonedOrdersCustomerResponseSchema.nullish(),
+  remark: z
+    .string()
+    .optional()
+    .transform((s) => {
+      const t = s?.trim() ?? "";
+      return t ? t : undefined;
+    })
+    .refine(
+      (s) => !s || s.length <= LIMITS.orderRemarkContent.max,
+      "Remark is too long"
+    ),
+});
 
 /** Waybill Lookup page-data query (pending queue + upload history). */
 export const waybillLookupPageDataQuerySchema = z.object({
@@ -392,7 +387,7 @@ export const waybillLookupPageDataQuerySchema = z.object({
     .transform((s) => s === "1" || s?.toLowerCase() === "true"),
 });
 
-/** Explicit rematch POST body. */
+/** Explicit rematch POST body. Default batch is 50; max 500 per request. */
 export const waybillRematchBodySchema = z.object({
   limit: z
     .number()

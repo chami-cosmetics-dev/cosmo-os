@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import {
@@ -6,10 +7,10 @@ import {
   parseAppCalendarDayEnd,
   parseAppCalendarDayStart,
 } from "@/lib/format-datetime";
-import { incentiveForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
+import { incentiveMatchForOrder, loadRiderDeliveryChargeMap } from "@/lib/rider-incentive-resolve";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { aggregateRiderIncentives } from "@/lib/rider-incentive";
+import { aggregateRiderIncentives, isIncentiveEligibleOrder } from "@/lib/rider-incentive";
 import { cuidSchema } from "@/lib/validation";
 
 const ymdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -64,6 +65,7 @@ export async function GET(request: NextRequest) {
       },
       select: {
         riderId: true,
+        completedAt: true,
         rider: { select: { name: true, knownName: true } },
         order: {
           select: {
@@ -80,19 +82,61 @@ export async function GET(request: NextRequest) {
     loadRiderDeliveryChargeMap(),
   ]);
 
-  const riders = aggregateRiderIncentives(
-    tasks.map((task) => ({
+  const rowInputs = tasks.map((task) => {
+    const match = incentiveMatchForOrder(task.order, chargeByLabelKey);
+    return {
       riderId: task.riderId,
       riderName: task.rider.name,
       knownName: task.rider.knownName,
-      incentiveAmount: incentiveForOrder(task.order, chargeByLabelKey),
+      incentiveAmount: match.amount,
+      matched: match.matched,
       financialStatus: task.order.financialStatus,
+      completedAt: task.completedAt,
+    };
+  });
+
+  const riders = aggregateRiderIncentives(rowInputs);
+
+  let totalIncentive = new Prisma.Decimal(0);
+  let unmatchedTotal = 0;
+  for (const row of rowInputs) {
+    if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
+    totalIncentive = totalIncentive.add(row.incentiveAmount);
+    if (!row.matched) unmatchedTotal += 1;
+  }
+
+  const dailyMap = new Map<string, { completedCount: number; incentiveTotal: Prisma.Decimal }>();
+  for (const row of rowInputs) {
+    if (!isIncentiveEligibleOrder(row.financialStatus)) continue;
+    if (!row.completedAt) continue;
+    const date = formatAppIsoDate(row.completedAt);
+    if (!date) continue;
+    const bucket =
+      dailyMap.get(date) ??
+      { completedCount: 0, incentiveTotal: new Prisma.Decimal(0) };
+    bucket.completedCount += 1;
+    bucket.incentiveTotal = bucket.incentiveTotal.add(row.incentiveAmount);
+    dailyMap.set(date, bucket);
+  }
+
+  const dailySeries = Array.from(dailyMap.entries())
+    .map(([date, bucket]) => ({
+      date,
+      completedCount: bucket.completedCount,
+      incentiveTotal: bucket.incentiveTotal.toFixed(2),
     }))
-  );
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   return NextResponse.json({
     from: from.toISOString(),
     to: to.toISOString(),
+    summary: {
+      totalCompletions: riders.reduce((sum, r) => sum + r.completedCount, 0),
+      totalIncentive: totalIncentive.toFixed(2),
+      ridersWithCompletions: riders.length,
+      unmatchedTotal,
+    },
+    dailySeries,
     riders,
   });
 }

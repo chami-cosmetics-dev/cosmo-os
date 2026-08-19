@@ -1,0 +1,9 @@
+action,parentContactId,parentName,primaryPhone,secondaryPhone,contactPhoneId,reason,newContactName,newContactId,otherContactId,candidateNames,referenceNames
+"keep","cmphxifv0004tla04qizyiaqq","Ms Rasika Sanjeewanie","+94763519837","0741027264","cmsd41hjf000vl704sq2f5ze1","order_customer_name_connected","","","","Ms Rasika Sanjeewanie","Ms Rasika Sanjeewanie"
+"keep","cmpl4bqnz003tla04zpnq63lb","Mr. John","+94763520381","0776169135","cmscx8z3g0019jx04tdzcu4ox","order_customer_name_connected","","","","J. John|Mr. John","Mr. John|Mrs Dimantha Abeywardana"
+"keep","cmr44iue40005lb041m437fb2","Ruwani Adikari","0712149449","0769668149","cmsd52km91qzfwcbszcutmvz2","order_customer_name_connected","","","","Ruwani Adikari","Ruwani Adikari"
+"keep","cmr6qcemq002xl704t156vq9f","Hiruni Perera","0741145153","0707165921","cmsd2gzbu16e5wcbs1jsubye4","order_customer_name_connected","","","","Hiruni Perera","Hiruni Perera"
+"keep","cmsczhzoe0hppwcbseqgsbv4v","chamodi tennakoon","0718011485","0712749930","cmsd316q21b23wcbsmnnk6ds7","order_customer_name_connected","","","","Chamodi Tennakoon","chamodi tennakoon"
+"keep","cmsd01odl0m1jwcbsocan7995","Samitha Udalagama","0715601753","0768978361","cmsewnitb004bl4042rranuts","order_customer_name_connected","","","","Samitha Udalagama","Samitha Udalagama"
+"keep","cmsd3014v1asxwcbsekq27m4k","Shanthini Balasiri","0112524701","0773460854","cmsd3rx8m1h39wcbszg15zsyz","order_customer_name_connected","","","","Shanthini Balasiri","Shanthini Balasiri"
+"keep","cmseka5022t47wcyg2cfjc0f2","Shehani Abeywardena","0775256997","0702110238","cmshut7f6002fk0045h85jhfm","order_customer_name_connected","","","","Shehani Abeywardena","Shehani Abeywardena"

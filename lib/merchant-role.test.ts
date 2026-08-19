@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canAccessMerchantDashboard,
+  hasMerchantDashboardAdminView,
   isCompanyAdminRole,
   isMerchantRoleName,
   userHasMerchantRole,
@@ -46,5 +47,20 @@ describe("userHasMerchantRole / admin / access", () => {
     expect(canAccessMerchantDashboard(["merchant-level-01"])).toBe(false);
     expect(canAccessMerchantDashboard(["admin"])).toBe(true);
     expect(canAccessMerchantDashboard(["viewer"])).toBe(false);
+  });
+
+  it("grants merchant admin view via permission", () => {
+    expect(
+      hasMerchantDashboardAdminView({
+        roleNames: ["manager"],
+        permissionKeys: ["dashboard.merchant_admin_view"],
+      })
+    ).toBe(true);
+    expect(
+      hasMerchantDashboardAdminView({
+        roleNames: ["manager"],
+        permissionKeys: ["dashboard.merchant_view"],
+      })
+    ).toBe(false);
   });
 });

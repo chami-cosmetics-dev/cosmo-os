@@ -2,6 +2,26 @@
 
 export type LoyaltyTierKey = "standard" | "gold" | "platinum";
 
+export type LoyaltyOutreachStatus =
+  | "eligible"
+  | "contacted"
+  | "responded"
+  | "not_responded"
+  | "assigned";
+
+export type ContactEventOutcome =
+  | "general"
+  | "loyalty_informed"
+  | "responded"
+  | "not_responded";
+
+export type LoyaltyAssignmentDto = {
+  tier: "gold" | "platinum";
+  assignedAt: string;
+  assignedByName: string | null;
+  assignedByUserId: string | null;
+};
+
 export type LoyaltyThresholds = {
   goldMin: number;
   platinumMin: number;
@@ -34,10 +54,22 @@ export type ContactInsightDto = {
   gender: string | null;
   language: string | null;
   address: string | null;
+  city: string | null;
   birthYear: number | null;
   birthMonth: number | null;
   birthDay: number | null;
   assignedMerchant: string | null;
+  category: string | null;
+  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  lastPurchaseAt: string | null;
+  /** Admin / Insight admin view only — emails cleared by cleanup. */
+  removedEmails?: ContactRemovedEmailDto[];
+};
+
+export type ContactRemovedEmailDto = {
+  email: string;
+  reason: "invalid" | "cosmetics_pattern";
+  removedAt: string;
 };
 
 export type FrequencyDto = {
@@ -96,6 +128,12 @@ export type InvoicePaginationDto = {
   total: number;
 };
 
+export type HistoryScopeDto = {
+  brands: string[];
+  items: string[];
+  scopedSpend: number;
+};
+
 export type ProgressBarDto = {
   currentTotal: number;
   goldMin: number;
@@ -111,6 +149,8 @@ export type CustomerInsightDto = {
   loyalty: LoyaltyDto;
   invoices: UnifiedInvoiceRowDto[];
   invoicePagination: InvoicePaginationDto;
+  /** When opened from brand/item filters — history charts and invoices are scoped. */
+  historyScope?: HistoryScopeDto | null;
   /** Owner / admin only */
   contact?: ContactInsightDto;
   frequency?: FrequencyDto;
@@ -121,6 +161,7 @@ export type CustomerInsightDto = {
   lastContactedAt?: string | null;
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
+  loyaltyAssignment?: LoyaltyAssignmentDto | null;
 };
 
 export type AllocatedFilterItemDto = {
@@ -130,8 +171,12 @@ export type AllocatedFilterItemDto = {
   lifetimeTotal: number;
   /** Present when brand filter is applied — spend on that brand only. */
   brandSpend?: number | null;
+  /** Present when item filter is applied — spend on that item only. */
+  itemSpend?: number | null;
   loyalty: Pick<LoyaltyDto, "key" | "label" | "code">;
   assignedMerchant: string | null;
+  /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
+  lastPurchaseAt: string | null;
 };
 
 export type AllocatedFilterResultDto = {

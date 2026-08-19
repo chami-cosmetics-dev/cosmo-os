@@ -3,13 +3,33 @@ import { Prisma } from "@prisma/client";
 import {
   getMerchantCheerBand,
   getMerchantCheerMessage,
+  getMerchantPeerCheerMessage,
   getMerchantTargetPercent,
   type MerchantCheerBand,
 } from "@/lib/merchant-dashboard/cheer";
+import type {
+  LocationShareBundle,
+  PeerBoardsDto,
+  SalesHistoryDto,
+  TodaySalesDto,
+} from "@/lib/merchant-dashboard/motivation-types";
+import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { isMerchantRoleName } from "@/lib/merchant-role";
 import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
-import { fetchMerchantUserSales, fetchMerchantTopCustomersBySales, fetchMerchantReturnStats } from "@/lib/page-data/merchant-dashboard-sales";
+import { fetchMerchantLoyaltyOutreach } from "@/lib/page-data/merchant-dashboard-loyalty";
+import { fetchMerchantSalesHistory } from "@/lib/page-data/merchant-dashboard-history";
+import {
+  buildLocationShareRows,
+  fetchMerchantCohortSales,
+} from "@/lib/page-data/merchant-dashboard-peers";
+import {
+  fetchMerchantDailyInvoices,
+  fetchMerchantTopCustomersBySales,
+  fetchMerchantReturnStats,
+  fetchMerchantUserSales,
+  type MerchantDailyInvoiceRow,
+} from "@/lib/page-data/merchant-dashboard-sales";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 
@@ -113,6 +133,34 @@ export type MerchantDashboardPageData = {
     orderCount: number;
     returnRatePct: number | null;
   };
+  today: TodaySalesDto;
+  peerBoards: PeerBoardsDto;
+  locationShare: LocationShareBundle;
+  /** Day/month attributed sales history (not target-assignment audit). */
+  salesHistory: SalesHistoryDto;
+  /** Order-placed invoices for selected Colombo day (default today). */
+  dailyInvoicesYmd: string;
+  dailyInvoices: MerchantDailyInvoiceRow[];
+  dailyInvoicesTotal: number;
+  dailyInvoicesOrderCount: number;
+  showCustomerLists: boolean;
+  rangeFromYmd: string;
+  rangeToYmd: string;
+  loyaltyOutreach: Array<{
+    contactId: string;
+    name: string;
+    phoneNumber: string | null;
+    lifetimeTotal: number;
+    suggestedTier: "gold" | "platinum";
+    status: string;
+    lastContactedAt: string | null;
+    missingProfileFields: string[];
+  }>;
+  callCenterPerformance: Array<{
+    merchantName: string;
+    category: string;
+    count: number;
+  }>;
 };
 
 function currentYearMonth(now = new Date()): string {
@@ -231,6 +279,9 @@ export async function getMerchantDashboardPageData(input: {
   canManageTargets: boolean;
   selectedMerchantId?: string | null;
   yearMonth?: string | null;
+  showCustomerLists?: boolean;
+  fromDate?: string | null;
+  toDate?: string | null;
 }): Promise<MerchantDashboardPageData | { error: string; status: number }> {
   const yearMonth =
     input.yearMonth && /^\d{4}-\d{2}$/.test(input.yearMonth)
@@ -280,52 +331,172 @@ export async function getMerchantDashboardPageData(input: {
 
   const displayName = getMerchantDisplayName(profileUser);
 
-  const [sales, targetRow, historyEvents, overviewSales, topCustomersSplit, nearestBirthdays] =
-    await Promise.all([
-      fetchMerchantUserSales(input.companyId, selectedMerchantId, {
-        fromYmd,
-        toYmd: rangeToYmd,
-        dateType: "all_orders",
-      }),
-      loadTargetRow(input.companyId, selectedMerchantId, yearMonth),
-      prisma.merchantMonthlyTargetHistory.findMany({
-        where: { companyId: input.companyId, userId: selectedMerchantId },
-        orderBy: [{ yearMonth: "desc" }, { createdAt: "desc" }],
-        take: 24,
-        select: {
-          id: true,
-          yearMonth: true,
-          targetAmount: true,
-          action: true,
-          createdAt: true,
-          assignedBy: {
-            select: { knownName: true, name: true, email: true },
-          },
+  const cohortUsers = await prisma.user.findMany({
+    where: { id: { in: merchants.map((m) => m.id) }, companyId: input.companyId },
+    select: { id: true, couponCodes: true },
+  });
+  const couponById = new Map(cohortUsers.map((u) => [u.id, u.couponCodes]));
+  const cohortInputs = merchants.map((m) => ({
+    id: m.id,
+    displayName: m.displayName,
+    couponCodes: couponById.get(m.id) ?? [],
+  }));
+
+  const showCustomerLists = Boolean(input.showCustomerLists);
+  const rangeFromYmd =
+    input.fromDate && /^\d{4}-\d{2}-\d{2}$/.test(input.fromDate)
+      ? input.fromDate
+      : fromYmd;
+  const chartRangeToYmd =
+    input.toDate && /^\d{4}-\d{2}-\d{2}$/.test(input.toDate)
+      ? input.toDate
+      : rangeToYmd;
+
+  const emptyTop = {
+    today: [] as Awaited<
+      ReturnType<typeof fetchMerchantTopCustomersBySales>
+    >["today"],
+    lifetime: [] as Awaited<
+      ReturnType<typeof fetchMerchantTopCustomersBySales>
+    >["lifetime"],
+    todayYmd,
+  };
+
+  const [
+    mtdCohort,
+    todayCohort,
+    salesHistory,
+    targetRow,
+    historyEvents,
+    topCustomersSplit,
+    nearestBirthdays,
+    dailyInvoicesResult,
+    loyaltyOutreach,
+    callCenterRaw,
+  ] = await Promise.all([
+    fetchMerchantCohortSales(input.companyId, cohortInputs, {
+      fromYmd,
+      toYmd: rangeToYmd,
+      dateType: "all_orders",
+    }),
+    fetchMerchantCohortSales(input.companyId, cohortInputs, {
+      fromYmd: todayYmd,
+      toYmd: todayYmd,
+      dateType: "all_orders",
+    }),
+    fetchMerchantSalesHistory(input.companyId, selectedMerchantId, {
+      todayYmd,
+      dateType: "all_orders",
+    }),
+    loadTargetRow(input.companyId, selectedMerchantId, yearMonth),
+    prisma.merchantMonthlyTargetHistory.findMany({
+      where: { companyId: input.companyId, userId: selectedMerchantId },
+      orderBy: [{ yearMonth: "desc" }, { createdAt: "desc" }],
+      take: 24,
+      select: {
+        id: true,
+        yearMonth: true,
+        targetAmount: true,
+        action: true,
+        createdAt: true,
+        assignedBy: {
+          select: { knownName: true, name: true, email: true },
         },
-      }),
-      input.viewerIsAdmin
-        ? Promise.all(
-            merchants.map(async (m) => {
-              const [mtd, tgt] = await Promise.all([
-                fetchMerchantUserSales(input.companyId, m.id, {
-                  fromYmd,
-                  toYmd: rangeToYmd,
-                  dateType: "all_orders",
-                }),
-                loadTargetRow(input.companyId, m.id, yearMonth),
-              ]);
-              return { merchant: m, mtd, tgt };
-            }),
-          )
-        : Promise.resolve(null),
-      fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
-        limit: 25,
-      }),
-      fetchMerchantNearestBirthdays(input.companyId, profileUser, {
-        limit: 15,
-        withinDays: 45,
-      }),
-    ]);
+      },
+    }),
+    showCustomerLists
+      ? fetchMerchantTopCustomersBySales(input.companyId, selectedMerchantId, {
+          limit: 25,
+        })
+      : Promise.resolve(emptyTop),
+    fetchMerchantNearestBirthdays(input.companyId, profileUser, {
+      limit: 15,
+      withinDays: 45,
+    }),
+    fetchMerchantDailyInvoices(input.companyId, selectedMerchantId, {
+      dayYmd: todayYmd,
+      dateType: "all_orders",
+    }),
+    fetchMerchantLoyaltyOutreach({
+      companyId: input.companyId,
+      viewer: {
+        knownName: profileUser.knownName,
+        name: profileUser.name,
+        email: profileUser.email,
+        couponCodes: profileUser.couponCodes,
+      },
+      take: 25,
+    }),
+    prisma.$queryRaw<
+      Array<{ merchantName: string | null; category: string | null; count: bigint }>
+    >`
+      SELECT
+        "merchantName",
+        "category",
+        COUNT(*) AS "count"
+      FROM "ContactAllocationUpdate"
+      WHERE "companyId" = ${input.companyId}
+        AND "createdAt" >= ${new Date(`${rangeFromYmd}T00:00:00+05:30`)}
+        AND "createdAt" <= ${new Date(`${chartRangeToYmd}T23:59:59.999+05:30`)}
+        AND (
+          "merchantId" = ${selectedMerchantId}
+          OR lower(coalesce("merchantName", '')) = lower(${displayName})
+        )
+      GROUP BY "merchantName", "category"
+      ORDER BY "count" DESC
+    `,
+  ]);
+
+  const viewedMtd = mtdCohort.byMerchant.get(selectedMerchantId);
+  const sales = {
+    total: viewedMtd?.total ?? 0,
+    orderCount: viewedMtd?.orderCount ?? 0,
+    byLocation: viewedMtd
+      ? [...viewedMtd.byLocation.values()]
+          .filter((row) => row.orderCount > 0)
+          .sort((a, b) => b.total - a.total)
+      : [],
+  };
+
+  const viewedToday = todayCohort.byMerchant.get(selectedMerchantId);
+  const today: TodaySalesDto = {
+    ymd: todayYmd,
+    total: viewedToday?.total ?? 0,
+    orderCount: viewedToday?.orderCount ?? 0,
+  };
+
+  const peerBoardRows = (cohort: typeof mtdCohort) =>
+    merchants.map((m) => {
+      const row = cohort.byMerchant.get(m.id);
+      return {
+        merchantId: m.id,
+        displayName: m.displayName,
+        total: row?.total ?? 0,
+        orderCount: row?.orderCount ?? 0,
+      };
+    });
+
+  const peerBoards: PeerBoardsDto = {
+    today: buildPeerBoard(peerBoardRows(todayCohort), {
+      period: "today",
+      fromYmd: todayYmd,
+      toYmd: todayYmd,
+      viewedMerchantId: selectedMerchantId,
+      cheerMessageForBand: getMerchantPeerCheerMessage,
+    }),
+    mtd: buildPeerBoard(peerBoardRows(mtdCohort), {
+      period: "mtd",
+      fromYmd,
+      toYmd: rangeToYmd,
+      viewedMerchantId: selectedMerchantId,
+      cheerMessageForBand: getMerchantPeerCheerMessage,
+    }),
+  };
+
+  const locationShare: LocationShareBundle = {
+    today: buildLocationShareRows(todayCohort, selectedMerchantId),
+    mtd: buildLocationShareRows(mtdCohort, selectedMerchantId),
+  };
 
   const returns = await fetchMerchantReturnStats(
     input.companyId,
@@ -337,7 +508,7 @@ export async function getMerchantDashboardPageData(input: {
     },
   );
 
-  // Past-month achieved amounts for history status
+  // Past-month achieved amounts for target-assignment audit history status
   const pastMonths = [
     ...new Set(
       historyEvents
@@ -399,24 +570,31 @@ export async function getMerchantDashboardPageData(input: {
     };
   });
 
-  const overview: MerchantDashboardOverviewRow[] | null = overviewSales
-    ? overviewSales.map(({ merchant, mtd, tgt }) => {
-        const tgtAmount = tgt ? toNumber(tgt.targetAmount) : null;
-        const percent = getMerchantTargetPercent(mtd.total, tgtAmount ?? 0);
-        let status: MerchantDashboardOverviewRow["status"] = "no_target";
-        if (tgtAmount != null && tgtAmount > 0) {
-          status = (percent ?? 0) >= 100 ? "achieved" : "behind";
-        }
-        return {
-          merchantId: merchant.id,
-          displayName: merchant.displayName,
-          targetAmount: tgtAmount,
-          mtdSales: mtd.total,
-          percent: tgtAmount != null && tgtAmount > 0 ? percent : null,
-          status,
-        };
-      })
-    : null;
+  let overview: MerchantDashboardOverviewRow[] | null = null;
+  if (input.viewerIsAdmin) {
+    const overviewTargets = await Promise.all(
+      merchants.map((m) => loadTargetRow(input.companyId, m.id, yearMonth)),
+    );
+    overview = merchants.map((merchant, index) => {
+      const mtd = mtdCohort.byMerchant.get(merchant.id);
+      const tgt = overviewTargets[index];
+      const tgtAmount = tgt ? toNumber(tgt.targetAmount) : null;
+      const mtdSales = mtd?.total ?? 0;
+      const percent = getMerchantTargetPercent(mtdSales, tgtAmount ?? 0);
+      let status: MerchantDashboardOverviewRow["status"] = "no_target";
+      if (tgtAmount != null && tgtAmount > 0) {
+        status = (percent ?? 0) >= 100 ? "achieved" : "behind";
+      }
+      return {
+        merchantId: merchant.id,
+        displayName: merchant.displayName,
+        targetAmount: tgtAmount,
+        mtdSales,
+        percent: tgtAmount != null && tgtAmount > 0 ? percent : null,
+        status,
+      };
+    });
+  }
 
   return {
     viewerIsAdmin: input.viewerIsAdmin,
@@ -446,6 +624,23 @@ export async function getMerchantDashboardPageData(input: {
     topCustomersTodayYmd: topCustomersSplit.todayYmd,
     nearestBirthdays,
     returns,
+    today,
+    peerBoards,
+    locationShare,
+    salesHistory,
+    dailyInvoicesYmd: dailyInvoicesResult.dayYmd,
+    dailyInvoices: dailyInvoicesResult.rows,
+    dailyInvoicesTotal: dailyInvoicesResult.total,
+    dailyInvoicesOrderCount: dailyInvoicesResult.orderCount,
+    showCustomerLists,
+    rangeFromYmd,
+    rangeToYmd: chartRangeToYmd,
+    loyaltyOutreach,
+    callCenterPerformance: callCenterRaw.map((row) => ({
+      merchantName: row.merchantName ?? "Unknown",
+      category: row.category ?? "N/A",
+      count: Number(row.count),
+    })),
   };
 }
 

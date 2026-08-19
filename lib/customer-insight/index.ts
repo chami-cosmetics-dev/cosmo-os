@@ -40,6 +40,7 @@ export {
   insightVisibility,
   viewerMerchantLabels,
   isAdminOrSuperAdmin,
+  hasInsightAdminView,
   canFilterAllInsightContacts,
 } from "@/lib/customer-insight/ownership";
 export { toLimitedInsightDto } from "@/lib/customer-insight/visibility";
@@ -52,14 +53,24 @@ export {
   brandFromVendorName,
   brandFromAdaptLineItem,
   brandsMatch,
+  lineMatchesBrand,
+  textContainsBrandWord,
 } from "@/lib/customer-insight/brand";
-export { filterAllocatedContacts } from "@/lib/customer-insight/filters";
+export { cityForDisplay, extractCityFromAddress, recognizedCity } from "@/lib/customer-insight/city";
+export { filterAllocatedContacts, matchesBirthdayRange, matchesBirthdayThisMonth, hasNoPurchaseWithinMonths, hasNoPurchaseInDateRange } from "@/lib/customer-insight/filters";
 export { updateContactInsightProfile } from "@/lib/customer-insight/profile";
 export {
   markContactInsightContacted,
   getLastContactedAt,
+  listContactEventHistory,
   CONTACTED_ALLOCATION_CATEGORY,
 } from "@/lib/customer-insight/contacted";
+export {
+  canAssignLoyaltyTier,
+  isLoyaltyEligibleByTotal,
+  nextOutreachStatus,
+  suggestedLoyaltyTier,
+} from "@/lib/customer-insight/loyalty-outreach";
 export {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,

@@ -1,12 +1,16 @@
+import { cityForDisplay } from "@/lib/customer-insight/city";
 import { buildLoyaltyDto } from "@/lib/customer-insight/loyalty-tier";
 import { buildProgressBarDto } from "@/lib/customer-insight/progress-bar";
 import type {
   ContactInsightDto,
+  ContactRemovedEmailDto,
   CustomerInsightDto,
   FrequencyDto,
   InvoicePaginationDto,
   InsightVisibility,
+  LoyaltyAssignmentDto,
   LoyaltyDto,
+  HistoryScopeDto,
   SeriesPointDto,
   TopItemDto,
   UnifiedInvoiceRowDto,
@@ -22,10 +26,18 @@ export function serializeContactInsight(input: {
   gender?: string | null;
   language?: string | null;
   address?: string | null;
+  city?: string | null;
   birthYear?: number | null;
   birthMonth?: number | null;
   birthDay?: number | null;
   assignedMerchant?: string | null;
+  category?: string | null;
+  lastPurchaseAt?: Date | string | null;
+  removedEmails?: Array<{
+    email: string;
+    reason: string;
+    removedAt: Date | string;
+  }>;
 }): ContactInsightDto {
   return {
     id: input.id,
@@ -36,10 +48,33 @@ export function serializeContactInsight(input: {
     gender: input.gender ?? null,
     language: input.language ?? null,
     address: input.address ?? null,
+    city: cityForDisplay(input.city),
     birthYear: input.birthYear ?? null,
     birthMonth: input.birthMonth ?? null,
     birthDay: input.birthDay ?? null,
     assignedMerchant: input.assignedMerchant ?? null,
+    category: input.category ?? null,
+    lastPurchaseAt:
+      input.lastPurchaseAt instanceof Date
+        ? input.lastPurchaseAt.toISOString()
+        : typeof input.lastPurchaseAt === "string" && input.lastPurchaseAt
+          ? input.lastPurchaseAt
+          : null,
+    removedEmails: (input.removedEmails ?? [])
+      .map((row): ContactRemovedEmailDto | null => {
+        if (row.reason !== "cosmetics_pattern" && row.reason !== "invalid") {
+          return null;
+        }
+        return {
+          email: row.email,
+          reason: row.reason,
+          removedAt:
+            row.removedAt instanceof Date
+              ? row.removedAt.toISOString()
+              : String(row.removedAt),
+        };
+      })
+      .filter((row): row is ContactRemovedEmailDto => row != null),
   };
 }
 
@@ -61,6 +96,8 @@ export function buildCustomerInsightDto(input: {
   lastContactedAt?: string | null;
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
+  loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  historyScope?: HistoryScopeDto | null;
 }): CustomerInsightDto {
   const owner: CustomerInsightDto = {
     visibility: "owner",
@@ -75,8 +112,10 @@ export function buildCustomerInsightDto(input: {
     lastContactedAt: input.lastContactedAt ?? null,
     canEditProfile: input.canEditProfile ?? true,
     canMarkContacted: input.canMarkContacted ?? true,
+    loyaltyAssignment: input.loyaltyAssignment ?? null,
     invoices: input.invoices,
     invoicePagination: input.invoicePagination,
+    historyScope: input.historyScope ?? null,
   };
 
   if (input.visibility === "limited") {

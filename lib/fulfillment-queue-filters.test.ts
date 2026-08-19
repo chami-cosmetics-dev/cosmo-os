@@ -98,7 +98,7 @@ describe("excludePosOrdersWhere", () => {
 });
 
 describe("excludeErpOutOfStockBlockedOrdersWhere", () => {
-  it("only blocks when sync error is present and matches OOS patterns", () => {
+  it("only blocks when OOS sync error is present and no real SI is linked", () => {
     expect(excludeErpOutOfStockBlockedOrdersWhere).toEqual({
       NOT: {
         AND: [
@@ -107,6 +107,13 @@ describe("excludeErpOutOfStockBlockedOrdersWhere", () => {
             OR: [
               { erpnextSyncError: { contains: "NegativeStockError", mode: "insensitive" } },
               { erpnextSyncError: { contains: "Out of stock -", mode: "insensitive" } },
+            ],
+          },
+          {
+            OR: [
+              { erpnextInvoiceId: null },
+              { erpnextInvoiceId: "pending" },
+              { erpnextInvoiceId: "pending_approval" },
             ],
           },
         ],

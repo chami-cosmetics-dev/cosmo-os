@@ -3,7 +3,10 @@ import { z } from "zod";
 
 import { createPaymentMethodChangeApproval } from "@/lib/approval-workflow";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
-import { canRequestPaymentMethodChange } from "@/lib/payment-method-label";
+import {
+  canRequestPaymentMethodChange,
+  paymentMethodChangeTargetLabel,
+} from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { cuidSchema } from "@/lib/validation";
@@ -12,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
-  targetPaymentMethod: z.enum(["bank_transfer", "koko"]).optional().default("bank_transfer"),
+  targetPaymentMethod: z.enum(["bank_transfer", "koko", "mintpay"]).optional().default("bank_transfer"),
 });
 
 export async function PATCH(
@@ -81,8 +84,7 @@ export async function PATCH(
   }
 
   const { targetPaymentMethod } = parsed.data;
-
-  const targetPaymentMethodLabel = targetPaymentMethod === "koko" ? "KOKO" : "Bank Transfer";
+  const targetPaymentMethodLabel = paymentMethodChangeTargetLabel(targetPaymentMethod);
   const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
   const amount = order.totalPrice != null ? `${order.currency ?? ""} ${order.totalPrice}`.trim() : "unknown";
   const approval = await createPaymentMethodChangeApproval({

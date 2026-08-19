@@ -4,6 +4,7 @@ import { findMatchingContacts } from "@/lib/contact-identifiers";
 import { resolveErpApiCreds } from "@/lib/erpnext-customer-display-name";
 import { formatInvoiceOrderReference } from "@/lib/fulfillment-order-reference";
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
+import { resolveInvoicePrintPhones, withAddressPhone } from "@/lib/invoice-print-contact";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import { resolveOrderDiscountCouponForOrder, resolveOrderMerchantCouponForOrder } from "@/lib/order-discount-coupon";
 import { resolveOrderErpSpecialRemarksForOrder } from "@/lib/order-erp-special-remarks";
@@ -79,14 +80,6 @@ function getCity(addr: unknown): string {
   if (!addr || typeof addr !== "object") return "";
   const a = addr as Record<string, unknown>;
   return typeof a.city === "string" ? a.city : "";
-}
-
-function getPhoneFromAddress(addr: unknown): string {
-  if (!addr || typeof addr !== "object") return "";
-  const a = addr as Record<string, unknown>;
-  if (typeof a.phone === "string" && a.phone.trim()) return a.phone.trim();
-  if (typeof a.phone === "number" && Number.isFinite(a.phone)) return String(a.phone);
-  return "";
 }
 
 function addUniquePhoneForInvoice(phones: string[], seenVariants: Set<string>, value?: string | null) {
@@ -291,8 +284,14 @@ export async function renderOrderInvoice(input: {
   const shippingAddr = formatAddress(order.shippingAddress);
   const billingName = stripManualInvoiceNumberAsName(order, pickAddrName(order.billingAddress));
   const shippingName = stripManualInvoiceNumberAsName(order, pickAddrName(order.shippingAddress));
-  const billingPhone = getPhoneFromAddress(order.billingAddress);
-  const shippingPhone = getPhoneFromAddress(order.shippingAddress);
+  const invoicePhones = resolveInvoicePrintPhones({
+    customerPhone: order.customerPhone,
+    shippingAddress: order.shippingAddress,
+    billingAddress: order.billingAddress,
+    rawPayload: order.rawPayload,
+  });
+  const billingPhone = invoicePhones.billingPhone;
+  const shippingPhone = invoicePhones.shippingPhone;
   const shippingCity = getCity(order.shippingAddress);
   const shippingDisplay = await resolveOrderShippingDisplayForOrder({
     totalShipping: order.totalShipping?.toString() ?? null,
@@ -309,7 +308,7 @@ export async function renderOrderInvoice(input: {
   const customerPhones = await getInvoiceCustomerPhones({
     companyId,
     email: order.customerEmail,
-    phoneNumber: order.customerPhone,
+    phoneNumber: invoicePhones.resolvedPhone || order.customerPhone,
   });
   const customerPhoneDisplay = customerPhones.join(", ");
 
@@ -456,6 +455,10 @@ export async function renderOrderInvoice(input: {
     quantity: sample.quantity,
   }));
 
+  const orderData = buildOrderDataForPrint(order);
+  orderData.billingAddress = withAddressPhone(orderData.billingAddress, billingPhone);
+  orderData.shippingAddress = withAddressPhone(orderData.shippingAddress, shippingPhone);
+
   const context = {
     company: {
       name: companyName,
@@ -489,11 +492,11 @@ export async function renderOrderInvoice(input: {
       sourceName: order.sourceName,
       erpnextInvoiceId: order.erpnextInvoiceId ?? "",
     },
-    orderData: buildOrderDataForPrint(order),
+    orderData,
     customer: {
       name: customerName || "-",
       email: order.customerEmail ?? "",
-      phone: order.customerPhone ?? "",
+      phone: invoicePhones.resolvedPhone || order.customerPhone || "",
       phones: customerPhoneDisplay,
       billingName,
       billingPhone,

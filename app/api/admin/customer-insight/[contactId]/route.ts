@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadCustomerInsight } from "@/lib/customer-insight/load";
+import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import { updateContactInsightProfile } from "@/lib/customer-insight/profile";
 import { prisma } from "@/lib/prisma";
@@ -13,22 +14,34 @@ import {
 
 type Params = { params: Promise<{ contactId: string }> };
 
-function viewerFromAuth(auth: {
+async function viewerFromAuth(auth: {
   context?: {
     user?: {
       knownName?: string | null;
       name?: string | null;
       email?: string | null;
+      id?: string;
     } | null;
     roleNames?: string[];
+    permissionKeys?: string[];
   } | null;
 }) {
   const user = auth.context?.user;
+  const dbUser =
+    user?.id
+      ? await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { couponCodes: true },
+        })
+      : null;
+
   return {
     knownName: user?.knownName ?? null,
     name: user?.name ?? null,
     email: user?.email ?? null,
     roleNames: (auth.context?.roleNames as string[]) ?? [],
+    permissionKeys: (auth.context?.permissionKeys as string[]) ?? [],
+    couponCodes: dbUser?.couponCodes ?? null,
   };
 }
 
@@ -58,6 +71,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   const queryParsed = customerInsightInvoicesQuerySchema.safeParse({
     invoicesPage: request.nextUrl.searchParams.get("invoicesPage") ?? undefined,
     invoicesPageSize: request.nextUrl.searchParams.get("invoicesPageSize") ?? undefined,
+    brand: readInsightFilterList(request.nextUrl.searchParams, "brand"),
+    item: readInsightFilterList(request.nextUrl.searchParams, "item"),
   });
   if (!queryParsed.success) {
     return NextResponse.json(
@@ -71,7 +86,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     contactId: idParsed.data.contactId,
     invoicesPage: queryParsed.data.invoicesPage,
     invoicesPageSize: queryParsed.data.invoicesPageSize,
-    viewer: viewerFromAuth(auth),
+    historyBrands: queryParsed.data.brand,
+    historyItems: queryParsed.data.item,
+    viewer: await viewerFromAuth(auth),
   });
   if (!insight) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
@@ -111,7 +128,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  const viewer = viewerFromAuth(auth);
+  const viewer = await viewerFromAuth(auth);
   if (!isAllocatedOwner(viewer, contact.assignedMerchant)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -123,6 +140,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       { error: "Validation failed", details: parsed.error.flatten() },
       { status: 400 }
     );
+  }
+
+  if (parsed.data.addPhoneNumber) {
+    const keys = (auth.context?.permissionKeys as string[]) ?? [];
+    if (!keys.includes("contacts.merge")) {
+      return NextResponse.json(
+        { error: "Missing permission: contacts.merge" },
+        { status: 403 }
+      );
+    }
   }
 
   try {
@@ -145,6 +172,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         gender: updated.gender,
         language: updated.language,
         address: updated.address,
+        city: updated.city,
         birthYear: updated.birthYear,
         birthMonth: updated.birthMonth,
         birthDay: updated.birthDay,

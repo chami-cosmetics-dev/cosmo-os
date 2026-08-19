@@ -1,0 +1,99 @@
+erp_slot,erp_label,po_no,si_count_on_po,invoice_no,docstatus,status,is_return,is_pos,posting_date,grand_total,customer,phone,company,cosmo_order,cosmo_source,cosmo_linked_si,linked_on_this_si,note
+erp1,ERP_1 - Main,60016337,2,600-000009,Cancelled,Cancelled,0,0,2026-07-01,37350,Ms Niluki Kulatunga,0773591122,Cosmetics.lk,60016337,web,600-000009-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016337,2,600-000009-1,Cancelled,Cancelled,0,0,2026-07-01,37350,Ms Niluki Kulatunga,0773591122,Cosmetics.lk,60016337,web,600-000009-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016339,6,600-000049,Draft,Draft,0,0,2026-07-01,17400,Ms S.A.B.Randilini,+94766559353,Cosmetics.lk,60016339,web,600-000063-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016339,6,600-000053,Draft,Draft,0,0,2026-07-01,17400,Ms S.A.B.Randilini,+94766559353,Cosmetics.lk,60016339,web,600-000063-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016339,6,600-000054,Draft,Draft,0,0,2026-07-01,17400,Ms S.A.B.Randilini,+94766559353,Cosmetics.lk,60016339,web,600-000063-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016339,6,600-000055,Draft,Draft,0,0,2026-07-01,17400,Ms S.A.B.Randilini,+94766559353,Cosmetics.lk,60016339,web,600-000063-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016339,6,600-000063,Cancelled,Cancelled,0,0,2026-07-01,20400,Ms S.A.B.Randilini,+94766559353,Cosmetics.lk,60016339,web,600-000063-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016339,6,600-000063-1,Cancelled,Cancelled,0,0,2026-07-01,20400,Ms S.A.B.Randilini,+94766559353,Cosmetics.lk,60016339,web,600-000063-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016340,3,600-000001,Draft,Draft,0,0,2026-07-01,22840,Ms Dilani Ranasinha,+94777238664,Cosmetics.lk,60016340,web,600-000005-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016340,3,600-000005,Cancelled,Cancelled,0,0,2026-07-01,26800,Ms Dilani Ranasinha,+94777238664,Cosmetics.lk,60016340,web,600-000005-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016340,3,600-000005-1,Cancelled,Cancelled,0,0,2026-07-01,26800,Ms Dilani Ranasinha,+94777238664,Cosmetics.lk,60016340,web,600-000005-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016358,9,600-000002,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000020,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000030,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000040,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000046,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000052,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000056,Draft,Draft,0,0,2026-07-01,13420,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000066,Cancelled,Cancelled,0,0,2026-07-01,15700,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016358,9,600-000066-1,Submitted,Overdue,0,0,2026-07-01,15700,miss K.P.Sachini Kalupahana,0703329459,Cosmetics.lk,60016358,web,600-000066-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016377,2,600-000061,Cancelled,Cancelled,0,0,2026-07-01,10200,Mr Isuru Ranasinghe,+94706043001,Cosmetics.lk,60016377,web,600-000061-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016377,2,600-000061-1,Submitted,Paid,0,0,2026-07-01,10200,Mr Isuru Ranasinghe,+94706043001,Cosmetics.lk,60016377,web,600-000061-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016378,2,600-000067,Cancelled,Cancelled,0,0,2026-07-01,6400,mr Ravindhu madhusanka,0772615639,Cosmetics.lk,60016378,web,600-000067-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016378,2,600-000067-1,Submitted,Paid,0,0,2026-07-01,6400,mr Ravindhu madhusanka,0772615639,Cosmetics.lk,60016378,web,600-000067-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016399,2,600-000098,Cancelled,Cancelled,0,0,2026-07-02,13800,ms Suba,0779725766,Cosmetics.lk,60016399,web,600-000098-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016399,2,600-000098-1,Submitted,Paid,0,0,2026-07-02,13800,ms Suba,0779725766,Cosmetics.lk,60016399,web,600-000098-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016403,6,600-000103,Draft,Draft,0,0,2026-07-02,10360,Ms Rasika Sanjeewanie,0741027264,Cosmetics.lk,60016403,web,600-000121-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016403,6,600-000107,Draft,Draft,0,0,2026-07-02,10360,Ms Rasika Sanjeewanie,0741027264,Cosmetics.lk,60016403,web,600-000121-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016403,6,600-000108,Draft,Draft,0,0,2026-07-02,10360,Ms Rasika Sanjeewanie,0741027264,Cosmetics.lk,60016403,web,600-000121-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016403,6,600-000111,Draft,Draft,0,0,2026-07-02,10360,Ms Rasika Sanjeewanie,0741027264,Cosmetics.lk,60016403,web,600-000121-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016403,6,600-000121,Cancelled,Cancelled,0,0,2026-07-02,12100,Ms Rasika Sanjeewanie,0741027264,Cosmetics.lk,60016403,web,600-000121-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016403,6,600-000121-1,Submitted,Paid,0,0,2026-07-02,12100,Ms Rasika Sanjeewanie,0741027264,Cosmetics.lk,60016403,web,600-000121-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016417,2,600-000129,Cancelled,Cancelled,0,0,2026-07-02,26700,ms Rifkha,0779525764,Cosmetics.lk,60016417,web,600-000129-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016417,2,600-000129-1,Submitted,Paid,0,0,2026-07-02,26700,ms Rifkha,0779525764,Cosmetics.lk,60016417,web,600-000129-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016418,2,600-000131,Cancelled,Cancelled,0,0,2026-07-02,25765,ms Kumudika pathirana,0766223080,Cosmetics.lk,60016418,web,600-000131-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016418,2,600-000131-1,Submitted,Paid,0,0,2026-07-02,25765,ms Kumudika pathirana,0766223080,Cosmetics.lk,60016418,web,600-000131-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016438,2,600-000151,Cancelled,Cancelled,0,0,2026-07-03,6900,mr Lahiru,0710710125,Cosmetics.lk,60016438,web,600-000151-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016438,2,600-000151-1,Submitted,Paid,0,0,2026-07-03,6900,mr Lahiru,0710710125,Cosmetics.lk,60016438,web,600-000151-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016441,2,600-000154,Cancelled,Cancelled,0,0,2026-07-03,13350,Mr damidu,0769674646,Cosmetics.lk,60016441,web,600-000154-1,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016441,2,600-000154-1,Submitted,Overdue,0,0,2026-07-03,13350,Mr damidu,0769674646,Cosmetics.lk,60016441,web,600-000154-1,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016453,7,600-000176,Draft,Draft,0,0,2026-07-03,7505,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016453,7,600-000178,Draft,Draft,0,0,2026-07-03,7505,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016453,7,600-000179,Draft,Draft,0,0,2026-07-03,7505,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016453,7,600-000180,Draft,Draft,0,0,2026-07-03,7505,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016453,7,600-000187,Draft,Draft,0,0,2026-07-03,7505,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016453,7,600-000193,Draft,Draft,0,0,2026-07-03,7505,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016453,7,600-000371,Submitted,Overdue,0,0,2026-07-06,7900,mr Thisara,0769292457,Cosmetics.lk,60016453,web,600-000371,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60016515,2,600-000277,Draft,Draft,0,0,2026-07-04,8480,ms G.T.A.Sithara dineshika gamage,0703160016,Cosmetics.lk,60016515,web,600-000462,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60016515,2,600-000462,Cancelled,Cancelled,0,0,2026-07-07,8480,ms G.T.A.Sithara dineshika gamage,0703160016,Cosmetics.lk,60016515,web,600-000462,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017005,2,600-001071,Draft,Draft,0,0,2026-07-16,24577.5,T.R.N.S. Thennakoon,0716198282,Cosmetics.lk,60017005,web,600-001072,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017005,2,600-001072,Submitted,Paid,0,0,2026-07-16,24577.5,T.R.N.S. Thennakoon,0716198282,Cosmetics.lk,60017005,web,600-001072,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017025,2,600-001101,Draft,Draft,0,0,2026-07-17,20705,Dr Nadeeka Munasinghe,0718053344,Cosmetics.lk,60017025,web,600-001102,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017025,2,600-001102,Submitted,Paid,0,0,2026-07-17,20705,Dr Nadeeka Munasinghe,0718053344,Cosmetics.lk,60017025,web,600-001102,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017254,2,600-001483,Submitted,Overdue,0,0,2026-07-23,25365,Pranella Fernando,0777126854,Cosmetics.lk,60017254,web,600-001484,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017254,2,600-001484,Submitted,Paid,0,0,2026-07-23,25365,Pranella Fernando,0777126854,Cosmetics.lk,60017254,web,600-001484,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017476,7,600-001880,Draft,Draft,0,0,2026-07-28,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017476,7,600-001882,Draft,Draft,0,0,2026-07-28,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017476,7,600-001883,Draft,Draft,0,0,2026-07-28,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017476,7,600-001884,Draft,Draft,0,0,2026-07-28,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017476,7,600-001886,Draft,Draft,0,0,2026-07-28,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017476,7,600-001932,Draft,Draft,0,0,2026-07-30,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017476,7,600-001942,Submitted,Paid,0,0,2026-07-30,5055,Amal Botejue,0717418541,Cosmetics.lk,60017476,web,600-001942,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017480,7,600-001899,Draft,Draft,0,0,2026-07-28,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017480,7,600-001900,Draft,Draft,0,0,2026-07-28,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017480,7,600-001901,Draft,Draft,0,0,2026-07-28,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017480,7,600-001902,Draft,Draft,0,0,2026-07-28,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017480,7,600-001904,Draft,Draft,0,0,2026-07-28,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017480,7,600-001933,Draft,Draft,0,0,2026-07-30,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017480,7,600-001946,Submitted,Paid,0,0,2026-07-30,8575,ms G. B. inoka lakmini,0711130451,Cosmetics.lk,60017480,web,600-001946,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017489,7,600-001906,Draft,Draft,0,0,2026-07-29,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017489,7,600-001907,Draft,Draft,0,0,2026-07-29,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017489,7,600-001910,Draft,Draft,0,0,2026-07-29,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017489,7,600-001913,Draft,Draft,0,0,2026-07-29,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017489,7,600-001918,Draft,Draft,0,0,2026-07-29,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017489,7,600-001934,Draft,Draft,0,0,2026-07-30,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017489,7,600-001955,Submitted,Overdue,0,0,2026-07-30,7102.5,Savindaya Jayakodhi,0770092172,Cosmetics.lk,60017489,web,600-001955,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017490,7,600-001908,Draft,Draft,0,0,2026-07-29,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017490,7,600-001909,Draft,Draft,0,0,2026-07-29,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017490,7,600-001911,Draft,Draft,0,0,2026-07-29,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017490,7,600-001915,Draft,Draft,0,0,2026-07-29,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017490,7,600-001920,Draft,Draft,0,0,2026-07-29,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017490,7,600-001935,Draft,Draft,0,0,2026-07-30,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017490,7,600-001956,Submitted,Paid,0,0,2026-07-30,4437.5,Ms Demitria Perera,0777810020,Cosmetics.lk,60017490,web,600-001956,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017501,7,600-001924,Draft,Draft,0,0,2026-07-29,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017501,7,600-001925,Draft,Draft,0,0,2026-07-29,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017501,7,600-001926,Draft,Draft,0,0,2026-07-29,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017501,7,600-001927,Draft,Draft,0,0,2026-07-29,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017501,7,600-001928,Draft,Draft,0,0,2026-07-29,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017501,7,600-001936,Draft,Draft,0,0,2026-07-30,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017501,7,600-001966,Submitted,Overdue,0,0,2026-07-30,13325,H.y Sameera hewasingha,0712744158,Cosmetics.lk,60017501,web,600-001966,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017572,2,600-002099,Cancelled,Cancelled,0,0,2026-07-31,4841.5,Mr chaminda wijewardena,0766505014,Cosmetics.lk,60017572,web,600-002100,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017572,2,600-002100,Submitted,Overdue,0,0,2026-07-31,4841.5,Mr chaminda wijewardena,0766505014,Cosmetics.lk,60017572,web,600-002100,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017589,2,600-002133,Submitted,Overdue,0,0,2026-08-01,15460,Thasharath Somasegaram,0755442570,Cosmetics.lk,60017589,web,600-002134,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017589,2,600-002134,Submitted,Paid,0,0,2026-08-01,15460,Thasharath Somasegaram,0755442570,Cosmetics.lk,60017589,web,600-002134,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017805,2,600-002486,Draft,Draft,0,0,2026-08-07,4000,Ms Yashodha tharushi,0762570884,Cosmetics.lk,60017805,web,600-002487,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017805,2,600-002487,Submitted,Paid,0,0,2026-08-07,4000,Ms Yashodha tharushi,0762570884,Cosmetics.lk,60017805,web,600-002487,yes,Cosmo linked this SI
+erp1,ERP_1 - Main,60017850,2,600-002543,Draft,Draft,0,0,2026-08-08,6720,Ms Nethmini sitara,0776278460,Cosmetics.lk,60017850,web,600-002544,no,Duplicate SI on same po_no — not the Cosmo linked invoice
+erp1,ERP_1 - Main,60017850,2,600-002544,Submitted,Paid,0,0,2026-08-08,6720,Ms Nethmini sitara,0776278460,Cosmetics.lk,60017850,web,600-002544,yes,Cosmo linked this SI

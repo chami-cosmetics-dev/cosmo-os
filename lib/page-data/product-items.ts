@@ -5,7 +5,12 @@ import { getShadowSourceLocationId } from "@/lib/shadow-location-products";
 import { cuidSchema } from "@/lib/validation";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { mergeErpPriorityFilterOptions } from "@/lib/product-items/erp-priority-options";
+import {
+  ogfPriceForSku,
+  resolveProductItemsDisplayedPrice,
+} from "@/lib/product-items/list-price";
 import { getProductFamilyName } from "@/lib/product-item-family";
+import { isLwkLocation } from "@/lib/sticker-unit-price";
 
 export type ProductItemsPageParams = {
   page?: number;
@@ -210,16 +215,20 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     companyId,
   };
 
+  let locationFilterIsLwk = false;
   if (params.locationId) {
     const idResult = cuidSchema.safeParse(params.locationId);
     if (idResult.success) {
       const location = await prisma.companyLocation.findFirst({
         where: { id: idResult.data, companyId },
-        select: { id: true, shadowParentLocationId: true },
+        select: { id: true, shadowParentLocationId: true, name: true, locationReference: true },
       });
-      where.companyLocationId = location
-        ? getShadowSourceLocationId(location)
-        : idResult.data;
+      if (location) {
+        locationFilterIsLwk = isLwkLocation(location.locationReference, location.name);
+        where.companyLocationId = getShadowSourceLocationId(location);
+      } else {
+        where.companyLocationId = idResult.data;
+      }
     }
   }
 
@@ -269,7 +278,7 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
     }
   }
 
-  const [itemsResult, lookups] = await Promise.all([
+  const [itemsResult, lookups, ogfRows] = await Promise.all([
     prisma.productItem.findMany({
         where,
         orderBy: [{ productTitle: "asc" }, { variantTitle: "asc" }, { sku: "asc" }],
@@ -280,16 +289,36 @@ export async function fetchProductItemsPageData(companyId: string, params: Produ
         },
       }),
     getProductItemsPageLookups(companyId),
+    locationFilterIsLwk
+      ? prisma.productOsfProfile.findMany({
+          where: { companyId, ogfPrice: { not: null } },
+          select: { sku: true, ogfPrice: true },
+        })
+      : Promise.resolve([]),
   ]);
 
   const familyFilter = params.familyId?.trim();
-  const groupedItems = sortGroupedItems(
-    groupProductItems(itemsResult, Boolean(params.locationId)).filter((item) =>
-      familyFilter ? item.familyName === familyFilter : true
-    ),
-    params.sortBy,
-    sortOrder
+  let grouped = groupProductItems(itemsResult, Boolean(params.locationId)).filter((item) =>
+    familyFilter ? item.familyName === familyFilter : true
   );
+
+  if (locationFilterIsLwk) {
+    const ogfBySku: Record<string, string> = {};
+    for (const row of ogfRows) {
+      if (row.ogfPrice == null) continue;
+      ogfBySku[row.sku] = row.ogfPrice.toFixed(2);
+    }
+    grouped = grouped.map((item) => {
+      const resolved = resolveProductItemsDisplayedPrice({
+        isLwkView: true,
+        catalogPrice: item.price,
+        ogfPrice: ogfPriceForSku(ogfBySku, item.sku),
+      });
+      return { ...item, ...resolved };
+    });
+  }
+
+  const groupedItems = sortGroupedItems(grouped, params.sortBy, sortOrder);
   const total = groupedItems.length;
   const rawItems = groupedItems.slice(skip, skip + limit);
   // Build family → productKeys map so any explained member marks the whole family

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   FINANCE_PENDING_FULFILLMENT_EXCLUSION,
   isActiveErpSiRetryLease,
+  isOrderPaymentRequiresApproval,
   isPlaceholderErpInvoiceId,
   isRealErpSalesInvoiceId,
 } from "@/lib/approval-workflow";
@@ -59,6 +60,56 @@ describe("FINANCE_PENDING_FULFILLMENT_EXCLUSION", () => {
     });
     expect(FINANCE_PENDING_FULFILLMENT_EXCLUSION).not.toHaveProperty("erpnextInvoiceId");
     expect(JSON.stringify(FINANCE_PENDING_FULFILLMENT_EXCLUSION)).not.toContain("erpnextInvoiceId");
+  });
+});
+
+describe("isOrderPaymentRequiresApproval", () => {
+  it("requires approval for koko, mintpay, and bank primary gateways", () => {
+    expect(
+      isOrderPaymentRequiresApproval({
+        paymentGatewayPrimary: "KOKO",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(true);
+    expect(
+      isOrderPaymentRequiresApproval({
+        paymentGatewayPrimary: "Mintpay",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(true);
+    expect(
+      isOrderPaymentRequiresApproval({
+        paymentGatewayPrimary: "bank_transfer",
+        paymentGatewayNames: [],
+      }),
+    ).toBe(true);
+    expect(
+      isOrderPaymentRequiresApproval({
+        paymentGatewayPrimary: "cod",
+        paymentGatewayNames: ["Mintpay"],
+      }),
+    ).toBe(false);
+  });
+
+  it("requires Vault card on delivery approval, not Cosmo", () => {
+    expect(
+      isOrderPaymentRequiresApproval(
+        { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
+        { vaultOs: false },
+      ),
+    ).toBe(false);
+    expect(
+      isOrderPaymentRequiresApproval(
+        { paymentGatewayPrimary: "Card on Delivery", paymentGatewayNames: [] },
+        { vaultOs: true },
+      ),
+    ).toBe(true);
+    expect(
+      isOrderPaymentRequiresApproval(
+        { paymentGatewayPrimary: null, paymentGatewayNames: ["card_on_delivery"] },
+        { vaultOs: true },
+      ),
+    ).toBe(true);
   });
 });
 

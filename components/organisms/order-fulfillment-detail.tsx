@@ -54,6 +54,8 @@ import {
   shouldBlockShopifyCancelInOs,
   VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE,
 } from "@/lib/shopify-admin";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGES = [
   "order_received",
@@ -220,6 +222,21 @@ type OrderDetail = {
   cancelledBy?: { id: string; name: string | null; email: string | null } | null;
   cancelReason?: string | null;
   hasPendingCancelApproval?: boolean;
+  replacedByOrder?: {
+    id: string;
+    orderLabel: string;
+    name?: string | null;
+    orderNumber?: string | null;
+    erpnextInvoiceId?: string | null;
+  } | null;
+  replacedFromOrders?: Array<{
+    id: string;
+    orderLabel: string;
+    name?: string | null;
+    orderNumber?: string | null;
+    erpnextInvoiceId?: string | null;
+    cancelledAt?: string | null;
+  }>;
 };
 
 type FulfillmentLookups = {
@@ -938,6 +955,17 @@ export function OrderFulfillmentDetail({
                   Cancel Order
                 </Button>
               </div>
+            ) : null}
+
+            {!isVaultOsDeployment() && orderId ? (
+              <OrderReplaceLinkPanel
+                orderId={orderId}
+                isCancelled={Boolean(orderDetail.cancelledAt) || orderDetail.financialStatus?.toLowerCase() === "voided"}
+                canEdit={perms.canCancelOrder}
+                replacedByOrder={orderDetail.replacedByOrder}
+                replacedFromOrders={orderDetail.replacedFromOrders}
+                onSaved={onRefresh}
+              />
             ) : null}
 
             {/* Remarks */}

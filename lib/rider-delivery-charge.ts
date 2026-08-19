@@ -30,11 +30,23 @@ export function resolveRiderIncentiveFromRules(input: {
   shippingRuleLabel: string | null | undefined;
   chargeByLabelKey: Map<string, Prisma.Decimal | number | string>;
 }): Prisma.Decimal {
+  return resolveRiderIncentiveMatch(input).amount;
+}
+
+/** Same as resolveRiderIncentiveFromRules but reports whether a rule matched. */
+export function resolveRiderIncentiveMatch(input: {
+  shippingRuleLabel: string | null | undefined;
+  chargeByLabelKey: Map<string, Prisma.Decimal | number | string>;
+}): { amount: Prisma.Decimal; matched: boolean; labelKey: string | null } {
   const key = normalizeShippingRuleLabelKey(input.shippingRuleLabel);
-  if (!key) return new Prisma.Decimal(0);
+  if (!key) return { amount: new Prisma.Decimal(0), matched: false, labelKey: null };
   const charge = input.chargeByLabelKey.get(key);
-  if (charge == null) return new Prisma.Decimal(0);
-  return riderDeliveryChargeAmount(charge);
+  if (charge == null) return { amount: new Prisma.Decimal(0), matched: false, labelKey: key };
+  return {
+    amount: riderDeliveryChargeAmount(charge),
+    matched: true,
+    labelKey: key,
+  };
 }
 
 export type ParsedRiderDeliveryChargeRow = {
@@ -66,10 +78,11 @@ function cellMoney(value: unknown): string | null {
  */
 export function parseRiderDeliveryChargeSheetRows(
   rows: unknown[][]
-): { rows: ParsedRiderDeliveryChargeRow[]; errors: string[] } {
+): { rows: ParsedRiderDeliveryChargeRow[]; errors: string[]; skippedBlank: number } {
   const errors: string[] = [];
+  let skippedBlank = 0;
   if (rows.length < 2) {
-    return { rows: [], errors: ["Sheet has no data rows"] };
+    return { rows: [], errors: ["Sheet has no data rows"], skippedBlank: 0 };
   }
 
   const header = (rows[0] ?? []).map((c) => cellString(c).toLowerCase());
@@ -89,6 +102,7 @@ export function parseRiderDeliveryChargeSheetRows(
       errors: [
         "Missing required columns. Need Shipping Rule Label, Shipping Amount, and Delivery Charges for riders.",
       ],
+      skippedBlank: 0,
     };
   }
 
@@ -98,7 +112,13 @@ export function parseRiderDeliveryChargeSheetRows(
     const label = cellString(row[labelCol]);
     if (!label) continue;
     const shippingAmount = cellMoney(row[shippingAmtCol]);
-    const riderDeliveryCharge = cellMoney(row[riderCol]);
+    const riderRaw = row[riderCol];
+    const riderBlank = riderRaw == null || String(riderRaw).trim() === "";
+    if (riderBlank) {
+      skippedBlank += 1;
+      continue;
+    }
+    const riderDeliveryCharge = cellMoney(riderRaw);
     if (shippingAmount == null || riderDeliveryCharge == null) {
       errors.push(`Row ${i + 1} (${label}): invalid shipping/rider amounts`);
       continue;
@@ -115,5 +135,5 @@ export function parseRiderDeliveryChargeSheetRows(
     });
   }
 
-  return { rows: Array.from(byKey.values()), errors };
+  return { rows: Array.from(byKey.values()), errors, skippedBlank };
 }

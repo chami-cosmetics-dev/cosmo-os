@@ -109,6 +109,8 @@ export async function PATCH(
       merchantId: auth.context!.user?.id ?? null,
       merchantName: auth.context!.user?.name ?? null,
       category: effectiveCategory,
+      remark: data.remarks !== undefined ? data.remarks : null,
+      outcome: "general",
     },
   });
 

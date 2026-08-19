@@ -1,11 +1,7 @@
 import type { FulfillmentStage } from "@prisma/client";
 
 import { writeAuditLog } from "@/lib/audit-log";
-import {
-  resolvePostDeliveryInvoiceComplete,
-  triggerDeliveryPaymentApprovalIfNeeded,
-} from "@/lib/delivery-payment-approval";
-import { markOrderInvoiceComplete } from "@/lib/mark-order-invoice-complete";
+import { applyPostDeliveryInvoiceAndPayment } from "@/lib/delivery-payment-approval";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import { getFinancePaymentApprovalBlockReason } from "@/lib/approval-workflow";
 import {
@@ -99,32 +95,11 @@ export async function markOrderDelivered(input: {
     },
   });
 
-  const postDelivery = await resolvePostDeliveryInvoiceComplete({
+  const { afterStage, needsPaymentApproval } = await applyPostDeliveryInvoiceAndPayment({
     companyId: input.companyId,
     orderId: order.id,
     requestedById: input.userId,
   });
-
-  let afterStage: FulfillmentStage = "delivery_complete";
-  let needsPaymentApproval = false;
-
-  if (postDelivery.kind === "close_invoice_complete") {
-    // Finance path: invoice complete + PE already done at approval — close stage after delivery.
-    await markOrderInvoiceComplete({
-      companyId: input.companyId,
-      orderId: order.id,
-      userId: postDelivery.financeUserId || input.userId,
-    });
-    afterStage = "invoice_complete";
-  } else {
-    // Normal path: remain on invoice-complete queue for manual action.
-    const deliveryApproval = await triggerDeliveryPaymentApprovalIfNeeded({
-      companyId: input.companyId,
-      orderId: order.id,
-      requestedById: input.userId,
-    });
-    needsPaymentApproval = Boolean(deliveryApproval);
-  }
 
   sendOrderSms(input.companyId, order.id, "delivery_complete", {
     orderNumber: resolveOrderNumber(updated),

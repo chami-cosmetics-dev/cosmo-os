@@ -732,7 +732,7 @@ export function OrdersPanel({
                           <div className="flex flex-wrap gap-1">
                             {order.pendingPaymentApproval && (
                               <span
-                                title="Awaiting order payment approval (KOKO / bank transfer)"
+                                title="Awaiting order payment approval (KOKO / bank transfer / card on delivery)"
                                 className="inline-flex whitespace-nowrap rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
                               >
                                 RA

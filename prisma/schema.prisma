@@ -81,6 +81,7 @@ model Company {
   shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
   adaptPurchaseHistories        AdaptPurchaseHistory[]
+  contactRemovedEmails          ContactRemovedEmail[]
   bookNoteDays                  BookNoteDay[]
   merchantMonthlyTargets        MerchantMonthlyTarget[]
   merchantMonthlyTargetHistory  MerchantMonthlyTargetHistory[]
@@ -131,6 +132,8 @@ model ErpnextInstance {
   bankTransferMop       String?
   kokoMop               String?
   webxpayMop            String?
+  /// ERP Mode of Payment for Mintpay BNPL (e.g. "Mintpay").
+  mintpayMop            String?
   /// ERP Mode of Payment for Citypak/City Pack courier collections (e.g. "City Pak").
   citypakMop            String?
   taxesAndCharges       String?
@@ -366,6 +369,8 @@ model User {
   merchantTargetsAssigned           MerchantMonthlyTarget[]    @relation("MerchantMonthlyTargetAssignedBy")
   merchantMonthlyTargetHistoryAsMerchant MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryUser")
   merchantMonthlyTargetHistoryAssigned   MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryAssignedBy")
+  loyaltyAssignments                     ContactMaster[]                @relation("ContactLoyaltyAssignedBy")
+  contactEmailsRemoved                   ContactRemovedEmail[]          @relation("ContactRemovedEmailBy")
 }
 
 /// Monthly sales target for a merchant-role user (Asia/Colombo calendar month).
@@ -752,6 +757,8 @@ model Order {
   cancelledAt                     DateTime?
   cancelledById                   String?
   cancelReason                    String?
+  /// Cosmo cancel→replace: cancelled order points at the ERP/Cosmo order that supersedes it.
+  replacedByOrderId               String?
   assignedMerchant                User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
   company                         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyLocation                 CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
@@ -768,6 +775,8 @@ model Order {
   packageReadyBy                  User?                  @relation("OrderPackageReadyBy", fields: [packageReadyById], references: [id])
   sampleFreeIssueCompleteBy       User?                  @relation("OrderSampleFreeIssueCompleteBy", fields: [sampleFreeIssueCompleteById], references: [id])
   cancelledBy                     User?                  @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
+  replacedByOrder                 Order?                 @relation("OrderReplacedBy", fields: [replacedByOrderId], references: [id], onDelete: SetNull)
+  replacedFromOrders              Order[]                @relation("OrderReplacedBy")
   lineItems                       OrderLineItem[]
   exchangesAsOriginal             OrderExchange[]        @relation("OrderExchangeOriginalOrder")
   exchangesAsReplacement          OrderExchange[]        @relation("OrderExchangeReplacementOrder")
@@ -812,6 +821,7 @@ model Order {
   @@index([erpnextInvoiceId])
   @@index([companyId, erpnextCustomerId])
   @@index([companyId, erpnextSyncNextAutoRetryAt])
+  @@index([companyId, replacedByOrderId])
 }
 
 model PickListGroup {
@@ -1501,7 +1511,7 @@ model RolePermission {
   roleId       String
   permissionId String
   assignedAt   DateTime   @default(now())
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
@@ -1637,6 +1647,7 @@ model ContactMaster {
   workPlace         String?
   occupation        String?
   address           String?
+  city              String?
   birthYear         Int?
   birthMonth        Int?
   birthDay          Int?
@@ -1647,6 +1658,10 @@ model ContactMaster {
   origin            String?
   customerType      String?
   category          String?
+  loyaltyAssignedTier       String?
+  loyaltyAssignedAt         DateTime?
+  loyaltyAssignedByUserId   String?
+  loyaltyOutreachStatus     String?
   // Contact preferences
   contactSaved      Boolean?
   whatsappAllowed   Boolean?
@@ -1656,11 +1671,13 @@ model ContactMaster {
   createdAt         DateTime                  @default(now())
   updatedAt         DateTime                  @updatedAt
   company           Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  loyaltyAssignedBy User?                     @relation("ContactLoyaltyAssignedBy", fields: [loyaltyAssignedByUserId], references: [id], onDelete: SetNull)
   emails            ContactEmail[]
   phones            ContactPhone[]
   // Call center performance tracking: records each allocation update event for this contact
   allocationUpdates ContactAllocationUpdate[]
   adaptPurchases    AdaptPurchaseHistory[]
+  removedEmails     ContactRemovedEmail[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1671,6 +1688,9 @@ model ContactMaster {
   @@index([companyId, country])
   @@index([companyId, zone])
   @@index([companyId, area])
+  @@index([companyId, city])
+  @@index([companyId, loyaltyAssignedAt])
+  @@index([companyId, loyaltyOutreachStatus])
 }
 
 model AdaptPurchaseHistory {
@@ -1717,6 +1737,25 @@ model ContactEmail {
   @@unique([contactId, email])
   @@index([email])
   @@index([contactId])
+}
+
+/** Emails cleared by contact email cleanup; kept for admin Insight display. */
+model ContactRemovedEmail {
+  id              String        @id @default(cuid())
+  companyId       String
+  contactId       String
+  email           String
+  /// invalid | cosmetics_pattern
+  reason          String
+  removedAt       DateTime      @default(now())
+  removedByUserId String?
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact         ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  removedBy       User?         @relation("ContactRemovedEmailBy", fields: [removedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([contactId, removedAt(sort: Desc)])
+  @@index([companyId, contactId])
+  @@index([companyId, reason])
 }
 
 model ContactPhone {
@@ -1812,6 +1851,8 @@ model ContactAllocationUpdate {
   merchantName String?
   /// The contact's effective category at the time of update (new value if changed in this update, otherwise the existing value)
   category     String?
+  remark       String?
+  outcome      String?
   createdAt    DateTime @default(now())
 
   company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1987,20 +2028,21 @@ model RiderDeliveryChargeRule {
 
 /// Merchant daily book note — one ledger per location + Colombo calendar sales date.
 model BookNoteDay {
-  id                 String          @id @default(cuid())
+  id                 String            @id @default(cuid())
   companyId          String
   companyLocationId  String
   /// Calendar posting date stored as UTC midnight (YYYY-MM-DD).
   postingDate        DateTime
   createdByUserId    String?
   updatedByUserId    String?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  company            Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyLocation    CompanyLocation @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
-  createdBy          User?           @relation("BookNoteDayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy          User?           @relation("BookNoteDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  company            Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyLocation    CompanyLocation   @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
+  createdBy          User?             @relation("BookNoteDayCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy          User?             @relation("BookNoteDayUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   rows               BookNoteRow[]
+  receipts           BookNoteReceipt[]
 
   @@unique([companyLocationId, postingDate])
   @@index([companyId, postingDate])
@@ -2022,4 +2064,20 @@ model BookNoteRow {
 
   @@index([bookNoteDayId, sortOrder])
   @@index([salesInvoice])
+}
+
+/// Day-level payment receipt photos (one set for the whole book-note day).
+/// Pushed to ERP Book Note Entry via upload_file on Send to ERP.
+model BookNoteReceipt {
+  id            String      @id @default(cuid())
+  bookNoteDayId String
+  fileName      String
+  blobUrl       String
+  fileSize      Int?
+  mimeType      String?
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  bookNoteDay   BookNoteDay @relation(fields: [bookNoteDayId], references: [id], onDelete: Cascade)
+
+  @@index([bookNoteDayId, sortOrder])
 }

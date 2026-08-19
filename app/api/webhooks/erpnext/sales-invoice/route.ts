@@ -26,6 +26,8 @@ import { isLegacyAccSinvRef } from "@/lib/legacy-acc-sinv";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
+import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
+import { linkedVaultOrderSubmittedInvoicePatch } from "@/lib/erp-fulfillment-block";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -175,6 +177,7 @@ async function syncContactFromErpInvoice(input: {
   postingDate: string | null | undefined;
   instanceLabel: string | null;
   recentMerchant?: string | null;
+  assignedMerchantMer?: string | null;
 }) {
   if (!input.customerEmail && !input.customerPhone) return;
   try {
@@ -190,6 +193,7 @@ async function syncContactFromErpInvoice(input: {
       phoneNumber: input.customerPhone,
       name: input.customerName,
       recentMerchant: input.recentMerchant ?? null,
+      assignedMerchantMer: input.assignedMerchantMer,
       auditBehavior: "summary_only",
     });
     console.log(
@@ -355,15 +359,13 @@ export async function POST(request: NextRequest) {
         ? data.contact_mobile.trim()
         : null;
 
-    if (data.customer?.trim()) {
-      await prisma.order.update({
-        where: { id: linkedVaultOrder.id },
-        data: {
-          erpnextInvoiceId: data.name,
-          erpnextCustomerId: data.customer.trim(),
-        },
-      });
-    }
+    await prisma.order.update({
+      where: { id: linkedVaultOrder.id },
+      data: linkedVaultOrderSubmittedInvoicePatch({
+        invoiceName: data.name,
+        customer: data.customer,
+      }),
+    });
 
     if (linkedEmail || linkedPhone) {
       const linkedNameResolution = await resolveErpWebhookCustomerName(data, {
@@ -371,6 +373,14 @@ export async function POST(request: NextRequest) {
         apiKey: instanceCreds.apiKey,
         apiSecret: instanceCreds.apiSecret,
       });
+
+      const merCouponCode =
+        data.custom_merchant_coupon_code?.trim() ||
+        data.merchant_coupon_code?.trim() ||
+        null;
+      const assignedMerchantMer = merCouponCode
+        ? normalizeMerCodeKey(merCouponCode)
+        : null;
       await syncContactFromErpInvoice({
         companyId: linkedVaultOrder.companyId,
         invoiceName: data.name,
@@ -380,6 +390,7 @@ export async function POST(request: NextRequest) {
         postingDate: data.posting_date,
         instanceLabel: instanceCreds.label,
         recentMerchant: linkedVaultOrder.assignedMerchant?.name ?? null,
+        assignedMerchantMer,
       });
     }
 
@@ -461,8 +472,10 @@ export async function POST(request: NextRequest) {
   function parseErpAddress(
     html: string | null | undefined,
     customerName: string,
+    phone?: string | null,
   ): object {
-    if (!html?.trim()) return { name: customerName };
+    const phoneField = phone?.trim() ? { phone: phone.trim() } : {};
+    if (!html?.trim()) return { name: customerName, ...phoneField };
     // Strip HTML tags, split on <br> variants into lines
     const lines = html
       .replace(/<br\s*\/?>/gi, "\n")
@@ -481,6 +494,7 @@ export async function POST(request: NextRequest) {
       address2: addrLines.length > 2 ? addrLines[1] : null,
       city: addrLines.length > 1 ? addrLines[addrLines.length - 2] : null,
       country: addrLines.length > 1 ? addrLines[addrLines.length - 1] : null,
+      ...phoneField,
     };
   }
 
@@ -500,6 +514,7 @@ export async function POST(request: NextRequest) {
   const shippingAddressObj = parseErpAddress(
     nullIfNone(data.shipping_address) ?? nullIfNone(data.address_display),
     erpCustomerName,
+    customerPhone,
   );
 
   // Try to match the owner (cashier for POS, merchant for non-POS) to a vault os user
@@ -733,6 +748,7 @@ export async function POST(request: NextRequest) {
     postingDate: data.posting_date,
     instanceLabel: instanceCreds.label,
     recentMerchant: order.assignedMerchant?.name ?? null,
+    assignedMerchantMer: merCouponCode ? normalizeMerCodeKey(merCouponCode) : null,
   });
 
   if (financialStatus === "voided" || isCreditNoted) {

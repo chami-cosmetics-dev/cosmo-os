@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { FileSpreadsheet } from "lucide-react";
+import { FileSpreadsheet, Phone } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,9 +17,10 @@ import type {
 } from "@/lib/page-data/abandoned-orders-types";
 import {
   FOLLOW_UP_STATUS_LABELS,
-  getCustomerResponseLabel,
+  getAbandonedOrdersResponseDisplay,
   MANUAL_CUSTOMER_RESPONSES,
   CUSTOMER_RESPONSE_LABELS,
+  type FollowUpStatus,
 } from "@/lib/abandoned-orders-constants";
 import { AbandonedOrderFollowUpForm } from "@/components/molecules/abandoned-order-follow-up-form";
 import {
@@ -36,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 type SyncInfo = {
   lastSyncedAt: string | null;
@@ -47,6 +49,16 @@ function formatMoney(value: string | null, currency: string) {
   const n = Number(value);
   if (!Number.isFinite(n)) return `${value} ${currency}`;
   return `${n.toLocaleString(APP_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+}
+
+function followUpRowBorderClass(status: FollowUpStatus) {
+  if (status === "follow_up") {
+    return "border-amber-500 bg-amber-500/[0.04]";
+  }
+  if (status === "closed") {
+    return "border-emerald-500 bg-emerald-500/[0.04]";
+  }
+  return "border-slate-400 bg-secondary/10";
 }
 
 export function AbandonedOrdersPanel({
@@ -65,7 +77,7 @@ export function AbandonedOrdersPanel({
 
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
-  const [status, setStatus] = useState<string>(""); // empty = default pending+follow_up (backend default)
+  const [status, setStatus] = useState<string>(""); // empty = all statuses
   const [response, setResponse] = useState<string>("");
   const [search, setSearch] = useState<string>("");
 
@@ -152,11 +164,10 @@ export function AbandonedOrdersPanel({
     try {
       const payload: Record<string, unknown> = {
         followUpStatus: values.followUpStatus,
+        customerResponse:
+          values.followUpStatus === "closed" ? values.customerResponse : null,
       };
 
-      if (values.followUpStatus === "closed") {
-        payload.customerResponse = values.customerResponse;
-      }
       if (values.remark !== undefined) payload.remark = values.remark;
 
       const res = await fetch(`/api/admin/abandoned-orders/${selectedItem.id}/follow-up`, {
@@ -255,17 +266,18 @@ export function AbandonedOrdersPanel({
                 Follow-up status
               </label>
               <Select
-                value={status || "__active__"}
+                value={status || "__all__"}
                 onValueChange={(v) => {
                   setPage(1);
-                  setStatus(v === "__active__" ? "" : v);
+                  setStatus(v === "__all__" ? "" : v);
                 }}
               >
                 <SelectTrigger id="abandoned-filter-status" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__active__">Active (Pending + Follow up)</SelectItem>
+                  <SelectItem value="__all__">All statuses</SelectItem>
+                  <SelectItem value="pending,follow_up">Active (Pending + Follow up)</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="follow_up">Follow up</SelectItem>
                   <SelectItem value="closed">Closed</SelectItem>
@@ -351,82 +363,145 @@ export function AbandonedOrdersPanel({
               No abandoned checkouts found for the selected filters.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-md border border-border/70">
-              <table className="min-w-[1500px] w-full text-sm">
-                <thead className="bg-secondary/30">
-                  <tr className="text-left">
-                    <th className="px-3 py-2 font-medium">Abandoned</th>
-                    <th className="px-3 py-2 font-medium">Customer</th>
-                    <th className="px-3 py-2 font-medium">Phone</th>
-                    <th className="px-3 py-2 font-medium">Email</th>
-                    <th className="px-3 py-2 font-medium">Billing address</th>
-                    <th className="px-3 py-2 font-medium">Shipping address</th>
-                    <th className="px-3 py-2 font-medium">Cart summary</th>
-                    <th className="px-3 py-2 font-medium">Total</th>
-                    <th className="px-3 py-2 font-medium">Follow-up</th>
-                    <th className="px-3 py-2 font-medium">Response</th>
-                    <th className="px-3 py-2 font-medium">Last update</th>
-                    {canManage && (
-                      <th className="px-3 py-2 font-medium">Action</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((item) => (
-                    <tr key={item.id} className="border-t border-border/60 hover:bg-secondary/10">
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {formatAppDateTime(new Date(item.abandonedAt))}
-                      </td>
-                      <td className="px-3 py-2">
-                        {item.customerName ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerPhone ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerEmail ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 max-w-[220px]">
-                        <span className="line-clamp-3" title={item.billingAddressText ?? undefined}>
-                          {item.billingAddressText ?? "—"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 max-w-[220px]">
-                        <span className="line-clamp-3" title={item.shippingAddressText ?? undefined}>
-                          {item.shippingAddressText ?? "—"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">{item.lineItemsSummary || "—"}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {formatMoney(item.totalPrice, item.currency)}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.customerResponse ? getCustomerResponseLabel(item.customerResponse) : "—"}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {item.lastFollowUpBy?.name ?? "—"}
-                        {item.lastFollowUpAt ? ` • ${formatAppDateTime(new Date(item.lastFollowUpAt))}` : ""}
-                      </td>
-                      {canManage && (
-                        <td className="px-3 py-2 whitespace-nowrap">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void openEditor(item)}
-                            disabled={loading}
-                          >
-                            {saveBusy ? "Updating..." : "Update"}
-                          </Button>
-                        </td>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm border-2 border-slate-400" aria-hidden />
+                  Pending
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm border-2 border-amber-500" aria-hidden />
+                  Follow up
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm border-2 border-emerald-500" aria-hidden />
+                  Closed
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {items.map((item) => {
+                  const responseText = getAbandonedOrdersResponseDisplay(item);
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        "rounded-md border-2 p-3",
+                        followUpRowBorderClass(item.followUpStatus)
                       )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      title={`Follow-up: ${FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus}`}
+                    >
+                      <div className="grid gap-3 lg:grid-cols-[150px_minmax(0,1fr)_auto]">
+                        <div className="min-w-0 space-y-1 border-b border-border/40 pb-2 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-3">
+                          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            Abandoned
+                          </div>
+                          <div className="text-sm font-medium leading-snug">
+                            {formatAppDateTime(new Date(item.abandonedAt))}
+                          </div>
+                          {(item.lastFollowUpBy?.name || item.lastFollowUpAt) && (
+                            <div className="text-xs leading-snug text-muted-foreground">
+                              Updated
+                              {item.lastFollowUpBy?.name ? ` by ${item.lastFollowUpBy.name}` : ""}
+                              {item.lastFollowUpAt
+                                ? ` · ${formatAppDateTime(new Date(item.lastFollowUpAt))}`
+                                : ""}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          <div className="min-w-0 space-y-1">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Customer
+                            </div>
+                            <div className="font-medium break-words">
+                              {item.customerName ?? "—"}
+                            </div>
+                            <div className="space-y-0.5">
+                              {item.customerPhone ? (
+                                <a
+                                  href={`tel:${item.customerPhone}`}
+                                  className="inline-flex items-center gap-1.5 font-medium hover:underline"
+                                >
+                                  <Phone className="size-3.5 shrink-0" aria-hidden />
+                                  <span className="break-all">{item.customerPhone}</span>
+                                </a>
+                              ) : (
+                                <div className="text-sm">Phone: —</div>
+                              )}
+                              {item.customerEmail ? (
+                                <a
+                                  href={`mailto:${item.customerEmail}`}
+                                  className="block break-all font-medium hover:underline"
+                                  title={item.customerEmail}
+                                >
+                                  {item.customerEmail}
+                                </a>
+                              ) : (
+                                <div className="text-sm">Email: —</div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 space-y-1">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Billing
+                            </div>
+                            <div className="text-sm break-words leading-snug">
+                              {item.billingAddressText ?? "—"}
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 space-y-1">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Shipping
+                            </div>
+                            <div className="text-sm break-words leading-snug">
+                              {item.shippingAddressText ?? "—"}
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 space-y-1">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Cart
+                            </div>
+                            <div className="text-sm break-words leading-snug">
+                              {item.lineItemsSummary || "—"}
+                            </div>
+                            <div className="font-medium">
+                              {formatMoney(item.totalPrice, item.currency)}
+                            </div>
+                          </div>
+
+                          <div className="min-w-0 space-y-1 sm:col-span-2 xl:col-span-1">
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              Response
+                            </div>
+                            <div className="text-sm break-words leading-snug" title={responseText}>
+                              {responseText}
+                            </div>
+                          </div>
+                        </div>
+
+                        {canManage && (
+                          <div className="flex items-start justify-end lg:pl-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void openEditor(item)}
+                              disabled={loading || saveBusy}
+                            >
+                              Update
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
@@ -443,7 +518,6 @@ export function AbandonedOrdersPanel({
             />
           </div>
 
-          {/* Placeholder for US2/US3 controls (will be implemented in later tasks). */}
           {!canManage && (
             <div className="text-muted-foreground text-xs">
               View-only: follow-up editing is not available for your role.

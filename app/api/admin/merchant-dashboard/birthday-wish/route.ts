@@ -8,7 +8,7 @@ import {
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import {
   canAccessMerchantDashboard,
-  isCompanyAdminRole,
+  hasMerchantDashboardAdminView,
 } from "@/lib/merchant-role";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -35,6 +35,12 @@ export async function POST(request: NextRequest) {
       { status: 404 },
     );
   }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: context.user.id },
+    select: { couponCodes: true },
+  });
+  const couponCodes = dbUser?.couponCodes ?? null;
 
   let body: unknown;
   try {
@@ -64,7 +70,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
 
-  const viewerIsAdmin = isCompanyAdminRole(roleNames);
+  const viewerIsAdmin = hasMerchantDashboardAdminView({
+    roleNames,
+    permissionKeys: context.permissionKeys as string[] | undefined,
+  });
   if (
     !viewerIsAdmin &&
     !isAllocatedOwner(
@@ -73,6 +82,8 @@ export async function POST(request: NextRequest) {
         name: context.user.name,
         email: context.user.email,
         roleNames,
+        couponCodes,
+        permissionKeys: context.permissionKeys as string[] | undefined,
       },
       contact.assignedMerchant,
     )

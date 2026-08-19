@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getMerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import {
   canAccessMerchantDashboard,
-  isCompanyAdminRole,
+  hasMerchantDashboardAdminView,
 } from "@/lib/merchant-role";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
 import { merchantDashboardPageDataQuerySchema } from "@/lib/validation/merchant-dashboard";
@@ -34,6 +34,9 @@ export async function GET(request: NextRequest) {
   const parsed = merchantDashboardPageDataQuerySchema.safeParse({
     merchantUserId: raw.merchantUserId || undefined,
     yearMonth: raw.yearMonth || undefined,
+    showCustomerLists: raw.showCustomerLists || undefined,
+    fromDate: raw.fromDate || undefined,
+    toDate: raw.toDate || undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -42,7 +45,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const viewerIsAdmin = isCompanyAdminRole(roleNames);
+  const viewerIsAdmin = hasMerchantDashboardAdminView({
+    roleNames,
+    permissionKeys: context.permissionKeys as string[] | undefined,
+  });
   const data = await getMerchantDashboardPageData({
     companyId,
     viewerUserId: context.user.id,
@@ -51,6 +57,9 @@ export async function GET(request: NextRequest) {
       viewerIsAdmin || hasPermission(context, "dashboard.merchant_targets.manage"),
     selectedMerchantId: viewerIsAdmin ? parsed.data.merchantUserId : context.user.id,
     yearMonth: parsed.data.yearMonth,
+    showCustomerLists: parsed.data.showCustomerLists,
+    fromDate: parsed.data.fromDate,
+    toDate: parsed.data.toDate,
   });
 
   if ("error" in data) {

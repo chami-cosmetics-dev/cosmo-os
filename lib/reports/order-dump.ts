@@ -23,6 +23,7 @@ function summarizePaymentGateway(value: string) {
   const normalized = trimmed.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
 
   if (normalized.includes("koko")) return "KOKO Payment";
+  if (normalized.includes("mintpay")) return "Mintpay Payment";
   if (normalized.includes("webxpay") || normalized.includes("web x pay")) return "WEBXPAY";
   if (normalized.includes("bank")) return "Bank Transfer";
   if (
@@ -218,6 +219,34 @@ const ORDER_INVOICE_ITEM_HEADERS = [
   "created_by",
 ] as const;
 
+export function getOrderInvoiceCsvHeaders(omitCustomerPhone = false) {
+  if (!omitCustomerPhone) return [...ORDER_INVOICE_HEADERS];
+  return ORDER_INVOICE_HEADERS.filter((header) => header !== "customer_phone" && header !== "customer_email");
+}
+
+export function getOrderInvoiceItemCsvHeaders(omitCustomerPhone = false) {
+  if (!omitCustomerPhone) return [...ORDER_INVOICE_ITEM_HEADERS];
+  return ORDER_INVOICE_ITEM_HEADERS.filter((header) => header !== "customer_phone" && header !== "customer_email");
+}
+
+/** Join merchant + customer coupons for dump 2 `coupon_code` (POS/ERP + Shopify). */
+export function joinDumpCouponCodes(...values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const value of values) {
+    if (!value) continue;
+    for (const part of value.split(",")) {
+      const code = part.trim();
+      if (!code) continue;
+      const key = code.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      parts.push(code);
+    }
+  }
+  return parts.join(",");
+}
+
 export function buildOrderInvoiceCsv(rows: OrderInvoiceCsvRow[]) {
   return buildCsvWithUppercaseHeaders(ORDER_INVOICE_HEADERS, rows);
 }
@@ -290,6 +319,7 @@ export function createOrderInvoiceRow(input: {
   invoiceCompleteBy: string;
   shippingRule: string | null;
   createdBy: string;
+  couponCode?: string | null;
 }): OrderInvoiceCsvRow {
   const sourceName = formatSourceName(input.sourceName);
   const month = input.createdAt.toLocaleString("en-US", {
@@ -314,7 +344,7 @@ export function createOrderInvoiceRow(input: {
     invoice_date: formatIsoDate(input.createdAt),
     month: `${input.createdAt.getUTCFullYear()} : ${month}`,
     merchant: input.merchantName,
-    coupon_code: input.merchantCouponCode ?? "",
+    coupon_code: input.couponCode ?? input.merchantCouponCode ?? "",
     status: resolveInvoiceStatus(input),
     payment_gateway: summarizePaymentGateway(input.paymentGateway),
     payment_status: input.financialStatus ?? "",

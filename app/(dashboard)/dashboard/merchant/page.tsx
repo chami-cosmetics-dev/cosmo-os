@@ -4,7 +4,7 @@ import { MerchantDashboardPanel } from "@/app/(dashboard)/dashboard/merchant/mer
 import { PermissionDeniedCard } from "@/components/molecules/permission-denied-card";
 import {
   canAccessMerchantDashboard,
-  isCompanyAdminRole,
+  hasMerchantDashboardAdminView,
 } from "@/lib/merchant-role";
 import { getMerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import { getCurrentUserContext, hasPermission } from "@/lib/rbac";
@@ -35,7 +35,10 @@ export default async function MerchantDashboardPage({
   }
 
   const params = await searchParams;
-  const viewerIsAdmin = isCompanyAdminRole(roleNames);
+  const viewerIsAdmin = hasMerchantDashboardAdminView({
+    roleNames,
+    permissionKeys: context.permissionKeys as string[] | undefined,
+  });
   const data = await getMerchantDashboardPageData({
     companyId,
     viewerUserId: context.user.id,

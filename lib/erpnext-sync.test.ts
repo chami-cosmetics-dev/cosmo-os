@@ -31,15 +31,16 @@ describe("creditNoteUpdateOutstandingForSelf", () => {
 });
 
 /**
- * Mirrors resolvePrepaidMop CC → WebXPay mapping used in lib/erpnext-sync.ts
+ * Mirrors resolvePrepaidMop mapping used in lib/erpnext-sync.ts
  * (kept local so we don't export private resolvers).
  */
 function resolvePrepaidMopForTest(
-  cfg: { kokoMop: string; webxpayMop: string; bankTransferMop: string },
+  cfg: { kokoMop: string; mintpayMop: string; webxpayMop: string; bankTransferMop: string },
   gateways: string[],
 ): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
+  if (lower.some((g) => g.includes("mintpay"))) return cfg.mintpayMop;
   if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) {
     return cfg.webxpayMop || null;
   }
@@ -50,6 +51,7 @@ function resolvePrepaidMopForTest(
 describe("CC Checkout → WebXPay MOP mapping", () => {
   const cfg = {
     kokoMop: "KOKO",
+    mintpayMop: "Mintpay",
     webxpayMop: "WebXPay",
     bankTransferMop: "Bank Transfer",
   };
@@ -61,8 +63,10 @@ describe("CC Checkout → WebXPay MOP mapping", () => {
     expect(resolvePrepaidMopForTest(cfg, ["cc"])).toBe("WebXPay");
   });
 
-  it("does not change KOKO / bank mappings", () => {
+  it("does not change KOKO / Mintpay / bank mappings", () => {
     expect(resolvePrepaidMopForTest(cfg, ["KOKO"])).toBe("KOKO");
+    expect(resolvePrepaidMopForTest(cfg, ["Mintpay"])).toBe("Mintpay");
+    expect(resolvePrepaidMopForTest(cfg, ["mintpay"])).toBe("Mintpay");
     expect(resolvePrepaidMopForTest(cfg, ["bank_transfer"])).toBe("Bank Transfer");
   });
 
@@ -80,6 +84,7 @@ describe("Citypak courier → City Pak MOP mapping", () => {
     cardDeliveryMop: "Credit Card",
     bankTransferMop: "Wire Transfer",
     kokoMop: "Koko",
+    mintpayMop: "Mintpay",
     webxpayMop: "WebXPay",
     citypakMop: "City Pak",
     taxesAndCharges: "",

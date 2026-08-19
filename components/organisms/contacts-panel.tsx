@@ -214,6 +214,7 @@ export function ContactsPanel({
   const [transferFrom, setTransferFrom] = useState("");
   const [transferTo, setTransferTo] = useState("");
   const [transferSaving, setTransferSaving] = useState(false);
+  const [allocationImporting, setAllocationImporting] = useState(false);
   const [createForm, setCreateForm] = useState<CreateContactInput>({
     name: "",
     email: "",
@@ -223,6 +224,7 @@ export function ContactsPanel({
     recentMerchant: "",
   });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const allocationImportInputRef = useRef<HTMLInputElement | null>(null);
   const skippedInitialFetch = useRef(false);
 
   useEffect(() => {
@@ -381,6 +383,46 @@ export function ContactsPanel({
       notify.error("Allocation failed");
     } finally {
       setAssignSaving(false);
+    }
+  }
+
+  async function onImportAllocations(file: File) {
+    try {
+      setAllocationImporting(true);
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/admin/contacts/allocation/import", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        summary?: {
+          totalRows: number;
+          updated: number;
+          skipped: number;
+          skips?: Array<{ row: number; phone: string; error: string }>;
+        };
+      };
+      if (!res.ok) {
+        notify.error(data.error ?? "Allocation import failed");
+        return;
+      }
+      const updated = data.summary?.updated ?? 0;
+      const skipped = data.summary?.skipped ?? 0;
+      notify.success(`Allocation import complete. Updated ${updated}, skipped ${skipped}.`);
+      const firstSkip = data.summary?.skips?.[0];
+      if (firstSkip) {
+        notify.error(
+          `First skip: row ${firstSkip.row} (${firstSkip.phone || "no phone"}) — ${firstSkip.error}`
+        );
+      }
+      await fetchPageData();
+    } catch {
+      notify.error("Allocation import failed");
+    } finally {
+      setAllocationImporting(false);
+      if (allocationImportInputRef.current) allocationImportInputRef.current.value = "";
     }
   }
 
@@ -601,6 +643,43 @@ export function ContactsPanel({
                 {assignSaving ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                 Assign
               </Button>
+              <div className="space-y-2 border-t border-border/50 pt-3">
+                <p className="text-sm font-medium">Import file</p>
+                <p className="text-muted-foreground text-xs">
+                  CSV with phone and allocated merchant. Updates assigned merchant. Audit log records who imported and when.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" asChild>
+                    <a href="/api/admin/contacts/allocation/import-template">
+                      <Download className="mr-2 size-4" />
+                      Template
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={allocationImporting}
+                    onClick={() => allocationImportInputRef.current?.click()}
+                  >
+                    {allocationImporting ? (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    ) : (
+                      <FileUp className="mr-2 size-4" />
+                    )}
+                    {allocationImporting ? "Importing..." : "Import CSV"}
+                  </Button>
+                  <input
+                    ref={allocationImportInputRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void onImportAllocations(file);
+                    }}
+                  />
+                </div>
+              </div>
             </div>
             <div className="space-y-3">
               <p className="text-sm font-medium">Transfer allocated list</p>

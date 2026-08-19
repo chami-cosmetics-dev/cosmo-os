@@ -128,6 +128,16 @@ const DEFAULT_PERMISSIONS = [
       "Open Customer Insight: search by phone, view purchase insight and filters; allocated merchants and admins can edit profile (no Contact Master list/export)",
   },
   {
+    key: "contacts.insight.admin_view",
+    description:
+      "Customer Insight admin view: filter all company contacts, full owner insight on any customer (same as company admin on Insight)",
+  },
+  {
+    key: "contacts.merge",
+    description:
+      "Customer Insight: add/link a new phone number (keeps previous numbers for search and purchase history)",
+  },
+  {
     key: "contacts.updates.read",
     description: "View Contact Updates",
   },
@@ -313,6 +323,11 @@ const DEFAULT_PERMISSIONS = [
   {
     key: "dashboard.merchant_view",
     description: "View personalized merchant dashboard (own slice, or any merchant if admin)",
+  },
+  {
+    key: "dashboard.merchant_admin_view",
+    description:
+      "Merchant dashboard admin view: pick any merchant, company-wide merchant overview (same as company admin on Merchant dashboard)",
   },
   {
     key: "dashboard.merchant_targets.manage",
@@ -529,6 +544,8 @@ const DEFAULT_ROLES = [
       "contacts.master.read",
       "contacts.master.manage",
       "contacts.insight.read",
+      "contacts.insight.admin_view",
+      "contacts.merge",
       "contacts.updates.read",
       "contacts.updates.manage",
       "contacts.allocation.read",
@@ -556,6 +573,7 @@ const DEFAULT_ROLES = [
       "finance.hod.revert_paid_to_unpaid",
       "dashboard.view",
       "dashboard.merchant_view",
+      "dashboard.merchant_admin_view",
       "dashboard.merchant_targets.manage",
       "dashboard.edit",
       DASHBOARD_DATE_TYPE_PERMISSIONS.placedAll,
@@ -757,27 +775,82 @@ function markRbacDatabaseUnavailable() {
  * Process-level cache avoids repeating this on every request.
  */
 async function ensureDefaultRbacSetupIfNeeded() {
-  if (hasVerifiedDefaultRbacSetup || isRbacDatabaseTemporarilyUnavailable()) {
+  if (isRbacDatabaseTemporarilyUnavailable()) {
     return;
   }
 
-  if (!rbacSetupPromise) {
-    rbacSetupPromise = (async () => {
-      try {
-        await ensureDefaultRbacSetup();
-        hasVerifiedDefaultRbacSetup = true;
-      } catch (error) {
-        if (isDatabaseUnavailableError(error)) {
-          markRbacDatabaseUnavailable();
+  if (!hasVerifiedDefaultRbacSetup) {
+    if (!rbacSetupPromise) {
+      rbacSetupPromise = (async () => {
+        try {
+          await ensureDefaultRbacSetup();
+          hasVerifiedDefaultRbacSetup = true;
+        } catch (error) {
+          if (isDatabaseUnavailableError(error)) {
+            markRbacDatabaseUnavailable();
+          }
+          throw error;
         }
-        throw error;
-      }
-    })().finally(() => {
-      rbacSetupPromise = null;
-    });
+      })().finally(() => {
+        rbacSetupPromise = null;
+      });
+    }
+    await rbacSetupPromise;
+    return;
   }
 
-  await rbacSetupPromise;
+  await pinCustomRolePermissionsIfNeeded();
+}
+
+const PINNED_CUSTOM_ROLE_PERMISSIONS: { roleName: string; permissionKey: string }[] = [
+  { roleName: "stores-level-01", permissionKey: "store.allocation.read" },
+  { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
+];
+
+let lastCustomRolePinAt = 0;
+const CUSTOM_ROLE_PIN_TTL_MS = 30_000;
+
+async function pinCustomRolePermissionsIfNeeded() {
+  if (Date.now() - lastCustomRolePinAt < CUSTOM_ROLE_PIN_TTL_MS) {
+    return;
+  }
+  await pinCustomRolePermissions();
+  lastCustomRolePinAt = Date.now();
+}
+
+async function pinCustomRolePermissions() {
+  const permissionKeys = Array.from(
+    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.permissionKey))
+  );
+  const roleNames = Array.from(
+    new Set(PINNED_CUSTOM_ROLE_PERMISSIONS.map((entry) => entry.roleName))
+  );
+  const [permissions, roles] = await Promise.all([
+    prisma.permission.findMany({
+      where: { key: { in: permissionKeys } },
+      select: { id: true, key: true },
+    }),
+    prisma.role.findMany({
+      where: { name: { in: roleNames } },
+      select: { id: true, name: true },
+    }),
+  ]);
+  const permissionIdByKey = new Map(permissions.map((permission) => [permission.key, permission.id]));
+  const roleIdByName = new Map(roles.map((role) => [role.name, role.id]));
+  const data = PINNED_CUSTOM_ROLE_PERMISSIONS.flatMap((entry) => {
+    const permissionId = permissionIdByKey.get(entry.permissionKey);
+    const roleId = roleIdByName.get(entry.roleName);
+    if (!permissionId || !roleId) {
+      return [];
+    }
+    return [{ roleId, permissionId }];
+  });
+  if (data.length === 0) {
+    lastCustomRolePinAt = Date.now();
+    return;
+  }
+  await prisma.rolePermission.createMany({ data, skipDuplicates: true });
+  lastCustomRolePinAt = Date.now();
 }
 
 export async function ensureDefaultRbacSetup() {
@@ -822,6 +895,11 @@ export async function ensureDefaultRbacSetup() {
         skipDuplicates: true,
       });
     }
+
+    // Custom store roles are not in DEFAULT_ROLES, so a stale process that still
+    // deleteMany-s unknown Permission keys cascade-wipes these grants. Re-attach
+    // after every setup so Location allocation stays on stores-level-01/02.
+    await pinCustomRolePermissions();
 
     // Do not auto-delete Permission rows missing from DEFAULT_PERMISSIONS.
     // An older app process (pre-new-permission deploy) calling this would wipe
@@ -1223,6 +1301,7 @@ export async function listRbacData(options: ListRbacDataOptions = {}) {
   }
 
   await ensureDefaultRbacSetupIfNeeded();
+  await pinCustomRolePermissions();
 
   const userWhere =
     options.isSuperAdmin || !options.companyId

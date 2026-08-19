@@ -11,7 +11,7 @@ import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
-import { isErpOutOfStockSyncError } from "@/lib/failed-erp-sync-classification";
+import { isErpOutOfStockFulfillmentBlocked } from "@/lib/erp-fulfillment-block";
 import {
   deliveryPipelineWhere,
   deliveryStageOrWhere,
@@ -25,6 +25,7 @@ import {
   printFulfillmentPipelineWhere,
 } from "@/lib/fulfillment-queue-filters";
 import { getLegacyAccSinvFulfillmentWhere } from "@/lib/legacy-acc-sinv";
+import { enrichOrdersWithReplaceLinks } from "@/lib/order-replace-link-enrich";
 
 function pickOrderListCustomerName(order: {
   customer?: { firstName: string | null; lastName: string | null } | null;
@@ -492,6 +493,7 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     assignedMerchant: { select: { id: true, name: true, email: true, couponCodes: true } },
     packageHoldReason: { select: { id: true, name: true } },
     _count: { select: { lineItems: true } },
+    replacedByOrderId: true,
     approvalRequests: {
       where: {
         status: "pending",
@@ -535,7 +537,15 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     })),
   );
 
-  const ordersData = orders.map((o) => ({
+  const replaceLinks = await enrichOrdersWithReplaceLinks(
+    companyId,
+    orders.map((o) => ({ id: o.id, replacedByOrderId: o.replacedByOrderId }))
+  );
+  const replaceByOrderId = new Map(replaceLinks.map((row) => [row.id, row]));
+
+  const ordersData = orders.map((o) => {
+    const link = replaceByOrderId.get(o.id);
+    return {
     id: o.id,
     shopifyOrderId: o.shopifyOrderId,
     orderNumber: o.orderNumber,
@@ -578,7 +588,10 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
     pendingDeliveryPaymentApproval:
       DELIVERY_PAYMENT_FINANCE_UI_ENABLED &&
       o.approvalRequests.some((a) => a.type === DELIVERY_PAYMENT_APPROVAL),
-    erpOutOfStockBlocked: isErpOutOfStockSyncError(o.erpnextSyncError),
+    erpOutOfStockBlocked: isErpOutOfStockFulfillmentBlocked({
+      erpnextSyncError: o.erpnextSyncError,
+      erpnextInvoiceId: o.erpnextInvoiceId,
+    }),
     merchantCouponCode: getMerchantCouponCode({
       sourceName: o.sourceName,
       discountCodes: o.discountCodes,
@@ -590,7 +603,15 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       discountCodes: o.discountCodes,
       rawPayload: o.rawPayload,
     }),
-  }));
+    replacedByOrder: link?.replacedByOrder
+      ? { id: link.replacedByOrder.id, orderLabel: link.replacedByOrder.orderLabel }
+      : null,
+    replacedFromOrders: (link?.replacedFromOrders ?? []).map((row) => ({
+      id: row.id,
+      orderLabel: row.orderLabel,
+    })),
+  };
+  });
 
   maybeLogSlowDbRequest("orders.page_data", startedAt, {
     companyId,

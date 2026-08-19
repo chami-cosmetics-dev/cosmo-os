@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 
-export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products"] as const;
+export const AUDIT_LOG_MODULES = ["reports", "users", "roles", "orders", "contacts", "settings", "staff", "complaints", "academy", "products", "store-allocation", "customer-insight", "merchant-dashboard"] as const;
 
 export const AUDIT_LOG_ACTIONS = [
   "download",
@@ -33,6 +33,7 @@ export const AUDIT_LOG_ACTIONS = [
   "exchange_solved",
   "fulfillment_updated",
   "order_cancelled",
+  "order_replace_link_updated",
   "order_cancel_requested",
   "order_cancel_approved",
   "order_cancel_rejected",
@@ -49,6 +50,8 @@ export const AUDIT_LOG_ACTIONS = [
   "contact_auto_enriched",
   "contact_auto_sync_conflict",
   "contact_backfill_run",
+  "contact_email_cleared",
+  "contact_allocation_imported",
   "setting_created",
   "setting_updated",
   "setting_deleted",
@@ -60,6 +63,12 @@ export const AUDIT_LOG_ACTIONS = [
   "academy_explanation_deleted",
   "storage_file_uploaded",
   "storage_file_deleted",
+  "discontinue_continued",
+  "contact_merged",
+  "insight_contacted",
+  "loyalty_responded",
+  "loyalty_assigned",
+  "merchant_loyalty_contacted",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -77,6 +86,8 @@ export const AUDIT_LOG_ACTION_GROUPS = [
       "contact_auto_enriched",
       "contact_auto_sync_conflict",
       "contact_backfill_run",
+      "contact_email_cleared",
+      "contact_allocation_imported",
     ],
   },
   {
@@ -96,6 +107,7 @@ export const AUDIT_LOG_ACTION_GROUPS = [
       "exchange_solved",
       "fulfillment_updated",
       "order_cancelled",
+      "order_replace_link_updated",
       "order_payment_rejected",
       "order_payment_rejection_erp_cancel_failed",
       "remark_created",
@@ -148,6 +160,16 @@ export const AUDIT_LOG_ACTION_GROUPS = [
     key: "products",
     label: "Products",
     actions: ["storage_file_uploaded", "storage_file_deleted"],
+  },
+  {
+    key: "customer-insight",
+    label: "Customer Insight",
+    actions: ["contact_merged", "insight_contacted", "loyalty_responded", "loyalty_assigned"],
+  },
+  {
+    key: "merchant-dashboard",
+    label: "Merchant Dashboard",
+    actions: ["merchant_loyalty_contacted"],
   },
 ] as const;
 

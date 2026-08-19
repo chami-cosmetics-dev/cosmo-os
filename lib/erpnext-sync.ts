@@ -62,6 +62,7 @@ type ErpConfig = {
   bankTransferMop: string;
   kokoMop: string;
   webxpayMop: string;
+  mintpayMop: string;
   citypakMop: string;
   taxesAndCharges: string;
   shippingRule: string;
@@ -80,6 +81,7 @@ export function getErpConfig(instance: ErpnextInstance | null): ErpConfig {
     bankTransferMop: instance?.bankTransferMop ?? process.env.ERPNEXT_BANK_TRANSFER_MOP ?? "Wire Transfer",
     kokoMop: instance?.kokoMop ?? process.env.ERPNEXT_KOKO_MOP ?? "Koko",
     webxpayMop: instance?.webxpayMop ?? process.env.ERPNEXT_WEBXPAY_MOP ?? "",
+    mintpayMop: instance?.mintpayMop ?? process.env.ERPNEXT_MINTPAY_MOP ?? "Mintpay",
     citypakMop: instance?.citypakMop ?? process.env.ERPNEXT_CITYPAK_MOP ?? "",
     taxesAndCharges: instance?.taxesAndCharges ?? process.env.ERPNEXT_TAXES_AND_CHARGES ?? "",
     shippingRule: instance?.shippingRule ?? process.env.ERPNEXT_SHIPPING_RULE ?? "",
@@ -152,6 +154,7 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   for (const g of gateways) {
     const lower = g.toLowerCase().trim();
     if (lower.includes("koko")) return cfg.kokoMop;
+    if (lower.includes("mintpay")) return cfg.mintpayMop;
     if (lower.includes("webxpay") || isCcCheckoutGateway(g)) return cfg.webxpayMop || null;
     if (lower.includes("credit card") || lower.includes("card delivery") || lower.includes("card payment")) return cfg.cardDeliveryMop;
     if (lower.includes("bank transfer") || lower.includes("bank draft") || lower.includes("wire")) return cfg.bankTransferMop;
@@ -166,10 +169,11 @@ function resolveErpPaymentType(cfg: ErpConfig, gateways: string[]): string | nul
   return null;
 }
 
-/** Mode of payment for prepaid gateways (Koko, WebXPay, cc checkout, bank transfer). */
+/** Mode of payment for prepaid gateways (Koko, Mintpay, WebXPay, cc checkout, bank transfer). */
 function resolvePrepaidMop(cfg: ErpConfig, gateways: string[]): string | null {
   const lower = gateways.map((g) => g.toLowerCase().trim());
   if (lower.some((g) => g.includes("koko"))) return cfg.kokoMop;
+  if (lower.some((g) => g.includes("mintpay"))) return cfg.mintpayMop;
   if (lower.some((g) => g.includes("webxpay") || isCcCheckoutGateway(g))) return cfg.webxpayMop || null;
   if (lower.some((g) => g.includes("bank"))) return cfg.bankTransferMop;
   return null;
@@ -764,6 +768,7 @@ async function ensureCustomer(
       ...(canonicalMobile ? { name: canonicalMobile } : {}),
       customer_name: displayName,
       customer_type: "Individual",
+      // New ERP customers only. Never PATCH customer_group from OS loyalty.
       customer_group: "Individual",
       territory: "All Territories",
       default_company: erpnextCompany,

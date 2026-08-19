@@ -1,9 +1,10 @@
 "use client";
 
-import { Database, Download, History, Sparkles } from "lucide-react";
+import { createContext, useContext, useState } from "react";
+import { Database, History, Sparkles } from "lucide-react";
 
+import { DumpDownloadButton } from "@/components/molecules/dump-download-button";
 import type { ReportDownloadLogRecord } from "@/lib/report-download-log";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { REPORT_DUMP_PERMISSIONS } from "@/lib/report-permissions";
 import { formatAppDateTime } from "@/lib/format-datetime";
@@ -31,7 +32,13 @@ function formatLogTime(value: string) {
   return formatAppDateTime(value, value);
 }
 
+const DumpBusyContext = createContext<{
+  busyHref: string | null;
+  onBusyChange: (href: string, busy: boolean) => void;
+}>({ busyHref: null, onBusyChange: () => undefined });
+
 function ReportRow({ title, subtitle, actions }: { title: string; subtitle: string; actions: ReportAction[] }) {
+  const { busyHref, onBusyChange } = useContext(DumpBusyContext);
   if (actions.length === 0) return null;
 
   return (
@@ -42,12 +49,14 @@ function ReportRow({ title, subtitle, actions }: { title: string; subtitle: stri
       </div>
       <div className="flex flex-wrap gap-2">
         {actions.map((action) => (
-          <Button key={action.href} asChild className={`text-white ${toneClass(action.tone)}`}>
-            <a href={action.href}>
-              <Download className="mr-2 size-4" />
-              {action.label}
-            </a>
-          </Button>
+          <DumpDownloadButton
+            key={action.href}
+            href={action.href}
+            label={action.label}
+            className={toneClass(action.tone)}
+            disabled={busyHref !== null && busyHref !== action.href}
+            onBusyChange={(busy) => onBusyChange(action.href, busy)}
+          />
         ))}
       </div>
     </div>
@@ -55,12 +64,15 @@ function ReportRow({ title, subtitle, actions }: { title: string; subtitle: stri
 }
 
 export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs = [] }: DumpReportsPanelProps) {
+  const [busyHref, setBusyHref] = useState<string | null>(null);
+  const onBusyChange = (href: string, busy: boolean) => setBusyHref(busy ? href : null);
   const can = (permission: string) => permissionKeys.includes(permission);
   const allowedActions = (actions: ReportAction[]) => actions.filter((action) => can(action.permission));
   const canHistoricalInvoiceItem = can(REPORT_DUMP_PERMISSIONS.historicalInvoiceItem);
   const canHistoricalInvoice = can(REPORT_DUMP_PERMISSIONS.historicalInvoice);
 
   return (
+    <DumpBusyContext.Provider value={{ busyHref, onBusyChange }}>
     <div className="space-y-6">
       <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-[linear-gradient(135deg,var(--dashboard-hero-start),var(--dashboard-hero-middle),var(--dashboard-hero-end))] p-6 shadow-[0_18px_40px_-28px_var(--primary)]">
         <div className="pointer-events-none absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.4),transparent_65%)] dark:bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.1),transparent_65%)]" />
@@ -183,20 +195,22 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
                   <p className="font-medium text-foreground">Data {year}</p>
                   <div className="flex flex-wrap gap-2">
                     {canHistoricalInvoiceItem && (
-                      <Button asChild className="bg-sky-500 text-white hover:bg-sky-600">
-                        <a href={`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}>
-                          <Download className="mr-2 size-4" />
-                          Invoice Item Details
-                        </a>
-                      </Button>
+                      <DumpDownloadButton
+                        href={`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}
+                        label="Invoice Item Details"
+                        className="bg-sky-500 hover:bg-sky-600"
+                        disabled={busyHref !== null && busyHref !== `/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`}
+                        onBusyChange={(busy) => onBusyChange(`/api/admin/reports/orders?report=invoice-item&range=historical-year&year=${year}`, busy)}
+                      />
                     )}
                     {canHistoricalInvoice && (
-                      <Button asChild className="bg-amber-500 text-white hover:bg-amber-600">
-                        <a href={`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}>
-                          <Download className="mr-2 size-4" />
-                          Invoice Details
-                        </a>
-                      </Button>
+                      <DumpDownloadButton
+                        href={`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}
+                        label="Invoice Details"
+                        className="bg-amber-500 hover:bg-amber-600"
+                        disabled={busyHref !== null && busyHref !== `/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`}
+                        onBusyChange={(busy) => onBusyChange(`/api/admin/reports/orders?report=invoice&range=historical-year&year=${year}`, busy)}
+                      />
                     )}
                   </div>
                 </div>
@@ -248,5 +262,6 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
         </CardContent>
       </Card>
     </div>
+    </DumpBusyContext.Provider>
   );
 }

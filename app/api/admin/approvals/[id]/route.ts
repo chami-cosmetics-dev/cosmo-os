@@ -42,6 +42,11 @@ import {
 } from "@/lib/failed-erp-pe-sync";
 import { orderStageUpdate } from "@/lib/order-stage-timing";
 import {
+  orderPaymentFinanceApproveMarksPaid,
+  parsePaymentMethodChangeTarget,
+  paymentMethodChangeGateway,
+} from "@/lib/payment-method-label";
+import {
   finalizeReturnCancelOsState,
   runReturnCancelExternalCompletion,
   sanitizeReturnCancelError,
@@ -543,10 +548,16 @@ export async function PATCH(
   }
 
   // BEFORE approving ORDER_PAYMENT: require a real SI and no active retry lease.
+  let unpaidCardOnDeliveryApprove = false;
   if (parsed.data.action === "approve" && approval.type === ORDER_PAYMENT_APPROVAL && approval.orderId) {
     const orderErp = await prisma.order.findUnique({
       where: { id: approval.orderId },
-      select: { erpnextInvoiceId: true, erpnextSyncRetryLeaseExpiresAt: true },
+      select: {
+        erpnextInvoiceId: true,
+        erpnextSyncRetryLeaseExpiresAt: true,
+        paymentGatewayPrimary: true,
+        paymentGatewayNames: true,
+      },
     });
     if (
       !orderErp ||
@@ -563,11 +574,16 @@ export async function PATCH(
         { status: 409 }
       );
     }
+    unpaidCardOnDeliveryApprove = !orderPaymentFinanceApproveMarksPaid(orderErp, {
+      requestNote: approval.requestNote,
+    });
   }
 
-  const isBankTransferApproval =
-    approval.type === PAYMENT_METHOD_CHANGE_APPROVAL &&
-    (approval.requestNote?.toLowerCase().startsWith("bank transfer") ?? false);
+  const methodChangeTarget =
+    approval.type === PAYMENT_METHOD_CHANGE_APPROVAL
+      ? parsePaymentMethodChangeTarget(approval.requestNote)
+      : null;
+  const isBankTransferApproval = methodChangeTarget === "bank_transfer";
   const isPaymentReapproval =
     nextStatus === "approved" &&
     approval.orderId != null &&
@@ -615,13 +631,39 @@ export async function PATCH(
       if (approval.type === ORDER_PAYMENT_APPROVAL) {
         const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },
-          select: { fulfillmentStage: true },
+          select: {
+            fulfillmentStage: true,
+            paymentGatewayPrimary: true,
+            paymentGatewayNames: true,
+          },
         });
         const stage = orderForStage?.fulfillmentStage;
-        // Already fully invoice-complete: keep stage (do not re-queue via print).
-        // At delivery_complete: close invoice complete (late finance approval after deliver).
-        // Earlier stages: mark invoice complete financially, go to print, continue fulfillment.
-        if (stage === "invoice_complete") {
+        const marksPaid = orderPaymentFinanceApproveMarksPaid(
+          {
+            paymentGatewayPrimary: orderForStage?.paymentGatewayPrimary ?? null,
+            paymentGatewayNames: orderForStage?.paymentGatewayNames ?? [],
+          },
+          { requestNote: approval.requestNote },
+        );
+        if (!marksPaid) {
+          // Card on Delivery: stay unpaid, send to print. PE still waits for door collection.
+          if (stage === "order_received" || stage === "sample_free_issue" || !stage) {
+            await tx.order.update({
+              where: { id: approval.orderId! },
+              data: {
+                financialStatus: "pending",
+                ...orderStageUpdate("print", now),
+                sampleFreeIssueCompleteAt: now,
+                sampleFreeIssueCompleteById: reviewerId,
+              },
+            });
+          } else {
+            await tx.order.update({
+              where: { id: approval.orderId! },
+              data: { financialStatus: "pending" },
+            });
+          }
+        } else if (stage === "invoice_complete") {
           await tx.order.update({
             where: { id: approval.orderId! },
             data: { financialStatus: "paid" },
@@ -650,18 +692,19 @@ export async function PATCH(
             },
           });
         }
-        // Prepaid confirmation covers door collection — drop any stale Delivery Collection row.
-        await tx.$executeRaw(
-          Prisma.sql`
-            UPDATE "ApprovalRequest"
-            SET "status" = 'cancelled', "updatedAt" = ${now},
-                "reviewNote" = ${"Order payment approved — Delivery Collection not required."}
-            WHERE "orderId" = ${approval.orderId}
-              AND "companyId" = ${companyId}
-              AND "type" = ${"delivery_payment_approval"}
-              AND "status" = 'pending'
-          `
-        );
+        if (marksPaid) {
+          await tx.$executeRaw(
+            Prisma.sql`
+              UPDATE "ApprovalRequest"
+              SET "status" = 'cancelled', "updatedAt" = ${now},
+                  "reviewNote" = ${"Order payment approved — Delivery Collection not required."}
+              WHERE "orderId" = ${approval.orderId}
+                AND "companyId" = ${companyId}
+                AND "type" = ${"delivery_payment_approval"}
+                AND "status" = 'pending'
+            `
+          );
+        }
       } else if (approval.type === DELIVERY_PAYMENT_APPROVAL) {
         // Claim approval only — OS paid / invoice complete after ERP PE succeeds (see post-tx block).
       } else if (approval.type === INVOICE_REVERT_VOID_APPROVAL) {
@@ -682,8 +725,10 @@ export async function PATCH(
           },
         });
       } else if (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL) {
-        // COD → KOKO or COD → Bank Transfer approved by finance: switch gateway, mark paid.
-        const gateway = isBankTransferApproval ? "bank_transfer" : "koko";
+        // COD → KOKO / Mintpay / Bank Transfer approved by finance: switch gateway, mark paid.
+        const gateway = methodChangeTarget
+          ? paymentMethodChangeGateway(methodChangeTarget)
+          : "koko";
         const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },
           select: { fulfillmentStage: true },
@@ -718,8 +763,6 @@ export async function PATCH(
             ...stageData,
           },
         });
-        // Cancel any pending delivery payment approval for this order — the payment method
-        // change covers the same confirmation, so the DP approval is no longer needed.
         await tx.$executeRaw(
           Prisma.sql`
             UPDATE "ApprovalRequest"
@@ -905,7 +948,7 @@ export async function PATCH(
   if (
     nextStatus === "approved" &&
     !isPaymentReapproval &&
-    (approval.type === ORDER_PAYMENT_APPROVAL ||
+    ((approval.type === ORDER_PAYMENT_APPROVAL && !unpaidCardOnDeliveryApprove) ||
       (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL && !isBankTransferApproval)) &&
     approval.orderId
   ) {

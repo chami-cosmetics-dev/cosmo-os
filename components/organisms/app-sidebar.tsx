@@ -81,6 +81,9 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewContactAllocation =
     hasSidebarPermission("contacts.allocation.read") ||
     hasSidebarPermission("contacts.read");
+  const canViewEmailCleanup =
+    hasSidebarPermission("contacts.master.manage") ||
+    hasSidebarPermission("contacts.manage");
   const canViewReturns = hasSidebarPermission("returns.read");
   const canViewExchanges = hasSidebarPermission("exchanges.read");
   const canViewProducts = hasSidebarPermission("products.read");
@@ -165,6 +168,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     canViewContactMaster ||
     canViewContactUpdates ||
     canViewContactAllocation ||
+    canViewEmailCleanup ||
     canViewMerchantReviews ||
     canViewOutletReviews ||
     canViewCustomerInsight;
@@ -361,6 +365,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={ContactRound}
                   label="Contact Updates"
                   isActive={pathname === "/dashboard/contacts/contact-updates"}
+                />
+              )}
+              {canViewEmailCleanup && (
+                <NavItem
+                  href="/dashboard/contacts/email-cleanup"
+                  icon={ContactRound}
+                  label="Email cleanup"
+                  isActive={pathname === "/dashboard/contacts/email-cleanup"}
                 />
               )}
               {canViewContactAllocation && (

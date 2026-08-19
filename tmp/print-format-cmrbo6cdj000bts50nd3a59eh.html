@@ -1,0 +1,425 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice {{order.invoiceNumber}}</title>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600;700&display=swap');
+
+    body {
+      margin: 0;
+      padding: 36px;
+      font-family: 'Source Sans 3', Arial, sans-serif;
+      color: #1a1a1a;
+      font-size: 13px;
+      background: #ffffff;
+    }
+
+    .top-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      border-bottom: 1px solid #1a1a1a;
+      padding-bottom: 14px;
+      margin-bottom: 28px;
+    }
+
+    .left-logo,
+    .right-logo {
+      max-height: 58px;
+      max-width: 220px;
+      object-fit: contain;
+    }
+
+    .right-logo-wrap {
+      text-align: right;
+    }
+
+    .invoice-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .meta-table {
+      border-collapse: collapse;
+      margin-bottom: 30px;
+    }
+
+    .meta-table td {
+      padding: 3px 14px 3px 0;
+      font-size: 12px;
+    }
+
+    .meta-label {
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .address-section {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 32px;
+    }
+
+    .address-block {
+      width: 50%;
+      line-height: 1.5;
+    }
+
+    .address-title {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    table.items {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-bottom: 28px;
+    }
+
+    .items th {
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+      padding: 8px 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      text-align: left;
+      color: #444444;
+    }
+
+    .items td {
+      border-bottom: 1px solid #ebebeb;
+      padding: 11px 4px;
+      vertical-align: top;
+      font-size: 12px;
+      word-break: break-word;
+    }
+
+    .items tbody tr:last-child td {
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .barcode {
+      display: inline-block;
+      font-family: monospace;
+      font-size: 10px;
+      background: #f4f4f2;
+      border: 1px solid #dddddd;
+      padding: 2px 5px;
+      border-radius: 3px;
+      white-space: nowrap;
+    }
+
+    .right {
+      text-align: right;
+    }
+
+    .center {
+      text-align: center;
+    }
+
+    .bold {
+      font-weight: 700;
+    }
+
+    .bottom-section {
+      display: flex;
+      gap: 40px;
+      margin-top: 12px;
+    }
+
+    .bottom-left {
+      width: 48%;
+    }
+
+    .bottom-right {
+      width: 52%;
+    }
+
+    .coupon-row {
+      margin: 12px 0;
+      font-size: 12px;
+    }
+
+    .notes-box {
+      border: 1px dashed #d1d1d1;
+      background: #fafafa;
+      padding: 12px;
+      font-size: 12px;
+      min-height: 42px;
+    }
+
+    .notes-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #555555;
+      margin-bottom: 5px;
+    }
+
+    .totals {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .totals td {
+      padding: 6px 4px;
+      font-size: 12.5px;
+    }
+
+    .totals .label {
+      text-align: right;
+      color: #666666;
+      padding-right: 28px;
+    }
+
+    .totals .amount {
+      text-align: right;
+      width: 140px;
+      white-space: nowrap;
+    }
+
+    .grand-total td {
+      border-top: 1px solid #1a1a1a;
+      padding-top: 12px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .footer {
+      margin-top: 58px;
+      text-align: center;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .footer-note {
+      max-width: 650px;
+      margin: 12px auto 0;
+      font-size: 11px;
+      color: #333333;
+    }
+
+    .copy-mark {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: 2px;
+    }
+
+    .fallback-source {
+      display: none !important;
+    }
+
+    @media print {
+      @page {
+        size: A4;
+        margin: 0;
+      }
+
+      body {
+        padding: 36px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  {{#if print.isCopy}}
+  <div class="copy-mark">COPY</div>
+  {{/if}}
+
+  <div class="top-header">
+    <div>
+      {{#if location.logoUrl}}
+      <img class="left-logo" src="{{{location.logoUrl}}}" alt="{{location.name}}" />
+      {{/if}}
+    </div>
+
+    <div class="right-logo-wrap">
+      {{#if company.logoUrl}}
+      <img class="right-logo" src="{{{company.logoUrl}}}" alt="{{company.name}}" />
+      {{/if}}
+    </div>
+  </div>
+
+  <div class="invoice-title">Sales Invoice</div>
+
+  <table class="meta-table">
+    <tr>
+      <td class="meta-label">Invoice No</td>
+      <td>:</td>
+      <td>{{order.invoiceNumber}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Invoice Date</td>
+      <td>:</td>
+      <td>{{order.invoiceDate}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Printed On</td>
+      <td>:</td>
+      <td>{{print.printedOn}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Payment Status</td>
+      <td>:</td>
+      <td>{{order.financialStatus}}</td>
+    </tr>
+    <tr>
+      <td class="meta-label">Payment Method</td>
+      <td>:</td>
+      <td>{{order.paymentMethod}}</td>
+    </tr>
+  </table>
+
+  <div class="address-section">
+    <div class="address-block">
+      <div class="address-title">Bill to</div>
+      <strong id="bill-to-name">{{customer.billingName}}</strong><br />
+      Contact: <span id="bill-to-phone">{{customer.billingPhone}}</span><br />
+      <span id="bill-to-address">{{customer.billingAddress}}</span>
+    </div>
+
+    <div class="address-block">
+      <div class="address-title">Ship to</div>
+      <strong id="ship-to-name">{{customer.shippingName}}</strong><br />
+      Contact: <span id="ship-to-phone">{{customer.shippingPhone}}</span><br />
+      <span id="ship-to-address">{{customer.shippingAddress}}</span>
+    </div>
+  </div>
+
+  <div class="fallback-source">
+    <span id="fallback-customer-name">{{customer.name}}</span>
+    <span id="fallback-customer-phone">{{customer.phone}}</span>
+    <span id="fallback-customer-phones">{{customer.phones}}</span>
+    <span id="fallback-billing-name">{{orderData.billingAddress.name}}</span>
+    <span id="fallback-billing-phone">{{orderData.billingAddress.phone}}</span>
+    <span id="fallback-shipping-name">{{orderData.shippingAddress.name}}</span>
+    <span id="fallback-shipping-phone">{{orderData.shippingAddress.phone}}</span>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th style="width:5%;" class="center">Sr</th>
+        <th style="width:13%;">Item Code</th>
+        <th style="width:13%;">Barcode</th>
+        <th style="width:31%;">Description</th>
+        <th style="width:6%;" class="center">Qty</th>
+        <th style="width:11%;" class="right">Price</th>
+        <th style="width:10%;" class="right">Discount</th>
+        <th style="width:11%;" class="right">Net Rate</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {{#each lineItems}}
+      <tr>
+        <td class="center">{{index}}</td>
+        <td class="bold">{{sku}}</td>
+        <td><span class="barcode">{{barcode}}</span></td>
+        <td>{{description}}</td>
+        <td class="center">{{quantity}}</td>
+        <td class="right">{{regularPriceFormatted}}</td>
+        <td class="right">{{discountFormatted}}</td>
+        <td class="right bold">{{lineTotalFormatted}}</td>
+      </tr>
+      {{/each}}
+
+      {{#each sampleFreeIssues}}
+      <tr>
+        <td class="center">{{index}}</td>
+        <td class="bold">-</td>
+        <td>-</td>
+        <td>{{name}} ({{type}})</td>
+        <td class="center">{{quantity}}</td>
+        <td class="right">-</td>
+        <td class="right">-</td>
+        <td class="right bold">FREE</td>
+      </tr>
+      {{/each}}
+    </tbody>
+  </table>
+
+  <div class="bottom-section">
+    <div class="bottom-left">
+      <div>Total Quantity: <strong>{{totals.totalQuantity}}</strong></div>
+
+      <div class="coupon-row">
+        <strong>Merchant Coupon</strong> : {{order.merchantCouponCode}}
+      </div>
+
+      <div class="notes-box">
+        <div class="notes-title">Special Notes</div>
+        {{remarks.externalText}}
+      </div>
+    </div>
+
+    <div class="bottom-right">
+      <table class="totals">
+        <tr>
+          <td class="label">Total</td>
+          <td class="amount">{{totals.productTotalFormatted}}</td>
+        </tr>
+        <tr>
+          <td class="label">Shipping Charges</td>
+          <td class="amount">{{totals.shippingTotalFormatted}}</td>
+        </tr>
+        <tr class="grand-total">
+          <td class="label">Grand Total</td>
+          <td class="amount">{{totals.grandTotalFormatted}}</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    If you have any questions, Please call <strong>{{location.invoicePhone}}</strong>
+
+    <div class="footer-note">
+      <strong>NOTE</strong> - Please check and confirm the product(s) at the time of receiving.
+      In case of an exchange, it must be requested within 3 days of delivery.
+      Complaints received afterward will not be accepted.
+    </div>
+  </div>
+
+  <script>
+    window.onload = function () {
+      function text(id) {
+        var element = document.getElementById(id);
+        return element ? (element.textContent || element.innerText || '').trim() : '';
+      }
+
+      function setIfEmpty(targetId, fallbackIds) {
+        var target = document.getElementById(targetId);
+        if (!target || text(targetId)) return;
+
+        for (var i = 0; i < fallbackIds.length; i += 1) {
+          var value = text(fallbackIds[i]);
+          if (value && value !== '-') {
+            target.textContent = value;
+            return;
+          }
+        }
+      }
+
+      setIfEmpty('bill-to-name', ['fallback-billing-name', 'fallback-customer-name', 'ship-to-name']);
+      setIfEmpty('bill-to-phone', ['fallback-billing-phone', 'fallback-customer-phone', 'fallback-customer-phones', 'ship-to-phone']);
+      setIfEmpty('bill-to-address', ['ship-to-address']);
+
+      setIfEmpty('ship-to-name', ['fallback-shipping-name', 'fallback-customer-name', 'bill-to-name']);
+      setIfEmpty('ship-to-phone', ['fallback-shipping-phone', 'fallback-customer-phone', 'fallback-customer-phones', 'bill-to-phone']);
+      setIfEmpty('ship-to-address', ['bill-to-address']);
+
+      if ({{print.autoPrint}}) {
+        window.print();
+      }
+    };
+  </script>
+</body>
+</html>

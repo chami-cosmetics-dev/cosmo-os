@@ -319,7 +319,10 @@ export async function PATCH(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(order.erpnextSyncError);
+  const erpOutOfStockBlock = getErpOutOfStockFulfillmentBlock(
+    order.erpnextSyncError,
+    order.erpnextInvoiceId,
+  );
   // cancel_order is exempt — no ERP SI exists for out-of-stock orders, so it's OS→Shopify only
   if (erpOutOfStockBlock && parsed.data.action !== "cancel_order") {
     return NextResponse.json({ error: erpOutOfStockBlock, code: "ERP_OUT_OF_STOCK" }, { status: 409 });
@@ -1306,6 +1309,7 @@ export async function PATCH(
       const gateway = (order.paymentGatewayPrimary ?? "").toLowerCase().trim();
       const isPaidCancelableGateway =
         gateway.includes("koko") ||
+        gateway.includes("mintpay") ||
         gateway.includes("bank") ||
         gateway === "cc" ||
         gateway === "cc checkout" ||

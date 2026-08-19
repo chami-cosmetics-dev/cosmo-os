@@ -3,7 +3,13 @@ import {
   isDashboardSalesOrderEligible,
 } from "@/lib/page-data/dashboard-sales";
 import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
+import {
+  matchesMerchantAllocation,
+  viewerMerchantLabels,
+} from "@/lib/customer-insight/ownership";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import { normalizeContactEmail } from "@/lib/contact-identifiers";
+import { buildPhoneLookupVariants, phoneDigitsOnly } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 
@@ -168,6 +174,93 @@ export type MerchantTopCustomerRow = {
   purchaseDays: number;
 };
 
+export type AllocatedCustomerIdentitySets = {
+  phoneDigits: Set<string>;
+  emails: Set<string>;
+};
+
+/** Build lookup sets from Contact Master rows allocated to this merchant. */
+export function buildAllocatedCustomerIdentitySets(
+  contacts: Array<{
+    phoneNumber?: string | null;
+    email?: string | null;
+    phones?: Array<{ phoneNumber: string }> | null;
+    emails?: Array<{ email: string }> | null;
+  }>,
+): AllocatedCustomerIdentitySets {
+  const phoneDigits = new Set<string>();
+  const emails = new Set<string>();
+
+  const addPhone = (raw: string | null | undefined) => {
+    if (!raw?.trim()) return;
+    for (const variant of buildPhoneLookupVariants(raw)) {
+      const digits = phoneDigitsOnly(variant);
+      if (digits.length >= 7) phoneDigits.add(digits);
+    }
+  };
+  const addEmail = (raw: string | null | undefined) => {
+    const email = normalizeContactEmail(raw);
+    if (email?.includes("@")) emails.add(email);
+  };
+
+  for (const contact of contacts) {
+    addPhone(contact.phoneNumber);
+    addEmail(contact.email);
+    for (const row of contact.phones ?? []) addPhone(row.phoneNumber);
+    for (const row of contact.emails ?? []) addEmail(row.email);
+  }
+
+  return { phoneDigits, emails };
+}
+
+/** True when order phone/email matches an allocated Contact Master identity. */
+export function orderMatchesAllocatedCustomer(
+  order: { customerPhone: string | null; customerEmail: string | null },
+  allocated: AllocatedCustomerIdentitySets,
+): boolean {
+  if (order.customerPhone?.trim()) {
+    for (const variant of buildPhoneLookupVariants(order.customerPhone)) {
+      const digits = phoneDigitsOnly(variant);
+      if (digits.length >= 7 && allocated.phoneDigits.has(digits)) return true;
+    }
+  }
+  const email = normalizeContactEmail(order.customerEmail);
+  if (email?.includes("@") && allocated.emails.has(email)) return true;
+  return false;
+}
+
+async function loadAllocatedCustomerIdentitySets(
+  companyId: string,
+  merchantUser: {
+    knownName?: string | null;
+    name?: string | null;
+    email?: string | null;
+  },
+): Promise<AllocatedCustomerIdentitySets> {
+  const labels = viewerMerchantLabels(merchantUser);
+  if (labels.length === 0) {
+    return { phoneDigits: new Set(), emails: new Set() };
+  }
+
+  const contacts = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      OR: labels.map((label) => ({
+        assignedMerchant: { equals: label, mode: "insensitive" as const },
+      })),
+    },
+    select: {
+      phoneNumber: true,
+      email: true,
+      phones: { select: { phoneNumber: true } },
+      emails: { select: { email: true } },
+    },
+    take: 8_000,
+  });
+
+  return buildAllocatedCustomerIdentitySets(contacts);
+}
+
 function looksLikeInvoiceOrOrderRef(value: string | null | undefined) {
   const v = (value ?? "").trim();
   if (!v) return false;
@@ -303,6 +396,8 @@ export type MerchantTopCustomersSplit = {
  * Daily top = today's buyers ranked by today's spend.
  * Lifetime top = all-time buyers ranked by distinct purchase days.
  * Groups by phone/email — never by order name (often an SI number).
+ * Attribution matches sales cards: coupon code first, else assignedMerchantId.
+ * Only includes customers allocated to this merchant on Contact Master.
  */
 export async function fetchMerchantTopCustomersBySales(
   companyId: string,
@@ -311,35 +406,372 @@ export async function fetchMerchantTopCustomersBySales(
 ): Promise<MerchantTopCustomersSplit> {
   const limit = params?.limit ?? 10;
   const todayYmd = formatAppIsoDate(new Date());
+  const todayStart = parseDayStartUtc(todayYmd);
+  const todayEnd = parseDayEndUtc(todayYmd);
 
-  const orders = await prisma.order.findMany({
-    where: {
-      companyId,
-      assignedMerchantId: merchantUserId,
-      cancelledAt: null,
-    },
+  const merchant = await prisma.user.findFirst({
+    where: { id: merchantUserId, companyId },
     select: {
-      totalPrice: true,
+      knownName: true,
       name: true,
-      customerId: true,
-      customerPhone: true,
-      customerEmail: true,
-      createdAt: true,
-      shippingAddress: true,
-      customer: { select: { firstName: true, lastName: true } },
+      email: true,
+      couponCodes: true,
     },
-    take: 8_000,
-    orderBy: { createdAt: "desc" },
   });
 
-  const todayOrders = orders.filter(
-    (order) => formatAppIsoDate(order.createdAt) === todayYmd,
+  const couponSet = new Set(
+    (merchant?.couponCodes ?? [])
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean),
   );
+
+  const orderSelect = {
+    id: true,
+    totalPrice: true,
+    name: true,
+    customerId: true,
+    customerPhone: true,
+    customerEmail: true,
+    createdAt: true,
+    shippingAddress: true,
+    assignedMerchantId: true,
+    sourceName: true,
+    discountCodes: true,
+    rawPayload: true,
+    customer: { select: { firstName: true, lastName: true } },
+    assignedMerchant: { select: { couponCodes: true } },
+  } as const;
+
+  const [todayRaw, recentRaw, allocated] = await Promise.all([
+    prisma.order.findMany({
+      where: {
+        companyId,
+        cancelledAt: null,
+        createdAt: { gte: todayStart, lte: todayEnd },
+      },
+      select: orderSelect,
+      take: 5_000,
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.order.findMany({
+      where: {
+        companyId,
+        cancelledAt: null,
+      },
+      select: orderSelect,
+      take: 8_000,
+      orderBy: { createdAt: "desc" },
+    }),
+    loadAllocatedCustomerIdentitySets(companyId, merchant ?? {}),
+  ]);
+
+  function isAttributed(order: (typeof recentRaw)[number]) {
+    const merchantCouponCode = getMerchantCouponCode({
+      sourceName: order.sourceName,
+      discountCodes: order.discountCodes,
+      rawPayload: order.rawPayload,
+      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      joinAllDiscountCodes: true,
+    });
+    const orderCoupons = (merchantCouponCode ?? "")
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+    for (const code of orderCoupons) {
+      if (couponSet.has(code)) return true;
+    }
+    return order.assignedMerchantId === merchantUserId;
+  }
+
+  const todayAttributed = todayRaw.filter(
+    (order) =>
+      isAttributed(order) && orderMatchesAllocatedCustomer(order, allocated),
+  );
+
+  const byId = new Map<string, (typeof recentRaw)[number]>();
+  for (const order of recentRaw) {
+    if (!isAttributed(order)) continue;
+    if (!orderMatchesAllocatedCustomer(order, allocated)) continue;
+    byId.set(order.id, order);
+  }
+  // Ensure today's attributed orders are included even if outside the recent window.
+  for (const order of todayAttributed) {
+    byId.set(order.id, order);
+  }
+
+  const lifetimeOrders = [...byId.values()];
 
   return {
     todayYmd,
-    today: aggregateTopCustomers(todayOrders, { limit, rankBy: "total" }),
-    lifetime: aggregateTopCustomers(orders, { limit, rankBy: "purchaseDays" }),
+    today: aggregateTopCustomers(todayAttributed, { limit, rankBy: "total" }),
+    lifetime: aggregateTopCustomers(lifetimeOrders, {
+      limit,
+      rankBy: "purchaseDays",
+    }),
+  };
+}
+
+export type MerchantDailyInvoiceRow = {
+  orderId: string;
+  invoiceLabel: string;
+  createdAt: string;
+  customerName: string;
+  customerPhone: string | null;
+  amount: number;
+  locationName: string;
+  allocatedMerchant: string | null;
+  allocationMismatch: boolean;
+};
+
+export type MerchantDailyInvoicesResult = {
+  dayYmd: string;
+  total: number;
+  orderCount: number;
+  rows: MerchantDailyInvoiceRow[];
+};
+
+const DAILY_INVOICES_CAP = 500;
+
+/**
+ * Daily invoice list for one merchant.
+ * Attribution: coupon match first, else assignedMerchantId (order-placed merchant).
+ * Allocated merchant is display-only from Contact Master (phone/email join).
+ */
+export async function fetchMerchantDailyInvoices(
+  companyId: string,
+  merchantUserId: string,
+  params: {
+    dayYmd: string;
+    dateType?: DashboardSalesDateType;
+  },
+): Promise<MerchantDailyInvoicesResult> {
+  const dayYmd = params.dayYmd;
+  const dateType: DashboardSalesDateType = params.dateType ?? "all_orders";
+  const fromDate = parseDayStartUtc(dayYmd);
+  const toDate = parseDayEndUtc(dayYmd);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
+    return { dayYmd, total: 0, orderCount: 0, rows: [] };
+  }
+
+  const merchant = await prisma.user.findFirst({
+    where: { id: merchantUserId, companyId },
+    select: {
+      id: true,
+      knownName: true,
+      name: true,
+      email: true,
+      couponCodes: true,
+    },
+  });
+  if (!merchant) {
+    return { dayYmd, total: 0, orderCount: 0, rows: [] };
+  }
+
+  const couponSet = new Set(
+    merchant.couponCodes.map((c) => c.trim().toLowerCase()).filter(Boolean),
+  );
+
+  const dateFilter = buildDashboardSalesDateFilter({
+    fromDate,
+    toDate,
+    dateType,
+  });
+
+  const [locations, orders] = await Promise.all([
+    prisma.companyLocation.findMany({
+      where: { companyId },
+      select: { id: true, name: true },
+    }),
+    prisma.order.findMany({
+      where: {
+        companyId,
+        ...dateFilter,
+      },
+      select: {
+        id: true,
+        erpnextInvoiceId: true,
+        name: true,
+        orderNumber: true,
+        createdAt: true,
+        totalPrice: true,
+        customerPhone: true,
+        customerEmail: true,
+        companyLocationId: true,
+        assignedMerchantId: true,
+        sourceName: true,
+        financialStatus: true,
+        fulfillmentStatus: true,
+        fulfillmentStage: true,
+        deliveryCompleteAt: true,
+        invoiceCompleteAt: true,
+        discountCodes: true,
+        rawPayload: true,
+        shippingAddress: true,
+        customer: { select: { firstName: true, lastName: true } },
+        assignedMerchant: { select: { couponCodes: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 5_000,
+    }),
+  ]);
+
+  const locationNameById = new Map(locations.map((loc) => [loc.id, loc.name]));
+
+  const attributed = orders.filter((order) => {
+    if (!isDashboardSalesOrderEligible(order, dateType)) return false;
+
+    const merchantCouponCode = getMerchantCouponCode({
+      sourceName: order.sourceName,
+      discountCodes: order.discountCodes,
+      rawPayload: order.rawPayload,
+      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      joinAllDiscountCodes: true,
+    });
+    const orderCoupons = (merchantCouponCode ?? "")
+      .split(",")
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean);
+
+    for (const code of orderCoupons) {
+      if (couponSet.has(code)) return true;
+    }
+    return order.assignedMerchantId === merchantUserId;
+  });
+
+  const capped = attributed.slice(0, DAILY_INVOICES_CAP);
+
+  const phoneVariants = new Set<string>();
+  const emails = new Set<string>();
+  for (const order of capped) {
+    if (order.customerPhone?.trim()) {
+      for (const variant of buildPhoneLookupVariants(order.customerPhone)) {
+        if (variant.trim()) phoneVariants.add(variant.trim());
+      }
+    }
+    const email = normalizeContactEmail(order.customerEmail);
+    if (email?.includes("@")) emails.add(email);
+  }
+
+  const contactOr: Array<Record<string, unknown>> = [];
+  if (phoneVariants.size > 0) {
+    const phones = [...phoneVariants];
+    contactOr.push({ phoneNumber: { in: phones } });
+    contactOr.push({ phones: { some: { phoneNumber: { in: phones } } } });
+  }
+  if (emails.size > 0) {
+    const emailList = [...emails];
+    contactOr.push({ email: { in: emailList, mode: "insensitive" } });
+    contactOr.push({ emails: { some: { email: { in: emailList, mode: "insensitive" } } } });
+  }
+
+  const contacts =
+    contactOr.length > 0
+      ? await prisma.contactMaster.findMany({
+          where: { companyId, OR: contactOr },
+          select: {
+            assignedMerchant: true,
+            phoneNumber: true,
+            email: true,
+            phones: { select: { phoneNumber: true } },
+            emails: { select: { email: true } },
+          },
+          take: 2_000,
+        })
+      : [];
+
+  const allocatedByPhone = new Map<string, string>();
+  const allocatedByEmail = new Map<string, string>();
+  for (const contact of contacts) {
+    const label = (contact.assignedMerchant ?? "").trim();
+    if (!label) continue;
+
+    const addPhone = (raw: string | null | undefined) => {
+      if (!raw?.trim()) return;
+      for (const variant of buildPhoneLookupVariants(raw)) {
+        const digits = phoneDigitsOnly(variant);
+        if (digits.length >= 7 && !allocatedByPhone.has(digits)) {
+          allocatedByPhone.set(digits, label);
+        }
+      }
+    };
+    const addEmail = (raw: string | null | undefined) => {
+      const email = normalizeContactEmail(raw);
+      if (email?.includes("@") && !allocatedByEmail.has(email)) {
+        allocatedByEmail.set(email, label);
+      }
+    };
+
+    addPhone(contact.phoneNumber);
+    addEmail(contact.email);
+    for (const row of contact.phones ?? []) addPhone(row.phoneNumber);
+    for (const row of contact.emails ?? []) addEmail(row.email);
+  }
+
+  function resolveAllocatedMerchant(order: {
+    customerPhone: string | null;
+    customerEmail: string | null;
+  }): string | null {
+    if (order.customerPhone?.trim()) {
+      for (const variant of buildPhoneLookupVariants(order.customerPhone)) {
+        const digits = phoneDigitsOnly(variant);
+        if (digits.length >= 7) {
+          const label = allocatedByPhone.get(digits);
+          if (label) return label;
+        }
+      }
+    }
+    const email = normalizeContactEmail(order.customerEmail);
+    if (email?.includes("@")) {
+      return allocatedByEmail.get(email) ?? null;
+    }
+    return null;
+  }
+
+  const viewerIdentity = {
+    knownName: merchant.knownName,
+    name: merchant.name,
+    email: merchant.email,
+    couponCodes: merchant.couponCodes,
+  };
+
+  let total = 0;
+  const rows: MerchantDailyInvoiceRow[] = capped.map((order) => {
+    const amount = Number(order.totalPrice ?? 0);
+    total += amount;
+    const allocatedMerchant = resolveAllocatedMerchant(order);
+    const allocationMismatch = Boolean(
+      allocatedMerchant &&
+        !matchesMerchantAllocation(viewerIdentity, allocatedMerchant),
+    );
+    const invoiceLabel =
+      (order.erpnextInvoiceId ?? "").trim() ||
+      (order.name ?? "").trim() ||
+      (order.orderNumber ?? "").trim() ||
+      order.id;
+    const customerName =
+      pickPersonName(order) ||
+      order.customerPhone ||
+      order.customerEmail ||
+      "Customer";
+
+    return {
+      orderId: order.id,
+      invoiceLabel,
+      createdAt: order.createdAt.toISOString(),
+      customerName,
+      customerPhone: order.customerPhone,
+      amount,
+      locationName: locationNameById.get(order.companyLocationId) ?? "—",
+      allocatedMerchant,
+      allocationMismatch,
+    };
+  });
+
+  return {
+    dayYmd,
+    total,
+    orderCount: rows.length,
+    rows,
   };
 }
 

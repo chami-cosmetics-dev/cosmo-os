@@ -1,3 +1,4 @@
+import { extractCityFromAddress } from "@/lib/customer-insight/city";
 import {
   ensureSecondaryContactIdentifiers,
   normalizeContactEmail,
@@ -14,6 +15,7 @@ export type ProfilePatchInput = {
   gender?: string | null;
   language?: string | null;
   address?: string | null;
+  city?: string | null;
   birthYear?: number | null;
   birthMonth?: number | null;
   birthDay?: number | null;
@@ -42,6 +44,7 @@ export async function updateContactInsightProfile(input: {
     gender?: string | null;
     language?: string | null;
     address?: string | null;
+    city?: string | null;
     birthYear?: number | null;
     birthMonth?: number | null;
     birthDay?: number | null;
@@ -58,6 +61,12 @@ export async function updateContactInsightProfile(input: {
   if (input.patch.language !== undefined) data.language = input.patch.language;
   if (input.patch.address !== undefined) {
     data.address = input.patch.address?.trim() ? input.patch.address.trim() : null;
+    const extracted = extractCityFromAddress(data.address);
+    if (extracted) data.city = extracted;
+  }
+  if (input.patch.city !== undefined) {
+    const typed = input.patch.city?.trim() ? input.patch.city.trim() : null;
+    data.city = typed;
   }
   if (input.patch.birthYear !== undefined) data.birthYear = input.patch.birthYear;
   if (input.patch.birthMonth !== undefined) data.birthMonth = input.patch.birthMonth;
@@ -90,6 +99,7 @@ export async function updateContactInsightProfile(input: {
       gender: true,
       language: true,
       address: true,
+      city: true,
       birthYear: true,
       birthMonth: true,
       birthDay: true,

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  FOLLOW_UP_STATUS_LABELS,
+  getCustomerResponseLabel,
+} from "@/lib/abandoned-orders-constants";
 import { requirePermission } from "@/lib/rbac";
 import { buildCsv, formatIsoDateTime } from "@/lib/reports/csv";
 import { fetchAbandonedOrdersPageData } from "@/lib/page-data/abandoned-orders";
@@ -37,14 +41,13 @@ export async function GET(request: NextRequest) {
     search: searchParams.get("search") ?? undefined,
   };
 
+  // Omit page/limit: list schema cap is 100; export uses MAX_EXPORT_ROWS separately.
   const parsed = abandonedOrdersListQuerySchema.safeParse({
     from,
     to,
     status,
     response,
     search,
-    page: "1",
-    limit: String(MAX_EXPORT_ROWS),
   });
 
   const filters = parsed.success
@@ -103,8 +106,13 @@ export async function GET(request: NextRequest) {
       Currency: item.currency,
       Store: item.shopifyAdminStoreHandle,
       "Follow-up Status":
-        item.followUpStatus ?? "",
-      "Customer Response": item.customerResponse ?? "",
+        item.followUpStatus
+          ? (FOLLOW_UP_STATUS_LABELS[item.followUpStatus] ?? item.followUpStatus)
+          : "",
+      "Customer Response":
+        item.customerResponse && item.customerResponse !== "recovered_sale"
+          ? getCustomerResponseLabel(item.customerResponse)
+          : "",
       Remark: item.remark ?? "",
       "Last Updated By": item.lastFollowUpBy?.name ?? "",
       "Last Updated At": item.lastFollowUpAt ? formatIsoDateTime(new Date(item.lastFollowUpAt)) : "",
