@@ -96,6 +96,11 @@ export type MerchantDashboardPageData = {
       total: number;
       orderCount: number;
     }>;
+    hasDmSplit: boolean;
+    merTotal: number;
+    merOrderCount: number;
+    dmTotal: number;
+    dmOrderCount: number;
   };
   target: MerchantDashboardTargetDto;
   history: MerchantDashboardHistoryRow[];
@@ -367,6 +372,8 @@ export async function getMerchantDashboardPageData(input: {
   const [
     mtdCohort,
     todayCohort,
+    mtdSales,
+    todaySalesSplit,
     salesHistory,
     targetRow,
     historyEvents,
@@ -382,6 +389,16 @@ export async function getMerchantDashboardPageData(input: {
       dateType: "all_orders",
     }),
     fetchMerchantCohortSales(input.companyId, cohortInputs, {
+      fromYmd: todayYmd,
+      toYmd: todayYmd,
+      dateType: "all_orders",
+    }),
+    fetchMerchantUserSales(input.companyId, selectedMerchantId, {
+      fromYmd,
+      toYmd: rangeToYmd,
+      dateType: "all_orders",
+    }),
+    fetchMerchantUserSales(input.companyId, selectedMerchantId, {
       fromYmd: todayYmd,
       toYmd: todayYmd,
       dateType: "all_orders",
@@ -449,22 +466,26 @@ export async function getMerchantDashboardPageData(input: {
     `,
   ]);
 
-  const viewedMtd = mtdCohort.byMerchant.get(selectedMerchantId);
   const sales = {
-    total: viewedMtd?.total ?? 0,
-    orderCount: viewedMtd?.orderCount ?? 0,
-    byLocation: viewedMtd
-      ? [...viewedMtd.byLocation.values()]
-          .filter((row) => row.orderCount > 0)
-          .sort((a, b) => b.total - a.total)
-      : [],
+    total: mtdSales.total,
+    orderCount: mtdSales.orderCount,
+    byLocation: mtdSales.byLocation,
+    hasDmSplit: mtdSales.hasDmSplit,
+    merTotal: mtdSales.merTotal,
+    merOrderCount: mtdSales.merOrderCount,
+    dmTotal: mtdSales.dmTotal,
+    dmOrderCount: mtdSales.dmOrderCount,
   };
 
-  const viewedToday = todayCohort.byMerchant.get(selectedMerchantId);
   const today: TodaySalesDto = {
     ymd: todayYmd,
-    total: viewedToday?.total ?? 0,
-    orderCount: viewedToday?.orderCount ?? 0,
+    total: todaySalesSplit.total,
+    orderCount: todaySalesSplit.orderCount,
+    hasDmSplit: todaySalesSplit.hasDmSplit,
+    merTotal: todaySalesSplit.merTotal,
+    merOrderCount: todaySalesSplit.merOrderCount,
+    dmTotal: todaySalesSplit.dmTotal,
+    dmOrderCount: todaySalesSplit.dmOrderCount,
   };
 
   const peerBoardRows = (cohort: typeof mtdCohort) =>
@@ -617,6 +638,11 @@ export async function getMerchantDashboardPageData(input: {
       total: sales.total,
       orderCount: sales.orderCount,
       byLocation: sales.byLocation,
+      hasDmSplit: sales.hasDmSplit,
+      merTotal: sales.merTotal,
+      merOrderCount: sales.merOrderCount,
+      dmTotal: sales.dmTotal,
+      dmOrderCount: sales.dmOrderCount,
     },
     target,
     history,

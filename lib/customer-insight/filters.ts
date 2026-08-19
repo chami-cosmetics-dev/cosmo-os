@@ -51,7 +51,6 @@ export type FilterQueryInput = {
 
 /** Item-rank slice only. Unranked tot/city/birthday filters scan full admin or assigned set. */
 const FILTER_CANDIDATE_CAP = 800;
-const BRAND_FILTER_RANK_CAP = 2_000;
 const LAST_CONTACTED_ID_CHUNK = 4_000;
 /** Safety cap for admin CSV export of filtered insight rows. */
 export const FILTER_EXPORT_CAP = 25_000;
@@ -69,7 +68,8 @@ export function monthDayKey(month: number, day: number): number {
   return month * 100 + day;
 }
 
-function mergeRankedSpendMaps(
+/** Union spend maps (OR): contact matches if they bought any selected brand/item. */
+export function mergeRankedSpendMaps(
   rankLists: Array<Array<{ contactId: string; spend: number }>>
 ): { spendById: Map<string, number>; sortedContactIds: string[] } {
   const spendById = new Map<string, number>();
@@ -85,6 +85,59 @@ function mergeRankedSpendMaps(
     .sort((a, b) => b[1] - a[1])
     .map(([contactId]) => contactId);
   return { spendById, sortedContactIds };
+}
+
+const CONTACT_ID_IN_CHUNK = 800;
+const CONTACT_ID_PAGE = 500;
+
+async function findContactsByIds(
+  ids: string[],
+  where: Record<string, unknown>,
+  select: Record<string, unknown>
+): Promise<ContactCandidate[]> {
+  if (ids.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += CONTACT_ID_IN_CHUNK) {
+    chunks.push(ids.slice(i, i + CONTACT_ID_IN_CHUNK));
+  }
+  const rows = (
+    await Promise.all(
+      chunks.map((slice) =>
+        prisma.contactMaster.findMany({
+          where: { ...where, id: { in: slice } } as never,
+          select: select as never,
+        })
+      )
+    )
+  ).flat() as ContactCandidate[];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered: ContactCandidate[] = [];
+  for (const id of ids) {
+    const row = byId.get(id);
+    if (row) ordered.push(row);
+  }
+  return ordered;
+}
+
+async function findAllMatchingContactIds(
+  where: Record<string, unknown>
+): Promise<string[]> {
+  const ids: string[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await prisma.contactMaster.findMany({
+      where: where as never,
+      select: { id: true },
+      orderBy: { id: "asc" },
+      take: CONTACT_ID_PAGE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    });
+    if (page.length === 0) break;
+    for (const row of page) ids.push(row.id);
+    if (page.length < CONTACT_ID_PAGE) break;
+    cursor = page[page.length - 1]!.id;
+  }
+  return ids;
 }
 
 /**
@@ -415,37 +468,16 @@ export async function filterAllocatedContacts(
   } as const;
 
   if (hasBrands) {
-    const brandIds = brandSortedIds
-      .slice(0, BRAND_FILTER_RANK_CAP)
-      .filter((id) => (itemContactIds ? itemContactIds.has(id) : true));
-    const rows = await prisma.contactMaster.findMany({
-      where: { ...where, id: { in: brandIds } } as never,
-      select,
-    });
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    candidates = [];
-    for (const id of brandIds) {
-      const row = byId.get(id);
-      if (row) candidates.push(row);
-    }
+    const brandIds = brandSortedIds.filter((id) =>
+      itemContactIds ? itemContactIds.has(id) : true
+    );
+    candidates = await findContactsByIds(brandIds, where, select);
   } else if (itemContactIds) {
     const ids = itemSortedIds.slice(0, FILTER_CANDIDATE_CAP);
-    const rows = await prisma.contactMaster.findMany({
-      where: { ...where, id: { in: ids } } as never,
-      select,
-    });
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    candidates = [];
-    for (const id of ids) {
-      const row = byId.get(id);
-      if (row) candidates.push(row);
-    }
+    candidates = await findContactsByIds(ids, where, select);
   } else {
-    candidates = await prisma.contactMaster.findMany({
-      where: where as never,
-      select,
-      orderBy: { updatedAt: "desc" },
-    });
+    const ids = await findAllMatchingContactIds(where);
+    candidates = await findContactsByIds(ids, where, select);
   }
 
   const needLastContacted = Boolean(
@@ -524,11 +556,19 @@ export async function filterAllocatedContacts(
     if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
     if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
 
-    const brandSpend = hasBrands ? brandSpendById.get(contact.id) ?? 0 : null;
-    if (hasBrands && !(brandSpend && brandSpend > 0)) continue;
+    const brandSpend = hasBrands
+      ? brandSpendById.has(contact.id)
+        ? brandSpendById.get(contact.id) ?? 0
+        : null
+      : null;
+    if (hasBrands && !brandSpendById.has(contact.id)) continue;
 
-    const itemSpend = hasItems ? itemSpendById.get(contact.id) ?? 0 : null;
-    if (hasItems && !(itemSpend && itemSpend > 0)) continue;
+    const itemSpend = hasItems
+      ? itemSpendById.has(contact.id)
+        ? itemSpendById.get(contact.id) ?? 0
+        : null
+      : null;
+    if (hasItems && !itemSpendById.has(contact.id)) continue;
 
     scored.push({
       contactId: contact.id,

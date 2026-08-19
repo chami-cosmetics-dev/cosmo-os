@@ -43,8 +43,9 @@ function sumBrandSpendOnOrderLines(
     price: { toString(): string } | string;
     productItem: { productTitle: string; vendor: { name: string } | null };
   }>
-): number {
+): { spend: number; matched: boolean } {
   let spend = 0;
+  let matched = false;
   for (const li of lineItems) {
     if (
       !lineMatchesBrand(brand, {
@@ -54,9 +55,10 @@ function sumBrandSpendOnOrderLines(
     ) {
       continue;
     }
+    matched = true;
     spend += lineSpend(li.quantity, li.price.toString());
   }
-  return spend;
+  return { spend, matched };
 }
 
 /**
@@ -72,8 +74,9 @@ export async function findContactsByPurchasedBrandRanked(
 
   const spendByContact = new Map<string, number>();
   const addSpend = (contactId: string, amount: number) => {
-    if (!contactId || !(amount > 0)) return;
-    spendByContact.set(contactId, (spendByContact.get(contactId) ?? 0) + amount);
+    if (!contactId) return;
+    const add = Number.isFinite(amount) ? amount : 0;
+    spendByContact.set(contactId, (spendByContact.get(contactId) ?? 0) + add);
   };
 
   // --- Adapt: direct contactId link (trusted) ---
@@ -86,8 +89,10 @@ export async function findContactsByPurchasedBrandRanked(
     if (!row.contactId) continue;
     const items = Array.isArray(row.lineItems) ? row.lineItems : [];
     let spend = 0;
+    let matched = false;
     for (const item of items) {
       if (!adaptItemMatchesBrand(item, needle)) continue;
+      matched = true;
       if (!item || typeof item !== "object") continue;
       const obj = item as Record<string, unknown>;
       spend += lineSpend(
@@ -95,7 +100,7 @@ export async function findContactsByPurchasedBrandRanked(
         String(obj.unitPrice ?? obj.price ?? "0")
       );
     }
-    if (spend > 0) addSpend(row.contactId, spend);
+    if (matched) addSpend(row.contactId, spend);
   }
 
   // --- Cosmo: find brand orders, attribute only via unique phone match ---
@@ -149,8 +154,8 @@ export async function findContactsByPurchasedBrandRanked(
   const allEmails = new Set<string>();
 
   for (const order of brandOrders) {
-    const spend = sumBrandSpendOnOrderLines(needle, order.lineItems);
-    if (!(spend > 0)) continue; // drops Banana-style false title hits
+    const { spend, matched } = sumBrandSpendOnOrderLines(needle, order.lineItems);
+    if (!matched) continue;
     const phone = order.customerPhone?.trim();
     const variants = phone ? buildPhoneLookupVariants(phone) : [];
     const email = order.customerEmail?.trim().toLowerCase() || null;

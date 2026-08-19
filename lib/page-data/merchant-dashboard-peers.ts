@@ -6,6 +6,11 @@ import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-
 import type { LocationShareRow } from "@/lib/merchant-dashboard/motivation-types";
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  parseOrderCouponList,
+  resolveCohortMerchantId,
+  splitMerchantCouponSets,
+} from "@/lib/merchant-dm-sales";
 
 export type CohortMerchantInput = {
   id: string;
@@ -79,7 +84,10 @@ export async function fetchMerchantCohortSales(
 
   const couponToMerchantId = new Map<string, string>();
   const cohortIds = new Set(merchants.map((m) => m.id));
+  let dmMerchantId: string | null = null;
   for (const m of merchants) {
+    const sets = splitMerchantCouponSets(m.couponCodes);
+    if (sets.hasDm && !dmMerchantId) dmMerchantId = m.id;
     for (const code of m.couponCodes) {
       const key = code.trim().toLowerCase();
       if (key && !couponToMerchantId.has(key)) {
@@ -117,9 +125,6 @@ export async function fetchMerchantCohortSales(
         invoiceCompleteAt: true,
         discountCodes: true,
         rawPayload: true,
-        assignedMerchant: {
-          select: { couponCodes: true },
-        },
       },
     }),
   ]);
@@ -135,29 +140,17 @@ export async function fetchMerchantCohortSales(
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
       rawPayload: order.rawPayload,
-      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      assignedMerchantCouponCodes: null,
       joinAllDiscountCodes: true,
     });
-    const orderCoupons = (merchantCouponCode ?? "")
-      .split(",")
-      .map((c) => c.trim().toLowerCase())
-      .filter(Boolean);
-
-    let merchantId: string | null = null;
-    for (const code of orderCoupons) {
-      const hit = couponToMerchantId.get(code);
-      if (hit) {
-        merchantId = hit;
-        break;
-      }
-    }
-    if (
-      !merchantId &&
-      order.assignedMerchantId &&
-      cohortIds.has(order.assignedMerchantId)
-    ) {
-      merchantId = order.assignedMerchantId;
-    }
+    const orderCoupons = parseOrderCouponList(merchantCouponCode);
+    const merchantId = resolveCohortMerchantId({
+      orderCoupons,
+      couponToMerchantId,
+      assignedMerchantId: order.assignedMerchantId,
+      cohortIds,
+      dmMerchantId,
+    });
     if (!merchantId) continue;
 
     const row = byMerchant.get(merchantId);
