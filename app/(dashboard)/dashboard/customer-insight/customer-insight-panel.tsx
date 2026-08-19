@@ -78,6 +78,12 @@ function loyaltyEligibleCopy(eligibility: {
   return `Eligible for ${next} (still Standard)`;
 }
 
+function formatMoney(amount: number, currency = "LKR") {
+  return `${currency} ${new Intl.NumberFormat("en-LK", {
+    maximumFractionDigits: 0,
+  }).format(amount)}`;
+}
+
 function formatAmount(value: string | number, currency?: string | null) {
   const n = typeof value === "number" ? value : Number.parseFloat(value);
   if (Number.isNaN(n)) return String(value);
