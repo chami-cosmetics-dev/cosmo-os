@@ -122,9 +122,9 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
               title="Contact Number List with details"
               subtitle="Live Contact Master export: CRM profile, allocation, extra emails/phones, and loyalty fields."
               actions={allowedActions([
-                { href: "/api/admin/reports/contact-dump?part=1", label: "Dump 1 (Part 1)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1, tone: "emerald" },
-                { href: "/api/admin/reports/contact-dump?part=1_1", label: "Dump 1 (Part 1_1)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1_1, tone: "emerald" },
-                { href: "/api/admin/reports/contact-dump?part=2", label: "Dump 1 (Part 2)", permission: REPORT_DUMP_PERMISSIONS.contactListPart2, tone: "emerald" },
+                { href: "/api/admin/reports/contact-dump?part=1", label: "Dump 1 (first 5,000)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1, tone: "emerald" },
+                { href: "/api/admin/reports/contact-dump?part=1_1", label: "Dump 1 (5,001–10,000)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1_1, tone: "emerald" },
+                { href: "/api/admin/reports/contact-dump?part=2", label: "Dump 1 (10,001–15,000)", permission: REPORT_DUMP_PERMISSIONS.contactListPart2, tone: "emerald" },
               ])}
             />
             <ReportRow

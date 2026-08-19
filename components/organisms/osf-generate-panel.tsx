@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 
-import { OsfFieldSourceLegend } from "@/components/molecules/osf-field-source-legend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
@@ -209,8 +208,6 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       {errorDetail && (
         <p className="text-xs text-destructive/90 whitespace-pre-wrap">{errorDetail}</p>
       )}
-
-      <OsfFieldSourceLegend />
     </div>
   );
 }
