@@ -903,17 +903,17 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
       <Card>
         <CardHeader className="space-y-1">
-          <CardTitle className="text-base">Loyalty eligible (still Standard)</CardTitle>
+          <CardTitle className="text-base">Loyalty eligible</CardTitle>
           <p className="text-muted-foreground text-xs">
-            Your allocated customers who hit Gold/Platinum spend but are still
-            Standard — not yet set as loyalty in ERP or Shopify. Contact them,
-            then assign after they respond.
+            Allocated customers who hit Gold/Platinum spend and still need registration
+            — Standard not yet set, or Gold customers now Platinum-eligible. Contact
+            them, then assign after they respond.
           </p>
         </CardHeader>
         <CardContent>
           {(data.loyaltyOutreach ?? []).length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              No eligible-but-Standard customers right now.
+              No eligible Gold/Platinum customers right now.
             </p>
           ) : (
             <ul className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
@@ -930,7 +930,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       {(row.suggestedTier ?? "gold") === "platinum"
                         ? "Platinum"
                         : "Gold"}{" "}
-                      eligible · still Standard · {row.status}
+                      eligible
+                      {row.suggestionKind === "upgrade"
+                        ? " · currently Gold"
+                        : " · still Standard"}{" "}
+                      · {row.status}
                       {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
                     </p>
                     {row.missingProfileFields?.length ? (

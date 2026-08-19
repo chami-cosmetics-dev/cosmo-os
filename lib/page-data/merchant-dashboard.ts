@@ -152,6 +152,8 @@ export type MerchantDashboardPageData = {
     phoneNumber: string | null;
     lifetimeTotal: number;
     suggestedTier: "gold" | "platinum";
+    suggestionKind: "new" | "upgrade";
+    currentAssignedTier: "gold" | "platinum" | null;
     status: string;
     lastContactedAt: string | null;
     missingProfileFields: string[];

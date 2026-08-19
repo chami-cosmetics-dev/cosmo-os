@@ -5,6 +5,8 @@ import {
   isCompletePhoneSearch,
   phoneDigitsOnly,
 } from "@/lib/phone-lookup";
+import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import { pendingLoyaltySuggestion } from "@/lib/customer-insight/loyalty-outreach";
 import { prisma } from "@/lib/prisma";
 import {
   CUSTOMER_INSIGHT_SEARCH_CAP,
@@ -101,7 +103,10 @@ export async function searchContactsByPhone(
       name: true,
       phoneNumber: true,
       email: true,
+      assignedMerchant: true,
+      loyaltyAssignedTier: true,
       phones: { select: { phoneNumber: true } },
+      emails: { select: { email: true } },
     },
   });
 
@@ -113,13 +118,29 @@ export async function searchContactsByPhone(
     : rows;
 
   const capped = capSearchMatches(filtered, CUSTOMER_INSIGHT_SEARCH_CAP);
+  const lifetimeById = await lifetimeTotalsByContactId(companyId, capped.matches);
+
   return {
-    matches: capped.matches.map((row) => ({
-      id: row.id,
-      name: row.name,
-      phoneNumber: row.phoneNumber,
-      email: row.email,
-    })),
+    matches: capped.matches.map((row): SearchMatchDto => {
+      const assigned =
+        row.loyaltyAssignedTier === "gold" || row.loyaltyAssignedTier === "platinum"
+          ? row.loyaltyAssignedTier
+          : null;
+      const pending = pendingLoyaltySuggestion(
+        assigned,
+        lifetimeById.get(row.id) ?? 0
+      );
+      return {
+        id: row.id,
+        name: row.name,
+        phoneNumber: row.phoneNumber,
+        email: row.email,
+        assignedMerchant: row.assignedMerchant,
+        loyaltyAssignedTier: assigned,
+        suggestedTier: pending?.suggestedTier ?? null,
+        suggestionKind: pending?.kind ?? null,
+      };
+    }),
     truncated: capped.truncated,
   };
 }

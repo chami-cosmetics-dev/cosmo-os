@@ -1,9 +1,8 @@
 import { getLastContactedAt } from "@/lib/customer-insight/contacted";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
-  isLoyaltyEligibleByTotal,
   LOYALTY_OUTREACH_QUEUE_STATUSES,
-  suggestedLoyaltyTier,
+  pendingLoyaltySuggestion,
 } from "@/lib/customer-insight/loyalty-outreach";
 import { getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
@@ -14,8 +13,11 @@ export type MerchantLoyaltyOutreachItem = {
   name: string;
   phoneNumber: string | null;
   lifetimeTotal: number;
-  /** Computed Gold/Platinum from spend — customer still Standard until assigned. */
+  /** Computed Gold/Platinum from spend. */
   suggestedTier: "gold" | "platinum";
+  /** new = still Standard; upgrade = assigned Gold, spend now Platinum. */
+  suggestionKind: "new" | "upgrade";
+  currentAssignedTier: "gold" | "platinum" | null;
   status: string;
   lastContactedAt: string | null;
   /** Empty when profile is complete enough for Responded / loyalty send. */
@@ -26,9 +28,9 @@ const CANDIDATE_CAP = 2_000;
 const LIFETIME_CHUNK = 400;
 
 /**
- * Allocated customers eligible for Gold/Platinum by lifetime spend, but still
- * Standard (no loyaltyAssignedTier — not registered in ERP/Shopify via OS).
- * Includes mid-outreach (contacted / responded / not_responded).
+ * Allocated customers with a pending Gold/Platinum action:
+ * - still Standard and spend ≥ Gold, or
+ * - assigned Gold and spend ≥ Platinum (upgrade).
  */
 export async function fetchMerchantLoyaltyOutreach(input: {
   companyId: string;
@@ -44,49 +46,82 @@ export async function fetchMerchantLoyaltyOutreach(input: {
   if (labels.length === 0) return [];
 
   const limit = input.take ?? 25;
+  const allocatedOr = {
+    OR: labels.map((label) => ({
+      assignedMerchant: { equals: label, mode: "insensitive" as const },
+    })),
+  };
 
-  const rows = await prisma.contactMaster.findMany({
-    where: {
-      companyId: input.companyId,
-      // Still Standard — Gold/Platinum not assigned (ERP/Shopify registration via OS)
-      loyaltyAssignedTier: null,
-      AND: [
-        {
-          OR: labels.map((label) => ({
-            assignedMerchant: { equals: label, mode: "insensitive" as const },
-          })),
-        },
-        {
-          OR: [
-            {
-              loyaltyOutreachStatus: {
-                in: [...LOYALTY_OUTREACH_QUEUE_STATUSES],
+  const [unassigned, goldAssigned] = await Promise.all([
+    prisma.contactMaster.findMany({
+      where: {
+        companyId: input.companyId,
+        loyaltyAssignedTier: null,
+        AND: [
+          allocatedOr,
+          {
+            OR: [
+              {
+                loyaltyOutreachStatus: {
+                  in: [...LOYALTY_OUTREACH_QUEUE_STATUSES],
+                },
               },
-            },
-            { loyaltyOutreachStatus: null },
-          ],
-        },
-      ],
-    },
-    select: {
-      id: true,
-      name: true,
-      phoneNumber: true,
-      email: true,
-      gender: true,
-      language: true,
-      birthMonth: true,
-      birthDay: true,
-      city: true,
-      address: true,
-      loyaltyOutreachStatus: true,
-      emails: { select: { email: true } },
-      phones: { select: { phoneNumber: true } },
-    },
-    take: CANDIDATE_CAP,
-    orderBy: { updatedAt: "desc" },
-  });
+              { loyaltyOutreachStatus: null },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        email: true,
+        gender: true,
+        language: true,
+        birthMonth: true,
+        birthDay: true,
+        city: true,
+        address: true,
+        loyaltyAssignedTier: true,
+        loyaltyOutreachStatus: true,
+        emails: { select: { email: true } },
+        phones: { select: { phoneNumber: true } },
+      },
+      take: CANDIDATE_CAP,
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.contactMaster.findMany({
+      where: {
+        companyId: input.companyId,
+        loyaltyAssignedTier: "gold",
+        ...allocatedOr,
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        email: true,
+        gender: true,
+        language: true,
+        birthMonth: true,
+        birthDay: true,
+        city: true,
+        address: true,
+        loyaltyAssignedTier: true,
+        loyaltyOutreachStatus: true,
+        emails: { select: { email: true } },
+        phones: { select: { phoneNumber: true } },
+      },
+      take: CANDIDATE_CAP,
+      orderBy: { updatedAt: "desc" },
+    }),
+  ]);
 
+  const byId = new Map<string, (typeof unassigned)[number]>();
+  for (const row of [...unassigned, ...goldAssigned]) {
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  const rows = [...byId.values()];
   if (rows.length === 0) return [];
 
   const lifetimeById = new Map<string, number>();
@@ -102,6 +137,8 @@ export async function fetchMerchantLoyaltyOutreach(input: {
     phoneNumber: string | null;
     lifetimeTotal: number;
     suggestedTier: "gold" | "platinum";
+    suggestionKind: "new" | "upgrade";
+    currentAssignedTier: "gold" | "platinum" | null;
     status: string;
     missingProfileFields: string[];
   }> = [];
@@ -110,12 +147,14 @@ export async function fetchMerchantLoyaltyOutreach(input: {
 
   for (const c of rows) {
     const lifetimeTotal = lifetimeById.get(c.id) ?? 0;
-    const suggested = suggestedLoyaltyTier(lifetimeTotal);
-    if (!suggested || !isLoyaltyEligibleByTotal(lifetimeTotal)) continue;
+    const pending = pendingLoyaltySuggestion(c.loyaltyAssignedTier, lifetimeTotal);
+    if (!pending) continue;
 
     let status = c.loyaltyOutreachStatus;
-    if (!status || status === "eligible") {
-      if (!status) markEligibleIds.push(c.id);
+    if (pending.kind === "upgrade" && (status === "assigned" || !status)) {
+      status = "eligible";
+    } else if (!status || status === "eligible") {
+      if (!status && pending.kind === "new") markEligibleIds.push(c.id);
       status = "eligible";
     } else if (
       status !== "contacted" &&
@@ -130,7 +169,9 @@ export async function fetchMerchantLoyaltyOutreach(input: {
       name: c.name,
       phoneNumber: c.phoneNumber,
       lifetimeTotal,
-      suggestedTier: suggested,
+      suggestedTier: pending.suggestedTier,
+      suggestionKind: pending.kind,
+      currentAssignedTier: pending.currentAssigned,
       status,
       missingProfileFields: getLoyaltyProfileMissingFields({
         name: c.name,

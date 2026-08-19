@@ -61,13 +61,22 @@ import {
 } from "@/lib/customer-insight/contact-profile-options";
 import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
-import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-profile-complete";
+import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 const CHART_BLUE = "#3b82f6";
 
-function formatMoney(amount: number, currency = "LKR") {
+function loyaltyEligibleCopy(eligibility: {
+  suggestedTier: "gold" | "platinum";
+  kind: "new" | "upgrade";
+}) {
+  const next = eligibility.suggestedTier === "platinum" ? "Platinum" : "Gold";
+  if (eligibility.kind === "upgrade") {
+    return "Eligible for Platinum (currently Gold)";
+  }
+  return `Eligible for ${next} (still Standard)`;
+}
   return `${currency} ${new Intl.NumberFormat("en-LK", {
     maximumFractionDigits: 0,
   }).format(amount)}`;
@@ -589,6 +598,8 @@ export function CustomerInsightPanel({
       lifetimeTotal: number;
       suggestedTier: "gold" | "platinum" | null;
       eligibleGroup: string | null;
+      suggestionKind?: "new" | "upgrade" | null;
+      currentAssignedTier?: "gold" | "platinum" | null;
       erpGroup: string | null;
       shopifyTag: string | null;
       assignedMerchant: string | null;
@@ -1185,7 +1196,8 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
             <CardDescription>
-              Responded customers. Eligible group is Gold or Platinum from lifetime spend.
+              Responded Standard customers, plus Gold customers whose spend now qualifies for
+              Platinum. Eligible group is Gold or Platinum from lifetime spend.
               {canAssignLoyalty
                 ? " Send writes ERP customer group and Shopify tag."
                 : " Read-only."}
@@ -1210,7 +1222,9 @@ export function CustomerInsightPanel({
                       <p className="text-xs">
                         Eligible:{" "}
                         <span className="font-medium">
-                          {row.eligibleGroup ?? "Standard (not Gold/Platinum yet)"}
+                          {row.suggestionKind === "upgrade"
+                            ? "Platinum (upgrade from Gold)"
+                            : (row.eligibleGroup ?? "Standard (not Gold/Platinum yet)")}
                         </span>
                         {row.erpGroup ? ` · ERP ${row.erpGroup}` : null}
                         {row.shopifyTag ? ` · Shopify “${row.shopifyTag}”` : null}
@@ -1718,6 +1732,16 @@ export function CustomerInsightPanel({
                 <span className="text-muted-foreground">
                   {m.phoneNumber ?? "—"}
                   {m.email ? ` · ${m.email}` : ""}
+                  {m.suggestedTier
+                    ? ` · ${loyaltyEligibleCopy({
+                        suggestedTier: m.suggestedTier,
+                        kind: m.suggestionKind === "upgrade" ? "upgrade" : "new",
+                      })}`
+                    : m.loyaltyAssignedTier === "platinum"
+                      ? " · Platinum"
+                      : m.loyaltyAssignedTier === "gold"
+                        ? " · Gold"
+                        : ""}
                 </span>
               </button>
             ))}
@@ -1807,6 +1831,11 @@ export function CustomerInsightPanel({
                     <p className="text-lg font-semibold tabular-nums">
                       {formatMoney(insight.loyalty.lifetimeTotal, insight.loyalty.currency)}
                     </p>
+                    {insight.loyaltyEligibility ? (
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                        {loyaltyEligibleCopy(insight.loyaltyEligibility)}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </CardHeader>
@@ -2009,6 +2038,85 @@ export function CustomerInsightPanel({
                             ? `· ${new Date(insight.loyaltyAssignment.assignedAt).toLocaleString()}`
                             : ""}
                         </p>
+                      ) : null}
+                      {insight.loyaltyEligibility ? (
+                        <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                          {loyaltyEligibleCopy(insight.loyaltyEligibility)}
+                        </p>
+                      ) : null}
+                      {canAssignLoyalty &&
+                      insight.loyaltyEligibility &&
+                      (insight.loyaltyEligibility.kind === "upgrade" ||
+                        insight.loyaltyOutreachStatus === "responded") ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="mt-1"
+                          disabled={isBusy}
+                          onClick={() => {
+                            void (async () => {
+                              const contact = insight.contact;
+                              if (!contact) return;
+                              const missing = getLoyaltyProfileMissingFields({
+                                name: contact.name,
+                                email: contact.email,
+                                phoneNumber: contact.phoneNumber,
+                                phones: contact.phones,
+                                gender: contact.gender,
+                                language: contact.language,
+                                birthMonth: contact.birthMonth,
+                                birthDay: contact.birthDay,
+                                city: contact.city,
+                                address: contact.address,
+                              });
+                              if (missing.length > 0) {
+                                notify.error(loyaltyProfileIncompleteMessage(missing));
+                                return;
+                              }
+                              const tier = insight.loyaltyEligibility!.suggestedTier;
+                              const label = tier === "platinum" ? "Platinum" : "Gold";
+                              setBusyKey("loyalty-assign");
+                              try {
+                                const res = await fetch(
+                                  `/api/admin/customer-insight/${encodeURIComponent(contact.id)}/loyalty-assign`,
+                                  {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ tier }),
+                                  }
+                                );
+                                const data = await res.json().catch(() => ({}));
+                                if (!res.ok) {
+                                  notify.error(data.error ?? "Assign failed");
+                                  return;
+                                }
+                                const pushErrors = Array.isArray(data.pushErrors)
+                                  ? (data.pushErrors as string[])
+                                  : [];
+                                if (pushErrors.length > 0) {
+                                  notify.error(
+                                    `Assigned ${label}, but some ERP/Shopify updates failed`
+                                  );
+                                } else {
+                                  notify.success(`Sent to ${label}`);
+                                }
+                                setLoyaltyQueue((prev) =>
+                                  prev.filter((x) => x.contactId !== contact.id)
+                                );
+                                await loadInsight(contact.id, invoicePage);
+                              } catch {
+                                notify.error("Assign failed");
+                              } finally {
+                                setBusyKey(null);
+                              }
+                            })();
+                          }}
+                        >
+                          Send to{" "}
+                          {insight.loyaltyEligibility.suggestedTier === "platinum"
+                            ? "Platinum"
+                            : "Gold"}
+                        </Button>
                       ) : null}
                     </div>
                     <div className="space-y-1 lg:text-right">
