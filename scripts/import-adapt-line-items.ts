@@ -10,11 +10,12 @@
  *     --report ./data/adapt-line-items-prod-report.json
  */
 
-import { createReadStream, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline";
 
 import { Prisma, PrismaClient } from "@prisma/client";
+
+import { iterateCsvRecordsFromFile } from "../lib/adapt-import/csv";
 
 import {
   mapAdaptLineItemHeaders,
@@ -38,40 +39,6 @@ function parseArgs(argv: string[]) {
     i += 1;
   }
   return out;
-}
-
-function parseCsvLine(line: string): string[] {
-  const values: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i]!;
-    if (inQuotes) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          current += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += ch;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-      continue;
-    }
-    if (ch === ",") {
-      values.push(current);
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  values.push(current);
-  return values;
 }
 
 function usage() {
@@ -108,22 +75,16 @@ async function loadGroupedLineItems(filePath: string): Promise<{
   let rowsSkipped = 0;
   let headerMap: ReturnType<typeof mapAdaptLineItemHeaders> | null = null;
 
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
-
-  for await (const line of rl) {
-    if (!line.trim()) continue;
+  for await (const record of iterateCsvRecordsFromFile(filePath)) {
     if (!headerMap) {
-      headerMap = mapAdaptLineItemHeaders(parseCsvLine(line));
+      headerMap = mapAdaptLineItemHeaders(record);
       if (headerMap.salesInvoiceMasterId < 0 || headerMap.quantity < 0) {
         throw new Error(`Missing required columns in ${filePath}`);
       }
       continue;
     }
     rowsRead += 1;
-    const row = rowFromAdaptLineItemValues(parseCsvLine(line), headerMap);
+    const row = rowFromAdaptLineItemValues(record, headerMap);
     const masterId = row.salesInvoiceMasterId?.trim();
     if (!masterId) {
       rowsSkipped += 1;

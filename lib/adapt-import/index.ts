@@ -1,4 +1,5 @@
 export { mapAdaptHeaders, normalizeAdaptHeader, ADAPT_FIELD } from "@/lib/adapt-import/columns";
+export { parseCsvRecords, iterateCsvRecordsFromFile } from "@/lib/adapt-import/csv";
 export {
   buildAdaptInvoiceKey,
   buildAdaptInvoiceKeyFromRow,

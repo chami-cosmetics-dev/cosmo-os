@@ -1,7 +1,5 @@
-import { createReadStream } from "node:fs";
-import { createInterface } from "node:readline";
-
 import { mapAdaptHeaders, rowFromValues } from "@/lib/adapt-import/columns";
+import { iterateCsvRecordsFromFile } from "@/lib/adapt-import/csv";
 import { resolveAdaptContact } from "@/lib/adapt-import/contact-resolve";
 import type { AdaptImportDb } from "@/lib/adapt-import/db";
 import {
@@ -16,40 +14,6 @@ import {
   type AdaptImportReport,
   type AdaptLocationMapEntry,
 } from "@/lib/adapt-import/types";
-
-function parseCsvLine(line: string): string[] {
-  const values: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i]!;
-    if (inQuotes) {
-      if (ch === '"') {
-        if (line[i + 1] === '"') {
-          current += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += ch;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-      continue;
-    }
-    if (ch === ",") {
-      values.push(current);
-      current = "";
-      continue;
-    }
-    current += ch;
-  }
-  values.push(current);
-  return values;
-}
 
 export type RunAdaptImportInput = {
   companyId: string;
@@ -91,18 +55,12 @@ export async function runAdaptImport(
     map = loadAdaptLocationMapFile(input.mapPath);
   }
 
-  const rl = createInterface({
-    input: createReadStream(input.filePath, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
-
   let headers: string[] | null = null;
   let processed = 0;
 
-  for await (const line of rl) {
-    if (!line.trim()) continue;
+  for await (const record of iterateCsvRecordsFromFile(input.filePath)) {
     if (!headers) {
-      headers = mapAdaptHeaders(parseCsvLine(line));
+      headers = mapAdaptHeaders(record);
       continue;
     }
 
@@ -111,7 +69,7 @@ export async function runAdaptImport(
     report.rowsRead += 1;
 
     try {
-      const row = rowFromValues(headers, parseCsvLine(line));
+      const row = rowFromValues(headers, record);
       const classified = classifyAdaptRow(row);
 
       if (classified.status === "skip") {

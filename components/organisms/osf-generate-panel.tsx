@@ -25,6 +25,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
   const [skuPrefix, setSkuPrefix] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [itemStatus, setItemStatus] = useState("");
+  const [maxStockPct, setMaxStockPct] = useState("");
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [busy, setBusy] = useState(false);
@@ -49,6 +50,15 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
     setBusyMode(belowThresholdOnly ? "reorder" : "full");
     setErrorDetail(null);
     try {
+      const pctTrim = maxStockPct.trim();
+      let maxStockPctOfRop: number | undefined;
+      if (pctTrim) {
+        const n = Math.floor(Number(pctTrim));
+        if (!Number.isFinite(n) || n < 1 || n > 100) {
+          throw new Error("Stock below % of ROP must be 1–100 or blank");
+        }
+        maxStockPctOfRop = n;
+      }
       const res = await fetch("/api/admin/osf/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -60,6 +70,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
           ...(skuPrefix.trim() ? { skuPrefix: skuPrefix.trim() } : {}),
           ...(vendorId ? { vendorIds: [vendorId] } : {}),
           ...(itemStatus ? { itemStatusCategories: [itemStatus] } : {}),
+          ...(maxStockPctOfRop != null ? { maxStockPctOfRop } : {}),
         }),
       });
 
@@ -76,9 +87,12 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       }
 
       const rowCount = Number(res.headers.get("X-OSF-Row-Count") ?? "0");
-      if (belowThresholdOnly && rowCount === 0) {
+      const pctFilter = maxStockPct.trim();
+      if (rowCount === 0 && (belowThresholdOnly || pctFilter)) {
         notify.error(
-          "No SKUs below reorder threshold — set warehouse ROPs first; only SKUs with stock/ROP under the threshold % are included.",
+          pctFilter
+            ? `No SKUs with assigned ROP and stock below ${pctFilter}% of ROP.`
+            : "No SKUs below reorder threshold — set warehouse ROPs first; only SKUs with stock/ROP under the threshold % are included.",
         );
       }
 
@@ -89,7 +103,7 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
       a.download = belowThresholdOnly ? `OSF-reorder-${asOfDate}.xlsx` : `OSF-${asOfDate}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
-      if (!(belowThresholdOnly && rowCount === 0)) {
+      if (!(rowCount === 0 && (belowThresholdOnly || pctFilter))) {
         notify.success(belowThresholdOnly ? "Reorder-only OSF downloaded" : "OSF downloaded");
       }
     } catch (err) {
@@ -167,6 +181,18 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
             ))}
           </select>
         </label>
+        <label className="text-xs font-medium">
+          Stock below % of ROP (optional)
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            className="mt-1"
+            value={maxStockPct}
+            placeholder="e.g. 70"
+            onChange={(e) => setMaxStockPct(e.target.value)}
+          />
+        </label>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -199,6 +225,12 @@ export function OsfGeneratePanel({ canReorderOnly = false }: { canReorderOnly?: 
         )}
       </div>
 
+      {maxStockPct.trim() ? (
+        <p className="text-xs text-muted-foreground">
+          Workbook includes only SKUs with warehouse ROP set and total stock ÷ total ROP
+          strictly below {maxStockPct.trim()}%. SKUs without ROP are skipped.
+        </p>
+      ) : null}
       {canReorderOnly && (
         <p className="text-xs text-muted-foreground">
           Reorder-only includes SKUs with warehouse ROP set and total stock ÷ total ROP below
