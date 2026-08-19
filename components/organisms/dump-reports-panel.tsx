@@ -120,7 +120,7 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
           <CardContent className="space-y-4 p-5">
             <ReportRow
               title="Contact Number List with details"
-              subtitle="Live export from the current Contact Master records with the same sample column headers."
+              subtitle="Live Contact Master export: CRM profile, allocation, extra emails/phones, and loyalty fields."
               actions={allowedActions([
                 { href: "/api/admin/reports/contact-dump?part=1", label: "Dump 1 (Part 1)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1, tone: "emerald" },
                 { href: "/api/admin/reports/contact-dump?part=1_1", label: "Dump 1 (Part 1_1)", permission: REPORT_DUMP_PERMISSIONS.contactListPart1_1, tone: "emerald" },
@@ -139,22 +139,22 @@ export function DumpReportsPanel({ historicalYears, permissionKeys, recentLogs =
             />
             <ReportRow
               title="Contact Number with Last Purchased Date"
-              subtitle="Simple contact list with latest purchase date and recent merchant."
+              subtitle="Contact list with primary plus extra emails/phones, latest purchase date, and recent merchant."
               actions={allowedActions([{ href: "/api/admin/reports/contacts?report=last-purchased", label: "Dump 4", permission: REPORT_DUMP_PERMISSIONS.contactLastPurchased, tone: "sky" }])}
             />
             <ReportRow
               title="Contact Number Log Details"
-              subtitle="Contact creation and update log with latest purchase date."
+              subtitle="Contact create/update log with extra emails/phones and latest purchase date."
               actions={allowedActions([{ href: "/api/admin/reports/contacts?report=log", label: "Dump 5", permission: REPORT_DUMP_PERMISSIONS.contactLog, tone: "sky" }])}
             />
             <ReportRow
               title="Loyalty Customer List"
-              subtitle="Contacts with recorded purchases, exported as a loyalty-oriented list."
+              subtitle="Purchasers and assigned loyalty contacts, with tier and outreach status."
               actions={allowedActions([{ href: "/api/admin/reports/contacts?report=loyalty", label: "Loyalty Customers", permission: REPORT_DUMP_PERMISSIONS.loyaltyCustomers, tone: "amber" }])}
             />
             <ReportRow
               title="Full contact dump"
-              subtitle="Download all available contact records in one file."
+              subtitle="All Contact Master records with the same columns as Dump 1."
               actions={allowedActions([{ href: "/api/admin/reports/contact-dump?part=all", label: "Download All", permission: REPORT_DUMP_PERMISSIONS.contactListAll, tone: "sky" }])}
             />
           </CardContent>

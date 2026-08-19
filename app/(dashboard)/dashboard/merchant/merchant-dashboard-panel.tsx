@@ -1598,8 +1598,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           <CardHeader className="space-y-1">
             <CardTitle className="text-base">Lifetime top customers</CardTitle>
             <p className="text-muted-foreground text-xs">
-              All-time — your allocated contacts only, ranked by how often they
-              buy (distinct purchase days). Grouped by phone or email.
+              All-time — your allocated contacts only, ranked by purchase value.
+              Grouped by phone or email.
             </p>
           </CardHeader>
           <CardContent>
@@ -1614,13 +1614,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     ? data.topCustomersLifetime
                     : data.topCustomersLifetime.slice(0, TOP_CUSTOMERS_PREVIEW)
                   ).map((customer, index) => {
-                    const maxDays = Math.max(
+                    const maxTotal = Math.max(
                       1,
-                      data.topCustomersLifetime[0]?.purchaseDays || 1,
+                      data.topCustomersLifetime[0]?.total || 1,
                     );
                     const share = Math.min(
                       100,
-                      (customer.purchaseDays / maxDays) * 100,
+                      (customer.total / maxTotal) * 100,
                     );
                     return (
                       <li
@@ -1641,10 +1641,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                           </div>
                           <div className="text-right text-sm">
                             <p className="font-semibold tabular-nums">
-                              {customer.purchaseDays} purchase days
+                              {formatMoney(customer.total)}
                             </p>
                             <p className="text-muted-foreground text-xs">
-                              {customer.orderCount} orders · {formatMoney(customer.total)}
+                              {customer.orderCount} orders
+                              {customer.purchaseDays
+                                ? ` · ${customer.purchaseDays} purchase days`
+                                : ""}
                             </p>
                           </div>
                         </div>

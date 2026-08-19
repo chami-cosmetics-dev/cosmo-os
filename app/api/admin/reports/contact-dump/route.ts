@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
-import { CONTACT_DUMP_PARTS, type ContactDumpPartKey, buildContactDumpCsv } from "@/lib/reports/contact-dump";
+import {
+  CONTACT_DUMP_PARTS,
+  CONTACT_DUMP_SELECT,
+  type ContactDumpPartKey,
+  buildContactDumpCsv,
+} from "@/lib/reports/contact-dump";
 import { getContactDumpPermission } from "@/lib/report-permissions";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { requirePermission } from "@/lib/rbac";
@@ -33,16 +38,7 @@ export async function GET(request: NextRequest) {
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
     skip: config.start,
     ...(part === "all" ? {} : { take: config.size }),
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phoneNumber: true,
-      recentMerchant: true,
-      lastPurchaseAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: CONTACT_DUMP_SELECT,
   });
 
   const csv = buildContactDumpCsv(contacts);
