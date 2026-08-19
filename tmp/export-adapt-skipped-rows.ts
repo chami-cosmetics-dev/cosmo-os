@@ -6,8 +6,7 @@
  * Source (same as re-import):
  *   C:\Users\Bad-Boy\Downloads\Archive (5)\invoice_data_headers.csv
  */
-import { createReadStream, createWriteStream, mkdirSync, writeFileSync } from "node:fs";
-import { createInterface } from "node:readline";
+import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -16,6 +15,7 @@ import {
   cell,
   ADAPT_FIELD,
 } from "../lib/adapt-import/columns";
+import { iterateCsvRecordsFromFile } from "../lib/adapt-import/csv";
 import { classifyAdaptRow } from "../lib/adapt-import/row-classify";
 
 const FILE =
@@ -23,32 +23,6 @@ const FILE =
   "C:\\Users\\Bad-Boy\\Downloads\\Archive (5)\\invoice_data_headers.csv";
 
 const OUT_DIR = path.resolve("tmp/adapt-skipped");
-
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = "";
-  let q = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') {
-      if (q && line[i + 1] === '"') {
-        cur += '"';
-        i++;
-        continue;
-      }
-      q = !q;
-      continue;
-    }
-    if (c === "," && !q) {
-      out.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += c;
-  }
-  out.push(cur);
-  return out;
-}
 
 function csvEscape(v: string | null | undefined) {
   const s = v == null ? "" : String(v);
@@ -103,15 +77,9 @@ async function main() {
   let rowsRead = 0;
   let headers: string[] | null = null;
 
-  const rl = createInterface({
-    input: createReadStream(FILE, { encoding: "utf8" }),
-    crlfDelay: Infinity,
-  });
-
-  for await (const line of rl) {
-    if (!line.trim()) continue;
+  for await (const record of iterateCsvRecordsFromFile(FILE)) {
     if (!headers) {
-      headers = mapAdaptHeaders(parseCsvLine(line));
+      headers = mapAdaptHeaders(record);
       continue;
     }
 
@@ -120,7 +88,7 @@ async function main() {
       console.error(`[progress] rowsRead=${rowsRead} skipped=${Object.values(counts).reduce((a, b) => a + b, 0)}`);
     }
 
-    const row = rowFromValues(headers, parseCsvLine(line));
+    const row = rowFromValues(headers, record);
     const classified = classifyAdaptRow(row);
 
     let reason: Reason | null = null;

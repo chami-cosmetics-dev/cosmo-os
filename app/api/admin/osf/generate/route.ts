@@ -58,7 +58,14 @@ export async function POST(request: NextRequest) {
   }
 
   const asOfDate = parsed.data.asOfDate ?? todayColombo();
-  const { salesMonth, includeInactive, vendorIds, itemStatusCategories, skuPrefix } = parsed.data;
+  const {
+    salesMonth,
+    includeInactive,
+    vendorIds,
+    itemStatusCategories,
+    skuPrefix,
+    maxStockPctOfRop,
+  } = parsed.data;
 
   const RECENT_PURCHASE_WINDOW_DAYS = 30;
   const recentSinceDate = new Date(
@@ -157,7 +164,7 @@ export async function POST(request: NextRequest) {
       for (const [key, qty] of bins) binMap.set(key, qty);
     }
 
-    if (belowThresholdOnly) {
+    if (belowThresholdOnly || maxStockPctOfRop != null) {
       const stockCols = columns.filter((c) => c.active && c.includeInStock);
       const ropCols = columns.filter((c) => c.active && c.includeInRop);
       catalog = catalog.filter((row) => {
@@ -172,11 +179,19 @@ export async function POST(request: NextRequest) {
           const r = profile?.rops[col.key];
           if (r != null && Number.isFinite(r)) totalRop += r;
         }
-        return isBelowReorderThreshold(
+        const belowSkuThreshold = isBelowReorderThreshold(
           totalStock,
           totalRop,
           profile?.reorderThresholdPercent ?? null,
         );
+        const belowMaxPct =
+          maxStockPctOfRop == null ||
+          isBelowReorderThreshold(totalStock, totalRop, maxStockPctOfRop);
+        if (belowThresholdOnly && maxStockPctOfRop != null) {
+          return belowSkuThreshold && belowMaxPct;
+        }
+        if (belowThresholdOnly) return belowSkuThreshold;
+        return belowMaxPct;
       });
       skus = catalog.map((c) => c.sku);
     }
