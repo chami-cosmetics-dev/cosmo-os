@@ -43,6 +43,16 @@ export type SearchMatchDto = {
   name: string;
   phoneNumber: string | null;
   email: string | null;
+  assignedMerchant: string | null;
+  loyaltyAssignedTier: "gold" | "platinum" | null;
+  suggestedTier: "gold" | "platinum" | null;
+  suggestionKind: "new" | "upgrade" | null;
+};
+
+export type LoyaltyEligibilityDto = {
+  suggestedTier: "gold" | "platinum";
+  kind: "new" | "upgrade";
+  currentAssigned: "gold" | "platinum" | null;
 };
 
 export type ContactInsightDto = {
@@ -162,6 +172,9 @@ export type CustomerInsightDto = {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  /** Spend-based Gold/Platinum action still pending (new assign or Gold→Platinum). */
+  loyaltyEligibility?: LoyaltyEligibilityDto | null;
+  loyaltyOutreachStatus?: LoyaltyOutreachStatus | null;
 };
 
 export type AllocatedFilterItemDto = {

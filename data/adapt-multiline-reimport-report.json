@@ -1,0 +1,20 @@
+{
+  "companyId": "cmn2xcas1002crl5xtgoq28f5",
+  "dryRun": false,
+  "rowsRead": 175446,
+  "contactsCreated": 0,
+  "contactsEnriched": 683,
+  "contactsWouldCreate": 0,
+  "contactsWouldEnrich": 0,
+  "purchasesUpserted": 1736,
+  "purchasesWouldUpsert": 0,
+  "skipped": 6639,
+  "failed": 0,
+  "ambiguous": 0,
+  "skipReasons": {
+    "cancelled_or_deleted": 6632,
+    "no_identifier": 7,
+    "bad_amount_or_date": 0,
+    "ambiguous": 0
+  }
+}
