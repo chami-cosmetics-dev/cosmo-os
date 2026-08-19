@@ -533,6 +533,8 @@ export function CustomerInsightPanel({
   canAddContactPhone = false,
   canManageLoyalty = false,
   canAssignLoyalty = false,
+  initialContactId = null,
+  initialEdit = false,
 }: {
   canFilterAllContacts?: boolean;
   canExportFilteredCsv?: boolean;
@@ -540,6 +542,8 @@ export function CustomerInsightPanel({
   canAddContactPhone?: boolean;
   canManageLoyalty?: boolean;
   canAssignLoyalty?: boolean;
+  initialContactId?: string | null;
+  initialEdit?: boolean;
 }) {
   const [phone, setPhone] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -891,6 +895,16 @@ export function CustomerInsightPanel({
     }
   }
 
+  useEffect(() => {
+    if (!initialContactId) return;
+    void (async () => {
+      await loadInsight(initialContactId, 1);
+      if (initialEdit) setEditing(true);
+    })();
+    // Open linked contact from merchant dashboard once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialContactId]);
+
   async function saveProfile() {
     if (!selectedContactId || !profileForm) return;
     setBusyKey("profile");
@@ -989,6 +1003,55 @@ export function CustomerInsightPanel({
       }
     } catch {
       notify.error("Failed to save call outcome.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function postLoyaltyOutreach(action: "loyalty_informed" | "responded" | "not_responded") {
+    const contact = insight?.contact;
+    if (!contact) return;
+    if (action === "responded") {
+      const missing = getLoyaltyProfileMissingFields({
+        name: contact.name,
+        email: contact.email,
+        phoneNumber: contact.phoneNumber,
+        phones: contact.phones,
+        gender: contact.gender,
+        language: contact.language,
+        birthMonth: contact.birthMonth,
+        birthDay: contact.birthDay,
+        city: contact.city,
+        address: contact.address,
+      });
+      if (missing.length > 0) {
+        notify.error(loyaltyProfileIncompleteMessage(missing));
+        setEditing(true);
+        return;
+      }
+    }
+    setBusyKey("loyalty");
+    try {
+      const res = await fetch("/api/admin/merchant-dashboard/loyalty-outreach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: contact.id, action }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(json.error ?? "Update failed");
+        return;
+      }
+      notify.success(
+        action === "responded"
+          ? "Responded request sent to assignment queue"
+          : action === "not_responded"
+            ? "Marked not responded"
+            : "Marked contacted"
+      );
+      await loadInsight(contact.id, invoicePage);
+    } catch {
+      notify.error("Update failed");
     } finally {
       setBusyKey(null);
     }
@@ -1198,8 +1261,8 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
             <CardDescription>
-              Responded Standard customers, plus Gold customers whose spend now qualifies for
-              Platinum. Eligible group is Gold or Platinum from lifetime spend.
+              Only contacts the allocated merchant marked Responded. Assign Gold or
+              Platinum from lifetime spend.
               {canAssignLoyalty
                 ? " Send writes ERP customer group and Shopify tag."
                 : " Read-only."}
@@ -2046,79 +2109,61 @@ export function CustomerInsightPanel({
                           {loyaltyEligibleCopy(insight.loyaltyEligibility)}
                         </p>
                       ) : null}
-                      {canAssignLoyalty &&
-                      insight.loyaltyEligibility &&
-                      (insight.loyaltyEligibility.kind === "upgrade" ||
-                        insight.loyaltyOutreachStatus === "responded") ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="mt-1"
-                          disabled={isBusy}
-                          onClick={() => {
-                            void (async () => {
-                              const contact = insight.contact;
-                              if (!contact) return;
-                              const missing = getLoyaltyProfileMissingFields({
-                                name: contact.name,
-                                email: contact.email,
-                                phoneNumber: contact.phoneNumber,
-                                phones: contact.phones,
-                                gender: contact.gender,
-                                language: contact.language,
-                                birthMonth: contact.birthMonth,
-                                birthDay: contact.birthDay,
-                                city: contact.city,
-                                address: contact.address,
-                              });
-                              if (missing.length > 0) {
-                                notify.error(loyaltyProfileIncompleteMessage(missing));
-                                return;
-                              }
-                              const tier = insight.loyaltyEligibility!.suggestedTier;
-                              const label = tier === "platinum" ? "Platinum" : "Gold";
-                              setBusyKey("loyalty-assign");
-                              try {
-                                const res = await fetch(
-                                  `/api/admin/customer-insight/${encodeURIComponent(contact.id)}/loyalty-assign`,
-                                  {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ tier }),
-                                  }
-                                );
-                                const data = await res.json().catch(() => ({}));
-                                if (!res.ok) {
-                                  notify.error(data.error ?? "Assign failed");
-                                  return;
-                                }
-                                const pushErrors = Array.isArray(data.pushErrors)
-                                  ? (data.pushErrors as string[])
-                                  : [];
-                                if (pushErrors.length > 0) {
-                                  notify.error(
-                                    `Assigned ${label}, but some ERP/Shopify updates failed`
-                                  );
-                                } else {
-                                  notify.success(`Sent to ${label}`);
-                                }
-                                setLoyaltyQueue((prev) =>
-                                  prev.filter((x) => x.contactId !== contact.id)
-                                );
-                                await loadInsight(contact.id, invoicePage);
-                              } catch {
-                                notify.error("Assign failed");
-                              } finally {
-                                setBusyKey(null);
-                              }
-                            })();
-                          }}
-                        >
-                          Send to{" "}
-                          {insight.loyaltyEligibility.suggestedTier === "platinum"
-                            ? "Platinum"
-                            : "Gold"}
-                        </Button>
+                      {isOwner && insight.loyaltyEligibility ? (
+                        <div className="mt-1 flex flex-col items-end gap-1">
+                          {insight.contact ? (
+                            getLoyaltyProfileMissingFields({
+                              name: insight.contact.name,
+                              email: insight.contact.email,
+                              phoneNumber: insight.contact.phoneNumber,
+                              phones: insight.contact.phones,
+                              gender: insight.contact.gender,
+                              language: insight.contact.language,
+                              birthMonth: insight.contact.birthMonth,
+                              birthDay: insight.contact.birthDay,
+                              city: insight.contact.city,
+                              address: insight.contact.address,
+                            }).length > 0 ? (
+                              <p className="text-xs text-amber-700 dark:text-amber-400">
+                                Fill missing profile fields, then send the request.
+                              </p>
+                            ) : null
+                          ) : null}
+                          {insight.loyaltyOutreachStatus === "responded" ? (
+                            <p className="text-xs text-muted-foreground">
+                              Requested — waiting in assignment queue
+                            </p>
+                          ) : insight.loyaltyOutreachStatus === "contacted" ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() => void postLoyaltyOutreach("responded")}
+                              >
+                                Send responded request
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isBusy}
+                                onClick={() => void postLoyaltyOutreach("not_responded")}
+                              >
+                                Not responded
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={isBusy}
+                              onClick={() => void postLoyaltyOutreach("loyalty_informed")}
+                            >
+                              Mark contacted
+                            </Button>
+                          )}
+                        </div>
                       ) : null}
                     </div>
                     <div className="space-y-1 lg:text-right">

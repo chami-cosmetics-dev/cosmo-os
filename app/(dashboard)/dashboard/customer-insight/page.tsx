@@ -10,7 +10,11 @@ import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
-export default async function CustomerInsightPage() {
+export default async function CustomerInsightPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ contactId?: string; edit?: string }>;
+}) {
   const auth = await requirePermission("contacts.insight.read");
   if (!auth.ok) {
     if (auth.status === 401) redirect("/login");
@@ -38,6 +42,8 @@ export default async function CustomerInsightPage() {
     permissionKeys.includes("contacts.master.read") ||
     permissionKeys.includes("dashboard.merchant_admin_view");
 
+  const query = await searchParams;
+
   return (
     <CustomerInsightPanel
       canFilterAllContacts={canFilterAllContacts}
@@ -48,6 +54,8 @@ export default async function CustomerInsightPage() {
         permissionKeys.includes("contacts.master.manage") ||
         permissionKeys.includes("dashboard.merchant_admin_view")
       }
+      initialContactId={query.contactId?.trim() || null}
+      initialEdit={query.edit === "1"}
     />
   );
 }

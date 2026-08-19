@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { Cake, Crown, Download, Loader2, Target } from "lucide-react";
 import {
   Bar,
@@ -947,6 +948,25 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     <Button
                       type="button"
                       size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      asChild
+                    >
+                      <Link
+                        href={`/dashboard/customer-insight?contactId=${encodeURIComponent(row.contactId)}&edit=1`}
+                      >
+                        Edit profile
+                      </Link>
+                    </Button>
+                    {row.status === "responded" ? (
+                      <span className="text-muted-foreground self-center text-xs">
+                        Requested
+                      </span>
+                    ) : (
+                    <>
+                    <Button
+                      type="button"
+                      size="sm"
                       variant="secondary"
                       disabled={isBusy}
                       onClick={() => {
@@ -1037,6 +1057,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         Not responded
                       </Button>
                     ) : null}
+                    </>
+                    )}
                   </div>
                 </li>
               ))}
