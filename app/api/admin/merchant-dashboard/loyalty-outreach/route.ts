@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
   const roleNames = (context.roleNames ?? []) as string[];
   const allowed =
     canAccessMerchantDashboard(roleNames) ||
-    hasPermission(context, "dashboard.merchant_view");
+    hasPermission(context, "dashboard.merchant_view") ||
+    hasPermission(context, "contacts.insight.read");
   if (!allowed) {
     return NextResponse.json({ error: "Permission denied" }, { status: 403 });
   }

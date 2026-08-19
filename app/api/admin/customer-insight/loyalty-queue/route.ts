@@ -25,63 +25,30 @@ export async function GET() {
     );
   }
 
-  const [responded, goldAssigned] = await Promise.all([
-    prisma.contactMaster.findMany({
-      where: {
-        companyId,
-        loyaltyOutreachStatus: "responded",
-        loyaltyAssignedTier: null,
-      },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        assignedMerchant: true,
-        email: true,
-        gender: true,
-        language: true,
-        birthMonth: true,
-        birthDay: true,
-        city: true,
-        address: true,
-        loyaltyAssignedTier: true,
-        phones: { select: { phoneNumber: true } },
-        emails: { select: { email: true } },
-      },
-      take: 200,
-      orderBy: { updatedAt: "desc" },
-    }),
-    prisma.contactMaster.findMany({
-      where: {
-        companyId,
-        loyaltyAssignedTier: "gold",
-      },
-      select: {
-        id: true,
-        name: true,
-        phoneNumber: true,
-        assignedMerchant: true,
-        email: true,
-        gender: true,
-        language: true,
-        birthMonth: true,
-        birthDay: true,
-        city: true,
-        address: true,
-        loyaltyAssignedTier: true,
-        phones: { select: { phoneNumber: true } },
-        emails: { select: { email: true } },
-      },
-      take: 2_000,
-      orderBy: { updatedAt: "desc" },
-    }),
-  ]);
-
-  const byId = new Map<string, (typeof responded)[number]>();
-  for (const row of [...responded, ...goldAssigned]) {
-    if (!byId.has(row.id)) byId.set(row.id, row);
-  }
-  const contacts = [...byId.values()];
+  const contacts = await prisma.contactMaster.findMany({
+    where: {
+      companyId,
+      loyaltyOutreachStatus: "responded",
+    },
+    select: {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      assignedMerchant: true,
+      email: true,
+      gender: true,
+      language: true,
+      birthMonth: true,
+      birthDay: true,
+      city: true,
+      address: true,
+      loyaltyAssignedTier: true,
+      phones: { select: { phoneNumber: true } },
+      emails: { select: { email: true } },
+    },
+    take: 200,
+    orderBy: { updatedAt: "desc" },
+  });
 
   const lifetimeById = await lifetimeTotalsByContactId(companyId, contacts);
 
@@ -90,7 +57,6 @@ export async function GET() {
     const lifetimeTotal = lifetimeById.get(c.id) ?? 0;
     const pending = pendingLoyaltySuggestion(c.loyaltyAssignedTier, lifetimeTotal);
     if (!pending) continue;
-    if (pending.kind === "new" && c.loyaltyAssignedTier) continue;
 
     const targets = loyaltyExternalTargets(pending.suggestedTier);
     items.push({

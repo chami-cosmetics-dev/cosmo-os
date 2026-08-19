@@ -87,7 +87,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!isPlatinumUpgrade && contact.loyaltyAssignedTier) {
     return NextResponse.json({ error: "Already assigned" }, { status: 409 });
   }
-  if (!isPlatinumUpgrade && contact.loyaltyOutreachStatus !== "responded") {
+  if (contact.loyaltyOutreachStatus !== "responded") {
     return NextResponse.json(
       { error: "Customer must be in Responded status" },
       { status: 400 }
