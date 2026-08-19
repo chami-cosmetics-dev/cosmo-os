@@ -394,7 +394,7 @@ export type MerchantTopCustomersSplit = {
 
 /**
  * Daily top = today's buyers ranked by today's spend.
- * Lifetime top = all-time buyers ranked by distinct purchase days.
+ * Lifetime top = all-time buyers ranked by purchase value.
  * Groups by phone/email — never by order name (often an SI number).
  * Attribution matches sales cards: coupon code first, else assignedMerchantId.
  * Only includes customers allocated to this merchant on Contact Master.
@@ -506,7 +506,7 @@ export async function fetchMerchantTopCustomersBySales(
     today: aggregateTopCustomers(todayAttributed, { limit, rankBy: "total" }),
     lifetime: aggregateTopCustomers(lifetimeOrders, {
       limit,
-      rankBy: "purchaseDays",
+      rankBy: "total",
     }),
   };
 }

@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { logReportDownload } from "@/lib/report-download-log";
-import { buildCsv, formatIsoDate, formatIsoDateTime } from "@/lib/reports/csv";
+import {
+  CONTACT_LIST_DUMP_SELECT,
+  buildContactLogDumpCsv,
+  buildLastPurchasedDumpCsv,
+  buildLoyaltyDumpCsv,
+} from "@/lib/reports/contact-list-dump";
 import { getContactReportPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
 
@@ -31,48 +36,25 @@ export async function GET(request: NextRequest) {
   const contacts = await prisma.contactMaster.findMany({
     where: {
       companyId,
-      ...(report === "loyalty" ? { lastPurchaseAt: { not: null } } : {}),
+      ...(report === "loyalty"
+        ? {
+            OR: [
+              { lastPurchaseAt: { not: null } },
+              { loyaltyAssignedTier: { not: null } },
+            ],
+          }
+        : {}),
     },
     orderBy: [{ lastPurchaseAt: "desc" }, { updatedAt: "desc" }],
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phoneNumber: true,
-      recentMerchant: true,
-      lastPurchaseAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+    select: CONTACT_LIST_DUMP_SELECT,
   });
 
   const payload =
     report === "log"
-      ? buildCsv(
-          ["contact_id", "name", "email", "phone_number", "created_at", "updated_at", "recent_merchant", "last_purchased_date"],
-          contacts.map((contact) => ({
-            contact_id: contact.id,
-            name: contact.name,
-            email: contact.email ?? "",
-            phone_number: contact.phoneNumber ?? "",
-            created_at: formatIsoDateTime(contact.createdAt),
-            updated_at: formatIsoDateTime(contact.updatedAt),
-            recent_merchant: contact.recentMerchant ?? "",
-            last_purchased_date: formatIsoDate(contact.lastPurchaseAt),
-          }))
-        )
-      : buildCsv(
-          ["contact_id", "name", "email", "phone_number", "recent_merchant", "last_purchased_date", "updated_on"],
-          contacts.map((contact) => ({
-            contact_id: contact.id,
-            name: contact.name,
-            email: contact.email ?? "",
-            phone_number: contact.phoneNumber ?? "",
-            recent_merchant: contact.recentMerchant ?? "",
-            last_purchased_date: formatIsoDate(contact.lastPurchaseAt),
-            updated_on: formatIsoDate(contact.updatedAt),
-          }))
-        );
+      ? buildContactLogDumpCsv(contacts)
+      : report === "loyalty"
+        ? buildLoyaltyDumpCsv(contacts)
+        : buildLastPurchasedDumpCsv(contacts);
 
   const fileName =
     report === "log"

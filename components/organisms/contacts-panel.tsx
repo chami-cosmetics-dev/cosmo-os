@@ -27,6 +27,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import {
+  DUMP_TOTAL_HEADER,
+  createCsvRowCounter,
+  dumpProgressPercent,
+  parseContentDispositionFilename,
+  parseDumpTotalHeader,
+} from "@/lib/reports/dump-download";
 
 type ContactItem = {
   id: string;
@@ -316,6 +323,8 @@ export function ContactsPanel({
 
   async function downloadContactExport(mode: "contacts" | "purchase_summary" = "contacts") {
     setExportBusyKey(mode);
+    const toastId = `contact-export-${mode}`;
+    notify.loading("Preparing contact export…", toastId);
     try {
       const params = new URLSearchParams();
       if (effectiveSearch) params.set("search", effectiveSearch);
@@ -327,29 +336,69 @@ export function ContactsPanel({
       const res = await fetch(`/api/admin/contacts/export?${params.toString()}`);
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        notify.error(data.error ?? "Failed to export contacts");
+        notify.error(data.error ?? "Failed to export contacts", toastId);
         return;
       }
 
-      const blob = await res.blob();
-      const disposition = res.headers.get("Content-Disposition") ?? "";
-      const match = /filename="([^"]+)"/.exec(disposition);
+      const expectedRows = parseDumpTotalHeader(res.headers.get(DUMP_TOTAL_HEADER));
       const fileName =
-        match?.[1] ??
+        parseContentDispositionFilename(res.headers.get("Content-Disposition")) ??
         (mode === "purchase_summary"
           ? "contact-master-with-purchases.csv"
           : "contact-master-export.csv");
+      const reader = res.body?.getReader();
+      if (!reader) {
+        notify.error("Export stream unavailable", toastId);
+        return;
+      }
 
-      const url = URL.createObjectURL(blob);
+      const chunks: BlobPart[] = [];
+      const decoder = new TextDecoder();
+      const counter = createCsvRowCounter();
+      let lastNotified = -1;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        chunks.push(value);
+        if (expectedRows > 0) {
+          counter.consume(decoder.decode(value, { stream: true }));
+          const percent = dumpProgressPercent(counter.dataRows(), expectedRows);
+          if (percent > 0 && percent !== lastNotified) {
+            lastNotified = percent;
+            notify.loading(`Downloading contacts — ${percent}%`, toastId);
+          }
+        }
+      }
+      if (expectedRows > 0) {
+        counter.consume(decoder.decode());
+      }
+
+      const receivedRows = expectedRows > 0 ? counter.dataRows() : 0;
+      if (expectedRows > 0 && receivedRows !== expectedRows) {
+        notify.error(
+          `Export incomplete: got ${receivedRows.toLocaleString()} of ${expectedRows.toLocaleString()} contacts. Try again.`,
+          toastId
+        );
+        return;
+      }
+
+      const url = URL.createObjectURL(new Blob(chunks, { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url;
       link.download = fileName;
       link.click();
       URL.revokeObjectURL(url);
       setExportDialogOpen(false);
-      notify.success("Contact export downloaded");
+      notify.success(
+        expectedRows > 0
+          ? `Contact export downloaded (${expectedRows.toLocaleString()} rows)`
+          : "Contact export downloaded",
+        toastId
+      );
     } catch {
-      notify.error("Failed to export contacts");
+      notify.error("Failed to export contacts", toastId);
     } finally {
       setExportBusyKey(null);
     }
@@ -1013,8 +1062,9 @@ export function ContactsPanel({
                       <DialogTitle>Choose Export Type</DialogTitle>
                       <DialogDescription>
                         Export uses your current filters (search, status, allocated merchant, brand).
-                        Choose contact details only, or include purchase summary values matched by phone.
-                        Full exports can take a minute with a large contact list.
+                        All Contacts with no other filters is the full Contact Master list
+                        ({counts.all.toLocaleString()} rows). Keep this tab open until the row count
+                        matches. A short file (~5,000 rows) means the download was cut off.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-3">
