@@ -31,6 +31,7 @@ import {
   ClipboardList,
   NotebookPen,
   UserSearch,
+  FileSpreadsheet,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import {
@@ -89,6 +90,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
   const canViewOsf =
     hasSidebarPermission("purchasing.osf.read") ||
     hasSidebarPermission("purchasing.osf.manage");
+  const canViewStockComparer = hasSidebarPermission("reports.stock_comparer");
   const canViewPurchasingTools =
     hasSidebarPermission("purchasing.tools.read") ||
     hasSidebarPermission("purchasing.tools.manage");
@@ -400,7 +402,7 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {(canViewReports || canViewUtilityDumps || canViewAudit || canViewFailedWebhooks) && (
+        {(canViewReports || canViewUtilityDumps || canViewAudit || canViewFailedWebhooks || canViewStockComparer) && (
           <SidebarGroup>
             <SidebarGroupLabel>Reports</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -434,6 +436,14 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
                   icon={FileText}
                   label="Utility Dumps"
                   isActive={pathname === "/dashboard/utility-dumps"}
+                />
+              )}
+              {canViewStockComparer && (
+                <NavItem
+                  href="/dashboard/purchasing/stock-comparer"
+                  icon={FileSpreadsheet}
+                  label="Stock Comparer"
+                  isActive={pathname === "/dashboard/purchasing/stock-comparer"}
                 />
               )}
               {canViewReports && (
