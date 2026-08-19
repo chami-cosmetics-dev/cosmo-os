@@ -470,6 +470,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 ? ` · ${data.returns.returnRatePct}% returns`
                 : ""}
             </p>
+            {data.sales.hasDmSplit ? (
+              <p className="text-muted-foreground text-xs">
+                Full {formatMoney(data.sales.total)} · Your MER{" "}
+                {formatMoney(data.sales.merTotal)} ({data.sales.merOrderCount}{" "}
+                orders) · DM {formatMoney(data.sales.dmTotal)} (
+                {data.sales.dmOrderCount} orders, incl. no MER code)
+              </p>
+            ) : null}
               {data.profile.email && (
                 <p className="text-muted-foreground text-xs">{data.profile.email}</p>
               )}
@@ -561,13 +569,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             </p>
             <p className="text-muted-foreground text-xs">
               {data.today.orderCount} orders · {data.today.ymd}
+              {data.today.hasDmSplit
+                ? ` · MER ${formatMoney(data.today.merTotal ?? 0)} · DM ${formatMoney(data.today.dmTotal ?? 0)}`
+                : ""}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              This month (MTD)
+              {data.sales.hasDmSplit ? "Full total (MTD)" : "This month (MTD)"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -575,6 +586,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               {formatMoney(data.sales.total)}
             </p>
             <p className="text-muted-foreground text-xs">
+              {data.sales.hasDmSplit ? "Full total · " : ""}
               {data.sales.orderCount} orders · {data.yearMonth}
             </p>
           </CardContent>
@@ -619,6 +631,42 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      {data.sales.hasDmSplit ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                Your MER total (MTD)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-semibold tabular-nums">
+                {formatMoney(data.sales.merTotal)}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {data.sales.merOrderCount} orders on your personal MER codes
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                DM total (MTD)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-semibold tabular-nums">
+                {formatMoney(data.sales.dmTotal)}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {data.sales.dmOrderCount} orders · DM MER + orders with no MER
+                code
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2017,6 +2065,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </CardContent>
       </Card>
 
+      {data.viewerIsAdmin ? (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Target assignment history</CardTitle>
@@ -2064,6 +2113,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           )}
         </CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }

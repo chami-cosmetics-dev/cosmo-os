@@ -5,6 +5,7 @@ import {
   hasNoPurchaseWithinMonths,
   matchesBirthdayRange,
   matchesBirthdayThisMonth,
+  mergeRankedSpendMaps,
   monthDayKey,
 } from "@/lib/customer-insight/filters";
 import {
@@ -94,5 +95,28 @@ describe("loyalty outreach", () => {
     expect(nextOutreachStatus("loyalty_informed")).toBe("contacted");
     expect(nextOutreachStatus("responded")).toBe("responded");
     expect(nextOutreachStatus("not_responded")).toBe("not_responded");
+  });
+});
+
+describe("mergeRankedSpendMaps", () => {
+  it("unions contacts across brands (OR), not intersection", () => {
+    const merged = mergeRankedSpendMaps([
+      [{ contactId: "a", spend: 10 }],
+      [
+        { contactId: "b", spend: 5 },
+        { contactId: "a", spend: 3 },
+      ],
+    ]);
+    expect(merged.sortedContactIds).toEqual(["a", "b"]);
+    expect(merged.spendById.get("a")).toBe(13);
+    expect(merged.spendById.get("b")).toBe(5);
+  });
+
+  it("keeps a contact who bought only one of the selected brands", () => {
+    const merged = mergeRankedSpendMaps([
+      [{ contactId: "anua-only", spend: 1 }],
+      [{ contactId: "cosrx-only", spend: 99 }],
+    ]);
+    expect(merged.sortedContactIds).toEqual(["cosrx-only", "anua-only"]);
   });
 });

@@ -1374,9 +1374,9 @@ export function CustomerInsightPanel({
               ? "Results include all company contacts matching your filters (allocated and unallocated)."
               : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
-            full set. Without brands, highest lifetime totals first. With brands, customers who
-            bought any selected brand (vendor or product title), ranked by combined brand spend.
-            With items, customers who bought any selected item, ranked by combined item spend.
+            full set. Without brands, highest lifetime totals first. Multiple brands = any of them
+            (even one matching item). Ranked by combined spend on those brands. Multiple items =
+            any selected item, ranked by combined item spend.
             {canExportFilteredCsv
               ? " Last purchase location keeps contacts whose newest Cosmo/Adapt purchase was at that outlet."
               : null}

@@ -7,6 +7,11 @@ export type PeriodSales = {
 
 export type TodaySalesDto = PeriodSales & {
   ymd: string;
+  hasDmSplit?: boolean;
+  merTotal?: number;
+  merOrderCount?: number;
+  dmTotal?: number;
+  dmOrderCount?: number;
 };
 
 export type MerchantPeerBand =

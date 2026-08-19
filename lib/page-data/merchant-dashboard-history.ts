@@ -14,6 +14,11 @@ import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  classifyMerchantSalesBucket,
+  parseOrderCouponList,
+  splitMerchantCouponSets,
+} from "@/lib/merchant-dm-sales";
 
 function parseDayStartUtc(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000+05:30`);
@@ -128,9 +133,7 @@ export async function fetchMerchantSalesHistory(
     };
   }
 
-  const couponSet = new Set(
-    merchant.couponCodes.map((c) => c.trim().toLowerCase()).filter(Boolean),
-  );
+  const sets = splitMerchantCouponSets(merchant.couponCodes);
 
   const fromDate = parseDayStartUtc(historyFrom);
   const toDate = parseDayEndUtc(historyTo);
@@ -156,7 +159,6 @@ export async function fetchMerchantSalesHistory(
         discountCodes: true,
         rawPayload: true,
         createdAt: true,
-        assignedMerchant: { select: { couponCodes: true } },
       },
     }),
     prisma.merchantMonthlyTarget.findMany({
@@ -186,25 +188,18 @@ export async function fetchMerchantSalesHistory(
       sourceName: order.sourceName,
       discountCodes: order.discountCodes,
       rawPayload: order.rawPayload,
-      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      assignedMerchantCouponCodes: null,
       joinAllDiscountCodes: true,
     });
-    const orderCoupons = (merchantCouponCode ?? "")
-      .split(",")
-      .map((c) => c.trim().toLowerCase())
-      .filter(Boolean);
-
-    let attributed = false;
-    for (const code of orderCoupons) {
-      if (couponSet.has(code)) {
-        attributed = true;
-        break;
-      }
-    }
-    if (!attributed && order.assignedMerchantId === merchantUserId) {
-      attributed = true;
-    }
-    if (!attributed) continue;
+    const orderCoupons = parseOrderCouponList(merchantCouponCode);
+    const bucket = classifyMerchantSalesBucket({
+      orderCoupons,
+      personal: sets.personal,
+      dm: sets.dm,
+      hasDm: sets.hasDm,
+      assignedToViewer: order.assignedMerchantId === merchantUserId,
+    });
+    if (!bucket) continue;
 
     const amount = Number(order.totalPrice ?? 0);
     const ymd = formatAppIsoDate(order.createdAt);
