@@ -129,11 +129,11 @@ export async function generateDispatchGroupPdf(
         { text: String(index + 1), style: "td", alignment: "center" },
         { text: order.locationName, style: "td" },
         { text: formatDate(order.dispatchedAt), style: "td" },
-        { text: invLines.join("\n"), style: "td" },
+        { text: invLines.join("\n"), style: "emphasisTd" },
         { text: formatPayment(order.paymentType), style: "td" },
         { text: order.city ?? "-", style: "td" },
         { text: order.address ?? "-", style: "td" },
-        { text: order.customerPhone ?? "-", style: "td" },
+        { text: order.customerPhone ?? "-", style: "emphasisTd" },
       ];
       if (isRider) {
         baseRow.push({ text: order.customerName ?? "-", style: "td" });
@@ -199,8 +199,8 @@ export async function generateDispatchGroupPdf(
         table: {
           headerRows: 1,
           widths: isRider
-            ? [22, 65, 55, 52, 68, 55, 108, 60, 72, 60, 78]
-            : [22, 78, 62, 54, 76, 66, 132, 68, 72, 82],
+            ? [22, 65, 55, 66, 68, 55, 108, 60, 72, 60, 78]
+            : [22, 78, 62, 68, 76, 66, 132, 68, 72, 82],
           body: tableBody,
         },
         layout: {
@@ -216,9 +216,10 @@ export async function generateDispatchGroupPdf(
     styles: {
       title: { fontSize: 15, bold: true, color: "#000000" },
       headerMeta: { fontSize: 9, bold: true, color: "#000000" },
-      th: { fontSize: 9, bold: true, color: "#6f6f6f" },
-      td: { fontSize: 9, color: "#777777" },
-      merchantTd: { fontSize: 8, color: "#777777" },
+      th: { fontSize: 9, bold: true, color: "#000000" },
+      td: { fontSize: 9, color: "#111111" },
+      emphasisTd: { fontSize: 10, color: "#000000" },
+      merchantTd: { fontSize: 8, color: "#111111" },
       totalLabel: { fontSize: 9, bold: true, color: "#000000" },
       totalAmount: { fontSize: 10, bold: true, color: "#000000" },
     },
@@ -227,7 +228,7 @@ export async function generateDispatchGroupPdf(
       alignment: "right",
       margin: [0, 0, 22, 0],
       fontSize: 7,
-      color: "#777777",
+      color: "#333333",
     },
     defaultStyle: { font: "Roboto" },
   };
