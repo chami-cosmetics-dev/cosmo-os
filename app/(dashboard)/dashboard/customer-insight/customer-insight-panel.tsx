@@ -649,6 +649,12 @@ export function CustomerInsightPanel({
   const [queueCandidatePage, setQueueCandidatePage] = useState(1);
   const queueCandidatePageSize = 50;
   const [queueSelectedIds, setQueueSelectedIds] = useState<string[]>([]);
+  const [allocationSummary, setAllocationSummary] = useState<{
+    rows: Array<{ merchantValue: string; merchantLabel: string; count: number }>;
+    allocatedTotal: number;
+    unallocatedCount: number;
+    contactTotal: number;
+  } | null>(null);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
@@ -789,6 +795,67 @@ export function CustomerInsightPanel({
       cancelled = true;
     };
   }, [canExportFilteredCsv]);
+
+  useEffect(() => {
+    if (!canExportFilteredCsv) return;
+    void loadAllocationSummary({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for admin
+  }, [canExportFilteredCsv]);
+
+  async function loadAllocationSummary(opts?: { silent?: boolean }) {
+    if (!canExportFilteredCsv) return;
+    if (!opts?.silent) setBusyKey("allocation-summary");
+    try {
+      const res = await fetch("/api/admin/customer-insight/allocation-summary");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (!opts?.silent) {
+          notify.error(data.error ?? "Failed to load allocation counts.");
+        }
+        return;
+      }
+      setAllocationSummary({
+        rows: Array.isArray(data.rows) ? data.rows : [],
+        allocatedTotal:
+          typeof data.allocatedTotal === "number" ? data.allocatedTotal : 0,
+        unallocatedCount:
+          typeof data.unallocatedCount === "number" ? data.unallocatedCount : 0,
+        contactTotal:
+          typeof data.contactTotal === "number" ? data.contactTotal : 0,
+      });
+    } catch {
+      if (!opts?.silent) notify.error("Failed to load allocation counts.");
+    } finally {
+      if (!opts?.silent) setBusyKey(null);
+    }
+  }
+
+  async function exportAllocationSummaryCsv() {
+    if (!canExportFilteredCsv) return;
+    setBusyKey("allocation-summary-export");
+    try {
+      const res = await fetch(
+        "/api/admin/customer-insight/allocation-summary/export"
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Export failed");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "insight-merchant-allocation-summary.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Allocation summary downloaded.");
+    } catch {
+      notify.error("Export failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
 
   async function loadMyCallQueue() {
     try {
@@ -1450,24 +1517,41 @@ export function CustomerInsightPanel({
                               );
                               const data = await res.json().catch(() => ({}));
                               if (!res.ok) {
-                                notify.error(data.error ?? "Assign failed");
+                                const detail =
+                                  typeof data.error === "string"
+                                    ? data.error
+                                    : "Assign failed";
+                                notify.error(detail);
                                 return;
                               }
                               const pushErrors = Array.isArray(data.pushErrors)
                                 ? (data.pushErrors as string[])
                                 : [];
+                              const erpUpdated =
+                                typeof data.erpUpdated === "number"
+                                  ? data.erpUpdated
+                                  : 0;
+                              const shopifyUpdated =
+                                typeof data.shopifyUpdated === "number"
+                                  ? data.shopifyUpdated
+                                  : 0;
                               if (pushErrors.length > 0) {
                                 notify.error(
-                                  `Assigned ${row.eligibleGroup}, but some ERP/Shopify updates failed`
+                                  pushErrors[0] ??
+                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}, Shopify ${shopifyUpdated})`
                                 );
                               } else {
                                 notify.success(
-                                  `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
+                                  data.retry
+                                    ? `Retry OK: ERP ${erpUpdated}, Shopify ${shopifyUpdated}`
+                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
                                 );
                               }
-                              setLoyaltyQueue((prev) =>
-                                prev.filter((x) => x.contactId !== row.contactId)
-                              );
+                              if (pushErrors.length === 0 || erpUpdated > 0) {
+                                setLoyaltyQueue((prev) =>
+                                  prev.filter((x) => x.contactId !== row.contactId)
+                                );
+                              }
                             } catch {
                               notify.error("Assign failed");
                             } finally {
@@ -1528,6 +1612,100 @@ export function CustomerInsightPanel({
                 ))}
               </ul>
             )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Merchant allocations</CardTitle>
+            <CardDescription>
+              How many Contact Master rows are allocated to each merchant. Export
+              downloads the same counts as CSV.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {allocationSummary
+                  ? `${allocationSummary.allocatedTotal.toLocaleString()} allocated · ${allocationSummary.unallocatedCount.toLocaleString()} unallocated · ${allocationSummary.contactTotal.toLocaleString()} total`
+                  : "Loading counts…"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => void loadAllocationSummary()}
+                >
+                  {busyKey === "allocation-summary" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Refreshing...
+                    </>
+                  ) : (
+                    "Refresh"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isBusy || !allocationSummary}
+                  onClick={() => void exportAllocationSummaryCsv()}
+                >
+                  {busyKey === "allocation-summary-export" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download aria-hidden />
+                      Export CSV
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+            {allocationSummary && allocationSummary.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No allocated contacts yet.
+              </p>
+            ) : null}
+            {allocationSummary && allocationSummary.rows.length > 0 ? (
+              <div className="max-h-[28rem] overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Merchant</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Allocated
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {allocationSummary.rows.map((row) => (
+                      <tr key={row.merchantValue}>
+                        <td className="px-3 py-2">{row.merchantLabel}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.count.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-muted/30">
+                      <td className="px-3 py-2 text-muted-foreground">
+                        Unallocated
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {allocationSummary.unallocatedCount.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

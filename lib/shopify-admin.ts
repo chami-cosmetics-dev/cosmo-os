@@ -1,6 +1,17 @@
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
+import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 
 const SHOPIFY_API_VERSION = "2024-10";
+
+/** Shop subdomain only (e.g. `my-shop` from `my-shop.myshopify.com`). */
+export function normalizeShopifyStoreHandle(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\.myshopify\.com.*$/, "")
+    .replace(/\/$/, "");
+}
 
 export const VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE =
   "You can't cancel this order in Vault OS. Cancel the order in Shopify. Vault will update when Shopify sends the cancellation.";
@@ -86,48 +97,103 @@ async function shopifyAdminJson<T>(
   return { ok: res.ok, status: res.status, data, text };
 }
 
+export type ShopifyLoyaltyTagResult = {
+  ok: boolean;
+  error?: string;
+};
+
 export async function applyShopifyLoyaltyTag(input: {
   storeHandle: string;
   shopifyCustomerId: string;
   tier: "gold" | "platinum";
-}): Promise<boolean> {
+}): Promise<ShopifyLoyaltyTagResult> {
   try {
+    const storeHandle = normalizeShopifyStoreHandle(input.storeHandle);
+    if (!storeHandle) return { ok: false, error: "invalid store handle" };
     const id = input.shopifyCustomerId.replace(/\D/g, "");
-    if (!id) return false;
+    if (!id) return { ok: false, error: "invalid customer id" };
     const got = await shopifyAdminJson<{ customer?: { id: number; tags?: string } }>(
-      input.storeHandle,
+      storeHandle,
       `/customers/${id}.json`
     );
-    if (!got.ok || !got.data?.customer) return false;
+    if (!got.ok || !got.data?.customer) {
+      return {
+        ok: false,
+        error: `customer fetch failed (${got.status})${got.text ? `: ${got.text.slice(0, 160)}` : ""}`,
+      };
+    }
     const tags = mergeShopifyLoyaltyTags(got.data.customer.tags, input.tier);
     const put = await shopifyAdminJson(
-      input.storeHandle,
+      storeHandle,
       `/customers/${id}.json`,
       {
         method: "PUT",
         body: JSON.stringify({ customer: { id: Number(id), tags } }),
       }
     );
-    return put.ok;
-  } catch {
-    return false;
+    if (!put.ok) {
+      return {
+        ok: false,
+        error: `tag update failed (${put.status})${put.text ? `: ${put.text.slice(0, 160)}` : ""}`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "tag update failed",
+    };
   }
 }
 
+async function searchShopifyCustomersByQuery(
+  storeHandle: string,
+  query: string
+): Promise<string | null> {
+  const q = query.trim();
+  if (!q) return null;
+  const got = await shopifyAdminJson<{ customers?: Array<{ id: number }> }>(
+    storeHandle,
+    `/customers/search.json?query=${encodeURIComponent(q)}`
+  );
+  const id = got.data?.customers?.[0]?.id;
+  return id != null ? String(id) : null;
+}
+
+/**
+ * Find Shopify customer by email and/or phone.
+ * Tries email alone, then phone variants (Shopify search is format-picky).
+ */
 export async function searchShopifyCustomerId(input: {
   storeHandle: string;
   phone?: string | null;
   email?: string | null;
 }): Promise<string | null> {
-  const parts: string[] = [];
-  if (input.email?.trim()) parts.push(`email:${input.email.trim()}`);
-  if (input.phone?.trim()) parts.push(`phone:${input.phone.trim()}`);
-  if (parts.length === 0) return null;
-  const query = encodeURIComponent(parts.join(" OR "));
-  const got = await shopifyAdminJson<{ customers?: Array<{ id: number }> }>(
-    input.storeHandle,
-    `/customers/search.json?query=${query}`
-  );
-  const id = got.data?.customers?.[0]?.id;
-  return id != null ? String(id) : null;
+  const storeHandle = normalizeShopifyStoreHandle(input.storeHandle);
+  if (!storeHandle) return null;
+
+  const email = input.email?.trim();
+  if (email) {
+    const byEmail = await searchShopifyCustomersByQuery(storeHandle, `email:${email}`);
+    if (byEmail) return byEmail;
+  }
+
+  const phone = input.phone?.trim();
+  if (!phone) return null;
+
+  // Prefer E.164-ish forms first — Shopify usually stores +94…
+  const variants = buildPhoneLookupVariants(phone);
+  const ranked = [
+    ...variants.filter((v) => v.startsWith("+")),
+    ...variants.filter((v) => !v.startsWith("+")),
+  ].slice(0, 10);
+
+  for (const variant of ranked) {
+    const byPhone = await searchShopifyCustomersByQuery(
+      storeHandle,
+      `phone:${variant}`
+    );
+    if (byPhone) return byPhone;
+  }
+  return null;
 }
