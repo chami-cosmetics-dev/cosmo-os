@@ -13,8 +13,9 @@ import type {
   SalesHistoryDto,
   TodaySalesDto,
 } from "@/lib/merchant-dashboard/motivation-types";
-import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
+import { buildPeerBoard, type PeerBoardInputRow } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
+import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
 import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboard-birthdays";
 import { fetchMerchantLoyaltyOutreach } from "@/lib/page-data/merchant-dashboard-loyalty";
@@ -682,7 +683,7 @@ export async function getMerchantDashboardPageData(input: {
     rangeToYmd: chartRangeToYmd,
     loyaltyOutreach,
     callCenterPerformance: callCenterRaw.map((row) => ({
-      merchantName: row.merchantName ?? "Unknown",
+      merchantName: normalizeDashboardMerchantLabel(row.merchantName),
       category: row.category ?? "N/A",
       count: Number(row.count),
     })),
