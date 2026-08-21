@@ -16,6 +16,7 @@ function emptyCohort(
       ["loc1", "Colombo"],
       ["loc2", "Kandy"],
     ]),
+    dmBucketId: null,
   };
 }
 

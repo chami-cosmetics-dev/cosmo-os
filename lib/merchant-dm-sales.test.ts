@@ -104,10 +104,10 @@ describe("classifyMerchantSalesBucket", () => {
 });
 
 describe("resolveCohortMerchantId", () => {
-  it("routes no-MER orders to the DM merchant", () => {
+  it("routes no-MER orders to the DM bucket", () => {
     const couponToMerchantId = new Map([
       ["mer91", "u-sandali"],
-      ["mer115", "u-sandali"],
+      ["mer115", "__dm_general__"],
     ]);
     expect(
       resolveCohortMerchantId({
@@ -115,7 +115,39 @@ describe("resolveCohortMerchantId", () => {
         couponToMerchantId,
         assignedMerchantId: null,
         cohortIds: new Set(["u-sandali", "u-other"]),
-        dmMerchantId: "u-sandali",
+        dmBucketId: "__dm_general__",
+      }),
+    ).toBe("__dm_general__");
+  });
+
+  it("routes DM MER codes to the DM bucket", () => {
+    const couponToMerchantId = new Map([
+      ["mer91", "u-sandali"],
+      ["mer115", "__dm_general__"],
+    ]);
+    expect(
+      resolveCohortMerchantId({
+        orderCoupons: ["mer115"],
+        couponToMerchantId,
+        assignedMerchantId: null,
+        cohortIds: new Set(["u-sandali"]),
+        dmBucketId: "__dm_general__",
+      }),
+    ).toBe("__dm_general__");
+  });
+
+  it("keeps personal MER on the merchant user", () => {
+    const couponToMerchantId = new Map([
+      ["mer91", "u-sandali"],
+      ["mer115", "__dm_general__"],
+    ]);
+    expect(
+      resolveCohortMerchantId({
+        orderCoupons: ["mer91"],
+        couponToMerchantId,
+        assignedMerchantId: null,
+        cohortIds: new Set(["u-sandali"]),
+        dmBucketId: "__dm_general__",
       }),
     ).toBe("u-sandali");
   });

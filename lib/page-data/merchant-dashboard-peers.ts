@@ -7,6 +7,8 @@ import type { LocationShareRow } from "@/lib/merchant-dashboard/motivation-types
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
+  DM_GENERAL_COHORT_ID,
+  DM_GENERAL_DISPLAY_NAME,
   parseOrderCouponList,
   resolveCohortMerchantId,
   splitMerchantCouponSets,
@@ -34,7 +36,22 @@ export type CohortSalesResult = {
   toYmd: string;
   byMerchant: Map<string, CohortMerchantTotals>;
   locationNames: Map<string, string>;
+  /** Synthetic DM-General id when a cohort merchant holds DM MER codes. */
+  dmBucketId: string | null;
 };
+
+function emptyMerchantTotals(
+  merchantId: string,
+  displayName: string,
+): CohortMerchantTotals {
+  return {
+    merchantId,
+    displayName,
+    total: 0,
+    orderCount: 0,
+    byLocation: new Map(),
+  };
+}
 
 function parseDayStartUtc(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000+05:30`);
@@ -50,8 +67,8 @@ function sharePct(part: number, whole: number): number | null {
 }
 
 /**
- * Single order pass attributing each eligible order to at most one cohort merchant
- * (coupon match first, else assignedMerchantId if in cohort).
+ * Single order pass attributing each eligible order to at most one cohort row
+ * (personal MER → merchant; DM MER / no MER → synthetic DM-General when present).
  */
 export async function fetchMerchantCohortSales(
   companyId: string,
@@ -68,32 +85,40 @@ export async function fetchMerchantCohortSales(
 
   const byMerchant = new Map<string, CohortMerchantTotals>();
   for (const m of merchants) {
-    byMerchant.set(m.id, {
-      merchantId: m.id,
-      displayName: m.displayName,
-      total: 0,
-      orderCount: 0,
-      byLocation: new Map(),
-    });
+    byMerchant.set(m.id, emptyMerchantTotals(m.id, m.displayName));
   }
 
   const locationNames = new Map<string, string>();
   if (fromDate > toDate || merchants.length === 0) {
-    return { fromYmd: params.fromYmd, toYmd: params.toYmd, byMerchant, locationNames };
+    return {
+      fromYmd: params.fromYmd,
+      toYmd: params.toYmd,
+      byMerchant,
+      locationNames,
+      dmBucketId: null,
+    };
   }
 
   const couponToMerchantId = new Map<string, string>();
   const cohortIds = new Set(merchants.map((m) => m.id));
-  let dmMerchantId: string | null = null;
+  let hasDmHolder = false;
   for (const m of merchants) {
     const sets = splitMerchantCouponSets(m.couponCodes);
-    if (sets.hasDm && !dmMerchantId) dmMerchantId = m.id;
+    if (sets.hasDm) hasDmHolder = true;
     for (const code of m.couponCodes) {
       const key = code.trim().toLowerCase();
-      if (key && !couponToMerchantId.has(key)) {
-        couponToMerchantId.set(key, m.id);
-      }
+      if (!key || couponToMerchantId.has(key)) continue;
+      // DM codes → synthetic bucket so peer graphs show DM-General separately.
+      couponToMerchantId.set(key, sets.dm.has(key) ? DM_GENERAL_COHORT_ID : m.id);
     }
+  }
+
+  const dmBucketId = hasDmHolder ? DM_GENERAL_COHORT_ID : null;
+  if (dmBucketId) {
+    byMerchant.set(
+      dmBucketId,
+      emptyMerchantTotals(dmBucketId, DM_GENERAL_DISPLAY_NAME),
+    );
   }
 
   const dateFilter = buildDashboardSalesDateFilter({
@@ -149,7 +174,7 @@ export async function fetchMerchantCohortSales(
       couponToMerchantId,
       assignedMerchantId: order.assignedMerchantId,
       cohortIds,
-      dmMerchantId,
+      dmBucketId,
     });
     if (!merchantId) continue;
 
@@ -184,6 +209,7 @@ export async function fetchMerchantCohortSales(
     toYmd: params.toYmd,
     byMerchant,
     locationNames,
+    dmBucketId,
   };
 }
 
