@@ -125,6 +125,7 @@ export async function GET(request: NextRequest) {
     "loyalty_tier",
     "loyalty_code",
     "last_purchased_date",
+    "last_contacted_date",
     ...(includeBrand ? (["brand_spend"] as const) : []),
     ...(includeItem ? (["item_spend"] as const) : []),
   ] as const;
@@ -139,6 +140,9 @@ export async function GET(request: NextRequest) {
     loyalty_code: row.loyalty.code ?? "",
     last_purchased_date: row.lastPurchaseAt
       ? formatIsoDate(new Date(row.lastPurchaseAt))
+      : "",
+    last_contacted_date: row.lastContactedAt
+      ? formatIsoDate(new Date(row.lastContactedAt))
       : "",
     ...(includeBrand
       ? { brand_spend: (row.brandSpend ?? 0).toFixed(2) }

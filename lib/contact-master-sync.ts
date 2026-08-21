@@ -187,6 +187,22 @@ function pickPhoneMatchForIdentity(phoneMatches: IdentityContact[], phoneNumber:
   return null;
 }
 
+/**
+ * lastPurchaseAt is phone-keyed only. Shared checkout emails must never bump
+ * purchase dates on unrelated contacts that happen to share that email.
+ */
+function canUpdateLastPurchaseAt(input: {
+  phoneNumber: string | null;
+  phoneMatchedContactId: string | null;
+  contactId: string;
+  currentLastPurchaseAt: Date | null;
+  occurredAt: Date;
+}) {
+  if (!input.phoneNumber || !input.phoneMatchedContactId) return false;
+  if (input.phoneMatchedContactId !== input.contactId) return false;
+  return !input.currentLastPurchaseAt || input.occurredAt > input.currentLastPurchaseAt;
+}
+
 async function updatePurchaseSnapshotForContacts(input: {
   contactIds: string[];
   occurredAt: Date;
@@ -401,7 +417,8 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
-          lastPurchaseAt: input.occurredAt,
+          // Phone-only: email-only creates must not invent a purchase date.
+          ...(phoneNumber ? { lastPurchaseAt: input.occurredAt } : {}),
           ...(source ? { source } : {}),
         },
         select: { id: true },
@@ -427,7 +444,15 @@ async function syncContactMasterPrimaryOnly(input: SyncContactMasterInput): Prom
   if (isBlank(matchedContact.phoneNumber) && phoneNumber) updateData.phoneNumber = phoneNumber;
   if (isBlank(matchedContact.recentMerchant) && recentMerchant) updateData.recentMerchant = recentMerchant;
   if (isBlank(matchedContact.source) && source) updateData.source = source;
-  if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
+  if (
+    canUpdateLastPurchaseAt({
+      phoneNumber,
+      phoneMatchedContactId: phoneMatch?.id ?? null,
+      contactId: matchedContact.id,
+      currentLastPurchaseAt: matchedContact.lastPurchaseAt,
+      occurredAt: input.occurredAt,
+    })
+  ) {
     updateData.lastPurchaseAt = input.occurredAt;
   }
   const autoAssigned = resolveAutoAllocateMerchant({
@@ -470,10 +495,8 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   const { emailMatches, phoneMatches } = await findMatchingContacts(input.companyId, email, phoneNumber);
 
   if (shouldHardConflictOnDuplicates(emailMatches, phoneMatches, phoneNumber)) {
-    const purchaseSnapshotContactIds = [
-      ...emailMatches.map((contact) => contact.id),
-      ...phoneMatches.map((contact) => contact.id),
-    ];
+    // Phone-only snapshot: never fan-out lastPurchaseAt across shared-email matches.
+    const purchaseSnapshotContactIds = phoneMatches.map((contact) => contact.id);
     const purchaseSnapshotUpdatedCount = await updatePurchaseSnapshotForContacts({
       contactIds: purchaseSnapshotContactIds,
       occurredAt: input.occurredAt,
@@ -556,7 +579,8 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
           phoneNumber,
           recentMerchant,
           ...(autoAssigned ? { assignedMerchant: autoAssigned } : {}),
-          lastPurchaseAt: input.occurredAt,
+          // Phone-only: email-only creates must not invent a purchase date.
+          ...(phoneNumber ? { lastPurchaseAt: input.occurredAt } : {}),
           ...(source ? { source } : {}),
         },
         select: {
@@ -646,7 +670,15 @@ export async function syncContactMaster(input: SyncContactMasterInput): Promise<
   if (isBlank(matchedContact.source) && source) {
     updateData.source = source;
   }
-  if (!matchedContact.lastPurchaseAt || input.occurredAt > matchedContact.lastPurchaseAt) {
+  if (
+    canUpdateLastPurchaseAt({
+      phoneNumber,
+      phoneMatchedContactId: phoneMatch?.id ?? null,
+      contactId: matchedContact.id,
+      currentLastPurchaseAt: matchedContact.lastPurchaseAt,
+      occurredAt: input.occurredAt,
+    })
+  ) {
     updateData.lastPurchaseAt = input.occurredAt;
   }
   const autoAssigned = resolveAutoAllocateMerchant({

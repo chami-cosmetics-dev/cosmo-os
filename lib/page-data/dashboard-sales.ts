@@ -6,6 +6,7 @@ import {
   matchMerchantFromCouponMap,
   resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
+import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
 import {
@@ -536,6 +537,7 @@ export async function fetchDashboardSalesByLocationMerchant(
       merchantId = fallback.id;
       merchantName = fallback.name;
     }
+    merchantName = normalizeDashboardMerchantLabel(merchantName);
 
     const merchantKey = merchantId ?? `__${merchantName.toLowerCase()}`;
     const existing = merchantMap.get(merchantKey);

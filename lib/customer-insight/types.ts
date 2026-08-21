@@ -190,6 +190,8 @@ export type AllocatedFilterItemDto = {
   assignedMerchant: string | null;
   /** ContactMaster.lastPurchaseAt ISO timestamp, or null. */
   lastPurchaseAt: string | null;
+  /** Latest non-allocation ContactAllocationUpdate ISO timestamp, or null. */
+  lastContactedAt: string | null;
 };
 
 export type AllocatedFilterResultDto = {

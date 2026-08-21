@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
 
+import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import {
   buildCouponToMerchantMap,
   matchMerchantFromCouponMap,
   resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
+
+describe("normalizeDashboardMerchantLabel", () => {
+  it("maps Unknown / blank / DM General to DM-General", () => {
+    expect(normalizeDashboardMerchantLabel("Unknown")).toBe("DM-General");
+    expect(normalizeDashboardMerchantLabel("unknown")).toBe("DM-General");
+    expect(normalizeDashboardMerchantLabel("")).toBe("DM-General");
+    expect(normalizeDashboardMerchantLabel(null)).toBe("DM-General");
+    expect(normalizeDashboardMerchantLabel("DM General")).toBe("DM-General");
+    expect(normalizeDashboardMerchantLabel("Unassigned")).toBe("DM-General");
+  });
+
+  it("keeps real merchant names", () => {
+    expect(normalizeDashboardMerchantLabel("sandali")).toBe("sandali");
+  });
+});
 
 describe("buildCouponToMerchantMap DM split", () => {
   it("maps personal MER to merchant and DM codes to DM-General", () => {
