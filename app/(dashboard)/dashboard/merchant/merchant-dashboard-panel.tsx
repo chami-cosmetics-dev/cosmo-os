@@ -9,6 +9,9 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
+  Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -73,18 +76,23 @@ function MerchantChartTooltip({
       {label ? (
         <p className="mb-1.5 font-semibold text-foreground">{label}</p>
       ) : null}
-      {payload.map((entry) => (
-        <div key={String(entry.dataKey)} className="flex items-center gap-2 py-0.5">
-          <span
-            className="inline-block size-2 shrink-0 rounded-[2px]"
-            style={{ backgroundColor: entry.color ?? "#14b8a6" }}
-          />
-          <span className="text-muted-foreground">{entry.name}:</span>
-          <span className="font-medium tabular-nums text-foreground">
-            {formatMoney(Number(entry.value ?? 0))}
-          </span>
-        </div>
-      ))}
+      {payload.map((entry) => {
+        const key = String(entry.dataKey ?? "");
+        const isCalls = key === "calls" || key === "callCount";
+        const value = Number(entry.value ?? 0);
+        return (
+          <div key={key || String(entry.name)} className="flex items-center gap-2 py-0.5">
+            <span
+              className="inline-block size-2 shrink-0 rounded-[2px]"
+              style={{ backgroundColor: entry.color ?? "#14b8a6" }}
+            />
+            <span className="text-muted-foreground">{entry.name}:</span>
+            <span className="font-medium tabular-nums text-foreground">
+              {isCalls ? `${Math.round(value)} calls` : formatMoney(value)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -138,6 +146,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [showAllToday, setShowAllToday] = useState(false);
   const [showAllLifetime, setShowAllLifetime] = useState(false);
   const [peerPeriod, setPeerPeriod] = useState<"today" | "mtd">("today");
+  const [dailyHistoryChartType, setDailyHistoryChartType] = useState<
+    "bar" | "line"
+  >("bar");
   const [locationSharePeriod, setLocationSharePeriod] = useState<"today" | "mtd">(
     "mtd",
   );
@@ -440,7 +451,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         ? SELF_SHARE_COLOR
         : PIE_COLORS[(i + 1) % PIE_COLORS.length],
     }));
-  const peerPodium = activePeerBoard.entries.slice(0, 3);
+  const peerPodium = activePeerBoard.entries
+    .filter((entry) => !entry.excludeFromRace)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 3);
   const peerBarHeight = Math.max(180, peerBarChart.length * 34);
   const activeLocationShare =
     locationSharePeriod === "today"
@@ -449,7 +463,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const dailyHistoryChart = data.salesHistory.daily.map((row) => ({
     name: row.ymd.slice(8),
     sales: row.total,
+    calls: row.callCount,
   }));
+  const dailyHistoryHasData = data.salesHistory.daily.some(
+    (d) => d.total > 0 || d.callCount > 0,
+  );
 
   return (
     <div className="space-y-6">
@@ -1351,24 +1369,121 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-base">Daily sales history</CardTitle>
-            <p className="text-muted-foreground text-xs">
-              Current month through today (Asia/Colombo).
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="space-y-1">
+                <CardTitle className="text-base">Daily sales &amp; calls</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Current month through today (Asia/Colombo). Calls = insight /
+                  call-center updates that day.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={dailyHistoryChartType === "bar" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => setDailyHistoryChartType("bar")}
+                >
+                  Bar
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={dailyHistoryChartType === "line" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => setDailyHistoryChartType("line")}
+                >
+                  Line
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {data.salesHistory.daily.every((d) => d.total === 0) ? (
-              <p className="text-muted-foreground text-sm">No sales this month yet.</p>
+            {!dailyHistoryHasData ? (
+              <p className="text-muted-foreground text-sm">
+                No sales or calls this month yet.
+              </p>
             ) : (
               <div className="h-56 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dailyHistoryChart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
-                    <Tooltip content={<MerchantChartTooltip />} />
-                    <Bar dataKey="sales" name="Sales" fill="#0d9488" radius={[3, 3, 0, 0]} />
-                  </BarChart>
+                  {dailyHistoryChartType === "bar" ? (
+                    <BarChart
+                      data={dailyHistoryChart}
+                      margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis
+                        yAxisId="sales"
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
+                      />
+                      <YAxis
+                        yAxisId="calls"
+                        orientation="right"
+                        tick={{ fontSize: 10 }}
+                        allowDecimals={false}
+                      />
+                      <Tooltip content={<MerchantChartTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar
+                        yAxisId="sales"
+                        dataKey="sales"
+                        name="Sales"
+                        fill="#0d9488"
+                        radius={[3, 3, 0, 0]}
+                      />
+                      <Bar
+                        yAxisId="calls"
+                        dataKey="calls"
+                        name="Calls"
+                        fill="#6366f1"
+                        radius={[3, 3, 0, 0]}
+                      />
+                    </BarChart>
+                  ) : (
+                    <LineChart
+                      data={dailyHistoryChart}
+                      margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis
+                        yAxisId="sales"
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
+                      />
+                      <YAxis
+                        yAxisId="calls"
+                        orientation="right"
+                        tick={{ fontSize: 10 }}
+                        allowDecimals={false}
+                      />
+                      <Tooltip content={<MerchantChartTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line
+                        yAxisId="sales"
+                        type="monotone"
+                        dataKey="sales"
+                        name="Sales"
+                        stroke="#0d9488"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                        activeDot={{ r: 4 }}
+                      />
+                      <Line
+                        yAxisId="calls"
+                        type="monotone"
+                        dataKey="calls"
+                        name="Calls"
+                        stroke="#6366f1"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                        activeDot={{ r: 4 }}
+                      />
+                    </LineChart>
+                  )}
                 </ResponsiveContainer>
               </div>
             )}

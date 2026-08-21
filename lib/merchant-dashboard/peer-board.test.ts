@@ -103,4 +103,39 @@ describe("buildPeerBoard", () => {
     expect(board.peerBand).toBe("solo");
     expect(board.entries).toHaveLength(1);
   });
+
+  it("keeps DM sales on board but ranks race without DM", () => {
+    const board = buildPeerBoard(
+      [
+        {
+          merchantId: "__dm_general__",
+          displayName: "DM-General",
+          total: 900,
+          orderCount: 9,
+          excludeFromRace: true,
+        },
+        { merchantId: "a", displayName: "Ada", total: 300, orderCount: 3 },
+        { merchantId: "b", displayName: "Bea", total: 200, orderCount: 2 },
+      ],
+      {
+        period: "today",
+        fromYmd: "2026-08-11",
+        toYmd: "2026-08-11",
+        viewedMerchantId: "b",
+        alwaysIncludeMerchantIds: ["__dm_general__"],
+        cheerMessageForBand: (band) => cheer(band),
+      },
+    );
+
+    expect(board.viewedRank).toBe(2);
+    expect(board.leaderTotal).toBe(300);
+    expect(board.gapToLeader).toBe(100);
+    expect(board.entries.some((e) => e.merchantId === "__dm_general__")).toBe(
+      true,
+    );
+    expect(
+      board.entries.find((e) => e.merchantId === "__dm_general__")?.excludeFromRace,
+    ).toBe(true);
+    expect(board.entries.find((e) => e.merchantId === "a")?.rank).toBe(1);
+  });
 });

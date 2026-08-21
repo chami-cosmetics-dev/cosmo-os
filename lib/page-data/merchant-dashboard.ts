@@ -488,9 +488,9 @@ export async function getMerchantDashboardPageData(input: {
     dmOrderCount: todaySalesSplit.dmOrderCount,
   };
 
-  // Real merchants only — DM-General is a sales bucket, not a peer on the race board.
-  const peerBoardRows = (cohort: typeof mtdCohort) =>
-    merchants.map((m) => {
+  // Merchants race on podium; DM-General still on share/ranked sales charts.
+  const peerBoardRows = (cohort: typeof mtdCohort) => {
+    const rows = merchants.map((m) => {
       const row = cohort.byMerchant.get(m.id);
       return {
         merchantId: m.id,
@@ -499,6 +499,18 @@ export async function getMerchantDashboardPageData(input: {
         orderCount: row?.orderCount ?? 0,
       };
     });
+    if (cohort.dmBucketId) {
+      const dm = cohort.byMerchant.get(cohort.dmBucketId);
+      rows.push({
+        merchantId: cohort.dmBucketId,
+        displayName: dm?.displayName ?? "DM-General",
+        total: dm?.total ?? 0,
+        orderCount: dm?.orderCount ?? 0,
+        excludeFromRace: true,
+      });
+    }
+    return rows;
+  };
 
   const peerBoards: PeerBoardsDto = {
     today: buildPeerBoard(peerBoardRows(todayCohort), {
@@ -506,6 +518,9 @@ export async function getMerchantDashboardPageData(input: {
       fromYmd: todayYmd,
       toYmd: todayYmd,
       viewedMerchantId: selectedMerchantId,
+      alwaysIncludeMerchantIds: todayCohort.dmBucketId
+        ? [todayCohort.dmBucketId]
+        : undefined,
       cheerMessageForBand: getMerchantPeerCheerMessage,
     }),
     mtd: buildPeerBoard(peerBoardRows(mtdCohort), {
@@ -513,6 +528,9 @@ export async function getMerchantDashboardPageData(input: {
       fromYmd,
       toYmd: rangeToYmd,
       viewedMerchantId: selectedMerchantId,
+      alwaysIncludeMerchantIds: mtdCohort.dmBucketId
+        ? [mtdCohort.dmBucketId]
+        : undefined,
       cheerMessageForBand: getMerchantPeerCheerMessage,
     }),
   };
