@@ -8,6 +8,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Label,
   LabelList,
   Legend,
   Line,
@@ -15,6 +16,7 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
+  Sector,
   Tooltip,
   XAxis,
   YAxis,
@@ -22,6 +24,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { type ChartConfig, ChartContainer } from "@/components/ui/chart";
 import {
   Dialog,
   DialogContent,
@@ -130,6 +133,59 @@ const OTHERS_SHARE_COLOR = "#64748b";
 /** Preview size for ranked customer lists; View more reveals the rest. */
 const TOP_CUSTOMERS_PREVIEW = 5;
 
+function renderActiveCohortDonutShape(props: {
+  cx?: number;
+  cy?: number;
+  innerRadius?: number;
+  outerRadius?: number;
+  startAngle?: number;
+  endAngle?: number;
+  fill?: string;
+  midAngle?: number;
+}) {
+  const {
+    cx = 0,
+    cy = 0,
+    innerRadius = 90,
+    outerRadius = 118,
+    startAngle = 0,
+    endAngle = 0,
+    fill,
+    midAngle = 0,
+  } = props;
+
+  const sweepAngle = Math.abs(endAngle - startAngle);
+  const isFullCircle = sweepAngle >= 359;
+  const radians = (-midAngle * Math.PI) / 180;
+  const offsetDistance = isFullCircle ? 0 : 12;
+  const offsetX = Math.cos(radians) * offsetDistance;
+  const offsetY = Math.sin(radians) * offsetDistance;
+
+  return (
+    <g>
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 6}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+      />
+      <Sector
+        cx={cx + offsetX}
+        cy={cy + offsetY}
+        innerRadius={outerRadius + 10}
+        outerRadius={outerRadius + 16}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        opacity={0.3}
+      />
+    </g>
+  );
+}
+
 type Props = {
   initialData: MerchantDashboardPageData;
 };
@@ -146,12 +202,17 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [showAllToday, setShowAllToday] = useState(false);
   const [showAllLifetime, setShowAllLifetime] = useState(false);
   const [peerPeriod, setPeerPeriod] = useState<"today" | "mtd">("today");
+  const [cohortPieActiveIndex, setCohortPieActiveIndex] = useState<number | null>(
+    null,
+  );
   const [dailyHistoryChartType, setDailyHistoryChartType] = useState<
     "bar" | "line"
   >("bar");
   const [locationSharePeriod, setLocationSharePeriod] = useState<"today" | "mtd">(
     "mtd",
   );
+  /** Empty = hide charts until user picks a location. */
+  const [locationShareId, setLocationShareId] = useState<string>("");
   const [wishContact, setWishContact] = useState<
     MerchantDashboardPageData["nearestBirthdays"][number] | null
   >(null);
@@ -194,6 +255,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     setDailyInvoices(initialData.dailyInvoices);
     setDailyInvoicesTotal(initialData.dailyInvoicesTotal);
     setDailyInvoicesOrderCount(initialData.dailyInvoicesOrderCount);
+    setLocationShareId("");
   }, [initialData]);
 
   async function reload(
@@ -420,50 +482,89 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     value: row.total,
     fill: PIE_COLORS[i % PIE_COLORS.length],
   }));
-  const overviewRows = [...(data.overview ?? [])].sort(
+  const overviewRows = [...(data.overview ?? [])].sort((a, b) => {
+    const aHasTarget = a.targetAmount != null && a.targetAmount > 0;
+    const bHasTarget = b.targetAmount != null && b.targetAmount > 0;
+    const aRate = aHasTarget ? a.mtdSales / (a.targetAmount as number) : -1;
+    const bRate = bHasTarget ? b.mtdSales / (b.targetAmount as number) : -1;
+    if (bRate !== aRate) return bRate - aRate;
+    if (b.mtdSales !== a.mtdSales) return b.mtdSales - a.mtdSales;
+    return a.displayName.localeCompare(b.displayName);
+  });
+  const overviewChartRows = [...(data.overview ?? [])].sort(
     (a, b) => b.mtdSales - a.mtdSales,
   );
-  const maxMtd = Math.max(1, ...overviewRows.map((row) => row.mtdSales));
+  const maxOverviewSales = Math.max(
+    1,
+    ...overviewRows.map((row) => row.mtdSales),
+  );
   const hasAnyTarget = overviewRows.some(
     (row) => row.targetAmount != null && row.targetAmount > 0,
   );
-  const overviewChart = overviewRows.map((row) => ({
+  const overviewChart = overviewChartRows.map((row) => ({
     name: row.displayName,
     sales: row.mtdSales,
     ...(hasAnyTarget ? { target: row.targetAmount ?? 0 } : {}),
   }));
   const activePeerBoard =
     peerPeriod === "today" ? data.peerBoards.today : data.peerBoards.mtd;
-  const peerBarChart = activePeerBoard.entries.map((entry) => ({
+  const peerEntriesWithSales = activePeerBoard.entries.filter(
+    (entry) => entry.total > 0,
+  );
+  const peerBarChart = peerEntriesWithSales.map((entry) => ({
     name: entry.isViewed ? `${entry.displayName} (you)` : entry.displayName,
     sales: entry.total,
     orders: entry.orderCount,
     isViewed: entry.isViewed,
     fill: entry.isViewed ? SELF_SHARE_COLOR : "#64748b",
   }));
-  const peerCohortTotal = activePeerBoard.entries.reduce((s, e) => s + e.total, 0);
-  const peerSharePie = activePeerBoard.entries
-    .filter((entry) => entry.total > 0)
-    .map((entry, i) => ({
-      name: entry.isViewed ? `${entry.displayName} (you)` : entry.displayName,
-      value: entry.total,
-      pct:
-        peerCohortTotal > 0
-          ? Math.round((entry.total / peerCohortTotal) * 1000) / 10
-          : null,
-      fill: entry.isViewed
-        ? SELF_SHARE_COLOR
-        : PIE_COLORS[(i + 1) % PIE_COLORS.length],
-    }));
+  const peerCohortTotal = peerEntriesWithSales.reduce((s, e) => s + e.total, 0);
+  const peerSharePie = peerEntriesWithSales.map((entry, i) => ({
+    key: `peer-${entry.merchantId}`,
+    name: entry.isViewed ? `${entry.displayName} (you)` : entry.displayName,
+    value: entry.total,
+    pct:
+      peerCohortTotal > 0
+        ? Math.round((entry.total / peerCohortTotal) * 1000) / 10
+        : null,
+    fill: entry.isViewed
+      ? SELF_SHARE_COLOR
+      : PIE_COLORS[(i + 1) % PIE_COLORS.length],
+  }));
+  const cohortPieChartConfig = peerSharePie.reduce<ChartConfig>((config, slice) => {
+    config[slice.key] = { label: slice.name, color: slice.fill };
+    return config;
+  }, {});
+  const cohortPieFocus =
+    peerSharePie[
+      cohortPieActiveIndex == null
+        ? 0
+        : Math.min(cohortPieActiveIndex, Math.max(0, peerSharePie.length - 1))
+    ] ?? null;
   const peerPodium = activePeerBoard.entries
     .filter((entry) => !entry.excludeFromRace)
     .sort((a, b) => a.rank - b.rank)
     .slice(0, 3);
   const peerBarHeight = Math.max(180, peerBarChart.length * 34);
-  const activeLocationShare =
+  const locationShareOptions = (() => {
+    const byId = new Map<string, string>();
+    for (const row of [...data.locationShare.mtd, ...data.locationShare.today]) {
+      if (!byId.has(row.locationId)) {
+        byId.set(row.locationId, row.locationName);
+      }
+    }
+    return [...byId.entries()].map(([locationId, locationName]) => ({
+      locationId,
+      locationName,
+    }));
+  })();
+  const periodLocationShare =
     locationSharePeriod === "today"
       ? data.locationShare.today
       : data.locationShare.mtd;
+  const activeLocationShare = locationShareId
+    ? periodLocationShare.filter((loc) => loc.locationId === locationShareId)
+    : [];
   const activeCosmeticsLkBreakdown =
     locationSharePeriod === "today"
       ? data.cosmeticsLkBreakdown.today
@@ -582,7 +683,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </div>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
@@ -656,6 +757,30 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             </p>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              Return rate (MTD)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p
+              className={`text-xl font-semibold tabular-nums ${
+                (data.returns.returnRatePct ?? 0) >= 10
+                  ? "text-amber-600 dark:text-amber-400"
+                  : ""
+              }`}
+            >
+              {data.returns.returnRatePct != null
+                ? `${data.returns.returnRatePct}%`
+                : "—"}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              {data.returns.returnOrderCount} returned / {data.returns.orderCount}{" "}
+              orders
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {data.sales.hasDmSplit ? (
@@ -710,7 +835,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               size="sm"
               variant={peerPeriod === "today" ? "default" : "outline"}
               disabled={isBusy}
-              onClick={() => setPeerPeriod("today")}
+              onClick={() => {
+                setPeerPeriod("today");
+                setCohortPieActiveIndex(null);
+              }}
             >
               Today
             </Button>
@@ -719,7 +847,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               size="sm"
               variant={peerPeriod === "mtd" ? "default" : "outline"}
               disabled={isBusy}
-              onClick={() => setPeerPeriod("mtd")}
+              onClick={() => {
+                setPeerPeriod("mtd");
+                setCohortPieActiveIndex(null);
+              }}
             >
               MTD
             </Button>
@@ -773,7 +904,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               ) : null}
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="flex flex-col items-center gap-2 rounded-xl border border-border/60 p-3">
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-border/60 p-3 sm:p-4">
                   {peerSharePie.length === 0 ? (
                     <p className="text-muted-foreground py-10 text-center text-sm">
                       No sales in this cohort yet — first sale lights up the board.
@@ -783,42 +914,122 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       <p className="text-muted-foreground self-start text-xs font-medium uppercase tracking-wide">
                         Cohort share
                       </p>
-                      <div className="h-48 w-full max-w-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                      <div className="mx-auto h-[20rem] w-[20rem] max-w-full">
+                        <ChartContainer
+                          id="merchant-cohort-share-donut"
+                          config={cohortPieChartConfig}
+                          className="mx-auto aspect-square h-full w-full"
+                        >
                           <PieChart>
                             <Pie
                               data={peerSharePie}
                               dataKey="value"
-                              nameKey="name"
-                              innerRadius={44}
-                              outerRadius={74}
+                              nameKey="key"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={90}
+                              outerRadius={118}
                               paddingAngle={2}
+                              strokeWidth={0}
+                              activeIndex={cohortPieActiveIndex ?? undefined}
+                              activeShape={renderActiveCohortDonutShape}
+                              isAnimationActive
+                              animationDuration={260}
+                              onMouseEnter={(_, index) =>
+                                setCohortPieActiveIndex(index)
+                              }
+                              onMouseLeave={() => setCohortPieActiveIndex(null)}
                             >
                               {peerSharePie.map((slice) => (
-                                <Cell key={slice.name} fill={slice.fill} />
+                                <Cell key={slice.key} fill={slice.fill} />
                               ))}
+                              <Label
+                                content={({ viewBox }) => {
+                                  if (
+                                    !(
+                                      viewBox &&
+                                      "cx" in viewBox &&
+                                      "cy" in viewBox
+                                    )
+                                  ) {
+                                    return null;
+                                  }
+                                  return (
+                                    <text
+                                      x={viewBox.cx}
+                                      y={viewBox.cy}
+                                      textAnchor="middle"
+                                      dominantBaseline="middle"
+                                    >
+                                      <tspan
+                                        x={viewBox.cx}
+                                        y={(viewBox.cy || 0) - 28}
+                                        className="fill-muted-foreground text-[10px] uppercase"
+                                      >
+                                        Merchant
+                                      </tspan>
+                                      <tspan
+                                        x={viewBox.cx}
+                                        y={(viewBox.cy || 0) - 4}
+                                        className="fill-foreground text-[12px] font-semibold"
+                                      >
+                                        {cohortPieFocus?.name ?? "Hover"}
+                                      </tspan>
+                                      <tspan
+                                        x={viewBox.cx}
+                                        y={(viewBox.cy || 0) + 22}
+                                        className="fill-foreground text-[17px] font-bold"
+                                      >
+                                        {cohortPieFocus
+                                          ? formatMoney(cohortPieFocus.value)
+                                          : ""}
+                                      </tspan>
+                                      <tspan
+                                        x={viewBox.cx}
+                                        y={(viewBox.cy || 0) + 44}
+                                        className="fill-muted-foreground text-[12px] font-semibold"
+                                      >
+                                        {cohortPieFocus?.pct != null
+                                          ? `${cohortPieFocus.pct}%`
+                                          : ""}
+                                      </tspan>
+                                    </text>
+                                  );
+                                }}
+                              />
                             </Pie>
-                            <Tooltip content={<LocationSharePieTooltip />} />
                           </PieChart>
-                        </ResponsiveContainer>
+                        </ChartContainer>
                       </div>
                       <ul className="flex w-full flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
-                        {peerSharePie.map((slice) => (
-                          <li
-                            key={slice.name}
-                            className="inline-flex items-center gap-1.5"
-                          >
-                            <span
-                              className="size-2.5 shrink-0 rounded-[2px]"
-                              style={{ backgroundColor: slice.fill }}
-                              aria-hidden
-                            />
-                            <span className="text-muted-foreground max-w-[7rem] truncate">
-                              {slice.name}
-                            </span>
-                            <span className="tabular-nums text-foreground">
-                              {slice.pct != null ? `${slice.pct}%` : formatMoney(slice.value)}
-                            </span>
+                        {peerSharePie.map((slice, index) => (
+                          <li key={slice.key}>
+                            <button
+                              type="button"
+                              className={`inline-flex items-center gap-1.5 rounded px-1 py-0.5 transition-colors ${
+                                cohortPieActiveIndex === index
+                                  ? "bg-muted"
+                                  : "hover:bg-muted/60"
+                              }`}
+                              onMouseEnter={() => setCohortPieActiveIndex(index)}
+                              onMouseLeave={() => setCohortPieActiveIndex(null)}
+                              onFocus={() => setCohortPieActiveIndex(index)}
+                              onBlur={() => setCohortPieActiveIndex(null)}
+                            >
+                              <span
+                                className="size-2.5 shrink-0 rounded-[2px]"
+                                style={{ backgroundColor: slice.fill }}
+                                aria-hidden
+                              />
+                              <span className="text-muted-foreground max-w-[7rem] truncate">
+                                {slice.name}
+                              </span>
+                              <span className="tabular-nums text-foreground">
+                                {slice.pct != null
+                                  ? `${slice.pct}%`
+                                  : formatMoney(slice.value)}
+                              </span>
+                            </button>
                           </li>
                         ))}
                       </ul>
@@ -1192,11 +1403,38 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           <div className="space-y-1">
             <CardTitle className="text-base">Location share</CardTitle>
             <p className="text-muted-foreground text-xs">
-              How much of each outlet’s sales is yours vs other merchants
-              (Today / MTD). Donut = share of location total; bars = amounts.
+              Pick one outlet. Donut = share of location total; bars = amounts.
+              All merchants shown for Today / MTD.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={locationShareId || undefined}
+              onValueChange={setLocationShareId}
+              disabled={isBusy || locationShareOptions.length === 0}
+            >
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Select location" />
+              </SelectTrigger>
+              <SelectContent>
+                {locationShareOptions.map((opt) => (
+                  <SelectItem key={opt.locationId} value={opt.locationId}>
+                    {opt.locationName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {locationShareId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isBusy}
+                onClick={() => setLocationShareId("")}
+              >
+                Clear
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
@@ -1218,7 +1456,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {activeLocationShare.length === 0 ? (
+          {!locationShareId ? (
+            <p className="text-muted-foreground text-sm">
+              Select a location to load share for that outlet only.
+            </p>
+          ) : activeLocationShare.length === 0 ? (
             <p className="text-muted-foreground text-sm">
               No location sales for this period yet.
             </p>
@@ -1606,64 +1848,22 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </Card>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Return rate (MTD)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p
-              className={`text-xl font-semibold tabular-nums ${
-                (data.returns.returnRatePct ?? 0) >= 10
-                  ? "text-amber-600 dark:text-amber-400"
-                  : ""
-              }`}
-            >
-              {data.returns.returnRatePct != null
-                ? `${data.returns.returnRatePct}%`
-                : "—"}
-            </p>
-            <p className="text-muted-foreground text-xs">
-              {data.returns.returnOrderCount} returned / {data.returns.orderCount}{" "}
-              orders
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Today’s top buyer
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xl font-semibold tabular-nums">
-              {data.topCustomersToday[0]
-                ? formatMoney(data.topCustomersToday[0].total)
-                : "—"}
-            </p>
-            <p className="text-muted-foreground truncate text-xs">
-              {data.topCustomersToday[0]?.name ?? "No buyers today"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       {data.viewerIsAdmin && overviewRows.length > 0 && (
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-base">All merchants — MTD performance</CardTitle>
+            <CardTitle className="text-base">
+              All merchants — MTD performance
+            </CardTitle>
             <p className="text-muted-foreground text-xs">
               {hasAnyTarget
-                ? "Bars show progress toward each merchant’s monthly target. Click a row to open that merchant."
-                : "No targets set yet — bars compare MTD sales to the top merchant this month. Use Assign monthly target at the top after selecting a merchant."}
+                ? "Bars = sales vs target. Cards sorted by highest target completion. Click a card to open that merchant."
+                : "No targets set yet — % is share of top MTD this month. Use Assign monthly target at the top after selecting a merchant."}
             </p>
           </CardHeader>
           <CardContent className="space-y-5">
             <div
               className="w-full"
-              style={{ height: Math.max(220, overviewRows.length * 28) }}
+              style={{ height: Math.max(220, overviewChartRows.length * 28) }}
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
@@ -1671,8 +1871,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                   margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
                   layout="vertical"
                 >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    className="stroke-border"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
+                  />
                   <YAxis
                     type="category"
                     dataKey="name"
@@ -1684,31 +1892,55 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     cursor={{ fill: "rgba(148, 163, 184, 0.15)" }}
                   />
                   {hasAnyTarget && (
-                    <Bar dataKey="target" name="Target" fill="#64748b" radius={[0, 4, 4, 0]} />
+                    <Bar
+                      dataKey="target"
+                      name="Target"
+                      fill="#64748b"
+                      radius={[0, 4, 4, 0]}
+                    />
                   )}
-                  <Bar dataKey="sales" name="MTD sales" fill="#14b8a6" radius={[0, 4, 4, 0]} />
+                  <Bar
+                    dataKey="sales"
+                    name="MTD sales"
+                    fill="#14b8a6"
+                    radius={[0, 4, 4, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            <ul className="space-y-3">
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {overviewRows.map((row, index) => {
-                const hasTarget = row.targetAmount != null && row.targetAmount > 0;
+                const hasTarget =
+                  hasAnyTarget &&
+                  row.targetAmount != null &&
+                  row.targetAmount > 0;
                 const towardTarget = hasTarget
-                  ? Math.min(100, Math.round((row.mtdSales / (row.targetAmount as number)) * 1000) / 10)
+                  ? Math.min(
+                      100,
+                      Math.round(
+                        (row.mtdSales / (row.targetAmount as number)) * 1000,
+                      ) / 10,
+                    )
                   : null;
-                const relativeShare = Math.round((row.mtdSales / maxMtd) * 1000) / 10;
-                const barPct = hasTarget ? Math.min(100, towardTarget ?? 0) : relativeShare;
-                const barColor =
+                const relativeShare =
+                  Math.round((row.mtdSales / maxOverviewSales) * 1000) / 10;
+                const progressPct = hasTarget
+                  ? Math.min(100, towardTarget ?? 0)
+                  : relativeShare;
+                const ringColor =
                   hasTarget && (towardTarget ?? 0) >= 100
-                    ? "bg-emerald-500"
+                    ? "#10b981"
                     : hasTarget && (towardTarget ?? 0) >= 80
-                      ? "bg-teal-500"
+                      ? "#14b8a6"
                       : hasTarget && (towardTarget ?? 0) >= 50
-                        ? "bg-amber-500"
+                        ? "#f59e0b"
                         : hasTarget
-                          ? "bg-sky-500"
-                          : "bg-teal-500";
+                          ? "#0ea5e9"
+                          : "#14b8a6";
+                const ringR = 18;
+                const ringC = 2 * Math.PI * ringR;
+                const ringOffset = ringC * (1 - Math.min(100, progressPct) / 100);
 
                 return (
                   <li key={row.merchantId}>
@@ -1719,42 +1951,68 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         setMerchantId(row.merchantId);
                         void reload(row.merchantId);
                       }}
-                      className="hover:bg-muted/40 w-full rounded-xl border border-border/60 px-3 py-3 text-left transition-colors disabled:opacity-60"
+                      className="hover:bg-muted/50 flex h-full w-full flex-col items-center gap-2 rounded-xl border border-border/60 px-3 py-3 text-center transition-colors disabled:opacity-60"
+                      title={
+                        hasTarget
+                          ? `${towardTarget}% of target`
+                          : `${relativeShare}% of top MTD`
+                      }
                     >
-                      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="bg-muted text-muted-foreground inline-flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
-                            {index + 1}
-                          </span>
-                          <span className="truncate font-medium">{row.displayName}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm">
-                          <span className="font-semibold tabular-nums">
-                            {formatMoney(row.mtdSales)}
-                          </span>
-                          {hasTarget ? (
-                            <span className="text-muted-foreground tabular-nums">
-                              / {formatMoney(row.targetAmount as number)} ·{" "}
-                              <span className="text-foreground font-medium">
-                                {towardTarget}%
-                              </span>
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">No target</span>
-                          )}
-                        </div>
+                      <div className="flex w-full items-center justify-between gap-1">
+                        <span className="bg-muted text-muted-foreground inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums">
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+                          {row.displayName}
+                        </span>
                       </div>
-                      <div className="bg-muted h-2.5 overflow-hidden rounded-full">
-                        <div
-                          className={`h-full rounded-full transition-all ${barColor}`}
-                          style={{ width: `${barPct}%` }}
-                        />
+                      <div
+                        className="relative size-14 shrink-0"
+                        aria-hidden
+                      >
+                        <svg
+                          viewBox="0 0 44 44"
+                          className="size-14 -rotate-90"
+                        >
+                          <circle
+                            cx="22"
+                            cy="22"
+                            r={ringR}
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3.5"
+                            className="text-muted"
+                          />
+                          <circle
+                            cx="22"
+                            cy="22"
+                            r={ringR}
+                            fill="none"
+                            stroke={ringColor}
+                            strokeWidth="3.5"
+                            strokeLinecap="round"
+                            strokeDasharray={ringC}
+                            strokeDashoffset={ringOffset}
+                          />
+                        </svg>
+                        <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums">
+                          {Math.round(progressPct)}%
+                        </span>
                       </div>
-                      {!hasTarget && row.mtdSales > 0 && (
-                        <p className="text-muted-foreground mt-1.5 text-[11px]">
-                          {relativeShare}% of top MTD this month
+                      <div className="w-full space-y-0.5">
+                        <p className="truncate text-sm font-semibold tabular-nums">
+                          {formatMoney(row.mtdSales)}
                         </p>
-                      )}
+                        {hasTarget ? (
+                          <p className="text-muted-foreground truncate text-[11px] tabular-nums">
+                            / {formatMoney(row.targetAmount as number)}
+                          </p>
+                        ) : (
+                          <p className="text-muted-foreground text-[11px]">
+                            No target
+                          </p>
+                        )}
+                      </div>
                     </button>
                   </li>
                 );

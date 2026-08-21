@@ -93,7 +93,7 @@ describe("buildLocationShareRows", () => {
     expect(peerOnly?.peers[0]?.merchantId).toBe("b");
   });
 
-  it("caps peers and sorts by amount desc", () => {
+  it("lists all peers sorted by amount desc", () => {
     const byLocationSelf = new Map([
       ["loc1", { locationId: "loc1", locationName: "Colombo", total: 10, orderCount: 1 }],
     ]);
@@ -125,8 +125,8 @@ describe("buildLocationShareRows", () => {
       });
     }
 
-    const rows = buildLocationShareRows(emptyCohort(byMerchant), "self", 8);
-    expect(rows[0]?.peers).toHaveLength(8);
+    const rows = buildLocationShareRows(emptyCohort(byMerchant), "self");
+    expect(rows[0]?.peers).toHaveLength(10);
     expect(rows[0]?.peers[0]?.total).toBeGreaterThanOrEqual(rows[0]?.peers[1]?.total ?? 0);
   });
 

@@ -40,7 +40,7 @@ describe("classifyPeerBand", () => {
 describe("buildPeerBoard", () => {
   const cheer = (band: string) => `band:${band}`;
 
-  it("ranks full cohort and keeps top 10 + self outside top", () => {
+  it("ranks full cohort and keeps top 10 + self outside top when limited", () => {
     const rows = Array.from({ length: 12 }, (_, i) => ({
       merchantId: `m${i + 1}`,
       displayName: `Merchant ${String(i + 1).padStart(2, "0")}`,
@@ -64,6 +64,28 @@ describe("buildPeerBoard", () => {
     expect(board.entries[10]?.isViewed).toBe(true);
     expect(board.gapToLeader).toBe(1100);
     expect(board.peerBand).toBe("behind");
+  });
+
+  it("includes every merchant by default", () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      merchantId: `m${i + 1}`,
+      displayName: `Merchant ${String(i + 1).padStart(2, "0")}`,
+      total: 1200 - i * 100,
+      orderCount: 12 - i,
+    }));
+
+    const board = buildPeerBoard(rows, {
+      period: "mtd",
+      fromYmd: "2026-08-01",
+      toYmd: "2026-08-11",
+      viewedMerchantId: "m12",
+      cheerMessageForBand: (band) => cheer(band),
+    });
+
+    expect(board.entries).toHaveLength(12);
+    expect(board.entries.map((e) => e.merchantId)).toEqual(
+      rows.map((r) => r.merchantId),
+    );
   });
 
   it("marks viewed inside top 10 without duplicating", () => {

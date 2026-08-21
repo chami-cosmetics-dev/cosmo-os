@@ -18,6 +18,7 @@ export type BuildPeerBoardOptions = {
   fromYmd: string;
   toYmd: string;
   viewedMerchantId: string;
+  /** Cap chart rows; omit (default) to include every merchant. */
   limit?: number;
   /** Extra ids always kept on the board when outside top (e.g. DM-General sales). */
   alwaysIncludeMerchantIds?: string[];
@@ -62,8 +63,6 @@ export function buildPeerBoard(
   rows: PeerBoardInputRow[],
   options: BuildPeerBoardOptions,
 ): PeerBoard {
-  const limit = options.limit ?? 10;
-
   const raceSorted = sortBySales(rows.filter((row) => !row.excludeFromRace));
   const raceRanked = raceSorted.map((row, index) => ({
     ...row,
@@ -90,7 +89,10 @@ export function buildPeerBoard(
   });
 
   const displaySorted = sortBySales(rows);
-  const top = displaySorted.slice(0, limit);
+  const top =
+    options.limit != null && options.limit > 0
+      ? displaySorted.slice(0, options.limit)
+      : displaySorted;
   const toEntry = (row: PeerBoardInputRow, rank: number): PeerBoardEntry => ({
     rank,
     merchantId: row.merchantId,
