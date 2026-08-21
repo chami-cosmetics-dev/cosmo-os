@@ -1,9 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import {
-  applyMerchantGroup,
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
+  matchMerchantFromCouponMap,
+  resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
@@ -45,14 +46,6 @@ function parseDayStartUtc(ymd: string): Date {
 
 function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
-}
-
-function getUserDisplayName(user: {
-  knownName?: string | null;
-  name?: string | null;
-  email?: string | null;
-} | null | undefined) {
-  return user?.knownName?.trim() || user?.name?.trim() || user?.email?.trim() || null;
 }
 
 /**
@@ -170,23 +163,14 @@ export async function fetchDashboardBrandSales(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
-    for (const code of merchantCoupons) {
-      const found = couponToUser.get(code);
-      if (found) {
-        merchant = { id: found.id, name: found.name };
-        break;
-      }
-    }
-
-    if (!merchant) {
-      merchant = applyMerchantGroup(
-        {
-          id: order.assignedMerchantId,
-          name: getUserDisplayName(order.assignedMerchant) ?? "DM-General",
-        },
+    merchant =
+      matchMerchantFromCouponMap(merchantCoupons, couponToUser) ??
+      resolveAssignedMerchantDashboardFallback({
+        assignedMerchantId: order.assignedMerchantId,
+        assignedMerchant: order.assignedMerchant,
+        orderCoupons: merchantCoupons,
         userToGroup,
-      );
-    }
+      });
 
     // Process each line item
     for (const item of order.lineItems) {
