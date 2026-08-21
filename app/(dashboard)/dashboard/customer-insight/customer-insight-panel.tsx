@@ -263,6 +263,21 @@ type InsightSelectOption = {
   keywords?: string;
 };
 
+type CallQueueRow = {
+  contactId: string;
+  name: string;
+  phoneNumber: string | null;
+  assignedMerchant: string | null;
+  lifetimeTotal: number;
+  lastPurchaseAt: string | null;
+  lastContactedAt: string | null;
+  queued: boolean;
+};
+
+function formatQueueDate(value: string | null) {
+  return value ? formatAppDate(value) : "Never";
+}
+
 function normalizeSelectOptions(
   options: string[] | InsightSelectOption[]
 ): InsightSelectOption[] {
@@ -612,6 +627,13 @@ export function CustomerInsightPanel({
       missingProfileFields: string[];
     }>
   >([]);
+  const [myCallQueue, setMyCallQueue] = useState<CallQueueRow[]>([]);
+  const [queueMerchant, setQueueMerchant] = useState("");
+  const [queueCandidates, setQueueCandidates] = useState<CallQueueRow[] | null>(null);
+  const [queueCandidateTotal, setQueueCandidateTotal] = useState(0);
+  const [queueCandidatePage, setQueueCandidatePage] = useState(1);
+  const queueCandidatePageSize = 50;
+  const [queueSelectedIds, setQueueSelectedIds] = useState<string[]>([]);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
@@ -748,6 +770,85 @@ export function CustomerInsightPanel({
       cancelled = true;
     };
   }, [canExportFilteredCsv]);
+
+  async function loadMyCallQueue() {
+    try {
+      const res = await fetch("/api/admin/customer-insight/call-queue");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.items)) return;
+      setMyCallQueue(data.items as CallQueueRow[]);
+    } catch {
+      // optional
+    }
+  }
+
+  useEffect(() => {
+    void loadMyCallQueue();
+  }, []);
+
+  async function loadQueueCandidates(page = 1) {
+    if (!queueMerchant.trim()) {
+      notify.error("Select a merchant.");
+      return;
+    }
+    setBusyKey("queue-candidates");
+    try {
+      const params = new URLSearchParams();
+      params.set("assignedMerchant", queueMerchant.trim());
+      params.set("page", String(page));
+      params.set("pageSize", String(queueCandidatePageSize));
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/candidates?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load allocated contacts.");
+        return;
+      }
+      setQueueCandidates((data.items ?? []) as CallQueueRow[]);
+      setQueueCandidateTotal(data.pagination?.total ?? 0);
+      setQueueCandidatePage(data.pagination?.page ?? page);
+      setQueueSelectedIds([]);
+    } catch {
+      notify.error("Failed to load allocated contacts.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function assignSelectedToQueue() {
+    if (!queueMerchant.trim() || queueSelectedIds.length === 0) {
+      notify.error("Select contacts to assign.");
+      return;
+    }
+    setBusyKey("queue-assign");
+    try {
+      const res = await fetch("/api/admin/customer-insight/call-queue/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignedMerchant: queueMerchant.trim(),
+          contactIds: queueSelectedIds,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to assign queue.");
+        return;
+      }
+      notify.success(`Assigned ${data.assigned ?? queueSelectedIds.length} contact(s).`);
+      await loadQueueCandidates(queueCandidatePage);
+    } catch {
+      notify.error("Failed to assign queue.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function openQueueContact(contactId: string) {
+    await loadInsight(contactId, 1);
+    setEditing(true);
+  }
 
   useEffect(() => {
     if (!canManageLoyalty) return;
@@ -950,6 +1051,7 @@ export function CustomerInsightPanel({
       );
       setEditing(false);
       await loadInsight(selectedContactId, invoicePage);
+      void loadMyCallQueue();
     } catch {
       notify.error("Failed to save profile.");
     } finally {
@@ -1001,6 +1103,7 @@ export function CustomerInsightPanel({
       if (selectedContactId) {
         void loadInsight(selectedContactId, invoicePage);
       }
+      void loadMyCallQueue();
     } catch {
       notify.error("Failed to save call outcome.");
     } finally {
@@ -1360,6 +1463,213 @@ export function CustomerInsightPanel({
                 ))}
               </ul>
             )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {myCallQueue.length > 0 || !canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Call update queue</CardTitle>
+            <CardDescription>
+              Contacts admin assigned for you to call. Never/oldest contacted first. Update
+              writes Contact Master; logging a call outcome also clears the row.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {myCallQueue.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No assigned call-update contacts.</p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {myCallQueue.map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
+                        {formatQueueDate(row.lastPurchaseAt)}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isBusy}
+                      onClick={() => void openQueueContact(row.contactId)}
+                    >
+                      Update
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Assign merchant call queue</CardTitle>
+            <CardDescription>
+              Pick a merchant, load allocated customers (no recent update first, recently
+              called last), then bulk-assign to their Insight call list.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="min-w-0 flex-1 space-y-1 text-sm">
+                <span className="text-muted-foreground">Merchant</span>
+                <InsightSearchableSelect
+                  value={queueMerchant}
+                  options={merchantOptions}
+                  placeholder="Select merchant"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={(next) => {
+                    setQueueMerchant(next);
+                    setQueueCandidates(null);
+                    setQueueSelectedIds([]);
+                  }}
+                />
+              </label>
+              <Button
+                type="button"
+                disabled={isBusy || !queueMerchant}
+                onClick={() => void loadQueueCandidates(1)}
+              >
+                {busyKey === "queue-candidates" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load allocated"
+                )}
+              </Button>
+            </div>
+            {queueCandidates ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {queueCandidateTotal} allocated · oldest/never contacted first
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueCandidates.length === 0}
+                      onClick={() =>
+                        setQueueSelectedIds(
+                          queueSelectedIds.length === queueCandidates.length
+                            ? []
+                            : queueCandidates.map((row) => row.contactId)
+                        )
+                      }
+                    >
+                      {queueSelectedIds.length === queueCandidates.length
+                        ? "Clear page"
+                        : "Select page"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isBusy || queueSelectedIds.length === 0}
+                      onClick={() => void assignSelectedToQueue()}
+                    >
+                      {busyKey === "queue-assign" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Assigning...
+                        </>
+                      ) : (
+                        `Assign ${queueSelectedIds.length || ""}`.trim()
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <ul className="max-h-[28rem] divide-y overflow-auto rounded-md border">
+                  {queueCandidates.map((row) => {
+                    const checked = queueSelectedIds.includes(row.contactId);
+                    return (
+                      <li key={row.contactId}>
+                        <label className="flex cursor-pointer items-start gap-3 px-3 py-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() =>
+                              setQueueSelectedIds((prev) =>
+                                checked
+                                  ? prev.filter((id) => id !== row.contactId)
+                                  : [...prev, row.contactId]
+                              )
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium">
+                              {row.name}
+                              {row.queued ? (
+                                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                                  already queued
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="text-muted-foreground block text-xs">
+                              {row.phoneNumber ?? "No phone"} · tot{" "}
+                              {formatMoney(row.lifetimeTotal)}
+                            </span>
+                            <span className="text-muted-foreground block text-xs">
+                              Last contacted {formatQueueDate(row.lastContactedAt)} · last
+                              purchased {formatQueueDate(row.lastPurchaseAt)}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {queueCandidateTotal > queueCandidatePageSize ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueCandidatePage <= 1}
+                      onClick={() => void loadQueueCandidates(queueCandidatePage - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Page {queueCandidatePage} of{" "}
+                      {Math.max(
+                        1,
+                        Math.ceil(queueCandidateTotal / queueCandidatePageSize)
+                      )}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        isBusy ||
+                        queueCandidatePage >=
+                          Math.ceil(queueCandidateTotal / queueCandidatePageSize)
+                      }
+                      onClick={() => void loadQueueCandidates(queueCandidatePage + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

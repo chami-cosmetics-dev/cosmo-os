@@ -82,6 +82,7 @@ model Company {
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
   adaptPurchaseHistories        AdaptPurchaseHistory[]
   contactRemovedEmails          ContactRemovedEmail[]
+  contactInsightCallQueues      ContactInsightCallQueue[]
   bookNoteDays                  BookNoteDay[]
   merchantMonthlyTargets        MerchantMonthlyTarget[]
   merchantMonthlyTargetHistory  MerchantMonthlyTargetHistory[]
@@ -371,6 +372,9 @@ model User {
   merchantMonthlyTargetHistoryAssigned   MerchantMonthlyTargetHistory[] @relation("MerchantMonthlyTargetHistoryAssignedBy")
   loyaltyAssignments                     ContactMaster[]                @relation("ContactLoyaltyAssignedBy")
   contactEmailsRemoved                   ContactRemovedEmail[]          @relation("ContactRemovedEmailBy")
+  callQueueAsMerchant                    ContactInsightCallQueue[]      @relation("CallQueueMerchant")
+  callQueueAssigned                      ContactInsightCallQueue[]      @relation("CallQueueAssignedBy")
+  callQueueCompleted                     ContactInsightCallQueue[]      @relation("CallQueueCompletedBy")
 }
 
 /// Monthly sales target for a merchant-role user (Asia/Colombo calendar month).
@@ -1678,6 +1682,7 @@ model ContactMaster {
   allocationUpdates ContactAllocationUpdate[]
   adaptPurchases    AdaptPurchaseHistory[]
   removedEmails     ContactRemovedEmail[]
+  callQueueItems    ContactInsightCallQueue[]
 
   @@index([companyId, lastPurchaseAt])
   @@index([companyId, updatedAt(sort: Desc)])
@@ -1691,6 +1696,33 @@ model ContactMaster {
   @@index([companyId, city])
   @@index([companyId, loyaltyAssignedAt])
   @@index([companyId, loyaltyOutreachStatus])
+}
+
+/// Admin-assigned call-update work queue for a merchant (Insight).
+model ContactInsightCallQueue {
+  id                String    @id @default(cuid())
+  companyId         String
+  contactId         String
+  /// Same value as Insight allocated-merchant filter (e.g. MER91).
+  merchantLabel     String
+  merchantUserId    String?
+  assignedByUserId  String?
+  assignedAt        DateTime  @default(now())
+  status            String    @default("pending")
+  completedAt       DateTime?
+  completedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact           ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  merchantUser      User?     @relation("CallQueueMerchant", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  assignedBy        User?     @relation("CallQueueAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  completedBy       User?     @relation("CallQueueCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, contactId])
+  @@index([companyId, merchantLabel, status])
+  @@index([companyId, merchantUserId, status])
+  @@index([companyId, status, assignedAt])
 }
 
 model AdaptPurchaseHistory {
