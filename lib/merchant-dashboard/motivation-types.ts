@@ -29,6 +29,8 @@ export type PeerBoardEntry = {
   total: number;
   orderCount: number;
   isViewed: boolean;
+  /** Sales bucket (e.g. DM-General) — charts only, not race podium/rank. */
+  excludeFromRace?: boolean;
 };
 
 export type PeerBoard = {

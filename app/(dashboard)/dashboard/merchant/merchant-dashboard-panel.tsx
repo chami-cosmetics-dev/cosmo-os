@@ -440,7 +440,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         ? SELF_SHARE_COLOR
         : PIE_COLORS[(i + 1) % PIE_COLORS.length],
     }));
-  const peerPodium = activePeerBoard.entries.slice(0, 3);
+  const peerPodium = activePeerBoard.entries
+    .filter((entry) => !entry.excludeFromRace)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, 3);
   const peerBarHeight = Math.max(180, peerBarChart.length * 34);
   const activeLocationShare =
     locationSharePeriod === "today"
