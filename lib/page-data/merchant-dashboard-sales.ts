@@ -12,6 +12,11 @@ import { normalizeContactEmail } from "@/lib/contact-identifiers";
 import { buildPhoneLookupVariants, phoneDigitsOnly } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import {
+  classifyMerchantSalesBucket,
+  parseOrderCouponList,
+  splitMerchantCouponSets,
+} from "@/lib/merchant-dm-sales";
 
 export type MerchantSalesLocationRow = {
   locationId: string;
@@ -24,6 +29,12 @@ export type MerchantDashboardSales = {
   total: number;
   orderCount: number;
   byLocation: MerchantSalesLocationRow[];
+  /** True when this user holds a DM MER (e.g. MER115) plus personal MER. */
+  hasDmSplit: boolean;
+  merTotal: number;
+  merOrderCount: number;
+  dmTotal: number;
+  dmOrderCount: number;
 };
 
 function parseDayStartUtc(ymd: string): Date {
@@ -34,9 +45,38 @@ function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
+function emptySales(): MerchantDashboardSales {
+  return {
+    total: 0,
+    orderCount: 0,
+    byLocation: [],
+    hasDmSplit: false,
+    merTotal: 0,
+    merOrderCount: 0,
+    dmTotal: 0,
+    dmOrderCount: 0,
+  };
+}
+
+function orderTrackingCoupons(order: {
+  sourceName: string | null;
+  discountCodes: unknown;
+  rawPayload: unknown;
+}): string[] {
+  const merchantCouponCode = getMerchantCouponCode({
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    assignedMerchantCouponCodes: null,
+    joinAllDiscountCodes: true,
+  });
+  return parseOrderCouponList(merchantCouponCode);
+}
+
 /**
  * MTD (or range) sales for one merchant user.
  * Attribution: coupon match to this user, else assignedMerchantId === userId.
+ * DM MER holders also receive orders with no MER code in the DM bucket.
  * Does not collapse merchant groups so individual targets stay personal.
  */
 export async function fetchMerchantUserSales(
@@ -52,7 +92,7 @@ export async function fetchMerchantUserSales(
   const fromDate = parseDayStartUtc(params.fromYmd);
   const toDate = parseDayEndUtc(params.toYmd);
   if (fromDate > toDate) {
-    return { total: 0, orderCount: 0, byLocation: [] };
+    return emptySales();
   }
 
   const merchant = await prisma.user.findFirst({
@@ -60,12 +100,10 @@ export async function fetchMerchantUserSales(
     select: { id: true, couponCodes: true },
   });
   if (!merchant) {
-    return { total: 0, orderCount: 0, byLocation: [] };
+    return emptySales();
   }
 
-  const couponSet = new Set(
-    merchant.couponCodes.map((c) => c.trim().toLowerCase()).filter(Boolean),
-  );
+  const sets = splitMerchantCouponSets(merchant.couponCodes);
 
   const dateFilter = buildDashboardSalesDateFilter({
     fromDate,
@@ -96,9 +134,6 @@ export async function fetchMerchantUserSales(
         invoiceCompleteAt: true,
         discountCodes: true,
         rawPayload: true,
-        assignedMerchant: {
-          select: { couponCodes: true },
-        },
       },
     }),
   ]);
@@ -113,39 +148,32 @@ export async function fetchMerchantUserSales(
     });
   }
 
-  let total = 0;
-  let orderCount = 0;
+  let merTotal = 0;
+  let merOrderCount = 0;
+  let dmTotal = 0;
+  let dmOrderCount = 0;
 
   for (const order of orders) {
     if (!isDashboardSalesOrderEligible(order, dateType)) continue;
 
-    const merchantCouponCode = getMerchantCouponCode({
-      sourceName: order.sourceName,
-      discountCodes: order.discountCodes,
-      rawPayload: order.rawPayload,
-      assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
-      joinAllDiscountCodes: true,
+    const orderCoupons = orderTrackingCoupons(order);
+    const bucket = classifyMerchantSalesBucket({
+      orderCoupons,
+      personal: sets.personal,
+      dm: sets.dm,
+      hasDm: sets.hasDm,
+      assignedToViewer: order.assignedMerchantId === merchantUserId,
     });
-    const orderCoupons = (merchantCouponCode ?? "")
-      .split(",")
-      .map((c) => c.trim().toLowerCase())
-      .filter(Boolean);
-
-    let attributed = false;
-    for (const code of orderCoupons) {
-      if (couponSet.has(code)) {
-        attributed = true;
-        break;
-      }
-    }
-    if (!attributed && order.assignedMerchantId === merchantUserId) {
-      attributed = true;
-    }
-    if (!attributed) continue;
+    if (!bucket) continue;
 
     const amount = Number(order.totalPrice ?? 0);
-    total += amount;
-    orderCount += 1;
+    if (bucket === "dm") {
+      dmTotal += amount;
+      dmOrderCount += 1;
+    } else {
+      merTotal += amount;
+      merOrderCount += 1;
+    }
 
     const locRow = byLocation.get(order.companyLocationId);
     if (locRow) {
@@ -154,12 +182,20 @@ export async function fetchMerchantUserSales(
     }
   }
 
+  const total = merTotal + dmTotal;
+  const orderCount = merOrderCount + dmOrderCount;
+
   return {
     total,
     orderCount,
     byLocation: [...byLocation.values()]
       .filter((row) => row.orderCount > 0)
       .sort((a, b) => b.total - a.total),
+    hasDmSplit: sets.hasDm,
+    merTotal,
+    merOrderCount,
+    dmTotal,
+    dmOrderCount,
   };
 }
 
@@ -394,7 +430,7 @@ export type MerchantTopCustomersSplit = {
 
 /**
  * Daily top = today's buyers ranked by today's spend.
- * Lifetime top = all-time buyers ranked by distinct purchase days.
+ * Lifetime top = all-time buyers ranked by purchase value.
  * Groups by phone/email — never by order name (often an SI number).
  * Attribution matches sales cards: coupon code first, else assignedMerchantId.
  * Only includes customers allocated to this merchant on Contact Master.
@@ -506,7 +542,7 @@ export async function fetchMerchantTopCustomersBySales(
     today: aggregateTopCustomers(todayAttributed, { limit, rankBy: "total" }),
     lifetime: aggregateTopCustomers(lifetimeOrders, {
       limit,
-      rankBy: "purchaseDays",
+      rankBy: "total",
     }),
   };
 }

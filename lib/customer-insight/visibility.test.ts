@@ -94,4 +94,21 @@ describe("toLimitedInsightDto", () => {
     expect(limited.lastContactedAt).toBeUndefined();
     expect(limited.canEditProfile).toBeUndefined();
   });
+
+  it("keeps spend-based Gold/Platinum eligibility on limited search view", () => {
+    const withEligibility: CustomerInsightDto = {
+      ...sampleOwner,
+      loyaltyEligibility: {
+        suggestedTier: "platinum",
+        kind: "upgrade",
+        currentAssigned: "gold",
+      },
+    };
+    const limited = toLimitedInsightDto(withEligibility);
+    expect(limited.loyaltyEligibility).toEqual({
+      suggestedTier: "platinum",
+      kind: "upgrade",
+      currentAssigned: "gold",
+    });
+  });
 });

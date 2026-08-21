@@ -1,6 +1,7 @@
 import { cityForDisplay } from "@/lib/customer-insight/city";
 import { buildLoyaltyDto } from "@/lib/customer-insight/loyalty-tier";
 import { buildProgressBarDto } from "@/lib/customer-insight/progress-bar";
+import { pendingLoyaltySuggestion } from "@/lib/customer-insight/loyalty-outreach";
 import type {
   ContactInsightDto,
   ContactRemovedEmailDto,
@@ -97,8 +98,13 @@ export function buildCustomerInsightDto(input: {
   canEditProfile?: boolean;
   canMarkContacted?: boolean;
   loyaltyAssignment?: LoyaltyAssignmentDto | null;
+  loyaltyOutreachStatus?: CustomerInsightDto["loyaltyOutreachStatus"];
   historyScope?: HistoryScopeDto | null;
 }): CustomerInsightDto {
+  const eligibility = pendingLoyaltySuggestion(
+    input.loyaltyAssignment?.tier ?? null,
+    input.loyalty.lifetimeTotal
+  );
   const owner: CustomerInsightDto = {
     visibility: "owner",
     assignedMerchant: input.assignedMerchant,
@@ -113,6 +119,8 @@ export function buildCustomerInsightDto(input: {
     canEditProfile: input.canEditProfile ?? true,
     canMarkContacted: input.canMarkContacted ?? true,
     loyaltyAssignment: input.loyaltyAssignment ?? null,
+    loyaltyEligibility: eligibility,
+    loyaltyOutreachStatus: input.loyaltyOutreachStatus ?? null,
     invoices: input.invoices,
     invoicePagination: input.invoicePagination,
     historyScope: input.historyScope ?? null,

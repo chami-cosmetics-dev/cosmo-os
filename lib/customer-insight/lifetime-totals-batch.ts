@@ -7,8 +7,9 @@ import {
 } from "@/lib/customer-insight/lifetime-total";
 import { prisma } from "@/lib/prisma";
 
-const ORDER_LOOKUP_IN_CAP = 3_000;
+const ORDER_LOOKUP_IN_CAP = 800;
 const ADAPT_ID_CHUNK = 4_000;
+const CONTACT_BATCH = 400;
 
 export type LifetimeTotalContactInput = {
   id: string;
@@ -57,8 +58,30 @@ async function adaptTotalsByContactId(
 /**
  * Lifetime tot for many contacts in a few queries (not per-contact N+1).
  * Phone/email attribution matches single-contact insight totals.
+ * Contacts are batched so large merchant sets are not truncated by IN-list limits.
  */
 export async function lifetimeTotalsByContactId(
+  companyId: string,
+  contacts: LifetimeTotalContactInput[]
+): Promise<Map<string, number>> {
+  if (contacts.length === 0) return new Map();
+
+  if (contacts.length <= CONTACT_BATCH) {
+    return lifetimeTotalsForContactBatch(companyId, contacts);
+  }
+
+  const out = new Map<string, number>();
+  for (let i = 0; i < contacts.length; i += CONTACT_BATCH) {
+    const part = await lifetimeTotalsForContactBatch(
+      companyId,
+      contacts.slice(i, i + CONTACT_BATCH)
+    );
+    for (const [id, total] of part) out.set(id, total);
+  }
+  return out;
+}
+
+async function lifetimeTotalsForContactBatch(
   companyId: string,
   contacts: LifetimeTotalContactInput[]
 ): Promise<Map<string, number>> {

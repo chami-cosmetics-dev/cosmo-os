@@ -70,6 +70,7 @@ export async function loadCustomerInsight(input: {
       loyaltyAssignedTier: true,
       loyaltyAssignedAt: true,
       loyaltyAssignedByUserId: true,
+      loyaltyOutreachStatus: true,
       loyaltyAssignedBy: { select: { id: true, name: true, knownName: true } },
       emails: { orderBy: { createdAt: "asc" }, select: { email: true } },
       phones: { orderBy: { createdAt: "asc" }, select: { phoneNumber: true } },
@@ -332,6 +333,14 @@ export async function loadCustomerInsight(input: {
               (contact.loyaltyAssignedByUserId ? null : "ERP"),
             assignedByUserId: contact.loyaltyAssignedByUserId,
           }
+        : null,
+    loyaltyOutreachStatus:
+      contact.loyaltyOutreachStatus === "eligible" ||
+      contact.loyaltyOutreachStatus === "contacted" ||
+      contact.loyaltyOutreachStatus === "responded" ||
+      contact.loyaltyOutreachStatus === "not_responded" ||
+      contact.loyaltyOutreachStatus === "assigned"
+        ? contact.loyaltyOutreachStatus
         : null,
     historyScope: historyScopeDto,
   });

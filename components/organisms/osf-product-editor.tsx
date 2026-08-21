@@ -17,6 +17,9 @@ type ProfileItem = {
   ogfPrice: number | null;
   reorderThresholdPercent: number | null;
   rops: Record<string, number>;
+  stockPctOfRop?: number;
+  totalStock?: number;
+  totalRop?: number;
 };
 
 type Props = { canManage: boolean; canManageThreshold?: boolean };
@@ -26,6 +29,7 @@ const SEARCH_MIN_CHARS = 3;
 
 export function OsfProductEditor({ canManage, canManageThreshold = false }: Props) {
   const [q, setQ] = useState("");
+  const [maxStockPct, setMaxStockPct] = useState("");
   const [items, setItems] = useState<ProfileItem[]>([]);
   const [columns, setColumns] = useState<ColumnMeta[]>([]);
   const [selected, setSelected] = useState<ProfileItem | null>(null);
@@ -47,19 +51,35 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
       .catch(() => undefined);
   }, []);
 
-  async function runSearch(query: string) {
+  async function runSearch(query: string, pctRaw: string) {
     const trimmed = query.trim();
+    const pctTrim = pctRaw.trim();
     const seq = ++searchSeq.current;
-    if (trimmed.length < SEARCH_MIN_CHARS) {
+
+    let maxPercent: number | null = null;
+    if (pctTrim) {
+      const n = Math.floor(Number(pctTrim));
+      if (!Number.isFinite(n) || n < 1 || n > 100) {
+        notify.error("Stock below % of ROP must be 1–100 or blank");
+        return;
+      }
+      maxPercent = n;
+    }
+
+    if (maxPercent == null && trimmed.length < SEARCH_MIN_CHARS) {
       setItems([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin/osf/profiles?q=${encodeURIComponent(trimmed)}&limit=30`,
-      );
+      const url =
+        maxPercent != null
+          ? `/api/admin/osf/below-threshold?percent=${maxPercent}&limit=200${
+              trimmed ? `&q=${encodeURIComponent(trimmed)}` : ""
+            }`
+          : `/api/admin/osf/profiles?q=${encodeURIComponent(trimmed)}&limit=30`;
+      const res = await fetch(url);
       const json = await res.json();
       if (seq !== searchSeq.current) return;
       if (!res.ok) throw new Error(json.error ?? "Search failed");
@@ -74,10 +94,11 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
 
   useEffect(() => {
     const t = setTimeout(() => {
-      void runSearch(q);
+      if (maxStockPct.trim()) return;
+      void runSearch(q, maxStockPct);
     }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on q only
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on q only when no % filter
   }, [q]);
 
   function selectItem(item: ProfileItem) {
@@ -155,20 +176,39 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
       <div>
         <h3 className="font-medium">Product OSF editor</h3>
         <p className="text-sm text-muted-foreground">
-          Shop Availability, per-column ROP, OGF Price, and reorder threshold %.
+          Shop Availability, per-column ROP, OGF Price, and reorder threshold %. Enter a %
+          to list SKUs that already have ROP and whose stock is below that share of ROP.
         </p>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Input
+          className="min-w-[12rem] flex-1"
           placeholder="Type at least 3 characters (SKU or title)…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void runSearch(q);
+            if (e.key === "Enter") void runSearch(q, maxStockPct);
           }}
         />
-        <Button type="button" variant="outline" onClick={() => void runSearch(q)} disabled={loading}>
+        <Input
+          type="number"
+          min={1}
+          max={100}
+          className="w-36"
+          placeholder="Below % of ROP"
+          value={maxStockPct}
+          onChange={(e) => setMaxStockPct(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void runSearch(q, maxStockPct);
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void runSearch(q, maxStockPct)}
+          disabled={loading}
+        >
           {loading ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
           Search
         </Button>
@@ -176,8 +216,18 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="max-h-72 overflow-y-auto rounded-md border">
-          {items.length === 0 ? (
-            <p className="p-3 text-sm text-muted-foreground">Search to load catalog SKUs.</p>
+          {loading && items.length === 0 ? (
+            <p className="p-3 text-sm text-muted-foreground">
+              {maxStockPct.trim()
+                ? "Checking ERP stock against ROP…"
+                : "Searching…"}
+            </p>
+          ) : items.length === 0 ? (
+            <p className="p-3 text-sm text-muted-foreground">
+              {maxStockPct.trim()
+                ? "No SKUs with assigned ROP below that % — click Search."
+                : "Search to load catalog SKUs, or enter a % of ROP and Search."}
+            </p>
           ) : (
             <ul className="divide-y text-sm">
               {items.map((item) => (
@@ -189,7 +239,14 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
                     }`}
                     onClick={() => selectItem(item)}
                   >
-                    <div className="font-mono text-xs">{item.sku}</div>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="font-mono text-xs">{item.sku}</div>
+                      {item.stockPctOfRop != null ? (
+                        <div className="shrink-0 text-[11px] text-muted-foreground">
+                          {item.stockPctOfRop}% of ROP
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="truncate text-muted-foreground">{item.productTitle}</div>
                   </button>
                 </li>

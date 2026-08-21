@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { listContactEmails, listContactPhones } from "@/lib/contact-identifiers";
-import { buildContactOrderLookupOr } from "@/lib/contact-purchase-lookup";
-import { computeLifetimeTotal, customerLifetimeTotalOrderWhere } from "@/lib/customer-insight/lifetime-total";
-import { suggestedLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
+import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
+import { pendingLoyaltySuggestion } from "@/lib/customer-insight/loyalty-outreach";
 import { getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { loyaltyExternalTargets } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
@@ -31,7 +29,6 @@ export async function GET() {
     where: {
       companyId,
       loyaltyOutreachStatus: "responded",
-      loyaltyAssignedTier: null,
     },
     select: {
       id: true,
@@ -45,54 +42,34 @@ export async function GET() {
       birthDay: true,
       city: true,
       address: true,
+      loyaltyAssignedTier: true,
       phones: { select: { phoneNumber: true } },
+      emails: { select: { email: true } },
     },
     take: 200,
     orderBy: { updatedAt: "desc" },
   });
 
+  const lifetimeById = await lifetimeTotalsByContactId(companyId, contacts);
+
   const items = [];
   for (const c of contacts) {
-    const emails = await listContactEmails(c.id, c.email);
-    const phones = await listContactPhones(c.id, c.phoneNumber);
-    const orderLookupOr = buildContactOrderLookupOr({ phones, emails });
-    const [orders, adaptRows] = await Promise.all([
-      orderLookupOr.length > 0
-        ? prisma.order.findMany({
-            where: { companyId, OR: orderLookupOr, ...customerLifetimeTotalOrderWhere() },
-            select: {
-              totalPrice: true,
-              cancelledAt: true,
-              financialStatus: true,
-              fulfillmentStage: true,
-            },
-          })
-        : Promise.resolve([]),
-      prisma.adaptPurchaseHistory.findMany({
-        where: { contactId: c.id, companyId },
-        select: { ttlAmount: true },
-      }),
-    ]);
-    const lifetimeTotal = computeLifetimeTotal({
-      orders: orders.map((o) => ({
-        totalPrice: o.totalPrice.toString(),
-        cancelledAt: o.cancelledAt,
-        financialStatus: o.financialStatus,
-        fulfillmentStage: o.fulfillmentStage,
-      })),
-      adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
-    });
-    const suggestedTier = suggestedLoyaltyTier(lifetimeTotal);
-    const targets = suggestedTier ? loyaltyExternalTargets(suggestedTier) : null;
+    const lifetimeTotal = lifetimeById.get(c.id) ?? 0;
+    const pending = pendingLoyaltySuggestion(c.loyaltyAssignedTier, lifetimeTotal);
+    if (!pending) continue;
+
+    const targets = loyaltyExternalTargets(pending.suggestedTier);
     items.push({
       contactId: c.id,
       name: c.name,
       phoneNumber: c.phoneNumber,
       lifetimeTotal,
-      suggestedTier,
-      eligibleGroup: targets?.label ?? null,
-      erpGroup: targets?.erpGroup ?? null,
-      shopifyTag: targets?.shopifyTag ?? null,
+      suggestedTier: pending.suggestedTier,
+      suggestionKind: pending.kind,
+      currentAssignedTier: pending.currentAssigned,
+      eligibleGroup: targets.label,
+      erpGroup: targets.erpGroup,
+      shopifyTag: targets.shopifyTag,
       assignedMerchant: c.assignedMerchant,
       missingProfileFields: getLoyaltyProfileMissingFields({
         name: c.name,
@@ -108,6 +85,8 @@ export async function GET() {
       }),
     });
   }
+
+  items.sort((a, b) => b.lifetimeTotal - a.lifetimeTotal);
 
   return NextResponse.json({ items });
 }

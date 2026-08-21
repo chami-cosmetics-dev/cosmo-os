@@ -8,7 +8,7 @@ import {
   getLoyaltyProfileMissingFields,
   loyaltyProfileIncompleteMessage,
 } from "@/lib/customer-insight/loyalty-profile-complete";
-import { canAssignLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
+import { canAssignOrUpgradeLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
 import { pushLoyaltyAssignmentToErpAndShopify } from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
@@ -76,7 +76,15 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!contact) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
-  if (contact.loyaltyAssignedTier) {
+  if (contact.loyaltyAssignedTier === "platinum") {
+    return NextResponse.json({ error: "Already assigned" }, { status: 409 });
+  }
+  if (contact.loyaltyAssignedTier === parsed.data.tier) {
+    return NextResponse.json({ error: "Already assigned" }, { status: 409 });
+  }
+  const isPlatinumUpgrade =
+    contact.loyaltyAssignedTier === "gold" && parsed.data.tier === "platinum";
+  if (!isPlatinumUpgrade && contact.loyaltyAssignedTier) {
     return NextResponse.json({ error: "Already assigned" }, { status: 409 });
   }
   if (contact.loyaltyOutreachStatus !== "responded") {
@@ -138,7 +146,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     adaptRows: adaptRows.map((r) => ({ ttlAmount: r.ttlAmount.toString() })),
   });
 
-  if (!canAssignLoyaltyTier(parsed.data.tier, lifetimeTotal)) {
+  if (
+    !canAssignOrUpgradeLoyaltyTier({
+      tier: parsed.data.tier,
+      lifetimeTotal,
+      currentAssigned: contact.loyaltyAssignedTier,
+    })
+  ) {
     return NextResponse.json(
       {
         error: `Lifetime total ${lifetimeTotal} does not match ${parsed.data.tier} band`,
@@ -192,7 +206,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     action: "loyalty_assigned",
     entityType: "ContactMaster",
     entityId: contact.id,
-    summary: `Assigned ${parsed.data.tier} loyalty to ${contact.name}`,
+    summary: `${isPlatinumUpgrade ? "Upgraded" : "Assigned"} ${parsed.data.tier} loyalty to ${contact.name}`,
     metadata: {
       tier: parsed.data.tier,
       lifetimeTotal,

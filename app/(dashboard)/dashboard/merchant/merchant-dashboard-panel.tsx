@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { Cake, Crown, Download, Loader2, Target } from "lucide-react";
 import {
   Bar,
@@ -469,6 +470,14 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 ? ` · ${data.returns.returnRatePct}% returns`
                 : ""}
             </p>
+            {data.sales.hasDmSplit ? (
+              <p className="text-muted-foreground text-xs">
+                Full {formatMoney(data.sales.total)} · Your MER{" "}
+                {formatMoney(data.sales.merTotal)} ({data.sales.merOrderCount}{" "}
+                orders) · DM {formatMoney(data.sales.dmTotal)} (
+                {data.sales.dmOrderCount} orders, incl. no MER code)
+              </p>
+            ) : null}
               {data.profile.email && (
                 <p className="text-muted-foreground text-xs">{data.profile.email}</p>
               )}
@@ -560,13 +569,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             </p>
             <p className="text-muted-foreground text-xs">
               {data.today.orderCount} orders · {data.today.ymd}
+              {data.today.hasDmSplit
+                ? ` · MER ${formatMoney(data.today.merTotal ?? 0)} · DM ${formatMoney(data.today.dmTotal ?? 0)}`
+                : ""}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              This month (MTD)
+              {data.sales.hasDmSplit ? "Full total (MTD)" : "This month (MTD)"}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -574,6 +586,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               {formatMoney(data.sales.total)}
             </p>
             <p className="text-muted-foreground text-xs">
+              {data.sales.hasDmSplit ? "Full total · " : ""}
               {data.sales.orderCount} orders · {data.yearMonth}
             </p>
           </CardContent>
@@ -618,6 +631,42 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      {data.sales.hasDmSplit ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                Your MER total (MTD)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-semibold tabular-nums">
+                {formatMoney(data.sales.merTotal)}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {data.sales.merOrderCount} orders on your personal MER codes
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                DM total (MTD)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xl font-semibold tabular-nums">
+                {formatMoney(data.sales.dmTotal)}
+              </p>
+              <p className="text-muted-foreground text-xs">
+                {data.sales.dmOrderCount} orders · DM MER + orders with no MER
+                code
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -903,17 +952,17 @@ export function MerchantDashboardPanel({ initialData }: Props) {
 
       <Card>
         <CardHeader className="space-y-1">
-          <CardTitle className="text-base">Loyalty eligible (still Standard)</CardTitle>
+          <CardTitle className="text-base">Loyalty eligible</CardTitle>
           <p className="text-muted-foreground text-xs">
-            Your allocated customers who hit Gold/Platinum spend but are still
-            Standard — not yet set as loyalty in ERP or Shopify. Contact them,
-            then assign after they respond.
+            Allocated customers who hit Gold/Platinum spend and still need registration
+            — Standard not yet set, or Gold customers now Platinum-eligible. Contact
+            them, then assign after they respond.
           </p>
         </CardHeader>
         <CardContent>
           {(data.loyaltyOutreach ?? []).length === 0 ? (
             <p className="text-muted-foreground text-sm">
-              No eligible-but-Standard customers right now.
+              No eligible Gold/Platinum customers right now.
             </p>
           ) : (
             <ul className="grid max-h-80 gap-2 overflow-y-auto sm:grid-cols-2 xl:grid-cols-3">
@@ -930,7 +979,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       {(row.suggestedTier ?? "gold") === "platinum"
                         ? "Platinum"
                         : "Gold"}{" "}
-                      eligible · still Standard · {row.status}
+                      eligible
+                      {row.suggestionKind === "upgrade"
+                        ? " · currently Gold"
+                        : " · still Standard"}{" "}
+                      · {row.status}
                       {row.phoneNumber ? ` · ${row.phoneNumber}` : ""}
                     </p>
                     {row.missingProfileFields?.length ? (
@@ -940,6 +993,25 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      asChild
+                    >
+                      <Link
+                        href={`/dashboard/customer-insight?contactId=${encodeURIComponent(row.contactId)}&edit=1`}
+                      >
+                        Edit profile
+                      </Link>
+                    </Button>
+                    {row.status === "responded" ? (
+                      <span className="text-muted-foreground self-center text-xs">
+                        Requested
+                      </span>
+                    ) : (
+                    <>
                     <Button
                       type="button"
                       size="sm"
@@ -1033,6 +1105,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         Not responded
                       </Button>
                     ) : null}
+                    </>
+                    )}
                   </div>
                 </li>
               ))}
@@ -1598,8 +1672,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           <CardHeader className="space-y-1">
             <CardTitle className="text-base">Lifetime top customers</CardTitle>
             <p className="text-muted-foreground text-xs">
-              All-time — your allocated contacts only, ranked by how often they
-              buy (distinct purchase days). Grouped by phone or email.
+              All-time — your allocated contacts only, ranked by purchase value.
+              Grouped by phone or email.
             </p>
           </CardHeader>
           <CardContent>
@@ -1614,13 +1688,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     ? data.topCustomersLifetime
                     : data.topCustomersLifetime.slice(0, TOP_CUSTOMERS_PREVIEW)
                   ).map((customer, index) => {
-                    const maxDays = Math.max(
+                    const maxTotal = Math.max(
                       1,
-                      data.topCustomersLifetime[0]?.purchaseDays || 1,
+                      data.topCustomersLifetime[0]?.total || 1,
                     );
                     const share = Math.min(
                       100,
-                      (customer.purchaseDays / maxDays) * 100,
+                      (customer.total / maxTotal) * 100,
                     );
                     return (
                       <li
@@ -1641,10 +1715,13 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                           </div>
                           <div className="text-right text-sm">
                             <p className="font-semibold tabular-nums">
-                              {customer.purchaseDays} purchase days
+                              {formatMoney(customer.total)}
                             </p>
                             <p className="text-muted-foreground text-xs">
-                              {customer.orderCount} orders · {formatMoney(customer.total)}
+                              {customer.orderCount} orders
+                              {customer.purchaseDays
+                                ? ` · ${customer.purchaseDays} purchase days`
+                                : ""}
                             </p>
                           </div>
                         </div>
@@ -1988,6 +2065,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </CardContent>
       </Card>
 
+      {data.viewerIsAdmin ? (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Target assignment history</CardTitle>
@@ -2035,6 +2113,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           )}
         </CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }

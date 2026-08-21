@@ -17,6 +17,8 @@ export type BuildPeerBoardOptions = {
   toYmd: string;
   viewedMerchantId: string;
   limit?: number;
+  /** Extra ids always kept on the board when outside top (e.g. DM-General). */
+  alwaysIncludeMerchantIds?: string[];
   cheerMessageForBand: (band: MerchantPeerBand, displayName: string) => string;
 };
 
@@ -85,18 +87,23 @@ export function buildPeerBoard(
     isViewed: row.merchantId === options.viewedMerchantId,
   }));
 
-  if (
-    viewed &&
-    !entries.some((entry) => entry.merchantId === options.viewedMerchantId)
-  ) {
+  const ensureOnBoard = (merchantId: string) => {
+    if (entries.some((entry) => entry.merchantId === merchantId)) return;
+    const row = ranked.find((r) => r.merchantId === merchantId);
+    if (!row) return;
     entries.push({
-      rank: viewed.rank,
-      merchantId: viewed.merchantId,
-      displayName: viewed.displayName,
-      total: viewed.total,
-      orderCount: viewed.orderCount,
-      isViewed: true,
+      rank: row.rank,
+      merchantId: row.merchantId,
+      displayName: row.displayName,
+      total: row.total,
+      orderCount: row.orderCount,
+      isViewed: row.merchantId === options.viewedMerchantId,
     });
+  };
+
+  ensureOnBoard(options.viewedMerchantId);
+  for (const id of options.alwaysIncludeMerchantIds ?? []) {
+    ensureOnBoard(id);
   }
 
   return {

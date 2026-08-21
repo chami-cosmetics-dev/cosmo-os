@@ -1,0 +1,108 @@
+import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
+
+/** Company DM-General tracking code (same bucket as dashboard "DM-General"). */
+export const DM_MER_CODE = "MER115";
+
+/** Synthetic cohort / peer-board id for DM-General sales (not a User id). */
+export const DM_GENERAL_COHORT_ID = "__dm_general__";
+
+export const DM_GENERAL_DISPLAY_NAME = "DM-General";
+
+export function isDmCouponCode(code: string | null | undefined): boolean {
+  const raw = String(code ?? "").trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  if (lower.includes("dm") && (lower.includes("general") || lower === "dm")) {
+    return true;
+  }
+  return normalizeMerCodeKey(raw) === DM_MER_CODE;
+}
+
+export function normalizeCouponKey(code: string): string {
+  return code.trim().toLowerCase();
+}
+
+export function splitMerchantCouponSets(couponCodes: string[] | null | undefined): {
+  personal: Set<string>;
+  dm: Set<string>;
+  hasDm: boolean;
+} {
+  const personal = new Set<string>();
+  const dm = new Set<string>();
+  for (const code of couponCodes ?? []) {
+    const key = normalizeCouponKey(code);
+    if (!key) continue;
+    if (isDmCouponCode(code)) dm.add(key);
+    else personal.add(key);
+  }
+  return { personal, dm, hasDm: dm.size > 0 };
+}
+
+/** True when a discount/coupon string is a merchant tracking code (MER## or DM). */
+export function isMerchantTrackingCode(code: string): boolean {
+  if (isDmCouponCode(code)) return true;
+  return normalizeMerCodeKey(code) != null;
+}
+
+export function parseOrderCouponList(merchantCouponCode: string | null | undefined): string[] {
+  return (merchantCouponCode ?? "")
+    .split(",")
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export type MerchantSalesBucket = "mer" | "dm";
+
+/**
+ * Classify one order for a viewed merchant.
+ * Personal MER codes → mer.
+ * DM codes → dm.
+ * No merchant tracking code on the order → dm when this user owns DM; else mer if assigned to them.
+ */
+export function classifyMerchantSalesBucket(input: {
+  orderCoupons: string[];
+  personal: Set<string>;
+  dm: Set<string>;
+  hasDm: boolean;
+  assignedToViewer: boolean;
+}): MerchantSalesBucket | null {
+  const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
+  const merHit = tracking.some((c) => input.personal.has(c));
+  const dmHit = tracking.some((c) => input.dm.has(c));
+  if (merHit) return "mer";
+  if (dmHit) return "dm";
+  if (tracking.length > 0) return null;
+  if (input.hasDm) return "dm";
+  if (input.assignedToViewer) return "mer";
+  return null;
+}
+
+/**
+ * Cohort attribution for peer graphs.
+ * Personal MER → merchant user id.
+ * DM MER / no merchant tracking code → synthetic DM-General id (when a DM holder exists).
+ */
+export function resolveCohortMerchantId(input: {
+  orderCoupons: string[];
+  couponToMerchantId: Map<string, string>;
+  assignedMerchantId: string | null | undefined;
+  cohortIds: Set<string>;
+  /** Synthetic bucket id (e.g. DM_GENERAL_COHORT_ID) when company has a DM holder. */
+  dmBucketId: string | null;
+}): string | null {
+  const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
+  for (const code of tracking) {
+    const hit = input.couponToMerchantId.get(code);
+    if (hit) return hit;
+  }
+  if (tracking.length === 0 && input.dmBucketId) {
+    return input.dmBucketId;
+  }
+  if (
+    input.assignedMerchantId &&
+    input.cohortIds.has(input.assignedMerchantId)
+  ) {
+    return input.assignedMerchantId;
+  }
+  return null;
+}

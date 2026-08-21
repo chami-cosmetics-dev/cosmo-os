@@ -9,6 +9,7 @@ export function toLimitedInsightDto(full: CustomerInsightDto): CustomerInsightDt
     visibility: "limited",
     assignedMerchant: full.assignedMerchant,
     loyalty: full.loyalty,
+    loyaltyEligibility: full.loyaltyEligibility ?? null,
     invoices: full.invoices.map(stripInvoiceLineItems),
     invoicePagination: full.invoicePagination,
   };

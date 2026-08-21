@@ -67,8 +67,10 @@ export {
 } from "@/lib/customer-insight/contacted";
 export {
   canAssignLoyaltyTier,
+  canAssignOrUpgradeLoyaltyTier,
   isLoyaltyEligibleByTotal,
   nextOutreachStatus,
+  pendingLoyaltySuggestion,
   suggestedLoyaltyTier,
 } from "@/lib/customer-insight/loyalty-outreach";
 export {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getMerchantDisplayName } from "@/lib/customer-insight/auto-allocate";
+import { completeCallQueueItem } from "@/lib/customer-insight/call-queue";
 import { markContactInsightContacted } from "@/lib/customer-insight/contacted";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import { prisma } from "@/lib/prisma";
@@ -78,9 +79,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     remark: parsed.data.remark,
     outcome: parsed.data.outcome,
   });
-  if (!result) {
+    if (!result) {
     return NextResponse.json({ error: "Contact not found" }, { status: 404 });
   }
+
+  await completeCallQueueItem({
+    companyId,
+    contactId: contact.id,
+    completedByUserId: user.id,
+  });
 
   return NextResponse.json(result);
 }

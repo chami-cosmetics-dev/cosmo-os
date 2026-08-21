@@ -14,16 +14,18 @@ import {
   formatIsoDateTime,
   type CsvPrimitive,
 } from "@/lib/reports/csv";
+import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type ContactStatusFilter = "active" | "inactive" | "never_purchased" | null;
 type ContactExportMode = "contacts" | "purchase_summary";
 
-const CONTACT_BATCH_SIZE = 1000;
+const CONTACT_BATCH_SIZE = 2500;
 
 type ContactExportRow = {
   id: string;
@@ -264,6 +266,8 @@ export async function GET(request: NextRequest) {
     { brandContactIds: brand ? brandRanks.map((r) => r.contactId) : undefined }
   );
 
+  const expectedRows = await prisma.contactMaster.count({ where });
+
   const fileName =
     mode === "purchase_summary"
       ? "contact-master-with-purchases.csv"
@@ -280,7 +284,7 @@ export async function GET(request: NextRequest) {
       mode === "purchase_summary"
         ? "Contact Master Export With Purchase Summary"
         : "Contact Master Export",
-    filters: `mode=${mode}&status=${status ?? "all"}&search=${search ?? ""}&allocatedTo=${allocatedTo ?? ""}&brand=${brand ?? ""}`,
+    filters: `mode=${mode}&status=${status ?? "all"}&search=${search ?? ""}&allocatedTo=${allocatedTo ?? ""}&brand=${brand ?? ""}&expected=${expectedRows}`,
     fileName,
   });
 
@@ -331,6 +335,9 @@ export async function GET(request: NextRequest) {
 
         let contactNo = 0;
         for await (const batch of iterateExportContacts(where, brandOrderedIds)) {
+          if (request.signal.aborted) {
+            throw new Error("Export aborted");
+          }
           const lines: string[] = [];
           for (const contact of batch) {
             contactNo += 1;
@@ -362,6 +369,9 @@ export async function GET(request: NextRequest) {
             controller.enqueue(encoder.encode(`${lines.join("\r\n")}\r\n`));
           }
         }
+        if (contactNo !== expectedRows) {
+          throw new Error(`Export incomplete: wrote ${contactNo} of ${expectedRows}`);
+        }
         controller.close();
       } catch (error) {
         controller.error(error);
@@ -374,6 +384,8 @@ export async function GET(request: NextRequest) {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store",
+      [DUMP_TOTAL_HEADER]: String(expectedRows),
+      "Access-Control-Expose-Headers": DUMP_TOTAL_HEADER,
     },
   });
 }

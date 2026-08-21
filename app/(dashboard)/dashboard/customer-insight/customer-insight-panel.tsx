@@ -61,11 +61,22 @@ import {
 } from "@/lib/customer-insight/contact-profile-options";
 import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
 import { formatAppDate, formatAppDateTime } from "@/lib/format-datetime";
-import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-profile-complete";
+import { loyaltyProfileIncompleteMessage, getLoyaltyProfileMissingFields } from "@/lib/customer-insight/loyalty-profile-complete";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 const CHART_BLUE = "#3b82f6";
+
+function loyaltyEligibleCopy(eligibility: {
+  suggestedTier: "gold" | "platinum";
+  kind: "new" | "upgrade";
+}) {
+  const next = eligibility.suggestedTier === "platinum" ? "Platinum" : "Gold";
+  if (eligibility.kind === "upgrade") {
+    return "Eligible for Platinum (currently Gold)";
+  }
+  return `Eligible for ${next} (still Standard)`;
+}
 
 function formatMoney(amount: number, currency = "LKR") {
   return `${currency} ${new Intl.NumberFormat("en-LK", {
@@ -251,6 +262,21 @@ type InsightSelectOption = {
   sku?: string;
   keywords?: string;
 };
+
+type CallQueueRow = {
+  contactId: string;
+  name: string;
+  phoneNumber: string | null;
+  assignedMerchant: string | null;
+  lifetimeTotal: number;
+  lastPurchaseAt: string | null;
+  lastContactedAt: string | null;
+  queued: boolean;
+};
+
+function formatQueueDate(value: string | null) {
+  return value ? formatAppDate(value) : "Never";
+}
 
 function normalizeSelectOptions(
   options: string[] | InsightSelectOption[]
@@ -522,6 +548,8 @@ export function CustomerInsightPanel({
   canAddContactPhone = false,
   canManageLoyalty = false,
   canAssignLoyalty = false,
+  initialContactId = null,
+  initialEdit = false,
 }: {
   canFilterAllContacts?: boolean;
   canExportFilteredCsv?: boolean;
@@ -529,6 +557,8 @@ export function CustomerInsightPanel({
   canAddContactPhone?: boolean;
   canManageLoyalty?: boolean;
   canAssignLoyalty?: boolean;
+  initialContactId?: string | null;
+  initialEdit?: boolean;
 }) {
   const [phone, setPhone] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -589,12 +619,21 @@ export function CustomerInsightPanel({
       lifetimeTotal: number;
       suggestedTier: "gold" | "platinum" | null;
       eligibleGroup: string | null;
+      suggestionKind?: "new" | "upgrade" | null;
+      currentAssignedTier?: "gold" | "platinum" | null;
       erpGroup: string | null;
       shopifyTag: string | null;
       assignedMerchant: string | null;
       missingProfileFields: string[];
     }>
   >([]);
+  const [myCallQueue, setMyCallQueue] = useState<CallQueueRow[]>([]);
+  const [queueMerchant, setQueueMerchant] = useState("");
+  const [queueCandidates, setQueueCandidates] = useState<CallQueueRow[] | null>(null);
+  const [queueCandidateTotal, setQueueCandidateTotal] = useState(0);
+  const [queueCandidatePage, setQueueCandidatePage] = useState(1);
+  const queueCandidatePageSize = 50;
+  const [queueSelectedIds, setQueueSelectedIds] = useState<string[]>([]);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
@@ -731,6 +770,85 @@ export function CustomerInsightPanel({
       cancelled = true;
     };
   }, [canExportFilteredCsv]);
+
+  async function loadMyCallQueue() {
+    try {
+      const res = await fetch("/api/admin/customer-insight/call-queue");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !Array.isArray(data.items)) return;
+      setMyCallQueue(data.items as CallQueueRow[]);
+    } catch {
+      // optional
+    }
+  }
+
+  useEffect(() => {
+    void loadMyCallQueue();
+  }, []);
+
+  async function loadQueueCandidates(page = 1) {
+    if (!queueMerchant.trim()) {
+      notify.error("Select a merchant.");
+      return;
+    }
+    setBusyKey("queue-candidates");
+    try {
+      const params = new URLSearchParams();
+      params.set("assignedMerchant", queueMerchant.trim());
+      params.set("page", String(page));
+      params.set("pageSize", String(queueCandidatePageSize));
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/candidates?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load allocated contacts.");
+        return;
+      }
+      setQueueCandidates((data.items ?? []) as CallQueueRow[]);
+      setQueueCandidateTotal(data.pagination?.total ?? 0);
+      setQueueCandidatePage(data.pagination?.page ?? page);
+      setQueueSelectedIds([]);
+    } catch {
+      notify.error("Failed to load allocated contacts.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function assignSelectedToQueue() {
+    if (!queueMerchant.trim() || queueSelectedIds.length === 0) {
+      notify.error("Select contacts to assign.");
+      return;
+    }
+    setBusyKey("queue-assign");
+    try {
+      const res = await fetch("/api/admin/customer-insight/call-queue/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignedMerchant: queueMerchant.trim(),
+          contactIds: queueSelectedIds,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to assign queue.");
+        return;
+      }
+      notify.success(`Assigned ${data.assigned ?? queueSelectedIds.length} contact(s).`);
+      await loadQueueCandidates(queueCandidatePage);
+    } catch {
+      notify.error("Failed to assign queue.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function openQueueContact(contactId: string) {
+    await loadInsight(contactId, 1);
+    setEditing(true);
+  }
 
   useEffect(() => {
     if (!canManageLoyalty) return;
@@ -878,6 +996,16 @@ export function CustomerInsightPanel({
     }
   }
 
+  useEffect(() => {
+    if (!initialContactId) return;
+    void (async () => {
+      await loadInsight(initialContactId, 1);
+      if (initialEdit) setEditing(true);
+    })();
+    // Open linked contact from merchant dashboard once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialContactId]);
+
   async function saveProfile() {
     if (!selectedContactId || !profileForm) return;
     setBusyKey("profile");
@@ -923,6 +1051,7 @@ export function CustomerInsightPanel({
       );
       setEditing(false);
       await loadInsight(selectedContactId, invoicePage);
+      void loadMyCallQueue();
     } catch {
       notify.error("Failed to save profile.");
     } finally {
@@ -974,8 +1103,58 @@ export function CustomerInsightPanel({
       if (selectedContactId) {
         void loadInsight(selectedContactId, invoicePage);
       }
+      void loadMyCallQueue();
     } catch {
       notify.error("Failed to save call outcome.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function postLoyaltyOutreach(action: "loyalty_informed" | "responded" | "not_responded") {
+    const contact = insight?.contact;
+    if (!contact) return;
+    if (action === "responded") {
+      const missing = getLoyaltyProfileMissingFields({
+        name: contact.name,
+        email: contact.email,
+        phoneNumber: contact.phoneNumber,
+        phones: contact.phones,
+        gender: contact.gender,
+        language: contact.language,
+        birthMonth: contact.birthMonth,
+        birthDay: contact.birthDay,
+        city: contact.city,
+        address: contact.address,
+      });
+      if (missing.length > 0) {
+        notify.error(loyaltyProfileIncompleteMessage(missing));
+        setEditing(true);
+        return;
+      }
+    }
+    setBusyKey("loyalty");
+    try {
+      const res = await fetch("/api/admin/merchant-dashboard/loyalty-outreach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId: contact.id, action }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(json.error ?? "Update failed");
+        return;
+      }
+      notify.success(
+        action === "responded"
+          ? "Responded request sent to assignment queue"
+          : action === "not_responded"
+            ? "Marked not responded"
+            : "Marked contacted"
+      );
+      await loadInsight(contact.id, invoicePage);
+    } catch {
+      notify.error("Update failed");
     } finally {
       setBusyKey(null);
     }
@@ -1185,7 +1364,8 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
             <CardDescription>
-              Responded customers. Eligible group is Gold or Platinum from lifetime spend.
+              Only contacts the allocated merchant marked Responded. Assign Gold or
+              Platinum from lifetime spend.
               {canAssignLoyalty
                 ? " Send writes ERP customer group and Shopify tag."
                 : " Read-only."}
@@ -1210,7 +1390,9 @@ export function CustomerInsightPanel({
                       <p className="text-xs">
                         Eligible:{" "}
                         <span className="font-medium">
-                          {row.eligibleGroup ?? "Standard (not Gold/Platinum yet)"}
+                          {row.suggestionKind === "upgrade"
+                            ? "Platinum (upgrade from Gold)"
+                            : (row.eligibleGroup ?? "Standard (not Gold/Platinum yet)")}
                         </span>
                         {row.erpGroup ? ` · ERP ${row.erpGroup}` : null}
                         {row.shopifyTag ? ` · Shopify “${row.shopifyTag}”` : null}
@@ -1285,6 +1467,213 @@ export function CustomerInsightPanel({
         </Card>
       ) : null}
 
+      {myCallQueue.length > 0 || !canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Call update queue</CardTitle>
+            <CardDescription>
+              Contacts admin assigned for you to call. Never/oldest contacted first. Update
+              writes Contact Master; logging a call outcome also clears the row.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {myCallQueue.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No assigned call-update contacts.</p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {myCallQueue.map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
+                        {formatQueueDate(row.lastPurchaseAt)}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isBusy}
+                      onClick={() => void openQueueContact(row.contactId)}
+                    >
+                      Update
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Assign merchant call queue</CardTitle>
+            <CardDescription>
+              Pick a merchant, load allocated customers (no recent update first, recently
+              called last), then bulk-assign to their Insight call list.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="min-w-0 flex-1 space-y-1 text-sm">
+                <span className="text-muted-foreground">Merchant</span>
+                <InsightSearchableSelect
+                  value={queueMerchant}
+                  options={merchantOptions}
+                  placeholder="Select merchant"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={(next) => {
+                    setQueueMerchant(next);
+                    setQueueCandidates(null);
+                    setQueueSelectedIds([]);
+                  }}
+                />
+              </label>
+              <Button
+                type="button"
+                disabled={isBusy || !queueMerchant}
+                onClick={() => void loadQueueCandidates(1)}
+              >
+                {busyKey === "queue-candidates" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load allocated"
+                )}
+              </Button>
+            </div>
+            {queueCandidates ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {queueCandidateTotal} allocated · oldest/never contacted first
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueCandidates.length === 0}
+                      onClick={() =>
+                        setQueueSelectedIds(
+                          queueSelectedIds.length === queueCandidates.length
+                            ? []
+                            : queueCandidates.map((row) => row.contactId)
+                        )
+                      }
+                    >
+                      {queueSelectedIds.length === queueCandidates.length
+                        ? "Clear page"
+                        : "Select page"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isBusy || queueSelectedIds.length === 0}
+                      onClick={() => void assignSelectedToQueue()}
+                    >
+                      {busyKey === "queue-assign" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Assigning...
+                        </>
+                      ) : (
+                        `Assign ${queueSelectedIds.length || ""}`.trim()
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <ul className="max-h-[28rem] divide-y overflow-auto rounded-md border">
+                  {queueCandidates.map((row) => {
+                    const checked = queueSelectedIds.includes(row.contactId);
+                    return (
+                      <li key={row.contactId}>
+                        <label className="flex cursor-pointer items-start gap-3 px-3 py-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() =>
+                              setQueueSelectedIds((prev) =>
+                                checked
+                                  ? prev.filter((id) => id !== row.contactId)
+                                  : [...prev, row.contactId]
+                              )
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium">
+                              {row.name}
+                              {row.queued ? (
+                                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                                  already queued
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="text-muted-foreground block text-xs">
+                              {row.phoneNumber ?? "No phone"} · tot{" "}
+                              {formatMoney(row.lifetimeTotal)}
+                            </span>
+                            <span className="text-muted-foreground block text-xs">
+                              Last contacted {formatQueueDate(row.lastContactedAt)} · last
+                              purchased {formatQueueDate(row.lastPurchaseAt)}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {queueCandidateTotal > queueCandidatePageSize ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueCandidatePage <= 1}
+                      onClick={() => void loadQueueCandidates(queueCandidatePage - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Page {queueCandidatePage} of{" "}
+                      {Math.max(
+                        1,
+                        Math.ceil(queueCandidateTotal / queueCandidatePageSize)
+                      )}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        isBusy ||
+                        queueCandidatePage >=
+                          Math.ceil(queueCandidateTotal / queueCandidatePageSize)
+                      }
+                      onClick={() => void loadQueueCandidates(queueCandidatePage + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
@@ -1295,9 +1684,9 @@ export function CustomerInsightPanel({
               ? "Results include all company contacts matching your filters (allocated and unallocated)."
               : "Results are limited to your allocated customers."}{" "}
             Min/max total uses lifetime spend (completed Cosmo orders + Adapt history) across that
-            full set. Without brands, highest lifetime totals first. With brands, customers who
-            bought any selected brand (vendor or product title), ranked by combined brand spend.
-            With items, customers who bought any selected item, ranked by combined item spend.
+            full set. Without brands, highest lifetime totals first. Multiple brands = any of them
+            (even one matching item). Ranked by combined spend on those brands. Multiple items =
+            any selected item, ranked by combined item spend.
             {canExportFilteredCsv
               ? " Last purchase location keeps contacts whose newest Cosmo/Adapt purchase was at that outlet."
               : null}
@@ -1718,6 +2107,16 @@ export function CustomerInsightPanel({
                 <span className="text-muted-foreground">
                   {m.phoneNumber ?? "—"}
                   {m.email ? ` · ${m.email}` : ""}
+                  {m.suggestedTier
+                    ? ` · ${loyaltyEligibleCopy({
+                        suggestedTier: m.suggestedTier,
+                        kind: m.suggestionKind === "upgrade" ? "upgrade" : "new",
+                      })}`
+                    : m.loyaltyAssignedTier === "platinum"
+                      ? " · Platinum"
+                      : m.loyaltyAssignedTier === "gold"
+                        ? " · Gold"
+                        : ""}
                 </span>
               </button>
             ))}
@@ -1807,6 +2206,11 @@ export function CustomerInsightPanel({
                     <p className="text-lg font-semibold tabular-nums">
                       {formatMoney(insight.loyalty.lifetimeTotal, insight.loyalty.currency)}
                     </p>
+                    {insight.loyaltyEligibility ? (
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                        {loyaltyEligibleCopy(insight.loyaltyEligibility)}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </CardHeader>
@@ -2009,6 +2413,67 @@ export function CustomerInsightPanel({
                             ? `· ${new Date(insight.loyaltyAssignment.assignedAt).toLocaleString()}`
                             : ""}
                         </p>
+                      ) : null}
+                      {insight.loyaltyEligibility ? (
+                        <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                          {loyaltyEligibleCopy(insight.loyaltyEligibility)}
+                        </p>
+                      ) : null}
+                      {isOwner && insight.loyaltyEligibility ? (
+                        <div className="mt-1 flex flex-col items-end gap-1">
+                          {insight.contact ? (
+                            getLoyaltyProfileMissingFields({
+                              name: insight.contact.name,
+                              email: insight.contact.email,
+                              phoneNumber: insight.contact.phoneNumber,
+                              phones: insight.contact.phones,
+                              gender: insight.contact.gender,
+                              language: insight.contact.language,
+                              birthMonth: insight.contact.birthMonth,
+                              birthDay: insight.contact.birthDay,
+                              city: insight.contact.city,
+                              address: insight.contact.address,
+                            }).length > 0 ? (
+                              <p className="text-xs text-amber-700 dark:text-amber-400">
+                                Fill missing profile fields, then send the request.
+                              </p>
+                            ) : null
+                          ) : null}
+                          {insight.loyaltyOutreachStatus === "responded" ? (
+                            <p className="text-xs text-muted-foreground">
+                              Requested — waiting in assignment queue
+                            </p>
+                          ) : insight.loyaltyOutreachStatus === "contacted" ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={isBusy}
+                                onClick={() => void postLoyaltyOutreach("responded")}
+                              >
+                                Send responded request
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={isBusy}
+                                onClick={() => void postLoyaltyOutreach("not_responded")}
+                              >
+                                Not responded
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={isBusy}
+                              onClick={() => void postLoyaltyOutreach("loyalty_informed")}
+                            >
+                              Mark contacted
+                            </Button>
+                          )}
+                        </div>
                       ) : null}
                     </div>
                     <div className="space-y-1 lg:text-right">
