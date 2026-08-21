@@ -9,6 +9,8 @@ export type PeerBoardInputRow = {
   displayName: string;
   total: number;
   orderCount: number;
+  /** Shown on share/ranked charts; omitted from race rank / podium. */
+  excludeFromRace?: boolean;
 };
 
 export type BuildPeerBoardOptions = {
@@ -17,7 +19,7 @@ export type BuildPeerBoardOptions = {
   toYmd: string;
   viewedMerchantId: string;
   limit?: number;
-  /** Extra ids always kept on the board when outside top (e.g. DM-General). */
+  /** Extra ids always kept on the board when outside top (e.g. DM-General sales). */
   alwaysIncludeMerchantIds?: string[];
   cheerMessageForBand: (band: MerchantPeerBand, displayName: string) => string;
 };
@@ -25,6 +27,15 @@ export type BuildPeerBoardOptions = {
 function sharePct(part: number, whole: number): number | null {
   if (!Number.isFinite(whole) || whole <= 0) return null;
   return Math.round((part / whole) * 1000) / 10;
+}
+
+function sortBySales(rows: PeerBoardInputRow[]): PeerBoardInputRow[] {
+  return [...rows].sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    const nameCmp = a.displayName.localeCompare(b.displayName);
+    if (nameCmp !== 0) return nameCmp;
+    return a.merchantId.localeCompare(b.merchantId);
+  });
 }
 
 export function classifyPeerBand(input: {
@@ -44,61 +55,61 @@ export function classifyPeerBand(input: {
 }
 
 /**
- * Rank full cohort, emit top `limit` rows, always append viewed merchant if outside.
+ * Rank race among real merchants; still emit sales buckets (e.g. DM-General)
+ * on the board for cohort share / ranked sales charts.
  */
 export function buildPeerBoard(
   rows: PeerBoardInputRow[],
   options: BuildPeerBoardOptions,
 ): PeerBoard {
   const limit = options.limit ?? 10;
-  const sorted = [...rows].sort((a, b) => {
-    if (b.total !== a.total) return b.total - a.total;
-    const nameCmp = a.displayName.localeCompare(b.displayName);
-    if (nameCmp !== 0) return nameCmp;
-    return a.merchantId.localeCompare(b.merchantId);
-  });
 
-  const ranked = sorted.map((row, index) => ({
+  const raceSorted = sortBySales(rows.filter((row) => !row.excludeFromRace));
+  const raceRanked = raceSorted.map((row, index) => ({
     ...row,
     rank: index + 1,
   }));
+  const raceRankById = new Map(
+    raceRanked.map((row) => [row.merchantId, row.rank]),
+  );
 
-  const viewed = ranked.find((row) => row.merchantId === options.viewedMerchantId);
+  const viewed = raceRanked.find(
+    (row) => row.merchantId === options.viewedMerchantId,
+  );
   const viewedRank = viewed?.rank ?? null;
   const viewedTotal = viewed?.total ?? 0;
   const viewedName = viewed?.displayName ?? "Merchant";
-  const leaderTotal = ranked[0]?.total ?? 0;
+  const leaderTotal = raceRanked[0]?.total ?? 0;
   const gapToLeader = Math.max(0, leaderTotal - viewedTotal);
 
   const peerBand = classifyPeerBand({
-    cohortSize: ranked.length,
+    cohortSize: raceRanked.length,
     viewedRank,
     viewedTotal,
     leaderTotal,
   });
 
-  const top = ranked.slice(0, limit);
-  const entries: PeerBoardEntry[] = top.map((row) => ({
-    rank: row.rank,
+  const displaySorted = sortBySales(rows);
+  const top = displaySorted.slice(0, limit);
+  const toEntry = (row: PeerBoardInputRow, rank: number): PeerBoardEntry => ({
+    rank,
     merchantId: row.merchantId,
     displayName: row.displayName,
     total: row.total,
     orderCount: row.orderCount,
     isViewed: row.merchantId === options.viewedMerchantId,
-  }));
+    excludeFromRace: row.excludeFromRace === true,
+  });
+
+  const entries: PeerBoardEntry[] = top.map((row) =>
+    toEntry(row, raceRankById.get(row.merchantId) ?? 0),
+  );
 
   const ensureOnBoard = (merchantId: string) => {
     if (entries.some((entry) => entry.merchantId === merchantId)) return;
-    const row = ranked.find((r) => r.merchantId === merchantId);
+    const row = displaySorted.find((r) => r.merchantId === merchantId);
     if (!row) return;
-    entries.push({
-      rank: row.rank,
-      merchantId: row.merchantId,
-      displayName: row.displayName,
-      total: row.total,
-      orderCount: row.orderCount,
-      isViewed: row.merchantId === options.viewedMerchantId,
-    });
+    entries.push(toEntry(row, raceRankById.get(row.merchantId) ?? 0));
   };
 
   ensureOnBoard(options.viewedMerchantId);

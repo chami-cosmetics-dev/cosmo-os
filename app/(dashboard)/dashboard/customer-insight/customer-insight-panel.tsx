@@ -41,6 +41,10 @@ import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
 import { isCompletePhoneSearch } from "@/lib/phone-lookup";
 import {
+  PRODUCT_ITEM_STATUS_CATEGORIES,
+  PRODUCT_ITEM_STATUS_META,
+} from "@/lib/product-item-status";
+import {
   LOYALTY_GOLD_MIN,
   LOYALTY_PLATINUM_MIN,
 } from "@/lib/customer-insight/loyalty-tier";
@@ -574,6 +578,17 @@ export function CustomerInsightPanel({
   const [filterBrands, setFilterBrands] = useState<string[]>([]);
   const [brandOptions, setBrandOptions] = useState<string[]>([]);
   const [filterItems, setFilterItems] = useState<string[]>([]);
+  const [filterItemStatuses, setFilterItemStatuses] = useState<string[]>([]);
+  const itemStatusOptions = useMemo(
+    () =>
+      PRODUCT_ITEM_STATUS_CATEGORIES.filter((c) => c !== "UNCATEGORIZED").map(
+        (value) => ({
+          value,
+          label: PRODUCT_ITEM_STATUS_META[value].label,
+        })
+      ),
+    []
+  );
   const [itemOptions, setItemOptions] = useState<InsightSelectOption[]>([]);
   const [itemSearch, setItemSearch] = useState("");
   const [itemSearchDebounced, setItemSearchDebounced] = useState("");
@@ -1182,6 +1197,7 @@ export function CustomerInsightPanel({
     const params = new URLSearchParams();
     appendInsightFilterList(params, "brand", filterBrands);
     appendInsightFilterList(params, "item", filterItems);
+    appendInsightFilterList(params, "itemStatusCategory", filterItemStatuses);
     if (filterCity.trim()) params.set("city", filterCity.trim());
     if (canExportFilteredCsv && filterAssignedMerchant.trim()) {
       params.set("assignedMerchant", filterAssignedMerchant.trim());
@@ -1264,6 +1280,7 @@ export function CustomerInsightPanel({
     Boolean(
       filterBrands.length > 0 ||
         filterItems.length > 0 ||
+        filterItemStatuses.length > 0 ||
         filterCity.trim() ||
         filterAssignedMerchant.trim() ||
         filterPurchaseLocationId.trim() ||
@@ -1283,6 +1300,7 @@ export function CustomerInsightPanel({
   function clearFilters() {
     setFilterBrands([]);
     setFilterItems([]);
+    setFilterItemStatuses([]);
     setItemSearch("");
     setItemSearchDebounced("");
     setFilterCity("");
@@ -1759,6 +1777,17 @@ export function CustomerInsightPanel({
               />
             </label>
             <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Item status</span>
+              <InsightSearchableMultiSelect
+                values={filterItemStatuses}
+                options={itemStatusOptions}
+                placeholder="Any"
+                searchPlaceholder="Search status…"
+                disabled={isBusy}
+                onChange={setFilterItemStatuses}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
               <span className="text-muted-foreground">City</span>
               <InsightSearchableSelect
                 value={filterCity}
@@ -2017,7 +2046,9 @@ export function CustomerInsightPanel({
                         ) : null}
                         {row.itemSpend != null ? (
                           <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] tabular-nums text-muted-foreground">
-                            Item{" "}
+                            {filterItemStatuses.length > 0 && filterItems.length === 0
+                              ? "Status"
+                              : "Item"}{" "}
                             <span className="font-medium text-foreground">
                               {formatMoney(row.itemSpend)}
                             </span>
@@ -2167,6 +2198,7 @@ export function CustomerInsightPanel({
                   onClick={() => {
                     setFilterBrands([]);
                     setFilterItems([]);
+                    setFilterItemStatuses([]);
                     if (selectedContactId) {
                       void loadInsight(selectedContactId, 1, { brands: [], items: [] });
                     }

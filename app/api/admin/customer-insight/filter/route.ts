@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
   const parsed = customerInsightFilterQuerySchema.safeParse({
     brand: readInsightFilterList(sp, "brand"),
     item: readInsightFilterList(sp, "item"),
+    itemStatusCategory: readInsightFilterList(sp, "itemStatusCategory"),
     city: queryParam(sp.get("city")),
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
@@ -92,6 +93,7 @@ export async function GET(request: NextRequest) {
     scopeAllContacts,
     brands: parsed.data.brand,
     items: parsed.data.item,
+    itemStatusCategories: parsed.data.itemStatusCategory,
     city: parsed.data.city,
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,

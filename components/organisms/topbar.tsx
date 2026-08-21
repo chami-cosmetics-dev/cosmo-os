@@ -50,6 +50,7 @@ export function Topbar({ title = "Dashboard", user }: TopbarProps) {
     { prefix: "/dashboard/products/vendors-categories", label: "Vendors & Categories" },
     { prefix: "/dashboard/sticker-batch", label: "Sticker Batch & Print" },
     { prefix: "/dashboard/sticker-print", label: "Sticker Batch & Print" },
+    { prefix: "/dashboard/purchasing/stock-comparer", label: "Cosmetics Stock Comparer" },
     { prefix: "/dashboard/fulfillment", label: "Fulfillment" },
     { prefix: "/dashboard/cosmo-academy", label: "Cosmo Academy" },
   ];

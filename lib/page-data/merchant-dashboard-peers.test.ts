@@ -129,4 +129,43 @@ describe("buildLocationShareRows", () => {
     expect(rows[0]?.peers).toHaveLength(8);
     expect(rows[0]?.peers[0]?.total).toBeGreaterThanOrEqual(rows[0]?.peers[1]?.total ?? 0);
   });
+
+  it("keeps DM sales in location total but omits DM-General from peers", () => {
+    const byMerchant = new Map();
+    byMerchant.set("a", {
+      merchantId: "a",
+      displayName: "Ada",
+      total: 100,
+      orderCount: 1,
+      byLocation: new Map([
+        [
+          "loc1",
+          { locationId: "loc1", locationName: "Colombo", total: 100, orderCount: 1 },
+        ],
+      ]),
+    });
+    byMerchant.set("__dm_general__", {
+      merchantId: "__dm_general__",
+      displayName: "DM-General",
+      total: 900,
+      orderCount: 9,
+      byLocation: new Map([
+        [
+          "loc1",
+          { locationId: "loc1", locationName: "Colombo", total: 900, orderCount: 9 },
+        ],
+      ]),
+    });
+
+    const rows = buildLocationShareRows(
+      {
+        ...emptyCohort(byMerchant),
+        dmBucketId: "__dm_general__",
+      },
+      "a",
+    );
+    expect(rows[0]?.locationTotal).toBe(1000);
+    expect(rows[0]?.selfSharePct).toBe(10);
+    expect(rows[0]?.peers).toHaveLength(0);
+  });
 });

@@ -47,6 +47,7 @@ function summarizePaymentGateway(value: string) {
 }
 
 function resolveInvoiceStatus(input: {
+  sourceName: string;
   financialStatus: string | null;
   fulfillmentStage: string | null;
   grandTotal: string;
@@ -55,8 +56,16 @@ function resolveInvoiceStatus(input: {
   lastPrintedAt: Date | null;
   dispatchedAt: Date | null;
   revertedFromInvoiceCompleteAt: Date | null;
+  deliveryCompleteAt: Date | null;
+  invoiceCompleteAt: Date | null;
 }) {
   if (input.financialStatus?.toLowerCase() === "voided") return "voided";
+  if (input.sourceName.toLowerCase() === "pos" || input.sourceName.toLowerCase() === "erpnext-pos") {
+    return "Completed";
+  }
+  if (input.deliveryCompleteAt && input.invoiceCompleteAt) return "Completed";
+  if (input.deliveryCompleteAt) return "Delivery Completed";
+  if (input.invoiceCompleteAt) return "Invoice Completed";
   return getOrderListFulfillmentStageBadges({
     fulfillmentStage: input.fulfillmentStage,
     totalPrice: input.grandTotal,

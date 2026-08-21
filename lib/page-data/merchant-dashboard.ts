@@ -13,7 +13,7 @@ import type {
   SalesHistoryDto,
   TodaySalesDto,
 } from "@/lib/merchant-dashboard/motivation-types";
-import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
+import { buildPeerBoard, type PeerBoardInputRow } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
@@ -489,8 +489,9 @@ export async function getMerchantDashboardPageData(input: {
     dmOrderCount: todaySalesSplit.dmOrderCount,
   };
 
-  const peerBoardRows = (cohort: typeof mtdCohort) => {
-    const rows = merchants.map((m) => {
+  // Merchants race on podium; DM-General still on share/ranked sales charts.
+  const peerBoardRows = (cohort: typeof mtdCohort): PeerBoardInputRow[] => {
+    const rows: PeerBoardInputRow[] = merchants.map((m) => {
       const row = cohort.byMerchant.get(m.id);
       return {
         merchantId: m.id,
@@ -506,6 +507,7 @@ export async function getMerchantDashboardPageData(input: {
         displayName: dm?.displayName ?? "DM-General",
         total: dm?.total ?? 0,
         orderCount: dm?.orderCount ?? 0,
+        excludeFromRace: true,
       });
     }
     return rows;

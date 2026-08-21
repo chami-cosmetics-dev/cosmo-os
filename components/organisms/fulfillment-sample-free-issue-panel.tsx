@@ -219,12 +219,12 @@ export function FulfillmentSampleFreeIssuePanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             editingRemarkId
-              ? { content, showOnInvoice: false }
+              ? { content, showOnInvoice: true }
               : {
                   stage: "sample_free_issue",
                   type: "internal",
                   content,
-                  showOnInvoice: false,
+                  showOnInvoice: true,
                 }
           ),
         }

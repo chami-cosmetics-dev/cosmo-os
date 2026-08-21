@@ -30,9 +30,22 @@ describe("buildDailyHistoryRows", () => {
     const byDay = new Map([["2026-08-02", { total: 100, orderCount: 1 }]]);
     const rows = buildDailyHistoryRows("2026-08", "2026-08-03", byDay);
     expect(rows).toEqual([
-      { ymd: "2026-08-01", total: 0, orderCount: 0 },
-      { ymd: "2026-08-02", total: 100, orderCount: 1 },
-      { ymd: "2026-08-03", total: 0, orderCount: 0 },
+      { ymd: "2026-08-01", total: 0, orderCount: 0, callCount: 0 },
+      { ymd: "2026-08-02", total: 100, orderCount: 1, callCount: 0 },
+      { ymd: "2026-08-03", total: 0, orderCount: 0, callCount: 0 },
+    ]);
+  });
+
+  it("merges call counts by day", () => {
+    const byDay = new Map([["2026-08-01", { total: 50, orderCount: 1 }]]);
+    const calls = new Map([
+      ["2026-08-01", 4],
+      ["2026-08-02", 2],
+    ]);
+    const rows = buildDailyHistoryRows("2026-08", "2026-08-02", byDay, calls);
+    expect(rows).toEqual([
+      { ymd: "2026-08-01", total: 50, orderCount: 1, callCount: 4 },
+      { ymd: "2026-08-02", total: 0, orderCount: 0, callCount: 2 },
     ]);
   });
 });

@@ -9,6 +9,7 @@ import { merchantMatchKeysForUser } from "@/lib/customer-insight/ownership";
 import type { AllocatedFilterResultDto, LoyaltyTierKey } from "@/lib/customer-insight/types";
 import { findContactsByPurchasedBrandRanked } from "@/lib/page-data/contact-brand-ids";
 import { findContactsByPurchasedItemRanked } from "@/lib/customer-insight/item-filter";
+import { findContactsByPurchasedItemStatusRanked } from "@/lib/customer-insight/item-status-filter";
 import { resolveAssignedMerchantFilterLabels } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
@@ -27,6 +28,8 @@ export type FilterQueryInput = {
   scopeAllContacts?: boolean;
   brands?: string[];
   items?: string[];
+  /** ProductItem.itemStatusCategory values (e.g. VAT_TOP_PRIORITY_BRAND). */
+  itemStatusCategories?: string[];
   city?: string;
   /** Admin-only: ContactMaster.assignedMerchant (alias groups expanded). */
   assignedMerchant?: string;
@@ -407,8 +410,14 @@ export async function filterAllocatedContacts(
 
   const brandNeedles = (input.brands ?? []).map((b) => b.trim()).filter(Boolean);
   const itemNeedles = (input.items ?? []).map((i) => i.trim()).filter(Boolean);
+  const statusNeedles = (input.itemStatusCategories ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
   const hasBrands = brandNeedles.length > 0;
   const hasItems = itemNeedles.length > 0;
+  const hasStatus = statusNeedles.length > 0;
+  /** Item label and/or live ProductItem status — both contribute to itemSpend. */
+  const hasItemScope = hasItems || hasStatus;
 
   const brandRankLists = hasBrands
     ? await Promise.all(
@@ -439,14 +448,29 @@ export async function filterAllocatedContacts(
         )
       )
     : [];
-  const { spendById: itemSpendById, sortedContactIds: itemSortedIds } =
-    mergeRankedSpendMaps(
-      itemRankLists.map((ranks) =>
-        ranks.map((r) => ({ contactId: r.contactId, spend: r.itemSpend }))
+  const statusRankList = hasStatus
+    ? await findContactsByPurchasedItemStatusRanked(
+        input.companyId,
+        statusNeedles,
+        hasBrands ? brandNeedles : null
       )
-    );
-  const itemContactIds = hasItems ? new Set(itemSortedIds) : null;
-  if (hasItems && (!itemContactIds || itemContactIds.size === 0)) {
+    : [];
+  const { spendById: itemSpendById, sortedContactIds: itemSortedIds } =
+    mergeRankedSpendMaps([
+      ...itemRankLists.map((ranks) =>
+        ranks.map((r) => ({ contactId: r.contactId, spend: r.itemSpend }))
+      ),
+      ...(hasStatus
+        ? [
+            statusRankList.map((r) => ({
+              contactId: r.contactId,
+              spend: r.itemSpend,
+            })),
+          ]
+        : []),
+    ]);
+  const itemContactIds = hasItemScope ? new Set(itemSortedIds) : null;
+  if (hasItemScope && (!itemContactIds || itemContactIds.size === 0)) {
     return emptyResult();
   }
 
@@ -562,12 +586,12 @@ export async function filterAllocatedContacts(
       : null;
     if (hasBrands && !brandSpendById.has(contact.id)) continue;
 
-    const itemSpend = hasItems
+    const itemSpend = hasItemScope
       ? itemSpendById.has(contact.id)
         ? itemSpendById.get(contact.id) ?? 0
         : null
       : null;
-    if (hasItems && !itemSpendById.has(contact.id)) continue;
+    if (hasItemScope && !itemSpendById.has(contact.id)) continue;
 
     scored.push({
       contactId: contact.id,
@@ -583,7 +607,7 @@ export async function filterAllocatedContacts(
     });
   }
 
-  if (hasItems) {
+  if (hasItemScope) {
     scored.sort((a, b) => {
       const spendDiff = (b.itemSpend ?? 0) - (a.itemSpend ?? 0);
       if (spendDiff !== 0) return spendDiff;

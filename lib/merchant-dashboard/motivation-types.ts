@@ -29,6 +29,8 @@ export type PeerBoardEntry = {
   total: number;
   orderCount: number;
   isViewed: boolean;
+  /** Sales bucket (e.g. DM-General) — charts only, not race podium/rank. */
+  excludeFromRace?: boolean;
 };
 
 export type PeerBoard = {
@@ -71,6 +73,8 @@ export type DailySalesHistoryRow = {
   ymd: string;
   total: number;
   orderCount: number;
+  /** Insight / call-center updates that day (excludes bulk allocation). */
+  callCount: number;
 };
 
 export type MonthlySalesHistoryStatus =
