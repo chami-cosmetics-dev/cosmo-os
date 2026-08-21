@@ -68,6 +68,7 @@ export const AUDIT_LOG_ACTIONS = [
   "insight_contacted",
   "loyalty_responded",
   "loyalty_assigned",
+  "loyalty_push_retry",
   "merchant_loyalty_contacted",
   "call_queue_assign",
 ] as const;
@@ -170,6 +171,7 @@ export const AUDIT_LOG_ACTION_GROUPS = [
       "insight_contacted",
       "loyalty_responded",
       "loyalty_assigned",
+      "loyalty_push_retry",
       "call_queue_assign",
     ],
   },

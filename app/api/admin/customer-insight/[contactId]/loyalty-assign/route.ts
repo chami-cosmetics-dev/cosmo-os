@@ -9,7 +9,11 @@ import {
   loyaltyProfileIncompleteMessage,
 } from "@/lib/customer-insight/loyalty-profile-complete";
 import { canAssignOrUpgradeLoyaltyTier } from "@/lib/customer-insight/loyalty-outreach";
-import { pushLoyaltyAssignmentToErpAndShopify } from "@/lib/customer-insight/loyalty-push";
+import {
+  missingErpLoyaltyMessage,
+  preflightLoyaltyErpCustomers,
+  pushLoyaltyAssignmentToErpAndShopify,
+} from "@/lib/customer-insight/loyalty-push";
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission } from "@/lib/rbac";
 import {
@@ -79,15 +83,20 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (contact.loyaltyAssignedTier === "platinum") {
     return NextResponse.json({ error: "Already assigned" }, { status: 409 });
   }
-  if (contact.loyaltyAssignedTier === parsed.data.tier) {
-    return NextResponse.json({ error: "Already assigned" }, { status: 409 });
-  }
+  const isRetrySameTier = contact.loyaltyAssignedTier === parsed.data.tier;
   const isPlatinumUpgrade =
     contact.loyaltyAssignedTier === "gold" && parsed.data.tier === "platinum";
-  if (!isPlatinumUpgrade && contact.loyaltyAssignedTier) {
+  if (
+    !isRetrySameTier &&
+    !isPlatinumUpgrade &&
+    contact.loyaltyAssignedTier
+  ) {
     return NextResponse.json({ error: "Already assigned" }, { status: 409 });
   }
-  if (contact.loyaltyOutreachStatus !== "responded") {
+  if (
+    !isRetrySameTier &&
+    contact.loyaltyOutreachStatus !== "responded"
+  ) {
     return NextResponse.json(
       { error: "Customer must be in Responded status" },
       { status: 400 }
@@ -147,6 +156,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   });
 
   if (
+    !isRetrySameTier &&
     !canAssignOrUpgradeLoyaltyTier({
       tier: parsed.data.tier,
       lifetimeTotal,
@@ -162,33 +172,70 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   }
 
-  const now = new Date();
   const remark = parsed.data.remark?.trim() || null;
 
-  await prisma.$transaction(async (tx) => {
-    await tx.contactMaster.update({
-      where: { id: contact.id },
-      data: {
-        loyaltyAssignedTier: parsed.data.tier,
-        loyaltyAssignedAt: now,
-        loyaltyAssignedByUserId: user.id,
-        loyaltyOutreachStatus: "assigned",
-      },
-    });
-    await tx.contactAllocationUpdate.create({
-      data: {
-        companyId,
-        contactId: contact.id,
-        merchantId: user.id,
-        merchantName: user.knownName ?? user.name ?? null,
-        category: "Contacted",
-        remark,
-        outcome: "responded",
-      },
-    });
+  const preflight = await preflightLoyaltyErpCustomers({
+    companyId,
+    contactId: contact.id,
   });
+  if (preflight.errors.includes("Contact not found")) {
+    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+  }
+  if (preflight.missingErpSlots.length > 0) {
+    const error = missingErpLoyaltyMessage(
+      preflight.missingErpSlots,
+      preflight.primaryPhone
+    );
+    return NextResponse.json(
+      {
+        error,
+        missingErpSlots: preflight.missingErpSlots,
+        retry: true,
+      },
+      { status: 400 }
+    );
+  }
+  if (preflight.errors.length > 0) {
+    return NextResponse.json(
+      { error: preflight.errors[0], details: preflight.errors },
+      { status: 400 }
+    );
+  }
 
-  let push = { erpUpdated: 0, shopifyUpdated: 0, errors: [] as string[] };
+  const now = new Date();
+
+  if (!isRetrySameTier) {
+    await prisma.$transaction(async (tx) => {
+      await tx.contactMaster.update({
+        where: { id: contact.id },
+        data: {
+          loyaltyAssignedTier: parsed.data.tier,
+          loyaltyAssignedAt: now,
+          loyaltyAssignedByUserId: user.id,
+          loyaltyOutreachStatus: "assigned",
+        },
+      });
+      await tx.contactAllocationUpdate.create({
+        data: {
+          companyId,
+          contactId: contact.id,
+          merchantId: user.id,
+          merchantName: user.knownName ?? user.name ?? null,
+          category: "Contacted",
+          remark,
+          outcome: "responded",
+        },
+      });
+    });
+  }
+
+  let push = {
+    erpUpdated: 0,
+    shopifyUpdated: 0,
+    errors: [] as string[],
+    missingErpSlots: [] as string[],
+    blockedForMissingErp: false,
+  };
   try {
     push = await pushLoyaltyAssignmentToErpAndShopify({
       companyId,
@@ -199,18 +246,37 @@ export async function POST(request: NextRequest, { params }: Params) {
     push.errors.push(err instanceof Error ? err.message : "ERP/Shopify push failed");
   }
 
+  if (push.blockedForMissingErp) {
+    return NextResponse.json(
+      {
+        error:
+          push.errors.find((e) => e.includes("Create this customer")) ??
+          missingErpLoyaltyMessage(push.missingErpSlots, preflight.primaryPhone),
+        missingErpSlots: push.missingErpSlots,
+        retry: true,
+        erpUpdated: push.erpUpdated,
+        shopifyUpdated: push.shopifyUpdated,
+        pushErrors: push.errors,
+      },
+      { status: 400 }
+    );
+  }
+
   await writeAuditLog({
     companyId,
     actorUserId: user.id,
     module: "customer-insight",
-    action: "loyalty_assigned",
+    action: isRetrySameTier ? "loyalty_push_retry" : "loyalty_assigned",
     entityType: "ContactMaster",
     entityId: contact.id,
-    summary: `${isPlatinumUpgrade ? "Upgraded" : "Assigned"} ${parsed.data.tier} loyalty to ${contact.name}`,
+    summary: isRetrySameTier
+      ? `Retried ${parsed.data.tier} loyalty push for ${contact.name}`
+      : `${isPlatinumUpgrade ? "Upgraded" : "Assigned"} ${parsed.data.tier} loyalty to ${contact.name}`,
     metadata: {
       tier: parsed.data.tier,
       lifetimeTotal,
       remark,
+      retry: isRetrySameTier,
       erpUpdated: push.erpUpdated,
       shopifyUpdated: push.shopifyUpdated,
       pushErrors: push.errors,
@@ -221,6 +287,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     ok: true,
     tier: parsed.data.tier,
     assignedAt: now.toISOString(),
+    retry: isRetrySameTier,
     erpUpdated: push.erpUpdated,
     shopifyUpdated: push.shopifyUpdated,
     pushErrors: push.errors,
