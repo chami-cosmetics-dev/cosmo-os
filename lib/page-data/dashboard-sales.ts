@@ -1,9 +1,10 @@
 import type { Prisma } from "@prisma/client";
 
 import {
-  applyMerchantGroup,
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
+  matchMerchantFromCouponMap,
+  resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { getOrderPaymentGatewayColumnState } from "@/lib/order-payment-gateway-compat";
@@ -43,14 +44,6 @@ function parseDayStartUtc(ymd: string): Date {
 
 function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
-}
-
-function getUserDisplayName(user: {
-  knownName?: string | null;
-  name?: string | null;
-  email?: string | null;
-} | null | undefined) {
-  return user?.knownName?.trim() || user?.name?.trim() || user?.email?.trim() || null;
 }
 
 const DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES = new Set(["paid", "pending"]);
@@ -529,25 +522,19 @@ export async function fetchDashboardSalesByLocationMerchant(
       .map((coupon) => coupon.trim().toLowerCase())
       .filter(Boolean);
 
-    for (const code of merchantCoupons) {
-      const matchedUser = couponToUser.get(code);
-      if (matchedUser) {
-        merchantId = matchedUser.id;
-        merchantName = matchedUser.name;
-        break;
-      }
-    }
-
-    if (!merchantName) {
-      const groupedMerchant = applyMerchantGroup(
-        {
-          id: order.assignedMerchantId,
-          name: getUserDisplayName(order.assignedMerchant) ?? "DM-General",
-        },
+    const matched = matchMerchantFromCouponMap(merchantCoupons, couponToUser);
+    if (matched) {
+      merchantId = matched.id;
+      merchantName = matched.name;
+    } else {
+      const fallback = resolveAssignedMerchantDashboardFallback({
+        assignedMerchantId: order.assignedMerchantId,
+        assignedMerchant: order.assignedMerchant,
+        orderCoupons: merchantCoupons,
         userToGroup,
-      );
-      merchantId = groupedMerchant.id;
-      merchantName = groupedMerchant.name;
+      });
+      merchantId = fallback.id;
+      merchantName = fallback.name;
     }
 
     const merchantKey = merchantId ?? `__${merchantName.toLowerCase()}`;

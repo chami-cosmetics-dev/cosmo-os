@@ -1,4 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import {
+  DM_GENERAL_DISPLAY_NAME,
+  isDmCouponCode,
+  isMerchantTrackingCode,
+  splitMerchantCouponSets,
+} from "@/lib/merchant-dm-sales";
 
 type MerchantUser = {
   id: string;
@@ -102,12 +108,74 @@ export function buildCouponToMerchantMap(
     );
     for (const coupon of user.couponCodes) {
       const normalized = coupon.trim().toLowerCase();
-      if (normalized && !couponToMerchant.has(normalized)) {
+      if (!normalized) continue;
+      // DM codes (MER115 etc.) always bucket to DM-General — never the staff who
+      // also holds them for ops (e.g. Sandali). Personal MER stays on the merchant.
+      if (isDmCouponCode(coupon)) {
+        couponToMerchant.set(normalized, {
+          id: null,
+          name: DM_GENERAL_DISPLAY_NAME,
+        });
+        continue;
+      }
+      if (!couponToMerchant.has(normalized)) {
         couponToMerchant.set(normalized, merchant);
       }
     }
   }
   return couponToMerchant;
+}
+
+/**
+ * Prefer personal MER match over DM-General when an order lists both.
+ */
+export function matchMerchantFromCouponMap(
+  merchantCoupons: string[],
+  couponToMerchant: Map<string, { id: string | null; name: string }>,
+): { id: string | null; name: string } | null {
+  let dmMatch: { id: string | null; name: string } | null = null;
+  for (const code of merchantCoupons) {
+    const hit = couponToMerchant.get(code.trim().toLowerCase());
+    if (!hit) continue;
+    if (hit.name === DM_GENERAL_DISPLAY_NAME) {
+      dmMatch ??= hit;
+      continue;
+    }
+    return hit;
+  }
+  return dmMatch;
+}
+
+/**
+ * When no coupon mapped: DM-holder assignees without a personal MER on the order
+ * go to DM-General so their name row stays MER-only (main dashboard).
+ */
+export function resolveAssignedMerchantDashboardFallback(input: {
+  assignedMerchantId: string | null | undefined;
+  assignedMerchant: {
+    knownName?: string | null;
+    name?: string | null;
+    email?: string | null;
+    couponCodes?: string[] | null;
+  } | null;
+  orderCoupons: string[];
+  userToGroup: Map<string, { id: string; name: string }>;
+}): { id: string | null; name: string } {
+  const sets = splitMerchantCouponSets(input.assignedMerchant?.couponCodes);
+  const tracking = input.orderCoupons
+    .map((c) => c.trim().toLowerCase())
+    .filter((c) => isMerchantTrackingCode(c));
+  const personalHit = tracking.some((c) => sets.personal.has(c));
+  if (sets.hasDm && !personalHit) {
+    return { id: null, name: DM_GENERAL_DISPLAY_NAME };
+  }
+  return applyMerchantGroup(
+    {
+      id: input.assignedMerchantId ?? null,
+      name: getMerchantDisplayName(input.assignedMerchant) || DM_GENERAL_DISPLAY_NAME,
+    },
+    input.userToGroup,
+  );
 }
 
 export async function listMerchantGroupSettings(companyId: string): Promise<{
