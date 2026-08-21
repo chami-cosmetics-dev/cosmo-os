@@ -91,6 +91,8 @@ const VARIABLES = [
   "customer.billingName, customer.billingPhone, customer.shippingName, customer.shippingPhone",
   "orderData.billingAddress.name, orderData.billingAddress.phone, orderData.shippingAddress.name, orderData.shippingAddress.phone",
   "totals.productTotalFormatted, totals.shippingTotalFormatted, totals.grandTotalFormatted",
+  "remarks.externalText, remarks.internalText, remarks.specialRemarks",
+  "remarks loops: {{#each remarks.external}} {{this}} {{/each}}, {{#each remarks.internal}} {{this}} {{/each}}",
   "lineItems loop: {{#each lineItems}} {{sku}} {{description}} {{quantity}} {{lineTotalFormatted}} {{/each}}",
   "files loop: {{#each files}} {{fileName}} {{{url}}} {{/each}}",
 ];
