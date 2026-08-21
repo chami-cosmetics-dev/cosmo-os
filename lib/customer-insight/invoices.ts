@@ -13,6 +13,9 @@ export type OrderInvoiceInput = {
   financialStatus: string | null;
   fulfillmentStatus: string | null;
   fulfillmentStage?: string | null;
+  locationName?: string | null;
+  discountCouponCode?: string | null;
+  merchantCouponCode?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -22,6 +25,7 @@ export type AdaptInvoiceInput = {
   salesInvoiceNo: string;
   ttlAmount: number | string;
   currency?: string | null;
+  locationName?: string | null;
   lineItems?: InvoiceLineDto[];
 };
 
@@ -59,6 +63,9 @@ export function mapOrderToInvoiceRow(order: OrderInvoiceInput): UnifiedInvoiceRo
       fulfillmentStage: order.fulfillmentStage,
     }),
     orderId: order.id,
+    locationName: order.locationName?.trim() || null,
+    discountCouponCode: order.discountCouponCode?.trim() || null,
+    merchantCouponCode: order.merchantCouponCode?.trim() || null,
     lineItems: order.lineItems ?? [],
   };
 }
@@ -77,6 +84,9 @@ export function mapAdaptToInvoiceRow(row: AdaptInvoiceInput): UnifiedInvoiceRowD
     currency: row.currency?.trim() || "LKR",
     includedInLoyaltyTotal: true,
     orderId: null,
+    locationName: row.locationName?.trim() || null,
+    discountCouponCode: null,
+    merchantCouponCode: null,
     lineItems: row.lineItems ?? [],
   };
 }
@@ -122,4 +132,16 @@ export function invoiceLineDisplayName(item: InvoiceLineDto): string {
     return `${title} — ${variant}`;
   }
   return title;
+}
+
+/** Compact coupon label for Insight / merchant tables. */
+export function formatInvoiceCouponLabel(input: {
+  discountCouponCode?: string | null;
+  merchantCouponCode?: string | null;
+}): string | null {
+  const parts = [input.discountCouponCode, input.merchantCouponCode]
+    .map((c) => c?.trim())
+    .filter((c): c is string => Boolean(c));
+  if (parts.length === 0) return null;
+  return [...new Set(parts)].join(" · ");
 }

@@ -290,6 +290,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       "Phone",
       "Amount",
       "Location",
+      "Discount coupon",
+      "Merchant coupon",
       "Allocated merchant",
       "Allocation mismatch",
     ];
@@ -303,6 +305,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           row.customerPhone,
           row.amount,
           row.locationName,
+          row.discountCouponCode ?? "",
+          row.merchantCouponCode ?? "",
           row.allocatedMerchant,
           row.allocationMismatch ? "yes" : "no",
         ]
@@ -2205,6 +2209,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     <th className="py-2 pr-3 font-medium">Phone</th>
                     <th className="py-2 pr-3 font-medium">Amount</th>
                     <th className="py-2 pr-3 font-medium">Location</th>
+                    <th className="py-2 pr-3 font-medium">Coupon</th>
                     <th className="py-2 font-medium">Allocated merchant</th>
                   </tr>
                 </thead>
@@ -2225,6 +2230,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         {formatMoney(row.amount)}
                       </td>
                       <td className="py-2 pr-3">{row.locationName}</td>
+                      <td className="py-2 pr-3 text-xs">
+                        {[row.discountCouponCode, row.merchantCouponCode]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </td>
                       <td className="py-2">
                         {row.allocatedMerchant ? (
                           <span

@@ -65,6 +65,9 @@ const sampleOwner: CustomerInsightDto = {
       currency: "LKR",
       includedInLoyaltyTotal: true,
       orderId: "o1",
+      locationName: "Colombo Shop",
+      discountCouponCode: "SV20",
+      merchantCouponCode: "MER91",
       lineItems: [
         {
           id: "li1",

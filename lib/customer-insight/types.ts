@@ -129,6 +129,12 @@ export type UnifiedInvoiceRowDto = {
   includedInLoyaltyTotal: boolean;
   /** Cosmo order id when source is order; null for Adapt. */
   orderId: string | null;
+  /** Shop / outlet where the order was placed. */
+  locationName: string | null;
+  /** Customer discount coupon (e.g. SV20), if any. */
+  discountCouponCode: string | null;
+  /** Merchant tracking coupon (e.g. MER91), if any. */
+  merchantCouponCode: string | null;
   lineItems: InvoiceLineDto[];
 };
 

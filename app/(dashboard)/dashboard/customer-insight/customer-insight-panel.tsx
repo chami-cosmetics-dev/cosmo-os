@@ -35,7 +35,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { invoiceLineDisplayName } from "@/lib/customer-insight/invoices";
+import { invoiceLineDisplayName, formatInvoiceCouponLabel } from "@/lib/customer-insight/invoices";
 import { appendInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
 import { formatRemovedEmailLabel } from "@/lib/contacts/removed-email-label";
@@ -2886,6 +2886,16 @@ export function CustomerInsightPanel({
                               {order.secondaryLabel ??
                                 (order.source === "adapt" ? "Adapt" : "N/A")}
                             </p>
+                            {order.locationName ? (
+                              <p className="text-muted-foreground mt-1 text-xs">
+                                Shop: {order.locationName}
+                              </p>
+                            ) : null}
+                            {formatInvoiceCouponLabel(order) ? (
+                              <p className="text-muted-foreground text-xs">
+                                Coupon: {formatInvoiceCouponLabel(order)}
+                              </p>
+                            ) : null}
                           </td>
                           {showPurchaseLines ? (
                             <td className="px-4 py-2 align-top">

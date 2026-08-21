@@ -236,7 +236,9 @@ export async function renderOrderInvoice(input: {
     paymentGatewayNames,
     erpnextInvoiceId: order.erpnextInvoiceId,
   });
-  if (financeBlock) {
+  // View-only (Insight / read) must still open the invoice HTML.
+  // Finance gate only blocks fulfillment print increments.
+  if (financeBlock && shouldIncrementPrint) {
     return { ok: false, status: 409, message: financeBlock };
   }
 
