@@ -259,3 +259,14 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   q: trimmedString(1, 100).optional(),
 });
+
+export const customerInsightCallQueueCandidatesQuerySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+  page: z.coerce.number().int().min(1).max(LIMITS.pagination.pageMax).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export const customerInsightCallQueueAssignBodySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+  contactIds: z.array(cuidSchema).min(1).max(200),
+});

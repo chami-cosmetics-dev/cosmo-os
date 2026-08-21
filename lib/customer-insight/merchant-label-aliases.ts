@@ -130,6 +130,7 @@ export function insightMerchantOptionLabel(user: {
 }
 
 type MerchantFilterUser = {
+  id: string;
   knownName: string | null;
   name: string | null;
   email: string | null;
@@ -151,6 +152,7 @@ async function listCompanyMerchantFilterUsers(
       userRoles: { some: { roleId: { in: merchantRoleIds } } },
     },
     select: {
+      id: true,
       knownName: true,
       name: true,
       email: true,
@@ -211,6 +213,21 @@ export async function resolveAssignedMerchantFilterLabels(
   }
 
   return [trimmed];
+}
+
+export async function findMerchantUserForFilterValue(
+  companyId: string,
+  selected: string | null | undefined
+): Promise<{ id: string; value: string; label: string } | null> {
+  const trimmed = (selected ?? "").trim();
+  if (!trimmed) return null;
+  const users = await listCompanyMerchantFilterUsers(companyId);
+  const hit = users.find((u) => userMatchesFilterValue(u, trimmed));
+  if (!hit) return null;
+  const value = insightMerchantOptionValue(hit);
+  const label = insightMerchantOptionLabel(hit);
+  if (!value || !label) return null;
+  return { id: hit.id, value, label };
 }
 
 export async function listInsightMerchantRosterOptions(

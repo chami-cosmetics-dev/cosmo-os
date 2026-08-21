@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadCustomerInsight } from "@/lib/customer-insight/load";
+import { completeCallQueueItem } from "@/lib/customer-insight/call-queue";
 import { readInsightFilterList } from "@/lib/customer-insight/filter-query-params";
 import { isAllocatedOwner } from "@/lib/customer-insight/ownership";
 import { updateContactInsightProfile } from "@/lib/customer-insight/profile";
@@ -161,6 +162,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!updated) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }
+
+    await completeCallQueueItem({
+      companyId,
+      contactId: contact.id,
+      completedByUserId: auth.context!.user?.id ?? null,
+    });
 
     return NextResponse.json({
       contact: {

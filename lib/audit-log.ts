@@ -69,6 +69,7 @@ export const AUDIT_LOG_ACTIONS = [
   "loyalty_responded",
   "loyalty_assigned",
   "merchant_loyalty_contacted",
+  "call_queue_assign",
 ] as const;
 
 export type AuditLogModule = (typeof AUDIT_LOG_MODULES)[number];
@@ -164,7 +165,13 @@ export const AUDIT_LOG_ACTION_GROUPS = [
   {
     key: "customer-insight",
     label: "Customer Insight",
-    actions: ["contact_merged", "insight_contacted", "loyalty_responded", "loyalty_assigned"],
+    actions: [
+      "contact_merged",
+      "insight_contacted",
+      "loyalty_responded",
+      "loyalty_assigned",
+      "call_queue_assign",
+    ],
   },
   {
     key: "merchant-dashboard",
