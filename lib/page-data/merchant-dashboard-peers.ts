@@ -213,13 +213,11 @@ export async function fetchMerchantCohortSales(
   };
 }
 
-const LOCATION_PEER_CAP = 8;
-
-/** Pure: build location share rows for viewed merchant from a cohort scan. */
+/** Pure: build location share rows for viewed merchant from a cohort scan.
+ * All merchants at each location are included (no peer cap). */
 export function buildLocationShareRows(
   cohort: CohortSalesResult,
   viewedMerchantId: string,
-  peerCap = LOCATION_PEER_CAP,
 ): LocationShareRow[] {
   const viewed = cohort.byMerchant.get(viewedMerchantId);
   if (!viewed) return [];
@@ -275,7 +273,6 @@ export function buildLocationShareRows(
         if (b.total !== a.total) return b.total - a.total;
         return a.displayName.localeCompare(b.displayName);
       })
-      .slice(0, peerCap)
       .map((p) => ({
         ...p,
         sharePct: sharePct(p.total, bucket.total),

@@ -1506,21 +1506,6 @@ export function StickerBatchClient({
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                size="sm"
-                onClick={handleSaveBatchItems}
-                disabled={
-                  savingItems ||
-                  !canSaveFilledRows ||
-                  !canAddRows ||
-                  loadedDataUnchanged
-                }
-                className="shadow-[0_10px_24px_-18px_var(--primary)]"
-              >
-                <Save className="size-4" />
-                {savingItems ? "Saving Items..." : "Save Items"}
-              </Button>
-              <Button
-                type="button"
                 variant="outline"
                 size="sm"
                 className="border-border/70 bg-background/85 hover:bg-secondary/10"
