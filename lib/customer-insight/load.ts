@@ -27,6 +27,8 @@ import {
 import { buildMonthlySeries } from "@/lib/customer-insight/series";
 import { aggregateTopItems } from "@/lib/customer-insight/top-items";
 import type { CustomerInsightDto, InvoiceLineDto } from "@/lib/customer-insight/types";
+import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
+import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 
 function uniqueDisplayPhones(values: Array<string | null>) {
@@ -98,6 +100,8 @@ export async function loadCustomerInsight(input: {
       ttlAmount: true,
       currency: true,
       lineItems: true,
+      locationName: true,
+      companyLocation: { select: { name: true } },
     },
   });
 
@@ -118,6 +122,11 @@ export async function loadCustomerInsight(input: {
             financialStatus: true,
             fulfillmentStage: true,
             fulfillmentStatus: true,
+            sourceName: true,
+            discountCodes: true,
+            rawPayload: true,
+            companyLocation: { select: { name: true } },
+            assignedMerchant: { select: { couponCodes: true } },
             lineItems: {
               select: {
                 id: true,
@@ -247,6 +256,18 @@ export async function loadCustomerInsight(input: {
         financialStatus: o.financialStatus,
         fulfillmentStage: o.fulfillmentStage,
         fulfillmentStatus: o.fulfillmentStatus,
+        locationName: o.companyLocation?.name ?? null,
+        discountCouponCode: getOrderDiscountCouponCode({
+          sourceName: o.sourceName,
+          discountCodes: o.discountCodes,
+          rawPayload: o.rawPayload,
+        }),
+        merchantCouponCode: getMerchantCouponCode({
+          sourceName: o.sourceName,
+          discountCodes: o.discountCodes,
+          rawPayload: o.rawPayload,
+          assignedMerchantCouponCodes: o.assignedMerchant?.couponCodes ?? null,
+        }),
         lineItems,
       };
     }),
@@ -269,6 +290,7 @@ export async function loadCustomerInsight(input: {
         salesInvoiceNo: r.salesInvoiceNo,
         ttlAmount: r.ttlAmount.toString(),
         currency: r.currency,
+        locationName: r.companyLocation?.name?.trim() || r.locationName || null,
         lineItems,
       };
     }),
