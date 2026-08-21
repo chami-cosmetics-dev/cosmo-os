@@ -31,6 +31,10 @@ import {
   fetchMerchantUserSales,
   type MerchantDailyInvoiceRow,
 } from "@/lib/page-data/merchant-dashboard-sales";
+import {
+  fetchMerchantCosmeticsLkBreakdown,
+  type MerchantCosmeticsLkBreakdownBundle,
+} from "@/lib/page-data/merchant-dashboard-cosmetics-lk";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { prisma } from "@/lib/prisma";
 
@@ -142,6 +146,8 @@ export type MerchantDashboardPageData = {
   today: TodaySalesDto;
   peerBoards: PeerBoardsDto;
   locationShare: LocationShareBundle;
+  /** Your cosmetics.lk orders only — source / gateway / VAT item split. */
+  cosmeticsLkBreakdown: MerchantCosmeticsLkBreakdownBundle;
   /** Day/month attributed sales history (not target-assignment audit). */
   salesHistory: SalesHistoryDto;
   /** Order-placed invoices for selected Colombo day (default today). */
@@ -383,6 +389,8 @@ export async function getMerchantDashboardPageData(input: {
     dailyInvoicesResult,
     loyaltyOutreach,
     callCenterRaw,
+    cosmeticsLkMtd,
+    cosmeticsLkToday,
   ] = await Promise.all([
     fetchMerchantCohortSales(input.companyId, cohortInputs, {
       fromYmd,
@@ -465,7 +473,22 @@ export async function getMerchantDashboardPageData(input: {
       GROUP BY "merchantName", "category"
       ORDER BY "count" DESC
     `,
+    fetchMerchantCosmeticsLkBreakdown(input.companyId, selectedMerchantId, {
+      fromYmd,
+      toYmd: rangeToYmd,
+      dateType: "all_orders",
+    }),
+    fetchMerchantCosmeticsLkBreakdown(input.companyId, selectedMerchantId, {
+      fromYmd: todayYmd,
+      toYmd: todayYmd,
+      dateType: "all_orders",
+    }),
   ]);
+
+  const cosmeticsLkBreakdown: MerchantCosmeticsLkBreakdownBundle = {
+    today: cosmeticsLkToday,
+    mtd: cosmeticsLkMtd,
+  };
 
   const sales = {
     total: mtdSales.total,
@@ -675,6 +698,7 @@ export async function getMerchantDashboardPageData(input: {
     today,
     peerBoards,
     locationShare,
+    cosmeticsLkBreakdown,
     salesHistory,
     dailyInvoicesYmd: dailyInvoicesResult.dayYmd,
     dailyInvoices: dailyInvoicesResult.rows,
