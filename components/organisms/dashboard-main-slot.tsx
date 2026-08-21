@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/chart";
 
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 
 const DASHBOARD_SEGMENT_COLORS = [
   "#a78bfa",
@@ -117,7 +118,8 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
     const totals = new Map<string, number>();
     for (const location of salesLocations) {
       for (const row of location.merchants) {
-        totals.set(row.merchantName, (totals.get(row.merchantName) ?? 0) + row.total);
+        const label = normalizeDashboardMerchantLabel(row.merchantName);
+        totals.set(label, (totals.get(label) ?? 0) + row.total);
       }
     }
     return [...totals.entries()]

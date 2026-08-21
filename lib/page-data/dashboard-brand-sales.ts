@@ -6,6 +6,7 @@ import {
   matchMerchantFromCouponMap,
   resolveAssignedMerchantDashboardFallback,
 } from "@/lib/merchant-groups";
+import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   buildDashboardSalesDateFilter,
@@ -171,6 +172,10 @@ export async function fetchDashboardBrandSales(
         orderCoupons: merchantCoupons,
         userToGroup,
       });
+    merchant = {
+      id: merchant.id,
+      name: normalizeDashboardMerchantLabel(merchant.name),
+    };
 
     // Process each line item
     for (const item of order.lineItems) {

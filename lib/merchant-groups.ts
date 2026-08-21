@@ -3,6 +3,7 @@ import {
   DM_GENERAL_DISPLAY_NAME,
   isDmCouponCode,
   isMerchantTrackingCode,
+  normalizeDashboardMerchantLabel,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
 
@@ -91,9 +92,23 @@ export function applyMerchantGroup(
   merchant: { id: string | null; name: string },
   userToGroup: Map<string, { id: string; name: string }>,
 ) {
-  if (!merchant.id) return merchant;
+  if (!merchant.id) {
+    return {
+      id: merchant.id,
+      name: normalizeDashboardMerchantLabel(merchant.name),
+    };
+  }
   const group = userToGroup.get(merchant.id);
-  return group ? { id: group.id, name: group.name } : merchant;
+  if (group) {
+    return {
+      id: group.id,
+      name: normalizeDashboardMerchantLabel(group.name),
+    };
+  }
+  return {
+    id: merchant.id,
+    name: normalizeDashboardMerchantLabel(merchant.name),
+  };
 }
 
 export function buildCouponToMerchantMap(
@@ -103,9 +118,13 @@ export function buildCouponToMerchantMap(
   const couponToMerchant = new Map<string, { id: string | null; name: string }>();
   for (const user of users) {
     const merchant = applyMerchantGroup(
-      { id: user.id, name: getMerchantDisplayName(user) },
+      {
+        id: user.id,
+        name: normalizeDashboardMerchantLabel(getMerchantDisplayName(user)),
+      },
       userToGroup,
     );
+    merchant.name = normalizeDashboardMerchantLabel(merchant.name);
     for (const coupon of user.couponCodes) {
       const normalized = coupon.trim().toLowerCase();
       if (!normalized) continue;
@@ -137,11 +156,12 @@ export function matchMerchantFromCouponMap(
   for (const code of merchantCoupons) {
     const hit = couponToMerchant.get(code.trim().toLowerCase());
     if (!hit) continue;
-    if (hit.name === DM_GENERAL_DISPLAY_NAME) {
-      dmMatch ??= hit;
+    const name = normalizeDashboardMerchantLabel(hit.name);
+    if (name === DM_GENERAL_DISPLAY_NAME) {
+      dmMatch ??= { id: null, name: DM_GENERAL_DISPLAY_NAME };
       continue;
     }
-    return hit;
+    return { id: hit.id, name };
   }
   return dmMatch;
 }
@@ -169,13 +189,19 @@ export function resolveAssignedMerchantDashboardFallback(input: {
   if (sets.hasDm && !personalHit) {
     return { id: null, name: DM_GENERAL_DISPLAY_NAME };
   }
-  return applyMerchantGroup(
+  const grouped = applyMerchantGroup(
     {
       id: input.assignedMerchantId ?? null,
-      name: getMerchantDisplayName(input.assignedMerchant) || DM_GENERAL_DISPLAY_NAME,
+      name: normalizeDashboardMerchantLabel(
+        getMerchantDisplayName(input.assignedMerchant),
+      ),
     },
     input.userToGroup,
   );
+  return {
+    id: grouped.id,
+    name: normalizeDashboardMerchantLabel(grouped.name),
+  };
 }
 
 export async function listMerchantGroupSettings(companyId: string): Promise<{
@@ -235,7 +261,11 @@ export async function listMerchantGroupSettings(companyId: string): Promise<{
       const merchant = merchantById.get(member.userId);
       if (merchant) members.push(merchant);
     }
-    return { id: group.id, name: group.name, members };
+    return {
+      id: group.id,
+      name: group.name,
+      members: members.sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    };
   });
 
   return {
@@ -245,58 +275,55 @@ export async function listMerchantGroupSettings(companyId: string): Promise<{
 }
 
 export async function createMerchantGroup(companyId: string, name: string) {
-  const model = getMerchantGroupModel();
-  if (!model) throw new Error("MerchantGroup table is not available. Run the latest Prisma migration first.");
-  return model.create({
+  const groupModel = getMerchantGroupModel();
+  if (!groupModel) throw new Error("Merchant groups are not available");
+  return groupModel.create({
     data: { companyId, name: name.trim() },
   });
 }
 
-export async function updateMerchantGroup(companyId: string, groupId: string, name: string) {
-  const model = getMerchantGroupModel();
-  if (!model) throw new Error("MerchantGroup table is not available. Run the latest Prisma migration first.");
-  const existing = await model.findFirst({ where: { id: groupId, companyId } });
+export async function updateMerchantGroup(
+  companyId: string,
+  groupId: string,
+  data: { name?: string },
+) {
+  const groupModel = getMerchantGroupModel();
+  if (!groupModel) throw new Error("Merchant groups are not available");
+  const existing = await groupModel.findFirst({ where: { id: groupId, companyId } });
   if (!existing) throw new Error("Merchant group not found");
-  return model.update({
+  return groupModel.update({
     where: { id: groupId },
-    data: { name: name.trim() },
+    data: {
+      ...(data.name !== undefined ? { name: data.name.trim() } : {}),
+    },
   });
 }
 
 export async function deleteMerchantGroup(companyId: string, groupId: string) {
-  const model = getMerchantGroupModel();
-  if (!model) throw new Error("MerchantGroup table is not available. Run the latest Prisma migration first.");
-  const existing = await model.findFirst({ where: { id: groupId, companyId } });
+  const groupModel = getMerchantGroupModel();
+  if (!groupModel) throw new Error("Merchant groups are not available");
+  const existing = await groupModel.findFirst({ where: { id: groupId, companyId } });
   if (!existing) throw new Error("Merchant group not found");
-  await model.delete({ where: { id: groupId } });
+  await groupModel.delete({ where: { id: groupId } });
 }
 
-export async function setMerchantGroupMembers(companyId: string, groupId: string, userIds: string[]) {
+export async function setMerchantGroupMembers(
+  companyId: string,
+  groupId: string,
+  memberIds: string[],
+) {
   const groupModel = getMerchantGroupModel();
   const memberModel = getMerchantGroupMemberModel();
-  if (!groupModel || !memberModel) {
-    throw new Error("MerchantGroup tables are not available. Run the latest Prisma migration first.");
-  }
+  if (!groupModel || !memberModel) throw new Error("Merchant groups are not available");
 
   const existing = await groupModel.findFirst({ where: { id: groupId, companyId } });
   if (!existing) throw new Error("Merchant group not found");
 
-  const merchants = await prisma.user.findMany({
-    where: { companyId, id: { in: userIds }, couponCodes: { isEmpty: false } },
-    select: { id: true },
-  });
-  const validUserIds = merchants.map((merchant) => merchant.id);
+  const uniqueMemberIds = Array.from(new Set(memberIds));
+  await memberModel.deleteMany({ where: { merchantGroupId: groupId } });
+  if (uniqueMemberIds.length === 0) return;
 
-  await memberModel.deleteMany({
-    where: {
-      OR: [
-        { merchantGroupId: groupId },
-        ...(validUserIds.length > 0 ? [{ userId: { in: validUserIds } }] : []),
-      ],
-    },
-  });
-
-  for (const userId of validUserIds) {
+  for (const userId of uniqueMemberIds) {
     await memberModel.create({
       data: { merchantGroupId: groupId, userId },
     });

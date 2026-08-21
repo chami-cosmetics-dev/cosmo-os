@@ -22,7 +22,7 @@ export async function PUT(request: NextRequest) {
   }
 
   try {
-    await updateMerchantGroup(companyId, groupId, name);
+    await updateMerchantGroup(companyId, groupId, { name });
     return NextResponse.json(await listMerchantGroupSettings(companyId));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to update merchant group";

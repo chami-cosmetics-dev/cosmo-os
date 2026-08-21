@@ -8,6 +8,19 @@ export const DM_GENERAL_COHORT_ID = "__dm_general__";
 
 export const DM_GENERAL_DISPLAY_NAME = "DM-General";
 
+/** Collapse blank / Unknown / Unassigned / "DM General" group label into DM-General. */
+export function normalizeDashboardMerchantLabel(
+  name: string | null | undefined,
+): string {
+  const trimmed = name?.trim() || "";
+  if (!trimmed) return DM_GENERAL_DISPLAY_NAME;
+  const key = trimmed.toLowerCase().replace(/[\s_-]+/g, "");
+  if (key === "unknown" || key === "unassigned" || key === "dmgeneral") {
+    return DM_GENERAL_DISPLAY_NAME;
+  }
+  return trimmed;
+}
+
 export function isDmCouponCode(code: string | null | undefined): boolean {
   const raw = String(code ?? "").trim();
   if (!raw) return false;
