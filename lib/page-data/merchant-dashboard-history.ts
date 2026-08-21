@@ -73,6 +73,7 @@ export function buildDailyHistoryRows(
   yearMonth: string,
   todayYmd: string,
   byDay: Map<string, { total: number; orderCount: number }>,
+  callCountByDay?: Map<string, number>,
 ): DailySalesHistoryRow[] {
   return listDaysThroughToday(yearMonth, todayYmd).map((ymd) => {
     const hit = byDay.get(ymd);
@@ -80,8 +81,41 @@ export function buildDailyHistoryRows(
       ymd,
       total: hit?.total ?? 0,
       orderCount: hit?.orderCount ?? 0,
+      callCount: callCountByDay?.get(ymd) ?? 0,
     };
   });
+}
+
+/**
+ * Per-day call counts for a merchant (ContactAllocationUpdate), excluding bulk
+ * allocation noise. Each remaining update = one call attempt that day.
+ */
+export async function fetchMerchantDailyCallCounts(input: {
+  companyId: string;
+  merchantUserId: string;
+  fromYmd: string;
+  toYmd: string;
+}): Promise<Map<string, number>> {
+  const fromDate = parseDayStartUtc(input.fromYmd);
+  const toDate = parseDayEndUtc(input.toYmd);
+  if (fromDate > toDate) return new Map();
+
+  const rows = await prisma.contactAllocationUpdate.findMany({
+    where: {
+      companyId: input.companyId,
+      merchantId: input.merchantUserId,
+      createdAt: { gte: fromDate, lte: toDate },
+      NOT: { category: "allocation" },
+    },
+    select: { createdAt: true },
+  });
+
+  const byDay = new Map<string, number>();
+  for (const row of rows) {
+    const ymd = formatAppIsoDate(row.createdAt);
+    byDay.set(ymd, (byDay.get(ymd) ?? 0) + 1);
+  }
+  return byDay;
 }
 
 export function buildMonthlyHistoryStatus(input: {
@@ -143,7 +177,7 @@ export async function fetchMerchantSalesHistory(
     dateType,
   });
 
-  const [orders, targets] = await Promise.all([
+  const [orders, targets, callCountByDay] = await Promise.all([
     prisma.order.findMany({
       where: { companyId, ...dateFilter },
       select: {
@@ -168,6 +202,12 @@ export async function fetchMerchantSalesHistory(
         yearMonth: { in: yearMonths },
       },
       select: { yearMonth: true, targetAmount: true },
+    }),
+    fetchMerchantDailyCallCounts({
+      companyId,
+      merchantUserId,
+      fromYmd: monthBounds(currentYearMonth).fromYmd,
+      toYmd: todayYmd,
     }),
   ]);
 
@@ -219,7 +259,12 @@ export async function fetchMerchantSalesHistory(
     }
   }
 
-  const daily = buildDailyHistoryRows(currentYearMonth, todayYmd, byDay);
+  const daily = buildDailyHistoryRows(
+    currentYearMonth,
+    todayYmd,
+    byDay,
+    callCountByDay,
+  );
   const monthly: MonthlySalesHistoryRow[] = yearMonths.map((ym) => {
     const row = byMonth.get(ym) ?? { total: 0, orderCount: 0 };
     const targetAmount = targetByMonth.get(ym) ?? null;

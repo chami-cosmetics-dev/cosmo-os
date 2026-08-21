@@ -73,6 +73,8 @@ export type DailySalesHistoryRow = {
   ymd: string;
   total: number;
   orderCount: number;
+  /** Insight / call-center updates that day (excludes bulk allocation). */
+  callCount: number;
 };
 
 export type MonthlySalesHistoryStatus =
