@@ -13,7 +13,7 @@ import type {
   SalesHistoryDto,
   TodaySalesDto,
 } from "@/lib/merchant-dashboard/motivation-types";
-import { buildPeerBoard, type PeerBoardInputRow } from "@/lib/merchant-dashboard/peer-board";
+import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
