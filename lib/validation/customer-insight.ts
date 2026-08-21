@@ -5,6 +5,7 @@ import {
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
 import { INSIGHT_FILTER_LIST_MAX } from "@/lib/customer-insight/filter-query-params";
+import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
 import {
   cuidSchema,
   emailSchema,
@@ -163,6 +164,10 @@ const optionalIsoDate = z
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   item: insightFilterListSchema(500),
+  itemStatusCategory: z
+    .array(z.enum(PRODUCT_ITEM_STATUS_CATEGORIES))
+    .max(INSIGHT_FILTER_LIST_MAX)
+    .optional(),
   city: trimmedString(1, 100).optional(),
   assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
   purchaseLocationId: cuidSchema.optional(),
