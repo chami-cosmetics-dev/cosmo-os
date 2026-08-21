@@ -129,6 +129,12 @@ export type UnifiedInvoiceRowDto = {
   includedInLoyaltyTotal: boolean;
   /** Cosmo order id when source is order; null for Adapt. */
   orderId: string | null;
+  /** Shop / outlet where the order was placed. */
+  locationName: string | null;
+  /** Customer discount coupon (e.g. SV20), if any. */
+  discountCouponCode: string | null;
+  /** Merchant tracking coupon (e.g. MER91), if any. */
+  merchantCouponCode: string | null;
   lineItems: InvoiceLineDto[];
 };
 
@@ -152,7 +158,10 @@ export type ProgressBarDto = {
   tier: LoyaltyTierKey;
 };
 
-/** Full owner insight, or limited fields when visibility is "limited". */
+/** Full owner insight, or limited fields when visibility is "limited".
+ * Limited (exact phone of another merchant's contact): loyalty + invoice lines + top items.
+ * Owner-only: profile, progress, contacted, spend chart, edit.
+ */
 export type CustomerInsightDto = {
   visibility: InsightVisibility;
   assignedMerchant: string | null;

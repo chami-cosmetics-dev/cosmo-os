@@ -65,6 +65,9 @@ const sampleOwner: CustomerInsightDto = {
       currency: "LKR",
       includedInLoyaltyTotal: true,
       orderId: "o1",
+      locationName: "Colombo Shop",
+      discountCouponCode: "SV20",
+      merchantCouponCode: "MER91",
       lineItems: [
         {
           id: "li1",
@@ -81,15 +84,15 @@ const sampleOwner: CustomerInsightDto = {
 };
 
 describe("toLimitedInsightDto", () => {
-  it("keeps total, invoices headers, assigned merchant only", () => {
+  it("keeps total, invoice lines, top items; hides owner-only profile fields", () => {
     const limited = toLimitedInsightDto(sampleOwner);
     expect(limited.visibility).toBe("limited");
     expect(limited.assignedMerchant).toBe("Dinuli");
     expect(limited.loyalty.lifetimeTotal).toBe(100_000);
-    expect(limited.invoices[0]?.lineItems).toEqual([]);
+    expect(limited.invoices[0]?.lineItems).toEqual(sampleOwner.invoices[0]?.lineItems);
+    expect(limited.topItems).toEqual(sampleOwner.topItems);
     expect(limited.contact).toBeUndefined();
     expect(limited.progressBar).toBeUndefined();
-    expect(limited.topItems).toBeUndefined();
     expect(limited.series).toBeUndefined();
     expect(limited.lastContactedAt).toBeUndefined();
     expect(limited.canEditProfile).toBeUndefined();

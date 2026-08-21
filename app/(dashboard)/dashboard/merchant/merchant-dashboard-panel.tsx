@@ -290,6 +290,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       "Phone",
       "Amount",
       "Location",
+      "Discount coupon",
+      "Merchant coupon",
       "Allocated merchant",
       "Allocation mismatch",
     ];
@@ -303,6 +305,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           row.customerPhone,
           row.amount,
           row.locationName,
+          row.discountCouponCode ?? "",
+          row.merchantCouponCode ?? "",
           row.allocatedMerchant,
           row.allocationMismatch ? "yes" : "no",
         ]
@@ -460,6 +464,10 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     locationSharePeriod === "today"
       ? data.locationShare.today
       : data.locationShare.mtd;
+  const activeCosmeticsLkBreakdown =
+    locationSharePeriod === "today"
+      ? data.cosmeticsLkBreakdown.today
+      : data.cosmeticsLkBreakdown.mtd;
   const dailyHistoryChart = data.salesHistory.daily.map((row) => ({
     name: row.ymd.slice(8),
     sales: row.total,
@@ -1359,6 +1367,76 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                       </ResponsiveContainer>
                     </div>
                   </div>
+
+                {activeCosmeticsLkBreakdown &&
+                loc.locationId === activeCosmeticsLkBreakdown.locationId ? (
+                  <div className="mt-4 border-t border-border/50 pt-4">
+                    <p className="mb-1 text-sm font-medium">Your order mix</p>
+                    <p className="text-muted-foreground mb-3 text-xs">
+                      Your attributed orders only. Source = how placed; gateway =
+                      payment; VAT = items tagged VAT - Top Priority Brand.
+                    </p>
+                    {activeCosmeticsLkBreakdown.selfOrderCount === 0 ? (
+                      <p className="text-muted-foreground text-sm">
+                        No orders for you in this period.
+                      </p>
+                    ) : (
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {(
+                          [
+                            {
+                              title: "How placed",
+                              rows: activeCosmeticsLkBreakdown.bySource,
+                            },
+                            {
+                              title: "Payment gateway",
+                              rows: activeCosmeticsLkBreakdown.byGateway,
+                            },
+                            {
+                              title: "VAT items",
+                              rows: activeCosmeticsLkBreakdown.byVatItem,
+                            },
+                          ] as const
+                        ).map((section) => (
+                          <div
+                            key={section.title}
+                            className="rounded-lg bg-muted/40 p-3"
+                          >
+                            <p className="mb-2 text-xs font-semibold tracking-wide uppercase text-muted-foreground">
+                              {section.title}
+                            </p>
+                            {section.rows.length === 0 ? (
+                              <p className="text-muted-foreground text-xs">
+                                No data
+                              </p>
+                            ) : (
+                              <ul className="space-y-1.5 text-sm">
+                                {section.rows.map((row) => (
+                                  <li
+                                    key={row.key}
+                                    className="flex items-baseline justify-between gap-2"
+                                  >
+                                    <span className="text-muted-foreground truncate">
+                                      {row.label}
+                                      {row.orderCount > 0 ? (
+                                        <span className="ml-1 text-xs">
+                                          ({row.orderCount})
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                    <span className="shrink-0 font-medium tabular-nums">
+                                      {formatMoney(row.total)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
                 </div>
               );
             })
@@ -2131,6 +2209,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                     <th className="py-2 pr-3 font-medium">Phone</th>
                     <th className="py-2 pr-3 font-medium">Amount</th>
                     <th className="py-2 pr-3 font-medium">Location</th>
+                    <th className="py-2 pr-3 font-medium">Coupon</th>
                     <th className="py-2 font-medium">Allocated merchant</th>
                   </tr>
                 </thead>
@@ -2151,6 +2230,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         {formatMoney(row.amount)}
                       </td>
                       <td className="py-2 pr-3">{row.locationName}</td>
+                      <td className="py-2 pr-3 text-xs">
+                        {[row.discountCouponCode, row.merchantCouponCode]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </td>
                       <td className="py-2">
                         {row.allocatedMerchant ? (
                           <span

@@ -1,17 +1,15 @@
-import type { Prisma } from "@prisma/client";
-
 import {
   brandFromAdaptLineItem,
   brandsMatch,
   lineMatchesBrand,
 } from "@/lib/customer-insight/brand";
+import {
+  forEachIdPage,
+  findAllContactsForPurchaseLookup,
+} from "@/lib/customer-insight/purchase-scan";
 import { emailsForPurchaseLookup } from "@/lib/contact-purchase-lookup";
 import { buildPhoneLookupVariants } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
-
-const BRAND_ORDER_CAP = 5_000;
-const BRAND_ADAPT_CAP = 8_000;
-const BRAND_VERIFY_CAP = 2_000;
 
 export type BrandPurchaseRank = {
   contactId: string;
@@ -63,7 +61,7 @@ function sumBrandSpendOnOrderLines(
 
 /**
  * Contacts who actually purchased the brand, ranked by brand spend highest first.
- * Uses whole-word title match + unique phone attribution (same idea as View Purchases).
+ * Full history scan (paged) — no soft take caps that drop older buyers.
  */
 export async function findContactsByPurchasedBrandRanked(
   companyId: string,
@@ -79,71 +77,38 @@ export async function findContactsByPurchasedBrandRanked(
     spendByContact.set(contactId, (spendByContact.get(contactId) ?? 0) + add);
   };
 
-  // --- Adapt: direct contactId link (trusted) ---
-  const adaptRows = await prisma.adaptPurchaseHistory.findMany({
-    where: { companyId },
-    select: { contactId: true, lineItems: true },
-    take: BRAND_ADAPT_CAP,
-  });
-  for (const row of adaptRows) {
-    if (!row.contactId) continue;
-    const items = Array.isArray(row.lineItems) ? row.lineItems : [];
-    let spend = 0;
-    let matched = false;
-    for (const item of items) {
-      if (!adaptItemMatchesBrand(item, needle)) continue;
-      matched = true;
-      if (!item || typeof item !== "object") continue;
-      const obj = item as Record<string, unknown>;
-      spend += lineSpend(
-        Number(obj.quantity ?? 0),
-        String(obj.unitPrice ?? obj.price ?? "0")
-      );
+  // --- Adapt: direct contactId link (trusted) — all rows ---
+  await forEachIdPage(
+    ({ take, cursor }) =>
+      prisma.adaptPurchaseHistory.findMany({
+        where: { companyId },
+        select: { id: true, contactId: true, lineItems: true },
+        orderBy: { id: "asc" },
+        take,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      }),
+    (adaptRows) => {
+      for (const row of adaptRows) {
+        if (!row.contactId) continue;
+        const items = Array.isArray(row.lineItems) ? row.lineItems : [];
+        let spend = 0;
+        let matched = false;
+        for (const item of items) {
+          if (!adaptItemMatchesBrand(item, needle)) continue;
+          matched = true;
+          if (!item || typeof item !== "object") continue;
+          const obj = item as Record<string, unknown>;
+          spend += lineSpend(
+            Number(obj.quantity ?? 0),
+            String(obj.unitPrice ?? obj.price ?? "0")
+          );
+        }
+        if (matched) addSpend(row.contactId, spend);
+      }
     }
-    if (matched) addSpend(row.contactId, spend);
-  }
+  );
 
-  // --- Cosmo: find brand orders, attribute only via unique phone match ---
-  const brandOrders = await prisma.order.findMany({
-    where: {
-      companyId,
-      cancelledAt: null,
-      lineItems: {
-        some: {
-          OR: [
-            {
-              productItem: {
-                vendor: { name: { equals: needle, mode: "insensitive" } },
-              },
-            },
-            {
-              productItem: {
-                productTitle: { contains: needle, mode: "insensitive" },
-              },
-            },
-          ],
-        },
-      },
-    },
-    select: {
-      customerPhone: true,
-      customerEmail: true,
-      lineItems: {
-        select: {
-          quantity: true,
-          price: true,
-          productItem: {
-            select: {
-              productTitle: true,
-              vendor: { select: { name: true } },
-            },
-          },
-        },
-      },
-    },
-    take: BRAND_ORDER_CAP,
-  });
-
+  // --- Cosmo: all brand-matching orders, attribute via unique phone/email ---
   type BrandOrder = {
     phoneVariants: string[];
     email: string | null;
@@ -153,16 +118,68 @@ export async function findContactsByPurchasedBrandRanked(
   const allPhoneVariants = new Set<string>();
   const allEmails = new Set<string>();
 
-  for (const order of brandOrders) {
-    const { spend, matched } = sumBrandSpendOnOrderLines(needle, order.lineItems);
-    if (!matched) continue;
-    const phone = order.customerPhone?.trim();
-    const variants = phone ? buildPhoneLookupVariants(phone) : [];
-    const email = order.customerEmail?.trim().toLowerCase() || null;
-    for (const v of variants) allPhoneVariants.add(v);
-    if (email) allEmails.add(email);
-    scoredOrders.push({ phoneVariants: variants, email, spend });
-  }
+  const brandOrderWhere = {
+    companyId,
+    cancelledAt: null,
+    lineItems: {
+      some: {
+        OR: [
+          {
+            productItem: {
+              vendor: { name: { equals: needle, mode: "insensitive" as const } },
+            },
+          },
+          {
+            productItem: {
+              productTitle: { contains: needle, mode: "insensitive" as const },
+            },
+          },
+        ],
+      },
+    },
+  };
+
+  await forEachIdPage(
+    ({ take, cursor }) =>
+      prisma.order.findMany({
+        where: brandOrderWhere,
+        select: {
+          id: true,
+          customerPhone: true,
+          customerEmail: true,
+          lineItems: {
+            select: {
+              quantity: true,
+              price: true,
+              productItem: {
+                select: {
+                  productTitle: true,
+                  vendor: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: { id: "asc" },
+        take,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      }),
+    (brandOrders) => {
+      for (const order of brandOrders) {
+        const { spend, matched } = sumBrandSpendOnOrderLines(
+          needle,
+          order.lineItems
+        );
+        if (!matched) continue;
+        const phone = order.customerPhone?.trim();
+        const variants = phone ? buildPhoneLookupVariants(phone) : [];
+        const email = order.customerEmail?.trim().toLowerCase() || null;
+        for (const v of variants) allPhoneVariants.add(v);
+        if (email) allEmails.add(email);
+        scoredOrders.push({ phoneVariants: variants, email, spend });
+      }
+    }
+  );
 
   const finalize = () =>
     [...spendByContact.entries()]
@@ -179,36 +196,12 @@ export async function findContactsByPurchasedBrandRanked(
     return finalize();
   }
 
-  const orClauses: Prisma.ContactMasterWhereInput[] = [];
-  if (allPhoneVariants.size > 0) {
-    const phones = [...allPhoneVariants];
-    orClauses.push({ phoneNumber: { in: phones } });
-    orClauses.push({ phones: { some: { phoneNumber: { in: phones } } } });
-  }
-  if (allEmails.size > 0) {
-    const emails = [...allEmails];
-    orClauses.push({ email: { in: emails, mode: "insensitive" } });
-    orClauses.push({
-      emails: { some: { email: { in: emails, mode: "insensitive" } } },
-    });
-  }
-
-  const contacts = await prisma.contactMaster.findMany({
-    where: {
-      companyId,
-      OR: orClauses,
-    },
-    select: {
-      id: true,
-      phoneNumber: true,
-      email: true,
-      phones: { select: { phoneNumber: true } },
-      emails: { select: { email: true } },
-    },
-    take: BRAND_VERIFY_CAP,
+  const contacts = await findAllContactsForPurchaseLookup({
+    companyId,
+    phoneVariants: [...allPhoneVariants],
+    emails: [...allEmails],
   });
 
-  // variant → set of contact ids (only unique attributions allowed)
   const phoneToContacts = new Map<string, Set<string>>();
   const emailToContacts = new Map<string, Set<string>>();
 
@@ -237,7 +230,6 @@ export async function findContactsByPurchasedBrandRanked(
   for (const order of scoredOrders) {
     let contactId: string | null = null;
 
-    // Prefer phone when present (same rule as View Purchases).
     if (order.phoneVariants.length > 0) {
       const hits = new Set<string>();
       for (const v of order.phoneVariants) {
@@ -248,7 +240,6 @@ export async function findContactsByPurchasedBrandRanked(
       if (hits.size === 1) {
         contactId = [...hits][0]!;
       }
-      // Ambiguous or unmatched phone → skip (do not guess via email).
     } else if (order.email) {
       const set = emailToContacts.get(order.email);
       if (set && set.size === 1) {

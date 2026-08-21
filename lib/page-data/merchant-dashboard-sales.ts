@@ -12,6 +12,7 @@ import { normalizeContactEmail } from "@/lib/contact-identifiers";
 import { buildPhoneLookupVariants, phoneDigitsOnly } from "@/lib/phone-lookup";
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
+import { getOrderDiscountCouponCode } from "@/lib/order-discount-coupon";
 import {
   classifyMerchantSalesBucket,
   parseOrderCouponList,
@@ -555,6 +556,8 @@ export type MerchantDailyInvoiceRow = {
   customerPhone: string | null;
   amount: number;
   locationName: string;
+  discountCouponCode: string | null;
+  merchantCouponCode: string | null;
   allocatedMerchant: string | null;
   allocationMismatch: boolean;
 };
@@ -798,6 +801,17 @@ export async function fetchMerchantDailyInvoices(
       customerPhone: order.customerPhone,
       amount,
       locationName: locationNameById.get(order.companyLocationId) ?? "—",
+      discountCouponCode: getOrderDiscountCouponCode({
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+      }),
+      merchantCouponCode: getMerchantCouponCode({
+        sourceName: order.sourceName,
+        discountCodes: order.discountCodes,
+        rawPayload: order.rawPayload,
+        assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+      }),
       allocatedMerchant,
       allocationMismatch,
     };
