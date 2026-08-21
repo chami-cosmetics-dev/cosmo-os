@@ -3,15 +3,25 @@ import type {
   UnifiedInvoiceRowDto,
 } from "@/lib/customer-insight/types";
 
-/** Strip owner-only fields and invoice line items for limited viewers. */
+/**
+ * Limited view (non-allocated merchant, typically exact phone lookup):
+ * keep loyalty + invoices with line items + top items.
+ * Still hide profile, progress, contacted, spend chart, edit actions.
+ */
 export function toLimitedInsightDto(full: CustomerInsightDto): CustomerInsightDto {
   return {
     visibility: "limited",
     assignedMerchant: full.assignedMerchant,
     loyalty: full.loyalty,
     loyaltyEligibility: full.loyaltyEligibility ?? null,
-    invoices: full.invoices.map(stripInvoiceLineItems),
+    topItems: full.topItems ?? [],
+    invoices: full.invoices.map((row) => ({
+      ...row,
+      // Keep purchase lines for exact-number lookups of other merchants' customers.
+      lineItems: row.lineItems,
+    })),
     invoicePagination: full.invoicePagination,
+    historyScope: full.historyScope ?? null,
   };
 }
 

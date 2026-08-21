@@ -654,6 +654,10 @@ export function CustomerInsightPanel({
 
   const isBusy = busyKey !== null;
   const isOwner = insight?.visibility === "owner";
+  /** Exact-phone limited view still gets purchase lines + top items. */
+  const showPurchaseLines = Boolean(insight);
+  const showTopItemsChart =
+    isOwner || insight?.visibility === "limited";
 
   useEffect(() => {
     let cancelled = false;
@@ -1322,7 +1326,7 @@ export function CustomerInsightPanel({
   }
 
   const visibleInvoices =
-    insight && itemFilter && isOwner
+    insight && itemFilter && showPurchaseLines
       ? insight.invoices.filter((inv) =>
           inv.lineItems.some((li) => invoiceLineDisplayName(li) === itemFilter)
         )
@@ -2254,8 +2258,9 @@ export function CustomerInsightPanel({
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  You are not the allocated merchant. Profile, progress bar, contacted, top
-                  items, spend chart, and invoice line items are hidden.
+                  You are not the allocated merchant. Profile, progress bar, contacted, and
+                  spend chart stay hidden. Invoice line items and top items are visible for
+                  exact phone lookups.
                 </p>
               </CardContent>
             </Card>
@@ -2830,11 +2835,11 @@ export function CustomerInsightPanel({
                       ? " Only lines matching your brand/item filter."
                       : null}
                     {!isOwner
-                      ? " Headers only — line items hidden for non-allocated merchants."
+                      ? " Line items shown for exact phone lookup; profile actions stay owner-only."
                       : " Cosmo invoices open with View Invoice; Adapt is view-only in the table."}
                   </CardDescription>
                 </div>
-                {itemFilter && isOwner ? (
+                {itemFilter && showPurchaseLines ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -2858,7 +2863,7 @@ export function CustomerInsightPanel({
                     <thead className="sticky top-0 z-10 bg-card">
                       <tr className="border-b bg-[linear-gradient(180deg,color-mix(in_srgb,var(--secondary)_14%,transparent),transparent)]">
                         <th className="px-4 py-2 text-left font-medium">Order</th>
-                        {isOwner ? (
+                        {showPurchaseLines ? (
                           <th className="px-4 py-2 text-left font-medium">Items</th>
                         ) : null}
                         <th className="px-4 py-2 text-left font-medium">Date</th>
@@ -2882,7 +2887,7 @@ export function CustomerInsightPanel({
                                 (order.source === "adapt" ? "Adapt" : "N/A")}
                             </p>
                           </td>
-                          {isOwner ? (
+                          {showPurchaseLines ? (
                             <td className="px-4 py-2 align-top">
                               {order.lineItems.length > 0 ? (
                                 <div className="space-y-2">
@@ -2994,9 +2999,9 @@ export function CustomerInsightPanel({
             </CardContent>
           </Card>
 
-          {/* Charts */}
-          {isOwner ? (
-            <div className="grid gap-4 lg:grid-cols-2">
+          {/* Charts — top items for owner + limited phone lookup; spend chart owner-only */}
+          {showTopItemsChart ? (
+            <div className={`grid gap-4 ${isOwner ? "lg:grid-cols-2" : ""}`}>
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Top Items Overview</CardTitle>
@@ -3071,6 +3076,7 @@ export function CustomerInsightPanel({
                 </CardContent>
               </Card>
 
+              {isOwner ? (
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Monthly Spend Overview</CardTitle>
@@ -3113,6 +3119,7 @@ export function CustomerInsightPanel({
                   )}
                 </CardContent>
               </Card>
+              ) : null}
             </div>
           ) : null}
 

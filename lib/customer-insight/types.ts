@@ -152,7 +152,10 @@ export type ProgressBarDto = {
   tier: LoyaltyTierKey;
 };
 
-/** Full owner insight, or limited fields when visibility is "limited". */
+/** Full owner insight, or limited fields when visibility is "limited".
+ * Limited (exact phone of another merchant's contact): loyalty + invoice lines + top items.
+ * Owner-only: profile, progress, contacted, spend chart, edit.
+ */
 export type CustomerInsightDto = {
   visibility: InsightVisibility;
   assignedMerchant: string | null;
