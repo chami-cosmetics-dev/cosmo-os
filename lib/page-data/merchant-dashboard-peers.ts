@@ -108,7 +108,7 @@ export async function fetchMerchantCohortSales(
     for (const code of m.couponCodes) {
       const key = code.trim().toLowerCase();
       if (!key || couponToMerchantId.has(key)) continue;
-      // DM codes → synthetic bucket so peer graphs show DM-General separately.
+      // DM codes → synthetic bucket (location share totals / personal DM split; not peer race).
       couponToMerchantId.set(key, sets.dm.has(key) ? DM_GENERAL_COHORT_ID : m.id);
     }
   }
@@ -249,7 +249,10 @@ export function buildLocationShareRows(
           peers: [],
         };
       bucket.total += loc.total;
-      if (merchant.merchantId !== viewedMerchantId) {
+      // Keep DM sales in location total for share %, but never list DM-General as a peer.
+      const isDmBucket =
+        cohort.dmBucketId != null && merchant.merchantId === cohort.dmBucketId;
+      if (merchant.merchantId !== viewedMerchantId && !isDmBucket) {
         bucket.peers.push({
           merchantId: merchant.merchantId,
           displayName: merchant.displayName,

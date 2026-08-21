@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
   const parsed = customerInsightFilterExportQuerySchema.safeParse({
     brand: readInsightFilterList(sp, "brand"),
     item: readInsightFilterList(sp, "item"),
+    itemStatusCategory: readInsightFilterList(sp, "itemStatusCategory"),
     city: queryParam(sp.get("city")),
     assignedMerchant: queryParam(sp.get("assignedMerchant")),
     purchaseLocationId: queryParam(sp.get("purchaseLocationId")),
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
     scopeAllContacts,
     brands: parsed.data.brand,
     items: parsed.data.item,
+    itemStatusCategories: parsed.data.itemStatusCategory,
     city: parsed.data.city,
     assignedMerchant: parsed.data.assignedMerchant,
     purchaseLocationId: parsed.data.purchaseLocationId,
@@ -111,7 +113,9 @@ export async function GET(request: NextRequest) {
   });
 
   const includeBrand = Boolean(parsed.data.brand?.length);
-  const includeItem = Boolean(parsed.data.item?.length);
+  const includeItem = Boolean(
+    parsed.data.item?.length || parsed.data.itemStatusCategory?.length
+  );
   const headers = [
     "contact_id",
     "name",

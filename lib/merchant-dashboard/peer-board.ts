@@ -17,7 +17,7 @@ export type BuildPeerBoardOptions = {
   toYmd: string;
   viewedMerchantId: string;
   limit?: number;
-  /** Extra ids always kept on the board when outside top (e.g. DM-General). */
+  /** Extra ids always kept on the board when outside top. */
   alwaysIncludeMerchantIds?: string[];
   cheerMessageForBand: (band: MerchantPeerBand, displayName: string) => string;
 };
