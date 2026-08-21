@@ -483,12 +483,10 @@ export async function filterAllocatedContacts(
   const needLastContacted = Boolean(
     input.lastContactedFrom || input.lastContactedTo
   );
-  const contacted = needLastContacted
-    ? await lastContactedMap(
-        input.companyId,
-        candidates.map((c) => c.id)
-      )
-    : new Map<string, Date>();
+  const contacted = await lastContactedMap(
+    input.companyId,
+    candidates.map((c) => c.id)
+  );
 
   const eligible: ContactCandidate[] = [];
   for (const contact of candidates) {
@@ -545,6 +543,7 @@ export async function filterAllocatedContacts(
     itemSpend: number | null;
     assignedMerchant: string | null;
     lastPurchaseAt: Date | null;
+    lastContactedAt: Date | null;
     key: LoyaltyTierKey;
   }> = [];
 
@@ -579,6 +578,7 @@ export async function filterAllocatedContacts(
       itemSpend,
       assignedMerchant: contact.assignedMerchant,
       lastPurchaseAt: contact.lastPurchaseAt,
+      lastContactedAt: contacted.get(contact.id) ?? null,
       key,
     });
   }
@@ -622,6 +622,7 @@ export async function filterAllocatedContacts(
         },
         assignedMerchant: row.assignedMerchant,
         lastPurchaseAt: row.lastPurchaseAt?.toISOString() ?? null,
+        lastContactedAt: row.lastContactedAt?.toISOString() ?? null,
       };
     }),
     pagination: {

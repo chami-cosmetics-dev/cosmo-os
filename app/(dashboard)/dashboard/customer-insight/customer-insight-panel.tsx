@@ -887,9 +887,7 @@ export function CustomerInsightPanel({
     setItemFilter(null);
     setEditing(false);
     const exactNumber = isCompletePhoneSearch(q);
-    if (exactNumber) {
-      clearFilters();
-    }
+    // Keep filter results until Clear filters; only skip brand/item scope on insight open.
     let autoOpenId: string | null = null;
     try {
       const res = await fetch(
@@ -2036,6 +2034,14 @@ export function CustomerInsightPanel({
                           <span className="font-medium text-foreground">
                             {row.lastPurchaseAt
                               ? formatAppDate(row.lastPurchaseAt, "—")
+                              : "never"}
+                          </span>
+                        </span>
+                        <span className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                          Last contacted{" "}
+                          <span className="font-medium text-foreground">
+                            {row.lastContactedAt
+                              ? formatAppDate(row.lastContactedAt, "—")
                               : "never"}
                           </span>
                         </span>
