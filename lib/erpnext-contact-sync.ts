@@ -375,6 +375,30 @@ export async function findErpCustomerNameByPhone(
   }
 }
 
+/**
+ * Check whether an ERP Customer already owns this phone.
+ *
+ * Unlike findErpCustomerNameByPhone, transport/API errors are not swallowed.
+ * Auto-allocation callers must fail closed when the other ERP cannot be checked.
+ */
+export async function erpHasCustomerPhone(
+  cfg: OsfErpCredentials,
+  phone: string,
+): Promise<boolean> {
+  const phoneVariants = buildPhoneLookupVariants(phone.trim()).slice(0, 20);
+  if (phoneVariants.length === 0) return false;
+
+  const filters = encodeURIComponent(
+    JSON.stringify([["mobile_no", "in", phoneVariants]]),
+  );
+  const fields = encodeURIComponent(JSON.stringify(["name"]));
+  const json = await erpGetJson<{ data?: Array<{ name: string }> }>(
+    cfg,
+    `/api/resource/Customer?filters=${filters}&fields=${fields}&limit_page_length=1`,
+  );
+  return Boolean(json.data?.[0]?.name?.trim());
+}
+
 /** Explicit OS→ERP loyalty send. Not used for automatic sync. */
 export async function setErpCustomerGroup(
   cfg: OsfErpCredentials,
