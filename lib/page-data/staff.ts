@@ -17,6 +17,7 @@ type StaffLookups = {
   locations: { id: string; name: string; address: string | null }[];
   departments: { id: string; name: string }[];
   designations: { id: string; name: string }[];
+  outlets: { id: string; name: string }[];
 };
 
 const STAFF_LOOKUPS_TTL_MS = 30_000;
@@ -34,7 +35,7 @@ async function fetchStaffLookups(companyId: string): Promise<StaffLookups> {
     return cached.data;
   }
 
-  const [locations, departments, designations] = await Promise.all([
+  const [locations, departments, designations, outlets] = await Promise.all([
     prisma.companyLocation.findMany({
       where: { companyId },
       orderBy: { name: "asc" },
@@ -50,9 +51,14 @@ async function fetchStaffLookups(companyId: string): Promise<StaffLookups> {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    prisma.outlet.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
-  const data = { locations, departments, designations };
+  const data = { locations, departments, designations, outlets };
   staffLookupsCache.set(companyId, { data, timestamp: Date.now() });
   return data;
 }
@@ -166,6 +172,13 @@ export async function fetchStaffPageData(
                 name: true,
               },
             },
+            outletId: true,
+            outlet: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
             appointmentDate: true,
             status: true,
             resignedAt: true,
@@ -202,6 +215,8 @@ export async function fetchStaffPageData(
           department: u.employeeProfile.department,
           designationId: u.employeeProfile.designationId,
           designation: u.employeeProfile.designation,
+          outletId: u.employeeProfile.outletId,
+          outlet: u.employeeProfile.outlet,
           appointmentDate: u.employeeProfile.appointmentDate?.toISOString() ?? null,
           status: u.employeeProfile.status,
           resignedAt: u.employeeProfile.resignedAt?.toISOString() ?? null,
@@ -216,6 +231,7 @@ export async function fetchStaffPageData(
         locations: [] as { id: string; name: string; address: string | null }[],
         departments: [] as { id: string; name: string }[],
         designations: [] as { id: string; name: string }[],
+        outlets: [] as { id: string; name: string }[],
       };
 
   return {
@@ -229,5 +245,6 @@ export async function fetchStaffPageData(
     }),
     departments: [...lookups.departments],
     designations: [...lookups.designations],
+    outlets: [...lookups.outlets],
   };
 }

@@ -362,7 +362,6 @@ model User {
   contactAllocationUpdates            ContactAllocationUpdate[]
   pickListGroupsPrinted               PickListGroup[]           @relation("PickListGroupPrintedBy")
   financeScopes                       UserFinanceScope[]
-  merchantGroupMembership             MerchantGroupMember?
   abandonedCheckoutFollowUps        ShopifyAbandonedCheckout[] @relation("ShopifyAbandonedCheckoutFollowUpBy")
   bookNoteDaysCreated               BookNoteDay[]              @relation("BookNoteDayCreatedBy")
   bookNoteDaysUpdated               BookNoteDay[]              @relation("BookNoteDayUpdatedBy")
@@ -471,30 +470,6 @@ model CompanyAbandonedCheckoutSync {
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
-model MerchantGroup {
-  id        String                @id @default(cuid())
-  companyId String
-  name      String
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
-  members   MerchantGroupMember[]
-
-  @@unique([companyId, name])
-  @@index([companyId])
-}
-
-model MerchantGroupMember {
-  id              String        @id @default(cuid())
-  merchantGroupId String
-  userId          String        @unique
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  group           MerchantGroup @relation(fields: [merchantGroupId], references: [id], onDelete: Cascade)
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([merchantGroupId])
-  @@index([userId])
-}
 
 model CosmoAcademyExplanation {
   id                   String                 @id @default(cuid())
@@ -1236,6 +1211,7 @@ model EmployeeProfile {
   locationId                String?
   departmentId              String?
   designationId             String?
+  outletId                  String?
   appointmentDate           DateTime?
   status                    EmployeeStatus   @default(active)
   resignedAt                DateTime?
@@ -1248,7 +1224,10 @@ model EmployeeProfile {
   department                Department?      @relation(fields: [departmentId], references: [id])
   designation               Designation?     @relation(fields: [designationId], references: [id])
   location                  CompanyLocation? @relation(fields: [locationId], references: [id])
+  outlet                    Outlet?          @relation(fields: [outletId], references: [id], onDelete: SetNull)
   user                      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, outletId])
 }
 
 model StickerBatch {
@@ -1904,26 +1883,13 @@ model Outlet {
   name      String
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
-  users     OutletUser[]
   reviews   OutletReview[]
+  employeeProfiles EmployeeProfile[]
 
   @@unique([companyId, name])
   @@index([companyId])
 }
 
-model OutletUser {
-  id          String   @id @default(cuid())
-  outletId    String
-  userId      String
-  couponCodes String[] @default([])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  outlet      Outlet   @relation(fields: [outletId], references: [id], onDelete: Cascade)
-
-  @@unique([outletId, userId])
-  @@index([outletId])
-  @@index([userId])
-}
 
 model OutletReview {
   id              String   @id @default(cuid())

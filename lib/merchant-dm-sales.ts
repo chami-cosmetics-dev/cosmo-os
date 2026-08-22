@@ -7,6 +7,8 @@ export const DM_MER_CODE = "MER115";
 export const DM_GENERAL_COHORT_ID = "__dm_general__";
 
 export const DM_GENERAL_DISPLAY_NAME = "DM-General";
+export const STAFF_SALES_DISPLAY_NAME = "Staff Sales";
+export const DIRECTOR_SALES_DISPLAY_NAME = "Director Sales";
 
 /** Collapse blank / Unknown / Unassigned / "DM General" group label into DM-General. */
 export function normalizeDashboardMerchantLabel(
@@ -33,6 +35,19 @@ export function isDmCouponCode(code: string | null | undefined): boolean {
 
 export function normalizeCouponKey(code: string): string {
   return code.trim().toLowerCase();
+}
+
+export function resolveFixedSalesCouponBucket(
+  couponCodes: string[],
+): { id: string | null; name: string } | null {
+  const normalized = couponCodes.map((code) => normalizeCouponKey(code)).filter(Boolean);
+  if (normalized.some((code) => code === "dir100")) {
+    return { id: null, name: DIRECTOR_SALES_DISPLAY_NAME };
+  }
+  if (normalized.some((code) => code.includes("staff"))) {
+    return { id: null, name: STAFF_SALES_DISPLAY_NAME };
+  }
+  return null;
 }
 
 export function splitMerchantCouponSets(couponCodes: string[] | null | undefined): {
