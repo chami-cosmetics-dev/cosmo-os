@@ -39,6 +39,7 @@ const updateStaffSchema = z.object({
   locationId: cuidSchema.nullable().optional(),
   departmentId: cuidSchema.nullable().optional(),
   designationId: cuidSchema.nullable().optional(),
+  outletId: cuidSchema.nullable().optional(),
   appointmentDate: z.string().optional(),
   isRider: z.boolean().optional(),
   shopifyUserIds: z
@@ -62,6 +63,7 @@ type StaffUserWithDetails = Prisma.UserGetPayload<{
         location: true;
         department: true;
         designation: true;
+        outlet: true;
       };
     };
   };
@@ -92,6 +94,8 @@ function serializeStaffUser(user: StaffUserWithDetails) {
           department: user.employeeProfile.department,
           designationId: user.employeeProfile.designationId,
           designation: user.employeeProfile.designation,
+          outletId: user.employeeProfile.outletId,
+          outlet: user.employeeProfile.outlet,
           appointmentDate: user.employeeProfile.appointmentDate?.toISOString() ?? null,
           status: user.employeeProfile.status,
           resignedAt: user.employeeProfile.resignedAt?.toISOString() ?? null,
@@ -129,6 +133,7 @@ export async function GET(
           location: true,
           department: true,
           designation: true,
+          outlet: true,
         },
       },
     },
@@ -161,6 +166,11 @@ export async function GET(
             orderBy: { name: "asc" },
             select: { id: true, name: true },
           }),
+          prisma.outlet.findMany({
+            where: { companyId },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true },
+          }),
         ])
       : Promise.resolve(null),
     prisma.userFinanceScope.findMany({
@@ -169,7 +179,7 @@ export async function GET(
     }),
   ]);
 
-  const [locations, departments, designations] = lookups ?? [[], [], []];
+  const [locations, departments, designations, outlets] = lookups ?? [[], [], [], []];
 
   return NextResponse.json({
     ...serializeStaffUser(user),
@@ -178,6 +188,7 @@ export async function GET(
       locations,
       departments,
       designations,
+      outlets,
     }),
   });
 }
@@ -232,6 +243,16 @@ export async function PATCH(
   }
 
   const data = parsed.data;
+
+  if (data.outletId) {
+    const outlet = await prisma.outlet.findFirst({
+      where: { id: data.outletId, companyId },
+      select: { id: true },
+    });
+    if (!outlet) {
+      return NextResponse.json({ error: "Invalid outlet" }, { status: 400 });
+    }
+  }
   const parsedDob = data.dateOfBirth?.trim() ? new Date(data.dateOfBirth) : null;
   const validDob =
     parsedDob && !Number.isNaN(parsedDob.getTime()) ? parsedDob : undefined;
@@ -275,6 +296,7 @@ export async function PATCH(
       ...(data.locationId !== undefined && { locationId: data.locationId }),
       ...(data.departmentId !== undefined && { departmentId: data.departmentId }),
       ...(data.designationId !== undefined && { designationId: data.designationId }),
+      ...(data.outletId !== undefined && { outletId: data.outletId }),
       appointmentDate: validAppointment ?? undefined,
       ...(data.isRider !== undefined && { isRider: data.isRider }),
     };
@@ -317,6 +339,7 @@ export async function PATCH(
           location: true,
           department: true,
           designation: true,
+          outlet: true,
         },
       },
     },
