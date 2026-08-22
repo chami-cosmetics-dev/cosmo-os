@@ -101,3 +101,44 @@ export async function listMerchantAllocationCounts(
     contactTotal: allocatedTotal + unallocatedCount,
   };
 }
+
+/**
+ * Merchant-role roster + any ContactMaster assignedMerchant labels with allocations
+ * (e.g. legacy display names like "Zeenath" not linked to a merchant user).
+ */
+export async function listCallQueueMerchantOptions(
+  companyId: string,
+  q?: string
+): Promise<Array<{ value: string; label: string }>> {
+  const [roster, allocation] = await Promise.all([
+    listInsightMerchantRosterOptions(companyId),
+    listMerchantAllocationCounts(companyId),
+  ]);
+
+  const needle = q?.trim().toLowerCase();
+  const out: Array<{ value: string; label: string }> = [];
+  const seen = new Set<string>();
+
+  const push = (value: string, label: string) => {
+    const key = norm(value);
+    if (!key || seen.has(key)) return;
+    if (needle) {
+      const hay = `${value} ${label}`.toLowerCase();
+      if (!hay.includes(needle)) return;
+    }
+    seen.add(key);
+    out.push({ value, label });
+  };
+
+  for (const opt of roster) {
+    push(opt.value, opt.label);
+  }
+  for (const row of allocation.rows) {
+    push(row.merchantValue, row.merchantLabel);
+  }
+
+  out.sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: "base" })
+  );
+  return out;
+}

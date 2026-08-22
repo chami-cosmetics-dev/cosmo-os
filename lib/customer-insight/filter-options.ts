@@ -1,6 +1,7 @@
 import { brandFromAdaptLineItem, lineMatchesBrand, textContainsBrandWord } from "@/lib/customer-insight/brand";
 import { cityForDisplay, extractCityFromAddress } from "@/lib/customer-insight/city";
 import { isNonProductInsightItem } from "@/lib/customer-insight/item-junk";
+import { listCallQueueMerchantOptions } from "@/lib/customer-insight/allocation-summary";
 import { listInsightMerchantRosterOptions } from "@/lib/customer-insight/merchant-label-aliases";
 import { prisma } from "@/lib/prisma";
 
@@ -339,6 +340,14 @@ export async function listInsightAssignedMerchantOptions(
 ): Promise<FilterOptionDto[]> {
   // Clean roster: merchant-role users + DM-General / STAFF SALES buckets.
   return listInsightMerchantRosterOptions(companyId, q);
+}
+
+/** Roster plus allocated contact labels for admin call-queue assignment. */
+export async function listInsightCallQueueMerchantOptions(
+  companyId: string,
+  q?: string
+): Promise<FilterOptionDto[]> {
+  return listCallQueueMerchantOptions(companyId, q);
 }
 
 export async function listInsightPurchaseLocationOptions(

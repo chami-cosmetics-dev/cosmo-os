@@ -268,7 +268,14 @@ export const merchantCallUpdateBodySchema = z.object({
 
 export const customerInsightFilterOptionsQuerySchema = z.object({
   type: z
-    .enum(["brands", "items", "cities", "merchants", "locations"])
+    .enum([
+      "brands",
+      "items",
+      "cities",
+      "merchants",
+      "call-queue-merchants",
+      "locations",
+    ])
     .default("brands"),
   brand: insightFilterListSchema(LIMITS.name.max),
   q: trimmedString(1, 100).optional(),

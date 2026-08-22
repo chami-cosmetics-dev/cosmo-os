@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   listInsightAssignedMerchantOptions,
   listInsightBrandOptions,
+  listInsightCallQueueMerchantOptions,
   listInsightCityOptions,
   listInsightItemOptions,
   listInsightPurchaseLocationOptions,
@@ -43,7 +44,11 @@ export async function GET(request: NextRequest) {
   const permissionKeys = (auth.context!.permissionKeys as string[]) ?? [];
   const isAdminView = hasInsightAdminView({ roleNames, permissionKeys });
 
-  if (parsed.data.type === "merchants" || parsed.data.type === "locations") {
+  if (
+    parsed.data.type === "merchants" ||
+    parsed.data.type === "call-queue-merchants" ||
+    parsed.data.type === "locations"
+  ) {
     if (!isAdminView) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -64,6 +69,14 @@ export async function GET(request: NextRequest) {
 
   if (parsed.data.type === "merchants") {
     const options = await listInsightAssignedMerchantOptions(
+      companyId,
+      parsed.data.q
+    );
+    return NextResponse.json({ options, brands: [] });
+  }
+
+  if (parsed.data.type === "call-queue-merchants") {
+    const options = await listInsightCallQueueMerchantOptions(
       companyId,
       parsed.data.q
     );
