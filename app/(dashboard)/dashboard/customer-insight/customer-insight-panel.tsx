@@ -31,6 +31,12 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -565,6 +571,7 @@ export function CustomerInsightPanel({
   initialEdit?: boolean;
 }) {
   const [phone, setPhone] = useState("");
+  const [insightTab, setInsightTab] = useState("filters");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [matches, setMatches] = useState<SearchMatchDto[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -932,6 +939,7 @@ export function CustomerInsightPanel({
   }
 
   async function openQueueContact(contactId: string) {
+    setInsightTab("filters");
     await loadInsight(contactId, 1);
     setEditing(true);
   }
@@ -957,7 +965,10 @@ export function CustomerInsightPanel({
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.location.hash !== "#loyalty-queue") return;
-    document.getElementById("loyalty-queue")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setInsightTab("queues");
+    window.setTimeout(() => {
+      document.getElementById("loyalty-queue")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }, [loyaltyQueue]);
 
   async function runSearch() {
@@ -1446,432 +1457,24 @@ export function CustomerInsightPanel({
         </p>
       </div>
 
-      {canManageLoyalty ? (
-        <Card id="loyalty-queue">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
-            <CardDescription>
-              Only contacts the allocated merchant marked Responded. Assign Gold or
-              Platinum from lifetime spend.
-              {canAssignLoyalty
-                ? " Send writes ERP customer group and Shopify tag."
-                : " Read-only."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loyaltyQueue.length === 0 ? (
-              <p className="text-muted-foreground text-sm">Queue empty.</p>
-            ) : (
-              <ul className="space-y-2">
-                {loyaltyQueue.map((row) => (
-                  <li
-                    key={row.contactId}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 text-sm"
-                  >
-                    <div>
-                      <p className="font-medium">{row.name}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {row.phoneNumber ? `${row.phoneNumber} · ` : null}
-                        {formatMoney(row.lifetimeTotal)}
-                      </p>
-                      <p className="text-xs">
-                        Eligible:{" "}
-                        <span className="font-medium">
-                          {row.suggestionKind === "upgrade"
-                            ? "Platinum (upgrade from Gold)"
-                            : (row.eligibleGroup ?? "Standard (not Gold/Platinum yet)")}
-                        </span>
-                        {row.erpGroup ? ` · ERP ${row.erpGroup}` : null}
-                        {row.shopifyTag ? ` · Shopify “${row.shopifyTag}”` : null}
-                      </p>
-                      {row.missingProfileFields?.length ? (
-                        <p className="text-amber-700 dark:text-amber-400 text-xs">
-                          Missing details: {row.missingProfileFields.join(", ")}
-                        </p>
-                      ) : null}
-                    </div>
-                    {canAssignLoyalty && row.suggestedTier ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        disabled={isBusy}
-                        onClick={() => {
-                          void (async () => {
-                            if (row.missingProfileFields?.length) {
-                              notify.error(
-                                loyaltyProfileIncompleteMessage(row.missingProfileFields)
-                              );
-                              return;
-                            }
-                            setBusyKey("loyalty-assign");
-                            try {
-                              const res = await fetch(
-                                `/api/admin/customer-insight/${encodeURIComponent(row.contactId)}/loyalty-assign`,
-                                {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    tier: row.suggestedTier,
-                                  }),
-                                }
-                              );
-                              const data = await res.json().catch(() => ({}));
-                              if (!res.ok) {
-                                const detail =
-                                  typeof data.error === "string"
-                                    ? data.error
-                                    : "Assign failed";
-                                notify.error(detail);
-                                return;
-                              }
-                              const pushErrors = Array.isArray(data.pushErrors)
-                                ? (data.pushErrors as string[])
-                                : [];
-                              const erpUpdated =
-                                typeof data.erpUpdated === "number"
-                                  ? data.erpUpdated
-                                  : 0;
-                              const shopifyUpdated =
-                                typeof data.shopifyUpdated === "number"
-                                  ? data.shopifyUpdated
-                                  : 0;
-                              if (pushErrors.length > 0) {
-                                notify.error(
-                                  pushErrors[0] ??
-                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}, Shopify ${shopifyUpdated})`
-                                );
-                              } else {
-                                notify.success(
-                                  data.retry
-                                    ? `Retry OK: ERP ${erpUpdated}, Shopify ${shopifyUpdated}`
-                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
-                                );
-                              }
-                              if (pushErrors.length === 0 || erpUpdated > 0) {
-                                setLoyaltyQueue((prev) =>
-                                  prev.filter((x) => x.contactId !== row.contactId)
-                                );
-                              }
-                            } catch {
-                              notify.error("Assign failed");
-                            } finally {
-                              setBusyKey(null);
-                            }
-                          })();
-                        }}
-                      >
-                        Send to {row.eligibleGroup}
-                      </Button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
+      <Tabs
+        value={insightTab}
+        onValueChange={setInsightTab}
+        className="gap-4"
+      >
+        <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
+          <TabsTrigger value="filters">
+            {canFilterAllContacts ? "Customer filters" : "Allocated filters"}
+          </TabsTrigger>
+          {(canManageLoyalty || myCallQueue.length > 0 || !canExportFilteredCsv) ? (
+            <TabsTrigger value="queues">Queues</TabsTrigger>
+          ) : null}
+          {canExportFilteredCsv ? (
+            <TabsTrigger value="admin">Admin tools</TabsTrigger>
+          ) : null}
+        </TabsList>
 
-      {myCallQueue.length > 0 || !canExportFilteredCsv ? (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Call update queue</CardTitle>
-            <CardDescription>
-              Contacts admin assigned for you to call. Never/oldest contacted first. Update
-              writes Contact Master; logging a call outcome also clears the row.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {myCallQueue.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No assigned call-update contacts.</p>
-            ) : (
-              <ul className="divide-y rounded-md border">
-                {myCallQueue.map((row) => (
-                  <li
-                    key={row.contactId}
-                    className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium">{row.name}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
-                        {formatQueueDate(row.lastPurchaseAt)}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={isBusy}
-                      onClick={() => void openQueueContact(row.contactId)}
-                    >
-                      Update
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {canExportFilteredCsv ? (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Merchant allocations</CardTitle>
-            <CardDescription>
-              How many Contact Master rows are allocated to each merchant. Export
-              downloads the same counts as CSV.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
-                {allocationSummary
-                  ? `${allocationSummary.allocatedTotal.toLocaleString()} allocated · ${allocationSummary.unallocatedCount.toLocaleString()} unallocated · ${allocationSummary.contactTotal.toLocaleString()} total`
-                  : "Loading counts…"}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isBusy}
-                  onClick={() => void loadAllocationSummary()}
-                >
-                  {busyKey === "allocation-summary" ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden />
-                      Refreshing...
-                    </>
-                  ) : (
-                    "Refresh"
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={isBusy || !allocationSummary}
-                  onClick={() => void exportAllocationSummaryCsv()}
-                >
-                  {busyKey === "allocation-summary-export" ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden />
-                      Exporting...
-                    </>
-                  ) : (
-                    <>
-                      <Download aria-hidden />
-                      Export CSV
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-            {allocationSummary && allocationSummary.rows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No allocated contacts yet.
-              </p>
-            ) : null}
-            {allocationSummary && allocationSummary.rows.length > 0 ? (
-              <div className="max-h-[28rem] overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Merchant</th>
-                      <th className="px-3 py-2 text-right font-medium">
-                        Allocated
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {allocationSummary.rows.map((row) => (
-                      <tr key={row.merchantValue}>
-                        <td className="px-3 py-2">{row.merchantLabel}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {row.count.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-muted/30">
-                      <td className="px-3 py-2 text-muted-foreground">
-                        Unallocated
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                        {allocationSummary.unallocatedCount.toLocaleString()}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {canExportFilteredCsv ? (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Assign merchant call queue</CardTitle>
-            <CardDescription>
-              Pick a merchant, load allocated customers (no recent update first, recently
-              called last), then bulk-assign to their Insight call list.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <label className="min-w-0 flex-1 space-y-1 text-sm">
-                <span className="text-muted-foreground">Merchant</span>
-                <InsightSearchableSelect
-                  value={queueMerchant}
-                  options={merchantOptions}
-                  placeholder="Select merchant"
-                  searchPlaceholder="Search merchants…"
-                  disabled={isBusy}
-                  onChange={(next) => {
-                    setQueueMerchant(next);
-                    setQueueCandidates(null);
-                    setQueueSelectedIds([]);
-                  }}
-                />
-              </label>
-              <Button
-                type="button"
-                disabled={isBusy || !queueMerchant}
-                onClick={() => void loadQueueCandidates(1)}
-              >
-                {busyKey === "queue-candidates" ? (
-                  <>
-                    <Loader2 className="animate-spin" aria-hidden />
-                    Loading...
-                  </>
-                ) : (
-                  "Load allocated"
-                )}
-              </Button>
-            </div>
-            {queueCandidates ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    {queueCandidateTotal} allocated · oldest/never contacted first
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy || queueCandidates.length === 0}
-                      onClick={() =>
-                        setQueueSelectedIds(
-                          queueSelectedIds.length === queueCandidates.length
-                            ? []
-                            : queueCandidates.map((row) => row.contactId)
-                        )
-                      }
-                    >
-                      {queueSelectedIds.length === queueCandidates.length
-                        ? "Clear page"
-                        : "Select page"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={isBusy || queueSelectedIds.length === 0}
-                      onClick={() => void assignSelectedToQueue()}
-                    >
-                      {busyKey === "queue-assign" ? (
-                        <>
-                          <Loader2 className="animate-spin" aria-hidden />
-                          Assigning...
-                        </>
-                      ) : (
-                        `Assign ${queueSelectedIds.length || ""}`.trim()
-                      )}
-                    </Button>
-                  </div>
-                </div>
-                <ul className="max-h-[28rem] divide-y overflow-auto rounded-md border">
-                  {queueCandidates.map((row) => {
-                    const checked = queueSelectedIds.includes(row.contactId);
-                    return (
-                      <li key={row.contactId}>
-                        <label className="flex cursor-pointer items-start gap-3 px-3 py-2 text-sm">
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={checked}
-                            onChange={() =>
-                              setQueueSelectedIds((prev) =>
-                                checked
-                                  ? prev.filter((id) => id !== row.contactId)
-                                  : [...prev, row.contactId]
-                              )
-                            }
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-medium">
-                              {row.name}
-                              {row.queued ? (
-                                <span className="text-muted-foreground ml-2 text-xs font-normal">
-                                  already queued
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className="text-muted-foreground block text-xs">
-                              {row.phoneNumber ?? "No phone"} · tot{" "}
-                              {formatMoney(row.lifetimeTotal)}
-                            </span>
-                            <span className="text-muted-foreground block text-xs">
-                              Last contacted {formatQueueDate(row.lastContactedAt)} · last
-                              purchased {formatQueueDate(row.lastPurchaseAt)}
-                            </span>
-                          </span>
-                        </label>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {queueCandidateTotal > queueCandidatePageSize ? (
-                  <div className="flex items-center justify-between gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy || queueCandidatePage <= 1}
-                      onClick={() => void loadQueueCandidates(queueCandidatePage - 1)}
-                    >
-                      Previous
-                    </Button>
-                    <p className="text-xs text-muted-foreground">
-                      Page {queueCandidatePage} of{" "}
-                      {Math.max(
-                        1,
-                        Math.ceil(queueCandidateTotal / queueCandidatePageSize)
-                      )}
-                    </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        isBusy ||
-                        queueCandidatePage >=
-                          Math.ceil(queueCandidateTotal / queueCandidatePageSize)
-                      }
-                      onClick={() => void loadQueueCandidates(queueCandidatePage + 1)}
-                    >
-                      Next
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
+        <TabsContent value="filters" className="flex flex-col gap-6">
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
@@ -3402,6 +3005,444 @@ export function CustomerInsightPanel({
           ) : null}
         </div>
       )}
+        </TabsContent>
+
+        {(canManageLoyalty || myCallQueue.length > 0 || !canExportFilteredCsv) ? (
+          <TabsContent value="queues" className="flex flex-col gap-6">
+      {canManageLoyalty ? (
+        <Card id="loyalty-queue">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Loyalty assignment queue</CardTitle>
+            <CardDescription>
+              Only contacts the allocated merchant marked Responded. Assign Gold or
+              Platinum from lifetime spend.
+              {canAssignLoyalty
+                ? " Send writes ERP customer group and Shopify tag."
+                : " Read-only."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loyaltyQueue.length === 0 ? (
+              <p className="text-muted-foreground text-sm">Queue empty.</p>
+            ) : (
+              <ul className="space-y-2">
+                {loyaltyQueue.map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {row.phoneNumber ? `${row.phoneNumber} · ` : null}
+                        {formatMoney(row.lifetimeTotal)}
+                      </p>
+                      <p className="text-xs">
+                        Eligible:{" "}
+                        <span className="font-medium">
+                          {row.suggestionKind === "upgrade"
+                            ? "Platinum (upgrade from Gold)"
+                            : (row.eligibleGroup ?? "Standard (not Gold/Platinum yet)")}
+                        </span>
+                        {row.erpGroup ? ` · ERP ${row.erpGroup}` : null}
+                        {row.shopifyTag ? ` · Shopify “${row.shopifyTag}”` : null}
+                      </p>
+                      {row.missingProfileFields?.length ? (
+                        <p className="text-amber-700 dark:text-amber-400 text-xs">
+                          Missing details: {row.missingProfileFields.join(", ")}
+                        </p>
+                      ) : null}
+                    </div>
+                    {canAssignLoyalty && row.suggestedTier ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isBusy}
+                        onClick={() => {
+                          void (async () => {
+                            if (row.missingProfileFields?.length) {
+                              notify.error(
+                                loyaltyProfileIncompleteMessage(row.missingProfileFields)
+                              );
+                              return;
+                            }
+                            setBusyKey("loyalty-assign");
+                            try {
+                              const res = await fetch(
+                                `/api/admin/customer-insight/${encodeURIComponent(row.contactId)}/loyalty-assign`,
+                                {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    tier: row.suggestedTier,
+                                  }),
+                                }
+                              );
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok) {
+                                const detail =
+                                  typeof data.error === "string"
+                                    ? data.error
+                                    : "Assign failed";
+                                notify.error(detail);
+                                return;
+                              }
+                              const pushErrors = Array.isArray(data.pushErrors)
+                                ? (data.pushErrors as string[])
+                                : [];
+                              const erpUpdated =
+                                typeof data.erpUpdated === "number"
+                                  ? data.erpUpdated
+                                  : 0;
+                              const shopifyUpdated =
+                                typeof data.shopifyUpdated === "number"
+                                  ? data.shopifyUpdated
+                                  : 0;
+                              if (pushErrors.length > 0) {
+                                notify.error(
+                                  pushErrors[0] ??
+                                    `Assigned ${row.eligibleGroup}, but ERP/Shopify updates failed (ERP ${erpUpdated}, Shopify ${shopifyUpdated})`
+                                );
+                              } else {
+                                notify.success(
+                                  data.retry
+                                    ? `Retry OK: ERP ${erpUpdated}, Shopify ${shopifyUpdated}`
+                                    : `Sent to ${row.eligibleGroup} (ERP ${row.erpGroup}, Shopify ${row.shopifyTag})`
+                                );
+                              }
+                              if (pushErrors.length === 0 || erpUpdated > 0) {
+                                setLoyaltyQueue((prev) =>
+                                  prev.filter((x) => x.contactId !== row.contactId)
+                                );
+                              }
+                            } catch {
+                              notify.error("Assign failed");
+                            } finally {
+                              setBusyKey(null);
+                            }
+                          })();
+                        }}
+                      >
+                        Send to {row.eligibleGroup}
+                      </Button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {myCallQueue.length > 0 || !canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Call update queue</CardTitle>
+            <CardDescription>
+              Contacts admin assigned for you to call. Never/oldest contacted first. Update
+              writes Contact Master; logging a call outcome also clears the row.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {myCallQueue.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No assigned call-update contacts.</p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {myCallQueue.map((row) => (
+                  <li
+                    key={row.contactId}
+                    className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
+                        {formatQueueDate(row.lastPurchaseAt)}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isBusy}
+                      onClick={() => void openQueueContact(row.contactId)}
+                    >
+                      Update
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+          </TabsContent>
+        ) : null}
+
+        {canExportFilteredCsv ? (
+          <TabsContent value="admin" className="flex flex-col gap-6">
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Merchant allocations</CardTitle>
+            <CardDescription>
+              How many Contact Master rows are allocated to each merchant. Export
+              downloads the same counts as CSV.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {allocationSummary
+                  ? `${allocationSummary.allocatedTotal.toLocaleString()} allocated · ${allocationSummary.unallocatedCount.toLocaleString()} unallocated · ${allocationSummary.contactTotal.toLocaleString()} total`
+                  : "Loading counts…"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() => void loadAllocationSummary()}
+                >
+                  {busyKey === "allocation-summary" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Refreshing...
+                    </>
+                  ) : (
+                    "Refresh"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isBusy || !allocationSummary}
+                  onClick={() => void exportAllocationSummaryCsv()}
+                >
+                  {busyKey === "allocation-summary-export" ? (
+                    <>
+                      <Loader2 className="animate-spin" aria-hidden />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download aria-hidden />
+                      Export CSV
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+            {allocationSummary && allocationSummary.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No allocated contacts yet.
+              </p>
+            ) : null}
+            {allocationSummary && allocationSummary.rows.length > 0 ? (
+              <div className="max-h-[28rem] overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Merchant</th>
+                      <th className="px-3 py-2 text-right font-medium">
+                        Allocated
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {allocationSummary.rows.map((row) => (
+                      <tr key={row.merchantValue}>
+                        <td className="px-3 py-2">{row.merchantLabel}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.count.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-muted/30">
+                      <td className="px-3 py-2 text-muted-foreground">
+                        Unallocated
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {allocationSummary.unallocatedCount.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Assign merchant call queue</CardTitle>
+            <CardDescription>
+              Pick a merchant, load allocated customers (no recent update first, recently
+              called last), then bulk-assign to their Insight call list.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="min-w-0 flex-1 space-y-1 text-sm">
+                <span className="text-muted-foreground">Merchant</span>
+                <InsightSearchableSelect
+                  value={queueMerchant}
+                  options={merchantOptions}
+                  placeholder="Select merchant"
+                  searchPlaceholder="Search merchants…"
+                  disabled={isBusy}
+                  onChange={(next) => {
+                    setQueueMerchant(next);
+                    setQueueCandidates(null);
+                    setQueueSelectedIds([]);
+                  }}
+                />
+              </label>
+              <Button
+                type="button"
+                disabled={isBusy || !queueMerchant}
+                onClick={() => void loadQueueCandidates(1)}
+              >
+                {busyKey === "queue-candidates" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Load allocated"
+                )}
+              </Button>
+            </div>
+            {queueCandidates ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {queueCandidateTotal} allocated · oldest/never contacted first
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueCandidates.length === 0}
+                      onClick={() =>
+                        setQueueSelectedIds(
+                          queueSelectedIds.length === queueCandidates.length
+                            ? []
+                            : queueCandidates.map((row) => row.contactId)
+                        )
+                      }
+                    >
+                      {queueSelectedIds.length === queueCandidates.length
+                        ? "Clear page"
+                        : "Select page"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isBusy || queueSelectedIds.length === 0}
+                      onClick={() => void assignSelectedToQueue()}
+                    >
+                      {busyKey === "queue-assign" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Assigning...
+                        </>
+                      ) : (
+                        `Assign ${queueSelectedIds.length || ""}`.trim()
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <ul className="max-h-[28rem] divide-y overflow-auto rounded-md border">
+                  {queueCandidates.map((row) => {
+                    const checked = queueSelectedIds.includes(row.contactId);
+                    return (
+                      <li key={row.contactId}>
+                        <label className="flex cursor-pointer items-start gap-3 px-3 py-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() =>
+                              setQueueSelectedIds((prev) =>
+                                checked
+                                  ? prev.filter((id) => id !== row.contactId)
+                                  : [...prev, row.contactId]
+                              )
+                            }
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-medium">
+                              {row.name}
+                              {row.queued ? (
+                                <span className="text-muted-foreground ml-2 text-xs font-normal">
+                                  already queued
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="text-muted-foreground block text-xs">
+                              {row.phoneNumber ?? "No phone"} · tot{" "}
+                              {formatMoney(row.lifetimeTotal)}
+                            </span>
+                            <span className="text-muted-foreground block text-xs">
+                              Last contacted {formatQueueDate(row.lastContactedAt)} · last
+                              purchased {formatQueueDate(row.lastPurchaseAt)}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {queueCandidateTotal > queueCandidatePageSize ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueCandidatePage <= 1}
+                      onClick={() => void loadQueueCandidates(queueCandidatePage - 1)}
+                    >
+                      Previous
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Page {queueCandidatePage} of{" "}
+                      {Math.max(
+                        1,
+                        Math.ceil(queueCandidateTotal / queueCandidatePageSize)
+                      )}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={
+                        isBusy ||
+                        queueCandidatePage >=
+                          Math.ceil(queueCandidateTotal / queueCandidatePageSize)
+                      }
+                      onClick={() => void loadQueueCandidates(queueCandidatePage + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+          </TabsContent>
+        ) : null}
+      </Tabs>
     </div>
   );
 }
