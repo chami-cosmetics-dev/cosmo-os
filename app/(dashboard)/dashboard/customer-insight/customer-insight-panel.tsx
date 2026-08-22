@@ -603,6 +603,7 @@ export function CustomerInsightPanel({
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [filterAssignedMerchant, setFilterAssignedMerchant] = useState("");
   const [merchantOptions, setMerchantOptions] = useState<InsightSelectOption[]>([]);
+  const [queueMerchantOptions, setQueueMerchantOptions] = useState<InsightSelectOption[]>([]);
   const [filterPurchaseLocationId, setFilterPurchaseLocationId] = useState("");
   const [locationOptions, setLocationOptions] = useState<InsightSelectOption[]>([]);
   const [filterBirthdayFrom, setFilterBirthdayFrom] = useState("");
@@ -773,16 +774,27 @@ export function CustomerInsightPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const [merchantsRes, locationsRes] = await Promise.all([
+        const [merchantsRes, queueMerchantsRes, locationsRes] = await Promise.all([
           fetch(`/api/admin/customer-insight/filter-options?type=merchants`),
+          fetch(
+            `/api/admin/customer-insight/filter-options?type=call-queue-merchants`
+          ),
           fetch(`/api/admin/customer-insight/filter-options?type=locations`),
         ]);
         const merchantsData = await merchantsRes.json().catch(() => ({}));
+        const queueMerchantsData = await queueMerchantsRes.json().catch(() => ({}));
         const locationsData = await locationsRes.json().catch(() => ({}));
         if (cancelled) return;
         if (merchantsRes.ok && Array.isArray(merchantsData.options)) {
           setMerchantOptions(
             (merchantsData.options as Array<{ value?: string; label?: string }>)
+              .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
+              .map((o) => ({ value: o.value, label: o.label ?? o.value }))
+          );
+        }
+        if (queueMerchantsRes.ok && Array.isArray(queueMerchantsData.options)) {
+          setQueueMerchantOptions(
+            (queueMerchantsData.options as Array<{ value?: string; label?: string }>)
               .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
               .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
@@ -3255,7 +3267,15 @@ export function CustomerInsightPanel({
                   </thead>
                   <tbody className="divide-y">
                     {allocationSummary.rows.map((row) => (
-                      <tr key={row.merchantValue}>
+                      <tr
+                        key={row.merchantValue}
+                        className="cursor-pointer hover:bg-muted/40"
+                        onClick={() => {
+                          setQueueMerchant(row.merchantValue);
+                          setQueueCandidates(null);
+                          setQueueSelectedIds([]);
+                        }}
+                      >
                         <td className="px-3 py-2">{row.merchantLabel}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {row.count.toLocaleString()}
@@ -3283,8 +3303,8 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Assign merchant call queue</CardTitle>
             <CardDescription>
-              Pick a merchant, load allocated customers (no recent update first, recently
-              called last), then bulk-assign to their Insight call list.
+              Pick a merchant (includes allocated contact labels not on the merchant
+              roster), load customers, then bulk-assign to their call list.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -3293,7 +3313,7 @@ export function CustomerInsightPanel({
                 <span className="text-muted-foreground">Merchant</span>
                 <InsightSearchableSelect
                   value={queueMerchant}
-                  options={merchantOptions}
+                  options={queueMerchantOptions}
                   placeholder="Select merchant"
                   searchPlaceholder="Search merchants…"
                   disabled={isBusy}

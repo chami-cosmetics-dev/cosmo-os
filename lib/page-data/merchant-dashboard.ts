@@ -36,6 +36,7 @@ import {
   type MerchantCosmeticsLkBreakdownBundle,
 } from "@/lib/page-data/merchant-dashboard-cosmetics-lk";
 import { formatAppIsoDate } from "@/lib/format-datetime";
+import { listMerchantCallQueue, type CallQueueRowDto } from "@/lib/customer-insight/call-queue";
 import { prisma } from "@/lib/prisma";
 
 export type MerchantDashboardMerchantOption = {
@@ -170,6 +171,7 @@ export type MerchantDashboardPageData = {
     lastContactedAt: string | null;
     missingProfileFields: string[];
   }>;
+  callUpdateQueue: CallQueueRowDto[];
   callCenterPerformance: Array<{
     merchantName: string;
     category: string;
@@ -388,6 +390,7 @@ export async function getMerchantDashboardPageData(input: {
     nearestBirthdays,
     dailyInvoicesResult,
     loyaltyOutreach,
+    callUpdateQueueResult,
     callCenterRaw,
     cosmeticsLkMtd,
     cosmeticsLkToday,
@@ -455,6 +458,16 @@ export async function getMerchantDashboardPageData(input: {
       },
       take: 25,
     }),
+    listMerchantCallQueue({
+      companyId: input.companyId,
+      viewer: {
+        id: profileUser.id,
+        knownName: profileUser.knownName,
+        name: profileUser.name,
+        email: profileUser.email,
+        couponCodes: profileUser.couponCodes,
+      },
+    }).then((r) => r.items),
     prisma.$queryRaw<
       Array<{ merchantName: string | null; category: string | null; count: bigint }>
     >`
@@ -708,6 +721,7 @@ export async function getMerchantDashboardPageData(input: {
     rangeFromYmd,
     rangeToYmd: chartRangeToYmd,
     loyaltyOutreach,
+    callUpdateQueue: callUpdateQueueResult,
     callCenterPerformance: callCenterRaw.map((row) => ({
       merchantName: normalizeDashboardMerchantLabel(row.merchantName),
       category: row.category ?? "N/A",
