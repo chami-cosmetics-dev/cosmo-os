@@ -24,6 +24,7 @@ import { notify } from "@/lib/notify";
 type Location = { id: string; name: string; address: string | null };
 type Department = { id: string; name: string };
 type Designation = { id: string; name: string };
+type Outlet = { id: string; name: string };
 
 type StaffMember = {
   id: string;
@@ -38,6 +39,7 @@ type StaffMember = {
   locations?: Location[];
   departments?: Department[];
   designations?: Designation[];
+  outlets?: Outlet[];
   employeeProfile: {
     id: string;
     employeeNumber: string | null;
@@ -48,6 +50,8 @@ type StaffMember = {
     department: { id: string; name: string } | null;
     designationId: string | null;
     designation: { id: string; name: string } | null;
+    outletId: string | null;
+    outlet: { id: string; name: string } | null;
     appointmentDate: string | null;
     status: string;
     resignedAt: string | null;
@@ -63,6 +67,7 @@ export type StaffManagementPanelInitialData = {
   locations: Location[];
   departments: Department[];
   designations: Designation[];
+  outlets: Outlet[];
 };
 
 interface StaffManagementPanelProps {
@@ -84,6 +89,7 @@ export function StaffManagementPanel({
   const [locations, setLocations] = useState<Location[]>(initialData?.locations ?? []);
   const [departments, setDepartments] = useState<Department[]>(initialData?.departments ?? []);
   const [designations, setDesignations] = useState<Designation[]>(initialData?.designations ?? []);
+  const [outlets, setOutlets] = useState<Outlet[]>(initialData?.outlets ?? []);
   const [loading, setLoading] = useState(!initialData);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "resigned">("active");
   const [search, setSearch] = useState("");
@@ -124,7 +130,7 @@ export function StaffManagementPanel({
     if (isRiderMode) {
       params.set("rider_only", "1");
     }
-    if (locations.length === 0 || departments.length === 0 || designations.length === 0) {
+    if (locations.length === 0 || departments.length === 0 || designations.length === 0 || outlets.length === 0) {
       params.set("include_lookups", "1");
     }
     const res = await fetch(`/api/admin/staff/page-data?${params}`);
@@ -141,12 +147,14 @@ export function StaffManagementPanel({
       locations?: Location[];
       departments?: Department[];
       designations?: Designation[];
+  outlets?: Outlet[];
     };
     setStaff(data.staff);
     setTotal(data.total);
     if (data.locations) setLocations(data.locations);
     if (data.departments) setDepartments(data.departments);
     if (data.designations) setDesignations(data.designations);
+    if (data.outlets) setOutlets(data.outlets);
   }, [
     statusFilter,
     effectiveSearch,
@@ -158,6 +166,7 @@ export function StaffManagementPanel({
     locations.length,
     departments.length,
     designations.length,
+    outlets.length,
   ]);
 
   const skippedInitialFetch = useRef(false);
@@ -512,6 +521,7 @@ export function StaffManagementPanel({
               locations={editData?.locations ?? locations}
               departments={editData?.departments ?? departments}
               designations={editData?.designations ?? designations}
+              outlets={editData?.outlets ?? outlets}
               canEdit={canManageStaff}
               onSaved={fetchPageData}
               onClose={closeEdit}
@@ -538,6 +548,3 @@ export function StaffManagementPanel({
     </div>
   );
 }
-
-
-

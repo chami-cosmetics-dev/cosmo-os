@@ -27,6 +27,7 @@ const NONE_VALUE = "__none__";
 type Location = { id: string; name: string; address: string | null };
 type Department = { id: string; name: string };
 type Designation = { id: string; name: string };
+type Outlet = { id: string; name: string };
 
 type StaffMember = {
   id: string;
@@ -40,6 +41,7 @@ type StaffMember = {
   shopifyUserIds?: string[];
   couponCodes?: string[];
   financeLocationIds?: string[];
+  outlets?: Outlet[];
   employeeProfile: {
     employeeNumber: string | null;
     epfNumber: string | null;
@@ -49,6 +51,8 @@ type StaffMember = {
     department?: { id: string; name: string } | null;
     designationId: string | null;
     designation?: { id: string; name: string } | null;
+    outletId: string | null;
+    outlet?: { id: string; name: string } | null;
     appointmentDate: string | null;
     status: string;
     isRider: boolean;
@@ -61,6 +65,7 @@ interface StaffEditFormProps {
   locations: Location[];
   departments: Department[];
   designations: Designation[];
+  outlets: Outlet[];
   canEdit: boolean;
   onSaved: () => void;
   onClose: () => void;
@@ -86,6 +91,7 @@ export function StaffEditForm({
   locations,
   departments,
   designations,
+  outlets,
   canEdit,
   onSaved,
   onClose,
@@ -101,6 +107,7 @@ export function StaffEditForm({
   const [locationId, setLocationId] = useState("");
   const [departmentId, setDepartmentId] = useState("");
   const [designationId, setDesignationId] = useState("");
+  const [outletId, setOutletId] = useState("");
   const [appointmentDate, setAppointmentDate] = useState("");
   const [shopifyUserIds, setShopifyUserIds] = useState("");
   const [couponCodes, setCouponCodes] = useState("");
@@ -125,6 +132,11 @@ export function StaffEditForm({
     initialData?.employeeProfile?.designationId ||
     initialData?.employeeProfile?.designation?.id ||
     "";
+  const effectiveOutletId =
+    outletId ||
+    initialData?.employeeProfile?.outletId ||
+    initialData?.employeeProfile?.outlet?.id ||
+    "";
   const genderLabel =
     GENDER_OPTIONS.find((option) => option.value === effectiveGender)?.label ?? "Select gender";
   const locationOptions = withSelectedOption(
@@ -144,6 +156,10 @@ export function StaffEditForm({
     designations,
     initialData?.employeeProfile?.designation ?? null
   );
+  const outletOptions = withSelectedOption(
+    outlets,
+    initialData?.employeeProfile?.outlet ?? null
+  );
   const locationLabel =
     locationOptions.find((loc) => loc.id === effectiveLocationId)?.name ?? "Select location";
   const departmentLabel =
@@ -152,6 +168,8 @@ export function StaffEditForm({
   const designationLabel =
     designationOptions.find((designation) => designation.id === effectiveDesignationId)?.name ??
     "Select designation";
+  const outletLabel =
+    outletOptions.find((outlet) => outlet.id === effectiveOutletId)?.name ?? "Select outlet";
 
   useEffect(() => {
     if (initialData) {
@@ -176,6 +194,11 @@ export function StaffEditForm({
       setDesignationId(
         initialData.employeeProfile?.designationId ??
           initialData.employeeProfile?.designation?.id ??
+          ""
+      );
+      setOutletId(
+        initialData.employeeProfile?.outletId ??
+          initialData.employeeProfile?.outlet?.id ??
           ""
       );
       setAppointmentDate(
@@ -213,6 +236,7 @@ export function StaffEditForm({
           locationId: locationId || null,
           departmentId: departmentId || null,
           designationId: designationId || null,
+          outletId: outletId || null,
           appointmentDate: appointmentDate || undefined,
           shopifyUserIds: shopifyUserIds
             .split(",")
@@ -447,6 +471,30 @@ export function StaffEditForm({
             {designationOptions.map((d) => (
               <SelectItem key={d.id} value={d.id}>
                 {d.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">
+          Outlet
+        </label>
+        <Select
+          value={effectiveOutletId || NONE_VALUE}
+          onValueChange={(value) =>
+            setOutletId(value === NONE_VALUE ? "" : value)
+          }
+          disabled={!canEdit || isBusy}
+        >
+          <SelectTrigger id="staff-outlet">
+            <SelectValue placeholder="Select outlet">{outletLabel}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_VALUE}>Select outlet</SelectItem>
+            {outletOptions.map((outlet) => (
+              <SelectItem key={outlet.id} value={outlet.id}>
+                {outlet.name}
               </SelectItem>
             ))}
           </SelectContent>
