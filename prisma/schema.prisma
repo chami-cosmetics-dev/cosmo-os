@@ -977,6 +977,7 @@ model ApprovalRequest {
   reviewedById  String?
   requestNote   String?
   reviewNote    String?
+  kokoReference String?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   reviewedAt    DateTime?
@@ -988,6 +989,7 @@ model ApprovalRequest {
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, type, status, createdAt(sort: Desc)])
+  @@unique([companyId, kokoReference])
   @@index([orderId])
   @@index([orderReturnId])
 }
