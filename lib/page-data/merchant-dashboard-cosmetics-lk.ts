@@ -9,6 +9,7 @@ import {
   parseOrderCouponList,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { prisma } from "@/lib/prisma";
 
@@ -36,8 +37,9 @@ export type MerchantCosmeticsLkBreakdownBundle = {
   mtd: MerchantCosmeticsLkBreakdown | null;
 };
 
-const COSMETICS_LK_NAME = /cosmetics\.?\s*lk/i;
-const VAT_CATEGORY = "VAT_TOP_PRIORITY_BRAND";
+/** Catalog classification that marks a line item as a VAT item on Cosmetics.lk. */
+export const COSMETICS_LK_VAT_CATEGORY = "VAT_TOP_PRIORITY_BRAND";
+const VAT_CATEGORY = COSMETICS_LK_VAT_CATEGORY;
 
 function parseDayStartUtc(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000+05:30`);
@@ -87,11 +89,7 @@ function orderTrackingCoupons(order: {
   return parseOrderCouponList(merchantCouponCode);
 }
 
-export function isCosmeticsLkLocationName(
-  name: string | null | undefined,
-): boolean {
-  return COSMETICS_LK_NAME.test((name ?? "").trim());
-}
+export { isCosmeticsLkLocationName };
 
 /**
  * Viewed merchant’s attributed cosmetics.lk orders only — split by
