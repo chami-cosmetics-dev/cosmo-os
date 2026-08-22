@@ -4,6 +4,7 @@ import {
   CONTACT_GENDER_OPTIONS,
   CONTACT_LANGUAGE_OPTIONS,
 } from "@/lib/customer-insight/contact-profile-options";
+import { CALL_CENTER_CATEGORY_VALUES } from "@/lib/contact-call-center-categories";
 import { INSIGHT_FILTER_LIST_MAX } from "@/lib/customer-insight/filter-query-params";
 import { PRODUCT_ITEM_STATUS_CATEGORIES } from "@/lib/product-item-status";
 import {
@@ -255,6 +256,14 @@ export const merchantLoyaltyOutreachBodySchema = z.object({
   contactId: cuidSchema,
   action: z.enum(["loyalty_informed", "responded", "not_responded"]),
   remark: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const merchantCallUpdateBodySchema = z.object({
+  contactId: cuidSchema,
+  category: z.enum(CALL_CENTER_CATEGORY_VALUES),
+  remark: z.string().trim().max(2000).optional().nullable(),
+  /** Dashboard merchant slice — admin may pass selected merchant user id. */
+  merchantUserId: cuidSchema.optional(),
 });
 
 export const customerInsightFilterOptionsQuerySchema = z.object({

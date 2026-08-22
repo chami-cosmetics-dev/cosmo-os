@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Cake, Crown, Download, Loader2, Target } from "lucide-react";
+import { Cake, Crown, Download, Loader2, Phone, Target } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -42,12 +42,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  CALL_CENTER_CATEGORY_VALUES,
   callCenterCategoryColor,
 } from "@/lib/contact-call-center-categories";
 import { formatAppTime } from "@/lib/format-datetime";
 import { notify } from "@/lib/notify";
 import { loyaltyProfileIncompleteMessage } from "@/lib/customer-insight/loyalty-profile-complete";
 import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish-message";
+import type { CallQueueRowDto } from "@/lib/customer-insight/call-queue";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
 
@@ -57,6 +59,11 @@ function formatMoney(value: number) {
     currency: "LKR",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatQueueDate(iso: string | null | undefined) {
+  if (!iso) return "Never";
+  return new Date(iso).toLocaleString();
 }
 
 function csvEscape(value: string | number | boolean | null | undefined) {
@@ -219,6 +226,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [wishDiscount, setWishDiscount] = useState("10");
   const [wishCode, setWishCode] = useState("");
   const [wishMessage, setWishMessage] = useState("");
+  const [callUpdateRow, setCallUpdateRow] = useState<CallQueueRowDto | null>(null);
+  const [callOutcome, setCallOutcome] = useState("N/A");
+  const [callRemark, setCallRemark] = useState("");
   const [invoiceDay, setInvoiceDay] = useState(initialData.dailyInvoicesYmd);
   const [dailyInvoices, setDailyInvoices] = useState<MerchantDailyInvoiceRow[]>(
     initialData.dailyInvoices,
@@ -470,6 +480,47 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       setWishContact(null);
     } catch {
       notify.error("Failed to send birthday wish");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function openCallUpdate(row: CallQueueRowDto) {
+    setCallUpdateRow(row);
+    setCallOutcome("N/A");
+    setCallRemark("");
+  }
+
+  async function submitCallUpdate() {
+    if (!callUpdateRow) return;
+    if (!callOutcome.trim()) {
+      notify.error("Select a call outcome.");
+      return;
+    }
+    setBusyKey("call-update");
+    try {
+      const res = await fetch("/api/admin/merchant-dashboard/call-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contactId: callUpdateRow.contactId,
+          category: callOutcome,
+          remark: callRemark.trim() || null,
+          merchantUserId: merchantId,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(
+          typeof json.error === "string" ? json.error : "Failed to save call update",
+        );
+        return;
+      }
+      notify.success(`Saved outcome: ${json.category ?? callOutcome}`);
+      setCallUpdateRow(null);
+      await reload(merchantId);
+    } catch {
+      notify.error("Failed to save call update");
     } finally {
       setBusyKey(null);
     }
@@ -1186,6 +1237,72 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-base">Assigned call updates</CardTitle>
+          <p className="text-muted-foreground text-xs">
+            Customers admin assigned for you to call. Save outcome here — it updates
+            Contact Master and your call center performance chart.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {(data.callUpdateQueue ?? []).length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              No assigned call-update contacts right now.
+            </p>
+          ) : (
+            <ul className="max-h-80 space-y-2 overflow-y-auto">
+              {(data.callUpdateQueue ?? []).map((row) => (
+                <li
+                  key={row.contactId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="bg-muted text-muted-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full">
+                      <Phone className="size-4" aria-hidden />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{row.name}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {row.phoneNumber ?? "No phone"} · tot {formatMoney(row.lifetimeTotal)}
+                      </p>
+                      <p className="text-muted-foreground text-xs">
+                        Last contacted {formatQueueDate(row.lastContactedAt)} · last purchased{" "}
+                        {formatQueueDate(row.lastPurchaseAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      asChild
+                    >
+                      <Link
+                        href={`/dashboard/customer-insight?contactId=${encodeURIComponent(row.contactId)}&edit=1`}
+                      >
+                        Edit profile
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={isBusy}
+                      onClick={() => openCallUpdate(row)}
+                    >
+                      Call update
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="space-y-1">
@@ -2312,6 +2429,84 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 </>
               ) : (
                 "Send SMS"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={callUpdateRow != null}
+        onOpenChange={(open) => {
+          if (!open && busyKey !== "call-update") setCallUpdateRow(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Call update{callUpdateRow ? ` — ${callUpdateRow.name}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {callUpdateRow?.phoneNumber ? (
+              <p className="text-muted-foreground text-sm">
+                Phone: {callUpdateRow.phoneNumber}
+              </p>
+            ) : null}
+            <div className="space-y-1">
+              <label className="text-muted-foreground text-xs font-medium">
+                Call outcome
+              </label>
+              <Select
+                value={callOutcome}
+                disabled={isBusy}
+                onValueChange={setCallOutcome}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select outcome" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CALL_CENTER_CATEGORY_VALUES.map((opt) => (
+                    <SelectItem key={opt} value={opt}>
+                      {opt}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-muted-foreground text-xs font-medium">
+                Remark (optional)
+              </label>
+              <Input
+                disabled={isBusy}
+                value={callRemark}
+                onChange={(e) => setCallRemark(e.target.value)}
+                placeholder="Optional remark"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isBusy}
+              onClick={() => setCallUpdateRow(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isBusy}
+              onClick={() => void submitCallUpdate()}
+            >
+              {busyKey === "call-update" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                  Saving…
+                </>
+              ) : (
+                "Save outcome"
               )}
             </Button>
           </DialogFooter>
