@@ -3,9 +3,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { getMerchantDisplayName } from "@/lib/customer-insight/auto-allocate";
 import { applyErpCustomerGroupToContact } from "@/lib/customer-insight/erp-loyalty";
+import {
+  shouldAutoAllocateErpCustomer,
+  type OtherErpPhoneCheck,
+} from "@/lib/erp-customer-auto-allocation";
 import { resolveCompanyIdsForErpWebhookSecret } from "@/lib/erp-item-price-sync";
-import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
+import {
+  erpHasCustomerPhone,
+  erpSlotSourceFromLabel,
+  getErpContactSyncInstances,
+} from "@/lib/erpnext-contact-sync";
 import { getPrimaryMerCode } from "@/lib/merchant-allocation";
+import { userHasMerchantRole } from "@/lib/merchant-role";
 import { prisma } from "@/lib/prisma";
 import { erpnextCustomerWebhookSchema } from "@/lib/validation/erpnext-customer";
 
@@ -62,7 +71,7 @@ export async function POST(request: NextRequest) {
       companyId,
       incomingWebhookSecret: incomingSecret,
     },
-    select: { label: true },
+    select: { id: true, label: true },
   });
 
   const parsed = erpnextCustomerWebhookSchema.safeParse(unwrapErpPayload(rawPayload));
@@ -90,7 +99,18 @@ export async function POST(request: NextRequest) {
   const creator = ownerRaw
     ? await prisma.user.findUnique({
         where: { erpnextUsername: ownerRaw },
-        select: { knownName: true, name: true, email: true, couponCodes: true },
+        select: {
+          companyId: true,
+          knownName: true,
+          name: true,
+          email: true,
+          couponCodes: true,
+          userRoles: {
+            select: {
+              role: { select: { name: true } },
+            },
+          },
+        },
       })
     : null;
 
@@ -100,12 +120,44 @@ export async function POST(request: NextRequest) {
     email: creator?.email ?? null,
   });
 
-  // Only allocate when creator has a MER; otherwise leave assignedMerchant empty.
-  const assignedMerchantMer = creator ? getPrimaryMerCode(creator.couponCodes) : null;
+  const creatorHasMerchantRole = userHasMerchantRole(
+    creator?.companyId === companyId
+      ? creator.userRoles.map((entry) => entry.role.name)
+      : [],
+  );
+  const creatorMer =
+    creator && creatorHasMerchantRole ? getPrimaryMerCode(creator.couponCodes) : null;
 
   const displayName = data.customer_name ?? data.name;
 
   try {
+    const contactSyncInstances = await getErpContactSyncInstances(companyId);
+    const originInstance = instance
+      ? contactSyncInstances.find((candidate) => candidate.id === instance.id) ?? null
+      : null;
+    let otherErpPhoneCheck: OtherErpPhoneCheck = "clear";
+
+    if (data.mobile_no) {
+      if (!originInstance) {
+        otherErpPhoneCheck = "failed";
+      } else {
+        try {
+          const matches = await Promise.all(
+            contactSyncInstances
+              .filter((candidate) => candidate.id !== originInstance.id)
+              .map((candidate) => erpHasCustomerPhone(candidate.cfg, data.mobile_no!)),
+          );
+          if (matches.some(Boolean)) otherErpPhoneCheck = "found";
+        } catch (error) {
+          otherErpPhoneCheck = "failed";
+          console.error(
+            "[ERPNext Customer webhook] Other ERP phone check failed; allocation skipped",
+            error,
+          );
+        }
+      }
+    }
+
     const result = await syncContactMasterSafely({
       companyId,
       sourceLabel: instance?.label?.trim() || "ERPNext customer",
@@ -117,9 +169,33 @@ export async function POST(request: NextRequest) {
       phoneNumber: data.mobile_no,
       name: displayName,
       recentMerchant,
-      assignedMerchantMer,
+      // Allocation is applied below only when this is a genuinely new contact.
+      assignedMerchantMer: null,
       auditBehavior: "summary_only",
     });
+    let allocated = false;
+    if (
+      "contactId" in result &&
+      result.contactId &&
+      shouldAutoAllocateErpCustomer({
+        syncStatus: result.status,
+        creatorMer,
+        creatorHasMerchantRole,
+        originInstanceKnown: Boolean(originInstance),
+        hasPhone: Boolean(data.mobile_no),
+        otherErpPhoneCheck,
+      })
+    ) {
+      const allocation = await prisma.contactMaster.updateMany({
+        where: {
+          id: result.contactId,
+          companyId,
+          OR: [{ assignedMerchant: null }, { assignedMerchant: "" }],
+        },
+        data: { assignedMerchant: creatorMer! },
+      });
+      allocated = allocation.count === 1;
+    }
     if ("contactId" in result && result.contactId) {
       await applyErpCustomerGroupToContact({
         companyId,
@@ -130,7 +206,8 @@ export async function POST(request: NextRequest) {
     console.log(
       `[ERPNext Customer webhook] ${data.name}: ${result.status}` +
         ("contactId" in result ? ` (${result.contactId})` : "") +
-        ` mer=${assignedMerchantMer ?? "(none)"}`,
+        ` mer=${allocated ? creatorMer : "(none)"}` +
+        ` otherErp=${otherErpPhoneCheck}`,
     );
   } catch (error) {
     console.error("[ERPNext Customer webhook] sync failed:", error);
