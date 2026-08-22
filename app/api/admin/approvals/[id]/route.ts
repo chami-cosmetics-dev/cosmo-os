@@ -47,6 +47,10 @@ import {
   paymentMethodChangeGateway,
 } from "@/lib/payment-method-label";
 import {
+  normalizeKokoReference,
+  requiresKokoApprovalReference,
+} from "@/lib/koko-approval-reference";
+import {
   finalizeReturnCancelOsState,
   runReturnCancelExternalCompletion,
   sanitizeReturnCancelError,
@@ -62,6 +66,7 @@ export const maxDuration = 60;
 const reviewSchema = z.object({
   action: z.enum(["approve", "reject"]),
   reviewNote: z.string().trim().max(2000).optional().nullable(),
+  kokoReference: z.string().trim().max(120).optional().nullable(),
 });
 
 class ConcurrentApprovalDecisionError extends Error {
@@ -116,6 +121,8 @@ export async function PATCH(
     orderNumber: string | null;
     shopifyOrderId: string | null;
     companyLocationId: string | null;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
   }>>(
     Prisma.sql`
       SELECT
@@ -130,7 +137,9 @@ export async function PATCH(
         o."name" AS "orderName",
         o."orderNumber",
         o."shopifyOrderId",
-        COALESCE(o."companyLocationId", ort_order."companyLocationId") AS "companyLocationId"
+        COALESCE(o."companyLocationId", ort_order."companyLocationId") AS "companyLocationId",
+        o."paymentGatewayPrimary",
+        COALESCE(o."paymentGatewayNames", ARRAY[]::TEXT[]) AS "paymentGatewayNames"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "OrderReturn" ort ON ort."id" = ar."orderReturnId"
@@ -163,6 +172,28 @@ export async function PATCH(
   if (approval.status !== "pending") {
     return NextResponse.json({ error: "Approval request is already reviewed" }, { status: 400 });
   }
+  const requiresKokoReference = requiresKokoApprovalReference({
+    type: approval.type,
+    requestNote: approval.requestNote,
+    paymentGatewayPrimary: approval.paymentGatewayPrimary,
+    paymentGatewayNames: approval.paymentGatewayNames,
+  });
+  const submittedKokoReference = parsed.data.kokoReference
+    ? normalizeKokoReference(parsed.data.kokoReference)
+    : "";
+  if (parsed.data.action === "approve" && requiresKokoReference && !submittedKokoReference) {
+    return NextResponse.json(
+      {
+        error: "KOKO reference number is required before approval.",
+        code: "KOKO_REFERENCE_REQUIRED",
+      },
+      { status: 400 },
+    );
+  }
+  const kokoReference =
+    parsed.data.action === "approve" && requiresKokoReference
+      ? submittedKokoReference
+      : null;
   const orderMissing = !approval.orderId || !approval.orderLinked;
   if (orderMissing && parsed.data.action === "approve") {
     return NextResponse.json(
@@ -596,21 +627,22 @@ export async function PATCH(
 
   try {
   await prisma.$transaction(async (tx) => {
-    const updated = await tx.$executeRaw(
-      Prisma.sql`
-        UPDATE "ApprovalRequest"
-        SET
-          "status" = ${nextStatus},
-          "reviewedById" = ${reviewerId},
-          "reviewNote" = ${reviewNote},
-          "reviewedAt" = ${now},
-          "updatedAt" = ${now}
-        WHERE "id" = ${approval.id}
-          AND "companyId" = ${companyId}
-          AND "status" = 'pending'
-      `
-    );
-    if (Number(updated) === 0) {
+    const updated = await tx.approvalRequest.updateMany({
+      where: {
+        id: approval.id,
+        companyId,
+        status: "pending",
+      },
+      data: {
+        status: nextStatus,
+        reviewedById: reviewerId,
+        reviewNote,
+        kokoReference,
+        reviewedAt: now,
+        updatedAt: now,
+      },
+    });
+    if (updated.count === 0) {
       throw new ConcurrentApprovalDecisionError();
     }
 
@@ -851,6 +883,15 @@ export async function PATCH(
   } catch (err) {
     if (err instanceof ConcurrentApprovalDecisionError) {
       return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return NextResponse.json(
+        {
+          error: "This KOKO reference number has already been used.",
+          code: "KOKO_REFERENCE_ALREADY_USED",
+        },
+        { status: 409 },
+      );
     }
     throw err;
   }

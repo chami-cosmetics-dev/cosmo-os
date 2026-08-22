@@ -25,6 +25,8 @@ export type FinanceApprovalItem = {
   customerEmail: string | null;
   requestNote: string | null;
   reviewNote: string | null;
+  kokoReference: string | null;
+  requiresKokoReference: boolean;
   createdAt: string;
   reviewedAt: string | null;
   reviewedByName: string | null;
@@ -189,6 +191,7 @@ function matchesApprovalSearch(approval: FinanceApprovalItem, term: string) {
     approval.status,
     approval.requestNote,
     approval.reviewNote,
+    approval.kokoReference,
     approval.returnedByName,
     approval.returnedByEmail,
     approval.cancelRequestedByName,
@@ -234,6 +237,7 @@ export function FinanceApprovalsPanel({
     selectFirstInView(initialApprovals, "pending", "all", "")
   );
   const [reviewNote, setReviewNote] = useState("");
+  const [kokoReference, setKokoReference] = useState("");
   const [hodPassword, setHodPassword] = useState("");
   const [revertReason, setRevertReason] = useState("");
   const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | null>(null);
@@ -272,6 +276,8 @@ export function FinanceApprovalsPanel({
   const rejectionReasonLength = reviewNote.trim().length;
   const rejectionReasonValid =
     !requiresRejectionReason || (rejectionReasonLength >= 5 && rejectionReasonLength <= 500);
+  const kokoReferenceValid =
+    !selected?.requiresKokoReference || kokoReference.trim().length > 0;
   const groupByRider = typeFilter === "delivery_payment_approval";
   const deliveryRiderGroups = useMemo(
     () => (groupByRider ? groupDeliveryApprovalsByRider(searchedApprovals) : []),
@@ -306,6 +312,10 @@ export function FinanceApprovalsPanel({
       setSelectedId(searchedApprovals[0].id);
     }
   }, [searchedApprovals, selectedId]);
+
+  useEffect(() => {
+    setKokoReference("");
+  }, [selectedId]);
 
   function switchView(next: "pending" | "history") {
     setView(next);
@@ -352,7 +362,14 @@ export function FinanceApprovalsPanel({
       const response = await fetch(`/api/admin/approvals/${selected.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reviewNote: reviewNote.trim() || null }),
+        body: JSON.stringify({
+          action,
+          reviewNote: reviewNote.trim() || null,
+          kokoReference:
+            action === "approve" && selected.requiresKokoReference
+              ? kokoReference.trim()
+              : null,
+        }),
       });
       const data = (await response.json()) as {
         error?: string;
@@ -397,6 +414,7 @@ export function FinanceApprovalsPanel({
         notify.success(action === "approve" ? "Approval granted." : "Approval rejected.");
       }
       setReviewNote("");
+      setKokoReference("");
       await refresh();
     } catch {
       notify.error("Failed to review approval");
@@ -687,6 +705,25 @@ export function FinanceApprovalsPanel({
                 </div>
                 {selected.status === "pending" ? (
                   <>
+                    {selected.requiresKokoReference && (
+                      <div>
+                        <label className="mb-1.5 block text-sm font-medium" htmlFor="finance-koko-reference">
+                          KOKO reference number <span className="text-destructive">*</span>
+                        </label>
+                        <Input
+                          id="finance-koko-reference"
+                          value={kokoReference}
+                          onChange={(event) => setKokoReference(event.target.value)}
+                          placeholder="Enter the KOKO payment reference"
+                          maxLength={120}
+                          disabled={busy !== null}
+                          autoComplete="off"
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Required for approval. Each reference can be used only once.
+                        </p>
+                      </div>
+                    )}
                     <div>
                       <label className="mb-1.5 block text-sm font-medium" htmlFor="finance-review-note">
                         {requiresRejectionReason ? (
@@ -712,7 +749,11 @@ export function FinanceApprovalsPanel({
                     </div>
                     <div className="grid gap-2">
                       {!selected.orderMissing && (
-                        <Button onClick={() => void review("approve")} disabled={busy !== null} className="gap-2">
+                        <Button
+                          onClick={() => void review("approve")}
+                          disabled={busy !== null || !kokoReferenceValid}
+                          className="gap-2"
+                        >
                           {busy === "approve" ? (
                             <Loader2 className="size-4 animate-spin" />
                           ) : (
@@ -742,6 +783,12 @@ export function FinanceApprovalsPanel({
                   <div className="space-y-3">
                     <div className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
                       Reviewed by {selected.reviewedByName ?? selected.reviewedByEmail ?? "-"} on {formatDate(selected.reviewedAt)}.
+                      {selected.kokoReference && (
+                        <p className="mt-2">
+                          <span className="font-medium text-foreground">KOKO reference:</span>{" "}
+                          {selected.kokoReference}
+                        </p>
+                      )}
                       {selected.reviewNote && <p className="mt-2 whitespace-pre-wrap">{selected.reviewNote}</p>}
                     </div>
                     {canRevertPaid && selected.orderId && !selected.orderMissing && selected.status === "approved" && selected.type === "delivery_payment_approval" && (

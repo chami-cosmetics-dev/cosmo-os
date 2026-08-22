@@ -19,6 +19,7 @@ import {
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
+import { requiresKokoApprovalReference } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
 import { hasPermission, requireAnyPermission } from "@/lib/rbac";
 
@@ -42,6 +43,7 @@ async function fetchInitialApprovals(
     orderId: string | null;
     requestNote: string | null;
     reviewNote: string | null;
+    kokoReference: string | null;
     createdAt: Date;
     reviewedAt: Date | null;
     invoiceNo: string | null;
@@ -66,6 +68,8 @@ async function fetchInitialApprovals(
     riderId: string | null;
     riderName: string | null;
     riderMobile: string | null;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
   }>>(
     Prisma.sql`
       SELECT
@@ -75,6 +79,7 @@ async function fetchInitialApprovals(
         ar."orderId",
         ar."requestNote",
         ar."reviewNote",
+        ar."kokoReference",
         ar."createdAt",
         ar."reviewedAt",
         COALESCE(o."name", o."orderNumber", o."shopifyOrderId") AS "invoiceNo",
@@ -98,7 +103,9 @@ async function fetchInitialApprovals(
         ort."cancelRequestedAt",
         rider."id" AS "riderId",
         COALESCE(rider."knownName", rider."name") AS "riderName",
-        rider."mobile" AS "riderMobile"
+        rider."mobile" AS "riderMobile",
+        o."paymentGatewayPrimary",
+        COALESCE(o."paymentGatewayNames", ARRAY[]::TEXT[]) AS "paymentGatewayNames"
       FROM "ApprovalRequest" ar
       LEFT JOIN "Order" o ON o."id" = ar."orderId"
       LEFT JOIN "CompanyLocation" cl ON cl."id" = o."companyLocationId"
@@ -159,6 +166,12 @@ async function fetchInitialApprovals(
       riderId: row.riderId,
       riderName: row.riderName,
       riderMobile: row.riderMobile,
+      requiresKokoReference: requiresKokoApprovalReference({
+        type: row.type,
+        requestNote: row.requestNote,
+        paymentGatewayPrimary: row.paymentGatewayPrimary,
+        paymentGatewayNames: row.paymentGatewayNames,
+      }),
     };
   });
 }
