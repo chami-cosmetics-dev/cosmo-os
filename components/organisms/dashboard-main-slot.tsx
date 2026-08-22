@@ -12,7 +12,9 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
+import { DashboardCosmeticsLkDrilldownSheet } from "@/components/organisms/dashboard-cosmetics-lk-drilldown-sheet";
 import { useDashboardOverview } from "@/components/organisms/dashboard-overview-context";
+import { isCosmeticsLkLocationName } from "@/lib/cosmetics-lk-location";
 import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 
 const DASHBOARD_SEGMENT_COLORS = [
@@ -140,6 +142,7 @@ export function DashboardMainSlot({ canEditDashboard = false }: { canEditDashboa
 
       return {
         shop: location.name,
+        isCosmeticsLk: isCosmeticsLkLocationName(location.name),
         total: formatMetric(total),
         donutTitle: useSourcePie ? "Primary Source" : "Top Merchant",
         agent: useSourcePie
@@ -251,6 +254,7 @@ function DashboardDonutGrid({
 }: {
   stats: Array<{
     shop: string;
+    isCosmeticsLk: boolean;
     total: string;
     donutTitle: string;
     agent: string;
@@ -266,6 +270,8 @@ function DashboardDonutGrid({
     }>;
   }>;
 }) {
+  const [drilldownShop, setDrilldownShop] = useState<string | null>(null);
+
   if (stats.length === 0) return null;
 
   return (
@@ -292,14 +298,33 @@ function DashboardDonutGrid({
           >
             <div className="h-1 w-full bg-[linear-gradient(90deg,var(--chart-3),var(--chart-2),var(--chart-4))]" />
             <CardContent className="px-4 pb-5 pt-6">
-              <div className="space-y-1 text-center">
-                <p className="line-clamp-1 text-base leading-6 font-semibold tracking-tight text-slate-800 dark:text-foreground">
-                  {stat.shop}
-                </p>
-                <p className="text-2xl font-semibold text-slate-700 dark:text-foreground">
-                  {stat.total}
-                </p>
-              </div>
+              {stat.isCosmeticsLk ? (
+                <button
+                  type="button"
+                  onClick={() => setDrilldownShop(stat.shop)}
+                  className="focus-visible:ring-ring w-full cursor-pointer space-y-1 rounded-md text-center focus-visible:ring-2 focus-visible:outline-none"
+                  aria-label={`Open ${stat.shop} merchant breakdown`}
+                >
+                  <p className="line-clamp-1 text-base leading-6 font-semibold tracking-tight text-slate-800 underline-offset-4 hover:underline dark:text-foreground">
+                    {stat.shop}
+                  </p>
+                  <p className="text-2xl font-semibold text-slate-700 dark:text-foreground">
+                    {stat.total}
+                  </p>
+                  <p className="text-muted-foreground text-[10px] tracking-wide uppercase">
+                    View merchants
+                  </p>
+                </button>
+              ) : (
+                <div className="space-y-1 text-center">
+                  <p className="line-clamp-1 text-base leading-6 font-semibold tracking-tight text-slate-800 dark:text-foreground">
+                    {stat.shop}
+                  </p>
+                  <p className="text-2xl font-semibold text-slate-700 dark:text-foreground">
+                    {stat.total}
+                  </p>
+                </div>
+              )}
               <DonutChartCard
                 chartId={`dashboard-main-donut-${index}`}
                 title={stat.donutTitle}
@@ -309,6 +334,12 @@ function DashboardDonutGrid({
           </Card>
         ))}
       </div>
+
+      <DashboardCosmeticsLkDrilldownSheet
+        open={drilldownShop !== null}
+        onOpenChange={(open) => setDrilldownShop(open ? drilldownShop : null)}
+        locationName={drilldownShop ?? "Cosmetics.lk"}
+      />
     </div>
   );
 }

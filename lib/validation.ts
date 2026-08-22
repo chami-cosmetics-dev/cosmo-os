@@ -208,6 +208,13 @@ export const dashboardSalesQuerySchema = z.object({
     .transform((v) => v !== "false"),
 });
 
+/** Cosmetics.lk drill-down: same clocks as the dashboard card, no analysis mode. */
+export const cosmeticsLkDrilldownQuerySchema = z.object({
+  from: ymdQuerySchema,
+  to: ymdQuerySchema,
+  date_type: dashboardSalesDateTypeSchema.optional().default("all_orders"),
+});
+
 export const dashboardBrandSalesQuerySchema = z.object({
   from: ymdQuerySchema,
   to: ymdQuerySchema,
