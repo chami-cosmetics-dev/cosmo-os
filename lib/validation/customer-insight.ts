@@ -281,12 +281,6 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   q: trimmedString(1, 100).optional(),
 });
 
-const optionalIsoDate = z
-  .string()
-  .trim()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
-  .optional();
-
 const optionalBoolQuery = z
   .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
   .optional()
