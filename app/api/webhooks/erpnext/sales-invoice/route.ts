@@ -316,12 +316,20 @@ export async function POST(request: NextRequest) {
     (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
   const isFullyPaid =
     typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
+  const isPartlyPaid =
+    data.status?.trim().toLowerCase() === "partly paid" ||
+    (typeof data.outstanding_amount === "number" &&
+      data.outstanding_amount > 0 &&
+      typeof data.grand_total === "number" &&
+      data.outstanding_amount < Math.abs(data.grand_total));
   let financialStatus: string;
   if (data.docstatus === 2) {
     financialStatus = "voided";
   } else if (isPOS || isFullyPaid) {
     // POS orders and fully paid invoices (outstanding_amount = 0) are marked paid
     financialStatus = "paid";
+  } else if (isPartlyPaid) {
+    financialStatus = "partially_paid";
   } else {
     // Non-POS ERP invoice: pending until PE webhook marks it paid
     financialStatus = "pending";

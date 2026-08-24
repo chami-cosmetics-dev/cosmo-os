@@ -159,8 +159,8 @@ export type ProgressBarDto = {
 };
 
 /** Full owner insight, or limited fields when visibility is "limited".
- * Limited (exact phone of another merchant's contact): loyalty + invoice lines + top items.
- * Owner-only: profile, progress, contacted, spend chart, edit.
+ * Limited (exact lookup of another merchant's contact): name, phone, email, loyalty, invoice lines, top items.
+ * Owner-only: full profile, progress, contacted, spend chart, edit.
  */
 export type CustomerInsightDto = {
   visibility: InsightVisibility;

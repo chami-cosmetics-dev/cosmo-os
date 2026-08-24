@@ -16,6 +16,7 @@ import {
   resolveOrderLineItemsPricing,
   sumOriginalTotals,
 } from "@/lib/order-line-item-pricing";
+import { summarizeOrderPayments } from "@/lib/order-payment-entries";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import {
   getErpWebhookCustomerNameField,
@@ -240,6 +241,17 @@ const orderSelect = {
       },
     },
   },
+  paymentEntries: {
+    orderBy: [{ postingDate: "asc" as const }, { createdAt: "asc" as const }],
+    select: {
+      paymentEntryId: true,
+      paymentType: true,
+      modeOfPayment: true,
+      amount: true,
+      allocatedAmount: true,
+      postingDate: true,
+    },
+  },
   riderDeliveryTask: {
     select: {
       id: true,
@@ -420,6 +432,10 @@ export async function GET(
     linePricing
       .reduce((acc, row) => acc + parseFloat(row.saleTotal), 0)
       .toFixed(2);
+  const paymentSummary = summarizeOrderPayments(
+    details.paymentEntries,
+    Number(details.totalPrice),
+  );
 
   return NextResponse.json({
     id: details.id,
@@ -445,6 +461,23 @@ export async function GET(
     paymentGatewayPrimary: gatewayColumns.hasPaymentGatewayPrimary
       ? (details.paymentGatewayPrimary ?? null)
       : null,
+    payments: details.paymentEntries.map((payment) => ({
+      paymentEntryId: payment.paymentEntryId,
+      paymentType: payment.paymentType,
+      modeOfPayment: payment.modeOfPayment,
+      amount: payment.amount.toString(),
+      allocatedAmount: payment.allocatedAmount.toString(),
+      postingDate: payment.postingDate.toISOString(),
+    })),
+    paymentSummary:
+      details.paymentEntries.length > 0
+        ? {
+            incomingPaid: paymentSummary.incomingPaid.toFixed(2),
+            refundedAmount: paymentSummary.refunds.toFixed(2),
+            totalPaid: paymentSummary.netPaid.toFixed(2),
+            balance: paymentSummary.balance.toFixed(2),
+          }
+        : null,
     customerEmail: details.customerEmail,
     customerPhone: details.customerPhone,
     customerName,

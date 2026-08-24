@@ -84,14 +84,30 @@ const sampleOwner: CustomerInsightDto = {
 };
 
 describe("toLimitedInsightDto", () => {
-  it("keeps total, invoice lines, top items; hides owner-only profile fields", () => {
+  it("keeps name, phone, email, total, invoice lines; hides owner-only profile fields", () => {
     const limited = toLimitedInsightDto(sampleOwner);
     expect(limited.visibility).toBe("limited");
     expect(limited.assignedMerchant).toBe("Dinuli");
     expect(limited.loyalty.lifetimeTotal).toBe(100_000);
     expect(limited.invoices[0]?.lineItems).toEqual(sampleOwner.invoices[0]?.lineItems);
     expect(limited.topItems).toEqual(sampleOwner.topItems);
-    expect(limited.contact).toBeUndefined();
+    expect(limited.contact).toEqual({
+      id: "c1",
+      name: "Cust",
+      phoneNumber: "077",
+      phones: ["077"],
+      email: "a@b.com",
+      gender: null,
+      language: null,
+      address: null,
+      city: null,
+      birthYear: null,
+      birthMonth: null,
+      birthDay: null,
+      assignedMerchant: "Dinuli",
+      category: null,
+      lastPurchaseAt: null,
+    });
     expect(limited.progressBar).toBeUndefined();
     expect(limited.series).toBeUndefined();
     expect(limited.lastContactedAt).toBeUndefined();
