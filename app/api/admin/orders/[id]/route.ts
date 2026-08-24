@@ -190,6 +190,15 @@ const orderSelect = {
       reviewedAt: true,
       reviewNote: true,
       reviewedBy: { select: { id: true, name: true, email: true } },
+      paymentLines: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          paymentMethod: true,
+          amount: true,
+          erpPaymentEntryName: true,
+        },
+      },
     },
   },
   lineItems: {
@@ -664,6 +673,12 @@ export async function GET(
         reviewedAt: ap.reviewedAt?.toISOString() ?? null,
         reviewNote: ap.reviewNote ?? null,
         reviewedBy: ap.reviewedBy ? { id: ap.reviewedBy.id, name: ap.reviewedBy.name, email: ap.reviewedBy.email } : null,
+        paymentLines: ap.paymentLines.map((line) => ({
+          id: line.id,
+          paymentMethod: line.paymentMethod,
+          amount: line.amount.toString(),
+          erpPaymentEntryName: line.erpPaymentEntryName,
+        })),
       };
     })(),
     deliveryPaymentApproval: (() => {

@@ -963,12 +963,28 @@ model ApprovalRequest {
   orderReturn   OrderReturn? @relation(fields: [orderReturnId], references: [id], onDelete: SetNull)
   requestedBy   User?        @relation("ApprovalRequestRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   reviewedBy    User?        @relation("ApprovalRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  paymentLines  ApprovalPaymentLine[]
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, type, status, createdAt(sort: Desc)])
   @@unique([companyId, kokoReference])
   @@index([orderId])
   @@index([orderReturnId])
+}
+
+/// Planned payment legs verified by one finance approval before ERP PEs are created.
+model ApprovalPaymentLine {
+  id                    String          @id @default(cuid())
+  approvalRequestId     String
+  paymentMethod         String
+  amount                Decimal         @db.Decimal(12, 2)
+  erpPaymentEntryName   String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  approvalRequest       ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([approvalRequestId, paymentMethod])
+  @@index([approvalRequestId, createdAt])
 }
 
 model Notification {
