@@ -96,6 +96,8 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
     hasSidebarPermission("purchasing.tools.manage");
   const canViewPurchasing = canViewOsf || canViewPurchasingTools;
   const canViewStoreAllocation = hasSidebarPermission("store.allocation.read");
+  const canViewStoreStockCount = hasSidebarPermission("store.stock_count.read");
+  const canViewStore = canViewStoreAllocation || canViewStoreStockCount;
   const canViewCompanySettings = hasSidebarPermission("settings.company");
   const canViewEmailTemplates = hasSidebarPermission("settings.email_templates");
   const canViewSmsSettings = hasSidebarPermission("settings.sms_portal");
@@ -555,16 +557,26 @@ export function AppSidebar({ user, permissionKeys = [], roleNames = [], hasOgf =
             </SidebarGroupContent>
           </SidebarGroup>
         )}
-        {canViewStoreAllocation && (
+        {canViewStore && (
           <SidebarGroup>
             <SidebarGroupLabel>Store</SidebarGroupLabel>
             <SidebarGroupContent>
-              <NavItem
-                href="/dashboard/store/allocation"
-                icon={Store}
-                label="Location allocation"
-                isActive={pathname === "/dashboard/store/allocation"}
-              />
+              {canViewStoreAllocation && (
+                <NavItem
+                  href="/dashboard/store/allocation"
+                  icon={Store}
+                  label="Location allocation"
+                  isActive={pathname === "/dashboard/store/allocation"}
+                />
+              )}
+              {canViewStoreStockCount && (
+                <NavItem
+                  href="/dashboard/store/stock-count"
+                  icon={ClipboardList}
+                  label="Stock count"
+                  isActive={pathname === "/dashboard/store/stock-count"}
+                />
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         )}
