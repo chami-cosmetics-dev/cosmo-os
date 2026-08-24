@@ -50,6 +50,7 @@ export default async function StickerBatchPage({
     ,
     ,
     company,
+    nmrApprovedItems,
   ] = await Promise.all([
       prisma.supplier.findMany({
         where: { companyId },
@@ -96,6 +97,11 @@ export default async function StickerBatchPage({
       prisma.company.findUnique({
         where: { id: companyId },
         select: { name: true, address: true },
+      }),
+      prisma.nmrApprovedItemCode.findMany({
+        where: { companyId },
+        orderBy: { itemCode: "asc" },
+        select: { itemCode: true },
       }),
     ]);
 
@@ -208,6 +214,7 @@ export default async function StickerBatchPage({
       initialSelectedBatchId={initialSelectedBatchId}
       initialTab={initialTab}
       initialHistoryRows={initialHistoryRows}
+      nmrApprovedItemCodes={nmrApprovedItems.map((item) => item.itemCode)}
     />
   );
 }

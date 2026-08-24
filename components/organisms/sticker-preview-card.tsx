@@ -14,6 +14,7 @@ interface StickerPreviewCardProps {
   locationAddress?: string | null;
   companyAddress?: string | null;
   locationPhone?: string | null;
+  showNmrApproved?: boolean;
   className?: string;
 }
 
@@ -91,6 +92,7 @@ export function StickerPreviewCard({
   unitPrice,
   companyName,
   companyAddress,
+  showNmrApproved = false,
   className,
 }: StickerPreviewCardProps) {
   const mfdDisplay = formatDateValue(manufactureDate);
@@ -139,6 +141,12 @@ export function StickerPreviewCard({
           </div>
         </div>
       </div>
+
+      {showNmrApproved ? (
+        <div className="text-center text-[7px] font-bold leading-none">
+          NMR approved
+        </div>
+      ) : null}
 
       <div className="mt-0 text-center text-[8px] font-semibold uppercase leading-none">
         {companyName?.trim() || "COMPANY"}
