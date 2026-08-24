@@ -156,11 +156,14 @@ const monthDaySchema = z
     "Invalid month-day"
   );
 
-const optionalIsoDate = z
-  .string()
-  .trim()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
-  .optional();
+const optionalIsoDate = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+  z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD")
+    .optional()
+);
 
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
@@ -292,10 +295,16 @@ export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
   pushToGold: optionalBoolQuery,
   pushToPlatinum: optionalBoolQuery,
-  loyalty: z.enum(["standard", "gold", "platinum", "unassigned"]).optional(),
+  loyalty: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.enum(["standard", "gold", "platinum", "unassigned"]).optional()
+  ),
   lastPurchaseFrom: optionalIsoDate,
   lastPurchaseTo: optionalIsoDate,
-  brand: trimmedString(1, LIMITS.name.max).optional(),
+  brand: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    trimmedString(1, LIMITS.name.max).optional()
+  ),
 });
 
 export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
@@ -303,10 +312,16 @@ export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(5000).optional(),
   pushToGold: optionalBoolQuery,
   pushToPlatinum: optionalBoolQuery,
-  loyalty: z.enum(["standard", "gold", "platinum", "unassigned"]).optional(),
+  loyalty: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.enum(["standard", "gold", "platinum", "unassigned"]).optional()
+  ),
   lastPurchaseFrom: optionalIsoDate,
   lastPurchaseTo: optionalIsoDate,
-  brand: trimmedString(1, LIMITS.name.max).optional(),
+  brand: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    trimmedString(1, LIMITS.name.max).optional()
+  ),
 });
 
 export const customerInsightCallQueueExportQuerySchema = z.object({

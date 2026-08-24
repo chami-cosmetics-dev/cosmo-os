@@ -960,7 +960,11 @@ export function CustomerInsightPanel({
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        notify.error(data.error ?? "Failed to load allocated contacts.");
+        notify.error(
+          typeof data.error === "string" && data.error.trim()
+            ? data.error
+            : "Failed to load allocated contacts."
+        );
         return;
       }
       setQueueCandidates((data.items ?? []) as CallQueueRow[]);
@@ -3489,8 +3493,9 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Assign merchant call queue</CardTitle>
             <CardDescription>
-              Pick a merchant, filter allocated contacts, then assign to their call
-              list. Push filters do not show amounts.
+              Pick a merchant, then use any filter alone or together. Combined
+              filters AND (Push to Gold + Push to Platinum = either band). Push
+              labels do not show amounts.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

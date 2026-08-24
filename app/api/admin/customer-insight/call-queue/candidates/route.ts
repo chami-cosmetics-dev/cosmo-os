@@ -44,10 +44,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = await listCallQueueCandidates({
-    companyId,
-    ...parsed.data,
-    merchantValue: parsed.data.assignedMerchant,
-  });
-  return NextResponse.json(result);
+  try {
+    const result = await listCallQueueCandidates({
+      companyId,
+      ...parsed.data,
+      merchantValue: parsed.data.assignedMerchant,
+    });
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("[call-queue/candidates]", error);
+    const message =
+      error instanceof Error ? error.message : "Failed to load allocated contacts";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
