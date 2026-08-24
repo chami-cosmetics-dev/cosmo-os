@@ -17,6 +17,7 @@ import {
   notifyApprovalRequester,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
+import { buildDefaultOrderPaymentRequestNote } from "@/lib/approval-payment-split";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   cancelErpnextSalesInvoice,
@@ -483,6 +484,91 @@ export async function PATCH(
       );
     }
     reviewNote = reasonParsed.data;
+  }
+
+  // Rejecting a merchant split request restores the original KOKO/Bank approval.
+  // It must not cancel the Sales Invoice or void the order.
+  if (
+    parsed.data.action === "reject" &&
+    isSplitOrderPaymentApproval &&
+    approval.orderId
+  ) {
+    if (splitPaymentLines.some((line) => line.erpPaymentEntryName)) {
+      return NextResponse.json(
+        {
+          error:
+            "A split Payment Entry was already created. Fix the ERP issue and approve again; the split can no longer be removed.",
+          code: "SPLIT_PAYMENT_PARTIALLY_POSTED",
+        },
+        { status: 409 },
+      );
+    }
+    const order = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: {
+        totalPrice: true,
+        currency: true,
+        paymentGatewayPrimary: true,
+        paymentGatewayNames: true,
+      },
+    });
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    const defaultPaymentType =
+      order.paymentGatewayPrimary ?? order.paymentGatewayNames[0] ?? "Payment";
+    const defaultRequestNote = buildDefaultOrderPaymentRequestNote({
+      paymentType: defaultPaymentType,
+      invoiceTotal: order.totalPrice,
+      currency: order.currency,
+    });
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.approvalRequest.updateMany({
+          where: {
+            id: approval.id,
+            companyId,
+            status: "pending",
+          },
+          data: {
+            requestNote: defaultRequestNote,
+            reviewNote: `Split payment rejected: ${reviewNote}`,
+            kokoReference: null,
+            reviewedById: null,
+            reviewedAt: null,
+            updatedAt: now,
+          },
+        });
+        if (updated.count === 0) throw new ConcurrentApprovalDecisionError();
+        await tx.approvalPaymentLine.deleteMany({
+          where: { approvalRequestId: approval.id },
+        });
+      });
+    } catch (err) {
+      if (err instanceof ConcurrentApprovalDecisionError) {
+        return NextResponse.json({ error: "Approval request was already reviewed" }, { status: 409 });
+      }
+      throw err;
+    }
+
+    await notifyApprovalRequester({
+      companyId,
+      approvalId: approval.id,
+      status: "rejected",
+      requestedById: approval.requestedById,
+      approvalType: approval.type,
+      invoiceLabel: invoiceLabel({
+        name: approval.orderName,
+        orderNumber: approval.orderNumber,
+        shopifyOrderId: approval.shopifyOrderId,
+      }),
+    });
+    return NextResponse.json({
+      ok: true,
+      status: "pending",
+      splitRejected: true,
+    });
   }
 
   // ORDER_PAYMENT_APPROVAL reject: cancel ERP SI first, then void + reject under pending guard.

@@ -32,7 +32,7 @@ export function SampleFreeIssueFulfillmentPage({
       <div className="space-y-4">
         <FulfillmentOrderSelector
         title="Sample / Free Issue"
-        description="Select a Shopify order to add samples or free issues. ERP orders skip this step and go to print."
+        description="Select an order to add samples or free issues. Use Split Payments to load finance-pending ERP orders."
         stages="order_received,sample_free_issue"
         selectedOrderId={selectedOrder?.id ?? null}
         onSelectOrder={setSelectedOrder}
@@ -43,6 +43,7 @@ export function SampleFreeIssueFulfillmentPage({
         worksheetMode
         showEmptyWorksheet
         allowFutureSendLater
+        allowSplitPaymentQueue
       >
         <FulfillmentSampleFreeIssuePanel
           orderId={selectedOrder?.id ?? null}

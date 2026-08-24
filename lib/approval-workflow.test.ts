@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+  FINANCE_PENDING_SPLIT_PAYMENT_QUEUE,
   isActiveErpSiRetryLease,
   isOrderPaymentRequiresApproval,
   isPlaceholderErpInvoiceId,
@@ -60,6 +61,21 @@ describe("FINANCE_PENDING_FULFILLMENT_EXCLUSION", () => {
     });
     expect(FINANCE_PENDING_FULFILLMENT_EXCLUSION).not.toHaveProperty("erpnextInvoiceId");
     expect(JSON.stringify(FINANCE_PENDING_FULFILLMENT_EXCLUSION)).not.toContain("erpnextInvoiceId");
+  });
+});
+
+describe("FINANCE_PENDING_SPLIT_PAYMENT_QUEUE", () => {
+  it("shows only ERP KOKO/Bank orders with a pending payment approval", () => {
+    expect(FINANCE_PENDING_SPLIT_PAYMENT_QUEUE).toEqual({
+      sourceName: "erpnext",
+      approvalRequests: {
+        some: { type: "order_payment_approval", status: "pending" },
+      },
+      OR: [
+        { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" } },
+        { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" } },
+      ],
+    });
   });
 });
 

@@ -7,7 +7,7 @@ import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { eligibleMerchantUserWhere } from "@/lib/merchant-eligibility";
 import { cuidSchema, orderPaymentGatewayFilterSchema, type OrderStatusFilter } from "@/lib/validation";
-import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL } from "@/lib/approval-workflow";
+import { DELIVERY_PAYMENT_APPROVAL, DELIVERY_PAYMENT_FINANCE_UI_ENABLED, FINANCE_PENDING_FULFILLMENT_EXCLUSION, FINANCE_PENDING_SPLIT_PAYMENT_QUEUE, ORDER_PAYMENT_APPROVAL, PAYMENT_METHOD_CHANGE_APPROVAL } from "@/lib/approval-workflow";
 import { maybeLogSlowDbRequest } from "@/lib/dbObservability";
 import { resolveStoredOrderCustomerName, enrichErpOrderCustomerNames } from "@/lib/erpnext-customer-display-name";
 import { isValidCustomerDisplayName } from "@/lib/reports/csv";
@@ -64,6 +64,8 @@ export type OrdersPageParams = {
   /** Financial or return-stage filter for the main orders list. */
   orderStatusFilter?: OrderStatusFilter;
   sampleSendLater?: "available" | "future" | "all";
+  /** Alternate Sample/Free Issue queue showing ERP KOKO/Bank orders pending split setup. */
+  includeSplitPaymentQueue?: boolean;
   returnFilter?: "normal" | "rearrange";
   /** Filter orders by MER coupon code (checks discountCodes JSON and ERP rawPayload). */
   merCode?: string | null;
@@ -361,7 +363,9 @@ export async function fetchOrdersPageData(companyId: string, params: OrdersPageP
       where.financialStatus = { not: "voided" };
       where.AND = [
         ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-        FINANCE_PENDING_FULFILLMENT_EXCLUSION,
+        params.includeSplitPaymentQueue
+          ? FINANCE_PENDING_SPLIT_PAYMENT_QUEUE
+          : FINANCE_PENDING_FULFILLMENT_EXCLUSION,
       ];
       if (stages.includes("order_received") || stages.includes("sample_free_issue")) {
         where.AND = [
