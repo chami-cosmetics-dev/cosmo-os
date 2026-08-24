@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildApprovalSplitRequestNote,
+  buildDefaultOrderPaymentRequestNote,
   isApprovalSplitRequestNote,
+  parseApprovalSplitRequestNote,
   validateApprovalSplitAmounts,
 } from "@/lib/approval-payment-split";
 import { parseApprovalRequestNote } from "@/lib/approval-display";
@@ -52,5 +54,16 @@ describe("approval split payment plan", () => {
       paymentType: "Split Payment",
       amount: "LKR 7750.00",
     });
+    expect(parseApprovalSplitRequestNote(note)).toEqual({
+      kokoAmount: 3000,
+      bankTransferAmount: 4750,
+    });
+    expect(
+      buildDefaultOrderPaymentRequestNote({
+        paymentType: "KOKO",
+        invoiceTotal: 7750,
+        currency: "LKR",
+      }),
+    ).toBe("KOKO — amount: LKR 7750");
   });
 });

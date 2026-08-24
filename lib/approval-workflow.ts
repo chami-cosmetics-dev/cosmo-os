@@ -206,6 +206,18 @@ export const FINANCE_PENDING_FULFILLMENT_EXCLUSION = {
   },
 } satisfies Prisma.OrderWhereInput;
 
+/** Opt-in Sample/Free Issue queue for ERP KOKO/Bank orders that need a split request. */
+export const FINANCE_PENDING_SPLIT_PAYMENT_QUEUE = {
+  sourceName: "erpnext",
+  approvalRequests: {
+    some: { type: ORDER_PAYMENT_APPROVAL, status: "pending" },
+  },
+  OR: [
+    { paymentGatewayPrimary: { contains: "koko", mode: "insensitive" as const } },
+    { paymentGatewayPrimary: { contains: "bank", mode: "insensitive" as const } },
+  ],
+} satisfies Prisma.OrderWhereInput;
+
 const voidedOrderFinancialStatusFilter = {
   equals: "voided",
   mode: "insensitive" as const,
