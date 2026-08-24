@@ -1,4 +1,9 @@
 export {
+  isCallQueuePushToGold,
+  isCallQueuePushToPlatinum,
+  matchesCallQueuePushBands,
+} from "@/lib/customer-insight/call-queue-push";
+export {
   LOYALTY_GOLD_MIN,
   LOYALTY_PLATINUM_MIN,
   LOYALTY_PLATINUM_ABOVE,

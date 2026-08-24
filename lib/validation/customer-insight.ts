@@ -281,10 +281,45 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   q: trimmedString(1, 100).optional(),
 });
 
+const optionalBoolQuery = z
+  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
+  .optional()
+  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
+
 export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
   page: z.coerce.number().int().min(1).max(LIMITS.pagination.pageMax).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  pushToGold: optionalBoolQuery,
+  pushToPlatinum: optionalBoolQuery,
+  loyalty: z.enum(["standard", "gold", "platinum", "unassigned"]).optional(),
+  lastPurchaseFrom: optionalIsoDate,
+  lastPurchaseTo: optionalIsoDate,
+  brand: trimmedString(1, LIMITS.name.max).optional(),
+});
+
+export const customerInsightCallQueueEligibleIdsQuerySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max),
+  limit: z.coerce.number().int().min(1).max(5000).optional(),
+  pushToGold: optionalBoolQuery,
+  pushToPlatinum: optionalBoolQuery,
+  loyalty: z.enum(["standard", "gold", "platinum", "unassigned"]).optional(),
+  lastPurchaseFrom: optionalIsoDate,
+  lastPurchaseTo: optionalIsoDate,
+  brand: trimmedString(1, LIMITS.name.max).optional(),
+});
+
+export const customerInsightCallQueueExportQuerySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
+});
+
+export const customerInsightCallQueueReportQuerySchema = z.object({
+  assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
+  assignedFrom: optionalIsoDate,
+  assignedTo: optionalIsoDate,
+  status: z.enum(["pending", "completed"]).optional(),
+  pushToGold: optionalBoolQuery,
+  pushToPlatinum: optionalBoolQuery,
 });
 
 export const customerInsightCallQueueAssignBodySchema = z.object({

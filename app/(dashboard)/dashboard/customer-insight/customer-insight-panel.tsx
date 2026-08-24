@@ -657,6 +657,36 @@ export function CustomerInsightPanel({
   const [queueCandidatePage, setQueueCandidatePage] = useState(1);
   const queueCandidatePageSize = 50;
   const [queueSelectedIds, setQueueSelectedIds] = useState<string[]>([]);
+  const [queuePushGold, setQueuePushGold] = useState(false);
+  const [queuePushPlatinum, setQueuePushPlatinum] = useState(false);
+  const [queueLoyalty, setQueueLoyalty] = useState("");
+  const [queueLastPurchaseFrom, setQueueLastPurchaseFrom] = useState("");
+  const [queueLastPurchaseTo, setQueueLastPurchaseTo] = useState("");
+  const [queueBrand, setQueueBrand] = useState("");
+  const [queueBrandOptions, setQueueBrandOptions] = useState<InsightSelectOption[]>([]);
+  const [queueSelectCount, setQueueSelectCount] = useState("");
+  const [queueEligibleTotal, setQueueEligibleTotal] = useState(0);
+  const [queueReport, setQueueReport] = useState<{
+    rows: Array<{
+      queueId: string;
+      name: string;
+      phoneNumber: string | null;
+      merchantLabel: string;
+      assignedAt: string;
+      status: string;
+      category: string | null;
+      lifetimeTotalAtAssign: number;
+      salesAfterAssignment: number;
+      salesAfterContact: number;
+    }>;
+    byMerchant: Array<{
+      merchantLabel: string;
+      assignedCount: number;
+      contactedCount: number;
+      salesAfterAssignment: number;
+      salesAfterContact: number;
+    }>;
+  } | null>(null);
   const [allocationSummary, setAllocationSummary] = useState<{
     rows: Array<{ merchantValue: string; merchantLabel: string; count: number }>;
     allocatedTotal: number;
@@ -774,16 +804,18 @@ export function CustomerInsightPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const [merchantsRes, queueMerchantsRes, locationsRes] = await Promise.all([
+        const [merchantsRes, queueMerchantsRes, locationsRes, brandsRes] = await Promise.all([
           fetch(`/api/admin/customer-insight/filter-options?type=merchants`),
           fetch(
             `/api/admin/customer-insight/filter-options?type=call-queue-merchants`
           ),
           fetch(`/api/admin/customer-insight/filter-options?type=locations`),
+          fetch(`/api/admin/customer-insight/filter-options?type=brands`),
         ]);
         const merchantsData = await merchantsRes.json().catch(() => ({}));
         const queueMerchantsData = await queueMerchantsRes.json().catch(() => ({}));
         const locationsData = await locationsRes.json().catch(() => ({}));
+        const brandsData = await brandsRes.json().catch(() => ({}));
         if (cancelled) return;
         if (merchantsRes.ok && Array.isArray(merchantsData.options)) {
           setMerchantOptions(
@@ -802,6 +834,13 @@ export function CustomerInsightPanel({
         if (locationsRes.ok && Array.isArray(locationsData.options)) {
           setLocationOptions(
             (locationsData.options as Array<{ value?: string; label?: string }>)
+              .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
+              .map((o) => ({ value: o.value, label: o.label ?? o.value }))
+          );
+        }
+        if (brandsRes.ok && Array.isArray(brandsData.options)) {
+          setQueueBrandOptions(
+            (brandsData.options as Array<{ value?: string; label?: string }>)
               .filter((o): o is { value: string; label?: string } => typeof o.value === "string")
               .map((o) => ({ value: o.value, label: o.label ?? o.value }))
           );
@@ -891,6 +930,19 @@ export function CustomerInsightPanel({
     void loadMyCallQueue();
   }, []);
 
+  function appendQueueFilterParams(params: URLSearchParams) {
+    if (queuePushGold) params.set("pushToGold", "true");
+    if (queuePushPlatinum) params.set("pushToPlatinum", "true");
+    if (queueLoyalty.trim()) params.set("loyalty", queueLoyalty.trim());
+    if (queueLastPurchaseFrom.trim()) {
+      params.set("lastPurchaseFrom", queueLastPurchaseFrom.trim());
+    }
+    if (queueLastPurchaseTo.trim()) {
+      params.set("lastPurchaseTo", queueLastPurchaseTo.trim());
+    }
+    if (queueBrand.trim()) params.set("brand", queueBrand.trim());
+  }
+
   async function loadQueueCandidates(page = 1) {
     if (!queueMerchant.trim()) {
       notify.error("Select a merchant.");
@@ -902,6 +954,7 @@ export function CustomerInsightPanel({
       params.set("assignedMerchant", queueMerchant.trim());
       params.set("page", String(page));
       params.set("pageSize", String(queueCandidatePageSize));
+      appendQueueFilterParams(params);
       const res = await fetch(
         `/api/admin/customer-insight/call-queue/candidates?${params}`
       );
@@ -912,6 +965,7 @@ export function CustomerInsightPanel({
       }
       setQueueCandidates((data.items ?? []) as CallQueueRow[]);
       setQueueCandidateTotal(data.pagination?.total ?? 0);
+      setQueueEligibleTotal(data.pagination?.eligibleTotal ?? data.pagination?.total ?? 0);
       setQueueCandidatePage(data.pagination?.page ?? page);
       setQueueSelectedIds([]);
     } catch {
@@ -928,23 +982,128 @@ export function CustomerInsightPanel({
     }
     setBusyKey("queue-assign");
     try {
-      const res = await fetch("/api/admin/customer-insight/call-queue/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assignedMerchant: queueMerchant.trim(),
-          contactIds: queueSelectedIds,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        notify.error(data.error ?? "Failed to assign queue.");
-        return;
+      const cap = 200;
+      let assigned = 0;
+      let skippedQueued = 0;
+      let skippedHidden = 0;
+      const remaining = [...queueSelectedIds];
+      while (remaining.length > 0) {
+        const chunk = remaining.splice(0, cap);
+        const res = await fetch("/api/admin/customer-insight/call-queue/assign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assignedMerchant: queueMerchant.trim(),
+            contactIds: chunk,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          notify.error(data.error ?? "Failed to assign queue.");
+          return;
+        }
+        assigned += Number(data.assigned ?? 0);
+        skippedQueued += Number(data.skippedQueued ?? 0);
+        skippedHidden += Number(data.skippedHidden ?? 0);
       }
-      notify.success(`Assigned ${data.assigned ?? queueSelectedIds.length} contact(s).`);
+      const leftover = remaining.length;
+      notify.success(
+        leftover > 0
+          ? `Assigned ${assigned}. Remaining ${leftover}.`
+          : `Assigned ${assigned} contact(s).`
+      );
+      if (skippedQueued || skippedHidden) {
+        notify.success(
+          `Skipped queued ${skippedQueued}, hidden ${skippedHidden}.`
+        );
+      }
+      setQueueSelectedIds([]);
       await loadQueueCandidates(queueCandidatePage);
     } catch {
       notify.error("Failed to assign queue.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function selectQueueEligibleCount(limit?: number) {
+    if (!queueMerchant.trim()) {
+      notify.error("Select a merchant.");
+      return;
+    }
+    setBusyKey("queue-eligible");
+    try {
+      const params = new URLSearchParams();
+      params.set("assignedMerchant", queueMerchant.trim());
+      appendQueueFilterParams(params);
+      if (limit != null) params.set("limit", String(limit));
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/eligible-ids?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to select contacts.");
+        return;
+      }
+      const ids = (data.contactIds as string[] | undefined) ?? [];
+      setQueueSelectedIds(ids);
+      setQueueEligibleTotal(data.eligibleTotal ?? ids.length);
+      if (data.truncated) {
+        notify.success(`Selected ${ids.length} of ${data.eligibleTotal}. Assign remaining in batches.`);
+      }
+    } catch {
+      notify.error("Failed to select contacts.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function exportQueueAssignments() {
+    setBusyKey("queue-export");
+    try {
+      const params = new URLSearchParams();
+      if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/export?${params}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "Failed to export.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `call-queue-assignments.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("Exported Excel.");
+    } catch {
+      notify.error("Failed to export.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function loadQueueReport() {
+    setBusyKey("queue-report");
+    try {
+      const params = new URLSearchParams();
+      if (queueMerchant.trim()) params.set("assignedMerchant", queueMerchant.trim());
+      if (queuePushGold) params.set("pushToGold", "true");
+      if (queuePushPlatinum) params.set("pushToPlatinum", "true");
+      const res = await fetch(
+        `/api/admin/customer-insight/call-queue/report?${params}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        notify.error(data.error ?? "Failed to load report.");
+        return;
+      }
+      setQueueReport(data);
+    } catch {
+      notify.error("Failed to load report.");
     } finally {
       setBusyKey(null);
     }
@@ -3330,13 +3489,13 @@ export function CustomerInsightPanel({
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Assign merchant call queue</CardTitle>
             <CardDescription>
-              Pick a merchant (includes allocated contact labels not on the merchant
-              roster), load customers, then bulk-assign to their call list.
+              Pick a merchant, filter allocated contacts, then assign to their call
+              list. Push filters do not show amounts.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <label className="min-w-0 flex-1 space-y-1 text-sm">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="min-w-0 space-y-1 text-sm">
                 <span className="text-muted-foreground">Merchant</span>
                 <InsightSearchableSelect
                   value={queueMerchant}
@@ -3351,6 +3510,72 @@ export function CustomerInsightPanel({
                   }}
                 />
               </label>
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Loyalty</span>
+                <select
+                  className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
+                  value={queueLoyalty}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueLoyalty(e.target.value)}
+                >
+                  <option value="">Any</option>
+                  <option value="unassigned">Not yet assigned</option>
+                  <option value="standard">Standard</option>
+                  <option value="gold">Gold</option>
+                  <option value="platinum">Platinum</option>
+                </select>
+              </label>
+              <label className="min-w-0 space-y-1 text-sm">
+                <span className="text-muted-foreground">Brand</span>
+                <InsightSearchableSelect
+                  value={queueBrand}
+                  options={queueBrandOptions}
+                  placeholder="Any brand"
+                  searchPlaceholder="Search brands…"
+                  disabled={isBusy}
+                  onChange={setQueueBrand}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Last purchase from</span>
+                <Input
+                  type="date"
+                  value={queueLastPurchaseFrom}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueLastPurchaseFrom(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Last purchase to</span>
+                <Input
+                  type="date"
+                  value={queueLastPurchaseTo}
+                  disabled={isBusy}
+                  onChange={(e) => setQueueLastPurchaseTo(e.target.value)}
+                />
+              </label>
+              <div className="flex flex-wrap items-end gap-3 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queuePushGold}
+                    disabled={isBusy}
+                    onChange={(e) => setQueuePushGold(e.target.checked)}
+                  />
+                  Push to Gold
+                </label>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={queuePushPlatinum}
+                    disabled={isBusy}
+                    onChange={(e) => setQueuePushPlatinum(e.target.checked)}
+                  />
+                  Push to Platinum
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
               <Button
                 type="button"
                 disabled={isBusy || !queueMerchant}
@@ -3365,30 +3590,109 @@ export function CustomerInsightPanel({
                   "Load allocated"
                 )}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void exportQueueAssignments()}
+              >
+                {busyKey === "queue-export" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export Excel
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void loadQueueReport()}
+              >
+                {busyKey === "queue-report" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Loading...
+                  </>
+                ) : (
+                  "Sales report"
+                )}
+              </Button>
             </div>
             {queueCandidates ? (
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    {queueCandidateTotal} allocated · oldest/never contacted first
+                    {queueEligibleTotal} eligible · oldest/never contacted first
                   </p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-1 text-xs">
+                      Count
+                      <Input
+                        className="h-8 w-20"
+                        type="number"
+                        min={1}
+                        value={queueSelectCount}
+                        disabled={isBusy}
+                        onChange={(e) => setQueueSelectCount(e.target.value)}
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || !queueSelectCount}
+                      onClick={() => {
+                        const n = Number(queueSelectCount);
+                        if (!Number.isFinite(n) || n < 1) {
+                          notify.error("Enter a positive count.");
+                          return;
+                        }
+                        void selectQueueEligibleCount(n);
+                      }}
+                    >
+                      {busyKey === "queue-eligible" ? (
+                        <>
+                          <Loader2 className="animate-spin" aria-hidden />
+                          Selecting...
+                        </>
+                      ) : (
+                        "Select count"
+                      )}
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
                       disabled={isBusy || queueCandidates.length === 0}
                       onClick={() =>
-                        setQueueSelectedIds(
-                          queueSelectedIds.length === queueCandidates.length
-                            ? []
-                            : queueCandidates.map((row) => row.contactId)
-                        )
+                        setQueueSelectedIds(queueCandidates.map((row) => row.contactId))
                       }
                     >
-                      {queueSelectedIds.length === queueCandidates.length
-                        ? "Clear page"
-                        : "Select page"}
+                      Select page
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => void selectQueueEligibleCount()}
+                    >
+                      Select all
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy || queueSelectedIds.length === 0}
+                      onClick={() => setQueueSelectedIds([])}
+                    >
+                      Clear
                     </Button>
                     <Button
                       type="button"
@@ -3481,6 +3785,39 @@ export function CustomerInsightPanel({
                     </Button>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+            {queueReport ? (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Sales after assign</p>
+                <div className="overflow-x-auto rounded-md border text-xs">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-muted/30 text-left">
+                        <th className="px-2 py-1">Merchant</th>
+                        <th className="px-2 py-1 text-right">Assigned</th>
+                        <th className="px-2 py-1 text-right">Contacted</th>
+                        <th className="px-2 py-1 text-right">After assign</th>
+                        <th className="px-2 py-1 text-right">After contact</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {queueReport.byMerchant.map((row) => (
+                        <tr key={row.merchantLabel} className="border-t">
+                          <td className="px-2 py-1">{row.merchantLabel}</td>
+                          <td className="px-2 py-1 text-right">{row.assignedCount}</td>
+                          <td className="px-2 py-1 text-right">{row.contactedCount}</td>
+                          <td className="px-2 py-1 text-right">
+                            {formatMoney(row.salesAfterAssignment)}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {formatMoney(row.salesAfterContact)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : null}
           </CardContent>

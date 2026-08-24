@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { listCallQueueCandidates } from "@/lib/customer-insight/call-queue";
+import { buildCallQueueAssignmentsWorkbook } from "@/lib/customer-insight/call-queue-export";
 import { hasInsightAdminView } from "@/lib/customer-insight/ownership";
 import { requirePermission } from "@/lib/rbac";
-import { customerInsightCallQueueCandidatesQuerySchema } from "@/lib/validation/customer-insight";
+import { customerInsightCallQueueExportQuerySchema } from "@/lib/validation/customer-insight";
 
 export async function GET(request: NextRequest) {
   const auth = await requirePermission("contacts.insight.read");
@@ -25,17 +25,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const sp = request.nextUrl.searchParams;
-  const parsed = customerInsightCallQueueCandidatesQuerySchema.safeParse({
-    assignedMerchant: sp.get("assignedMerchant") ?? undefined,
-    page: sp.get("page") ?? undefined,
-    pageSize: sp.get("pageSize") ?? undefined,
-    pushToGold: sp.get("pushToGold") ?? undefined,
-    pushToPlatinum: sp.get("pushToPlatinum") ?? undefined,
-    loyalty: sp.get("loyalty") ?? undefined,
-    lastPurchaseFrom: sp.get("lastPurchaseFrom") ?? undefined,
-    lastPurchaseTo: sp.get("lastPurchaseTo") ?? undefined,
-    brand: sp.get("brand") ?? undefined,
+  const parsed = customerInsightCallQueueExportQuerySchema.safeParse({
+    assignedMerchant: request.nextUrl.searchParams.get("assignedMerchant") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -44,10 +35,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = await listCallQueueCandidates({
+  const { buffer, filename } = await buildCallQueueAssignmentsWorkbook({
     companyId,
-    ...parsed.data,
-    merchantValue: parsed.data.assignedMerchant,
+    assignedMerchant: parsed.data.assignedMerchant,
   });
-  return NextResponse.json(result);
+
+  return new NextResponse(new Uint8Array(buffer), {
+    status: 200,
+    headers: {
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
 }

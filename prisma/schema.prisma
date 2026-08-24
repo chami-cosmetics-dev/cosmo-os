@@ -1737,19 +1737,20 @@ model ContactInsightCallQueue {
   merchantLabel     String
   merchantUserId    String?
   assignedByUserId  String?
-  assignedAt        DateTime  @default(now())
-  status            String    @default("pending")
-  completedAt       DateTime?
-  completedByUserId String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contact           ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  merchantUser      User?     @relation("CallQueueMerchant", fields: [merchantUserId], references: [id], onDelete: SetNull)
-  assignedBy        User?     @relation("CallQueueAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
-  completedBy       User?     @relation("CallQueueCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  assignedAt             DateTime  @default(now())
+  status                 String    @default("pending")
+  completedAt            DateTime?
+  completedByUserId      String?
+  lifetimeTotalAtAssign  Decimal?  @db.Decimal(14, 2)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  company                Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact                ContactMaster @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  merchantUser           User?     @relation("CallQueueMerchant", fields: [merchantUserId], references: [id], onDelete: SetNull)
+  assignedBy             User?     @relation("CallQueueAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  completedBy            User?     @relation("CallQueueCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([companyId, contactId])
+  @@index([companyId, contactId, status])
   @@index([companyId, merchantLabel, status])
   @@index([companyId, merchantUserId, status])
   @@index([companyId, status, assignedAt])
