@@ -56,8 +56,30 @@ export function buildApprovalSplitRequestNote(input: {
   ].join("\n");
 }
 
+export function buildDefaultOrderPaymentRequestNote(input: {
+  paymentType: string;
+  invoiceTotal: number | string | { toString(): string };
+  currency?: string | null;
+}): string {
+  const amount = `${input.currency?.trim() ?? ""} ${input.invoiceTotal}`.trim();
+  return `${input.paymentType} — amount: ${amount}`;
+}
+
 export function isApprovalSplitRequestNote(note: string | null | undefined): boolean {
   return note?.trim().toLowerCase().startsWith(SPLIT_NOTE_PREFIX.toLowerCase()) ?? false;
+}
+
+export function parseApprovalSplitRequestNote(
+  note: string | null | undefined,
+): { kokoAmount: number; bankTransferAmount: number } | null {
+  if (!isApprovalSplitRequestNote(note)) return null;
+  const kokoMatch = note?.match(/^KOKO:\s+\S+\s+([\d,.]+)$/im);
+  const bankMatch = note?.match(/^Bank Transfer:\s+\S+\s+([\d,.]+)$/im);
+  if (!kokoMatch || !bankMatch) return null;
+  const kokoAmount = Number(kokoMatch[1].replace(/,/g, ""));
+  const bankTransferAmount = Number(bankMatch[1].replace(/,/g, ""));
+  if (!Number.isFinite(kokoAmount) || !Number.isFinite(bankTransferAmount)) return null;
+  return { kokoAmount, bankTransferAmount };
 }
 
 export function approvalSplitLineLabel(method: string): string {

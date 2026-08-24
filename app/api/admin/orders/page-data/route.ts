@@ -111,6 +111,8 @@ export async function GET(request: NextRequest) {
     paymentGateway: paymentGatewayResult.success ? paymentGatewayResult.data : undefined,
     orderStatusFilter: orderStatusResult.success ? orderStatusResult.data : undefined,
     sampleSendLater,
+    includeSplitPaymentQueue:
+      searchParams.get("include_split_payment_queue") === "true",
     returnFilter,
     merCode: searchParams.get("mer_code")?.trim() || undefined,
   });
