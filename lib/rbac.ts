@@ -89,6 +89,10 @@ const DEFAULT_PERMISSIONS = [
     description: "Use store location allocation advisor (SKU/barcode take-qty split)",
   },
   {
+    key: "store.stock_count.read",
+    description: "Use store stock count worksheet (ERP live stock vs scanned count)",
+  },
+  {
     key: "academy.learn",
     description: "View Cosmo Academy lessons and update own learning progress",
   },
@@ -805,6 +809,8 @@ async function ensureDefaultRbacSetupIfNeeded() {
 const PINNED_CUSTOM_ROLE_PERMISSIONS: { roleName: string; permissionKey: string }[] = [
   { roleName: "stores-level-01", permissionKey: "store.allocation.read" },
   { roleName: "stores-level-02", permissionKey: "store.allocation.read" },
+  { roleName: "stores-level-01", permissionKey: "store.stock_count.read" },
+  { roleName: "stores-level-02", permissionKey: "store.stock_count.read" },
 ];
 
 let lastCustomRolePinAt = 0;
