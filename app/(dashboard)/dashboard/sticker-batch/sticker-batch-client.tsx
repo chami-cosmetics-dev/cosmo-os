@@ -2041,12 +2041,13 @@ export function StickerBatchClient({
             </div>
             <p className="text-sm text-muted-foreground">
               Open a batch in Sticker Batch Items or print from the batch workspace.
+              History is permanently deleted after 3 days.
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
             {historyRows.length === 0 ? (
               <div className="rounded-xl border border-border/70 bg-background/85 p-4 text-sm text-muted-foreground">
-                No sticker batches found.
+                No sticker batches found in the last 3 days.
               </div>
             ) : (
               historyRows.map((row) => (

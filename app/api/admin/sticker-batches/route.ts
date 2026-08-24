@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { requireAnyPermission, requirePermission } from "@/lib/rbac";
+import { getStickerBatchRetentionCutoff } from "@/lib/sticker-batch-retention";
 
 const dateStringSchema = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
 
@@ -100,11 +101,12 @@ export async function GET() {
   }
 
   try {
+    const retentionCutoff = getStickerBatchRetentionCutoff();
     const items = await (
       prisma as unknown as {
         stickerBatch: {
           findMany: (args: {
-            where: { companyId: string };
+            where: { companyId: string; createdAt: { gte: Date } };
             orderBy: { createdAt: "desc" };
             select: {
               id: true;
@@ -116,7 +118,7 @@ export async function GET() {
         };
       }
     ).stickerBatch.findMany({
-      where: { companyId },
+      where: { companyId, createdAt: { gte: retentionCutoff } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

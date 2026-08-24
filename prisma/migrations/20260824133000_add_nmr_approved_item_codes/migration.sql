@@ -35,5 +35,5 @@ CROSS JOIN (
     ('SS100_1'),
     ('CB043_1'),
     ('CB096_1'),
-    ('CB039_1')
+    ('CO039_1')
 ) AS codes("itemCode");
