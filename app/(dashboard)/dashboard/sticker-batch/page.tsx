@@ -8,6 +8,7 @@ import {
   loadStandardSellingPricesBySku,
   syncStandardSellingToProductItems,
 } from "@/lib/sticker-lwk-erp-price";
+import { getStickerBatchRetentionCutoff } from "@/lib/sticker-batch-retention";
 import { syncOgfPricesFromErp } from "@/lib/osf/sync-ogf-prices-from-erp";
 import { StickerBatchClient } from "./sticker-batch-client";
 
@@ -40,6 +41,7 @@ export default async function StickerBatchPage({
   }
   const companyId = auth.context!.user!.companyId;
   if (!companyId) return <PermissionDeniedCard />;
+  const retentionCutoff = getStickerBatchRetentionCutoff();
 
   const [
     suppliers,
@@ -125,7 +127,7 @@ export default async function StickerBatchPage({
       prisma as unknown as {
         stickerBatch: {
           findMany: (args: {
-            where: { companyId: string };
+            where: { companyId: string; createdAt: { gte: Date } };
             orderBy: { createdAt: "desc" };
             select: {
               id: true;
@@ -148,7 +150,7 @@ export default async function StickerBatchPage({
         };
       }
     ).stickerBatch.findMany({
-      where: { companyId },
+      where: { companyId, createdAt: { gte: retentionCutoff } },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
