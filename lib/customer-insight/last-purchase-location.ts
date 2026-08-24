@@ -61,6 +61,7 @@ export async function findContactIdsByLastPurchaseLocation(
       select: {
         customerPhone: true,
         customerEmail: true,
+        erpnextCustomerId: true,
         companyLocationId: true,
         createdAt: true,
         deliveryCompleteAt: true,
@@ -89,6 +90,7 @@ export async function findContactIdsByLastPurchaseLocation(
     orders: orders.map((order) => ({
       customerPhone: order.customerPhone,
       customerEmail: order.customerEmail,
+      erpnextCustomerId: order.erpnextCustomerId,
       companyLocationId: order.companyLocationId,
       at: orderPurchaseAt(order),
     })),

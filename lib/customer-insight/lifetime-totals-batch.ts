@@ -129,7 +129,10 @@ async function lifetimeTotalsForContactBatch(
               ? {
                   OR: [
                     ...(allPhones.length > 0
-                      ? [{ customerPhone: { in: allPhones } }]
+                      ? [
+                          { customerPhone: { in: allPhones } },
+                          { erpnextCustomerId: { in: allPhones } },
+                        ]
                       : []),
                     ...(allEmails.length > 0
                       ? [
@@ -148,6 +151,7 @@ async function lifetimeTotalsForContactBatch(
           select: {
             customerPhone: true,
             customerEmail: true,
+            erpnextCustomerId: true,
             totalPrice: true,
           },
         })
@@ -160,6 +164,7 @@ async function lifetimeTotalsForContactBatch(
     orders: orders.map((order) => ({
       customerPhone: order.customerPhone,
       customerEmail: order.customerEmail,
+      erpnextCustomerId: order.erpnextCustomerId,
       totalPrice: order.totalPrice.toString(),
     })),
   });

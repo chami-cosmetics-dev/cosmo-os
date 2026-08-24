@@ -26,6 +26,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConfirmationDialog } from "@/components/providers/confirmation-dialog-provider";
 import { StickerPreviewCard } from "@/components/organisms/sticker-preview-card";
 import { VaultStickerPreviewCard } from "@/components/organisms/vault-sticker-preview-card";
+import {
+  isNmrApprovedItemCode,
+  normalizeNmrItemCode,
+} from "@/lib/nmr-approved-items";
 import { notify } from "@/lib/notify";
 import {
   expireFromManufacture,
@@ -175,6 +179,7 @@ interface StickerBatchClientProps {
   initialSelectedBatchId?: string;
   initialTab?: "batch" | "history";
   initialHistoryRows?: BatchHistoryRow[];
+  nmrApprovedItemCodes: string[];
 }
 
 const selectClassName = "";
@@ -270,8 +275,13 @@ export function StickerBatchClient({
   initialSelectedBatchId = "",
   initialTab = "batch",
   initialHistoryRows = [],
+  nmrApprovedItemCodes,
 }: StickerBatchClientProps) {
   const { confirm } = useConfirmationDialog();
+  const nmrApprovedItemCodeSet = useMemo(
+    () => new Set(nmrApprovedItemCodes.map(normalizeNmrItemCode)),
+    [nmrApprovedItemCodes],
+  );
   const [activeTab, setActiveTab] = useState<"batch" | "history">(initialTab);
   const [supplierId, setSupplierId] = useState("");
   const [supplierOpen, setSupplierOpen] = useState(false);
@@ -1913,6 +1923,10 @@ export function StickerBatchClient({
                   companyName={previewMeta.companyName || companyName}
                   locationAddress={previewMeta.locationAddress}
                   companyAddress={companyAddress || previewMeta.companyAddress}
+                  showNmrApproved={isNmrApprovedItemCode(
+                    nmrApprovedItemCodeSet,
+                    activeRow.itemCode,
+                  )}
                   locationPhone={resolveLocationPhone(
                     activeRow.locationId || selectedLocationId
                   )}
@@ -1992,6 +2006,10 @@ export function StickerBatchClient({
                           companyAddress={
                             companyAddress || previewMeta.companyAddress
                           }
+                          showNmrApproved={isNmrApprovedItemCode(
+                            nmrApprovedItemCodeSet,
+                            row.itemCode,
+                          )}
                           locationPhone={resolveLocationPhone(row.locationId)}
                         />
                       )}

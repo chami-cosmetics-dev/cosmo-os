@@ -39,10 +39,17 @@ export function contactOrderLookupKeys(input: {
 export function buildContactOrderLookupOr(input: {
   phones: string[];
   emails: string[];
-}): Array<{ customerPhone: { in: string[] } } | { customerEmail: { equals: string; mode: "insensitive" } }> {
+}): Array<
+  | { customerPhone: { in: string[] } }
+  | { erpnextCustomerId: { in: string[] } }
+  | { customerEmail: { equals: string; mode: "insensitive" } }
+> {
   const phones = input.phones.filter(Boolean);
   if (phones.length > 0) {
-    return [{ customerPhone: { in: phones } }];
+    return [
+      { customerPhone: { in: phones } },
+      { erpnextCustomerId: { in: phones } },
+    ];
   }
 
   const emails = emailsForPurchaseLookup(input.emails);

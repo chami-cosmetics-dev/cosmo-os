@@ -33,6 +33,7 @@ model Company {
   invites                  Invite[]
   orders                   Order[]
   packageHoldReasons       PackageHoldReason[]
+  nmrApprovedItemCodes     NmrApprovedItemCode[]
   productItems             ProductItem[]
   cosmoAcademyExplanations CosmoAcademyExplanation[]
   cosmoAcademyProgress     CosmoAcademyProgress[]
@@ -1325,6 +1326,18 @@ model PackageHoldReason {
   updatedAt DateTime @updatedAt
   orders    Order[]
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model NmrApprovedItemCode {
+  id        String   @id @default(cuid())
+  companyId String
+  itemCode  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, itemCode])
+  @@index([companyId])
 }
 
 model CourierService {

@@ -140,6 +140,29 @@ describe("attributeOrderTotalsByContact", () => {
     });
     expect(totals.get("phone-c")).toBeUndefined();
   });
+
+  it("matches changed ERP invoices by current ERP customer id once", () => {
+    const totals = attributeOrderTotalsByContact({
+      lookupByContactId: new Map([
+        ["phone-c", { phones: ["0723392776"], emails: [] }],
+      ]),
+      orders: [
+        {
+          customerPhone: "0123455555",
+          customerEmail: null,
+          erpnextCustomerId: "0723392776",
+          totalPrice: 6500,
+        },
+        {
+          customerPhone: "0723392776",
+          customerEmail: null,
+          erpnextCustomerId: "0723392776",
+          totalPrice: 1000,
+        },
+      ],
+    });
+    expect(totals.get("phone-c")).toBe(7500);
+  });
 });
 
 describe("combineLifetimeTotals", () => {
@@ -176,6 +199,24 @@ describe("attributeLastOrderEventByContact", () => {
       ],
     });
     expect(latest.get("c1")?.companyLocationId).toBe("loc-new");
+  });
+
+  it("matches last order by current ERP customer id", () => {
+    const latest = attributeLastOrderEventByContact({
+      lookupByContactId: new Map([
+        ["c1", { phones: ["0723392776"], emails: [] }],
+      ]),
+      orders: [
+        {
+          customerPhone: "0123455555",
+          customerEmail: null,
+          erpnextCustomerId: "0723392776",
+          companyLocationId: "loc-erp",
+          at: new Date("2026-08-21T00:00:00Z"),
+        },
+      ],
+    });
+    expect(latest.get("c1")?.companyLocationId).toBe("loc-erp");
   });
 });
 
