@@ -20,6 +20,7 @@ import {
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   cancelErpnextSalesInvoice,
+  syncApprovalSplitPaymentEntriesToErp,
   syncOrderDeliveryPaymentEntriesToErp,
   syncBankTransferPaymentToERPNext,
 } from "@/lib/erpnext-sync";
@@ -78,6 +79,63 @@ class ConcurrentApprovalDecisionError extends Error {
 
 function invoiceLabel(order: { name: string | null; orderNumber: string | null; shopifyOrderId: string | null }) {
   return order.name ?? order.orderNumber ?? order.shopifyOrderId ?? "order";
+}
+
+async function finalizeSplitOrderPaymentApproval(input: {
+  orderId: string;
+  companyId: string;
+  reviewerId: string;
+  approvedAt: Date;
+}) {
+  await prisma.$transaction(async (tx) => {
+    const order = await tx.order.findUnique({
+      where: { id: input.orderId },
+      select: { fulfillmentStage: true },
+    });
+    if (!order) throw new Error("Order not found after split Payment Entries were created");
+
+    if (order.fulfillmentStage === "invoice_complete") {
+      await tx.order.update({
+        where: { id: input.orderId },
+        data: { financialStatus: "paid" },
+      });
+    } else if (order.fulfillmentStage === "delivery_complete") {
+      await tx.order.update({
+        where: { id: input.orderId },
+        data: {
+          financialStatus: "paid",
+          ...orderStageUpdate("invoice_complete", input.approvedAt),
+          fulfillmentStatus: "fulfilled",
+          invoiceCompleteAt: input.approvedAt,
+          invoiceCompleteById: input.reviewerId,
+        },
+      });
+    } else {
+      await tx.order.update({
+        where: { id: input.orderId },
+        data: {
+          financialStatus: "paid",
+          ...orderStageUpdate("print", input.approvedAt),
+          sampleFreeIssueCompleteAt: input.approvedAt,
+          sampleFreeIssueCompleteById: input.reviewerId,
+          invoiceCompleteAt: input.approvedAt,
+          invoiceCompleteById: input.reviewerId,
+        },
+      });
+    }
+
+    await tx.$executeRaw(
+      Prisma.sql`
+        UPDATE "ApprovalRequest"
+        SET "status" = 'cancelled', "updatedAt" = ${input.approvedAt},
+            "reviewNote" = ${"Order payment approved — Delivery Collection not required."}
+        WHERE "orderId" = ${input.orderId}
+          AND "companyId" = ${input.companyId}
+          AND "type" = ${"delivery_payment_approval"}
+          AND "status" = 'pending'
+      `,
+    );
+  });
 }
 
 export async function PATCH(
@@ -172,6 +230,21 @@ export async function PATCH(
   if (approval.status !== "pending") {
     return NextResponse.json({ error: "Approval request is already reviewed" }, { status: 400 });
   }
+  const splitPaymentLines =
+    approval.type === ORDER_PAYMENT_APPROVAL
+      ? await prisma.approvalPaymentLine.findMany({
+          where: { approvalRequestId: approval.id },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            paymentMethod: true,
+            amount: true,
+            erpPaymentEntryName: true,
+          },
+        })
+      : [];
+  const isSplitOrderPaymentApproval =
+    approval.type === ORDER_PAYMENT_APPROVAL && splitPaymentLines.length > 0;
   const requiresKokoReference = requiresKokoApprovalReference({
     type: approval.type,
     requestNote: approval.requestNote,
@@ -660,7 +733,7 @@ export async function PATCH(
     }
 
     if (nextStatus === "approved") {
-      if (approval.type === ORDER_PAYMENT_APPROVAL) {
+      if (approval.type === ORDER_PAYMENT_APPROVAL && !isSplitOrderPaymentApproval) {
         const orderForStage = await tx.order.findUnique({
           where: { id: approval.orderId! },
           select: {
@@ -896,18 +969,20 @@ export async function PATCH(
     throw err;
   }
 
-  await notifyApprovalRequester({
-    companyId,
-    approvalId: approval.id,
-    status: nextStatus,
-    requestedById: approval.requestedById,
-    approvalType: approval.type,
-    invoiceLabel: invoiceLabel({
-      name: approval.orderName,
-      orderNumber: approval.orderNumber,
-      shopifyOrderId: approval.shopifyOrderId,
-    }),
-  });
+  if (!isSplitOrderPaymentApproval) {
+    await notifyApprovalRequester({
+      companyId,
+      approvalId: approval.id,
+      status: nextStatus,
+      requestedById: approval.requestedById,
+      approvalType: approval.type,
+      invoiceLabel: invoiceLabel({
+        name: approval.orderName,
+        orderNumber: approval.orderNumber,
+        shopifyOrderId: approval.shopifyOrderId,
+      }),
+    });
+  }
 
   if (approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
     await writeAuditLog({
@@ -989,6 +1064,7 @@ export async function PATCH(
   if (
     nextStatus === "approved" &&
     !isPaymentReapproval &&
+    !isSplitOrderPaymentApproval &&
     ((approval.type === ORDER_PAYMENT_APPROVAL && !unpaidCardOnDeliveryApprove) ||
       (approval.type === PAYMENT_METHOD_CHANGE_APPROVAL && !isBankTransferApproval)) &&
     approval.orderId
@@ -1007,6 +1083,104 @@ export async function PATCH(
       }
       erpSyncFailed = true;
       erpSyncError = errMsg;
+    }
+  }
+
+  if (
+    nextStatus === "approved" &&
+    isSplitOrderPaymentApproval &&
+    approval.orderId
+  ) {
+    const order = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      include: {
+        companyLocation: { include: { erpnextInstance: true } },
+      },
+    });
+    const revertSplitApprovalToPending = async () => {
+      await prisma.approvalRequest.update({
+        where: { id: approval.id },
+        data: {
+          status: "pending",
+          reviewedById: null,
+          reviewNote: null,
+          reviewedAt: null,
+          updatedAt: new Date(),
+        },
+      });
+    };
+
+    if (!order?.companyLocation) {
+      const errMsg = "Order has no company location — cannot create split ERP Payment Entries";
+      if (order) {
+        await markOrderErpPeSyncFailed(order.id, errMsg, ERP_PE_SYNC_MOP_ORDER_AUTO);
+      }
+      await revertSplitApprovalToPending();
+      return NextResponse.json(
+        {
+          ok: false,
+          error: errMsg,
+          erpSyncFailed: true,
+          erpSyncError: errMsg,
+          approvalStatus: "pending",
+        },
+        { status: 502 },
+      );
+    }
+
+    try {
+      await syncApprovalSplitPaymentEntriesToErp(
+        {
+          id: approval.id,
+          kokoReference,
+          paymentLines: splitPaymentLines,
+        },
+        {
+          name: order.name,
+          shopifyOrderId: order.shopifyOrderId,
+          sourceName: order.sourceName,
+          paymentGatewayPrimary: order.paymentGatewayPrimary,
+          paymentGatewayNames: order.paymentGatewayNames,
+          erpnextInvoiceId: order.erpnextInvoiceId,
+          totalPrice: order.totalPrice,
+        },
+        order.companyLocation,
+        now,
+      );
+      await finalizeSplitOrderPaymentApproval({
+        orderId: order.id,
+        companyId,
+        reviewerId,
+        approvedAt: now,
+      });
+      await clearOrderErpPeSyncFailure(order.id);
+      await notifyApprovalRequester({
+        companyId,
+        approvalId: approval.id,
+        status: "approved",
+        requestedById: approval.requestedById,
+        approvalType: approval.type,
+        invoiceLabel: invoiceLabel({
+          name: approval.orderName,
+          orderNumber: approval.orderNumber,
+          shopifyOrderId: approval.shopifyOrderId,
+        }),
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error("[ERPNext] split order payment PE failed:", errMsg);
+      await markOrderErpPeSyncFailed(order.id, errMsg, ERP_PE_SYNC_MOP_ORDER_AUTO);
+      await revertSplitApprovalToPending();
+      return NextResponse.json(
+        {
+          ok: false,
+          error: errMsg,
+          erpSyncFailed: true,
+          erpSyncError: errMsg,
+          approvalStatus: "pending",
+        },
+        { status: 502 },
+      );
     }
   }
 

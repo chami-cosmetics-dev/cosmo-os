@@ -45,12 +45,14 @@ type LookupItem = { id: string; name: string; type: string };
 
 type SampleOrderDetail = {
   id: string;
+  sourceName: string;
   name: string | null;
   orderNumber: string | null;
   totalPrice: string;
   currency: string | null;
   paymentGatewayNames?: string[];
   paymentGatewayPrimary?: string | null;
+  fulfillmentStage?: string;
   customerEmail: string | null;
   customerPhone: string | null;
   customerName?: string | null;
@@ -83,6 +85,12 @@ type SampleOrderDetail = {
     id: string;
     status: string;
     requestNote?: string | null;
+    paymentLines?: Array<{
+      id: string;
+      paymentMethod: string;
+      amount: string;
+      erpPaymentEntryName: string | null;
+    }>;
   } | null;
 };
 
@@ -147,6 +155,10 @@ export function FulfillmentSampleFreeIssuePanel({
   const [kokoBusy, setKokoBusy] = useState(false);
   const [showMintpayDialog, setShowMintpayDialog] = useState(false);
   const [mintpayBusy, setMintpayBusy] = useState(false);
+  const [showSplitPaymentDialog, setShowSplitPaymentDialog] = useState(false);
+  const [splitPaymentBusy, setSplitPaymentBusy] = useState(false);
+  const [splitKokoAmount, setSplitKokoAmount] = useState("");
+  const [splitBankAmount, setSplitBankAmount] = useState("");
   const isBusy = busyKey !== null;
 
   useEffect(() => {
@@ -422,6 +434,67 @@ export function FulfillmentSampleFreeIssuePanel({
     );
   }, [detail, order]);
   const financeApprovalPending = detail?.paymentApproval?.status === "pending";
+  const splitPaymentLines = detail?.paymentApproval?.paymentLines ?? [];
+  const hasSplitPaymentPlan = splitPaymentLines.length === 2;
+  const canConfigureSplitPayment =
+    perms.canManageSplitPayment &&
+    financeApprovalPending &&
+    !splitPaymentLines.some((line) => line.erpPaymentEntryName) &&
+    detail?.sourceName.startsWith("erpnext") &&
+    [detail.paymentGatewayPrimary, ...(detail.paymentGatewayNames ?? [])].some((gateway) => {
+      const normalized = gateway?.toLowerCase() ?? "";
+      return normalized.includes("koko") || normalized.includes("bank");
+    });
+
+  function openSplitPaymentDialog() {
+    const koko = splitPaymentLines.find((line) => line.paymentMethod === "koko");
+    const bank = splitPaymentLines.find((line) => line.paymentMethod === "bank_transfer");
+    setSplitKokoAmount(koko?.amount ?? "");
+    setSplitBankAmount(bank?.amount ?? "");
+    setShowSplitPaymentDialog(true);
+  }
+
+  async function handleSaveSplitPayment() {
+    if (!orderId) return;
+    const kokoAmount = Number(splitKokoAmount);
+    const bankTransferAmount = Number(splitBankAmount);
+    const invoiceTotal = Number(detail?.totalPrice ?? order?.totalPrice ?? 0);
+    if (
+      !Number.isFinite(kokoAmount) ||
+      !Number.isFinite(bankTransferAmount) ||
+      kokoAmount <= 0 ||
+      bankTransferAmount <= 0
+    ) {
+      notify.error("Enter valid KOKO and Bank Transfer amounts.");
+      return;
+    }
+    if (Math.round((kokoAmount + bankTransferAmount) * 100) !== Math.round(invoiceTotal * 100)) {
+      notify.error("Split payment amounts must equal the invoice total.");
+      return;
+    }
+
+    setSplitPaymentBusy(true);
+    try {
+      const response = await fetch(`/api/admin/orders/${orderId}/payment-split-plan`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kokoAmount, bankTransferAmount }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        notify.error(data.error ?? "Failed to save split payment");
+        return;
+      }
+      notify.success("Split payment sent to finance for approval.");
+      setShowSplitPaymentDialog(false);
+      await reloadDetail();
+      onRefresh(false);
+    } catch {
+      notify.error("Failed to save split payment");
+    } finally {
+      setSplitPaymentBusy(false);
+    }
+  }
 
   async function handleConfirmBankTransfer() {
     if (!orderId) return;
@@ -552,7 +625,7 @@ export function FulfillmentSampleFreeIssuePanel({
                 <p><span className="font-medium">Order date:</span> {order ? formatAppDateTime(order.createdAt, "-") : "-"}</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">Payment:</span>
-                  <span>{paymentMethod}</span>
+                  <span>{hasSplitPaymentPlan ? "Split Payment" : paymentMethod}</span>
                   {perms.canChangePaymentMethod && canChangePayment && orderId && (
                     <>
                       <Button
@@ -584,7 +657,30 @@ export function FulfillmentSampleFreeIssuePanel({
                       </Button>
                     </>
                   )}
+                  {canConfigureSplitPayment && orderId ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={openSplitPaymentDialog}
+                      className="h-6 px-2 text-xs border-cyan-500 text-cyan-700 hover:bg-cyan-50 hover:text-cyan-800 dark:border-cyan-400 dark:text-cyan-300 dark:hover:bg-cyan-950"
+                    >
+                      {hasSplitPaymentPlan ? "Edit Split" : "Split Payment"}
+                    </Button>
+                  ) : null}
                 </div>
+                {hasSplitPaymentPlan ? (
+                  <p className="text-xs text-muted-foreground">
+                    KOKO {formatPrice(
+                      splitPaymentLines.find((line) => line.paymentMethod === "koko")?.amount,
+                      currency,
+                    )}{" "}
+                    + Bank Transfer {formatPrice(
+                      splitPaymentLines.find((line) => line.paymentMethod === "bank_transfer")?.amount,
+                      currency,
+                    )}
+                  </p>
+                ) : null}
                 <p><span className="font-medium">Total:</span> {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}</p>
                 <p><span className="font-medium">Address:</span> {formatAddress(detail?.shippingAddress)}</p>
               </div>
@@ -1049,6 +1145,64 @@ export function FulfillmentSampleFreeIssuePanel({
           <Button disabled={mintpayBusy} onClick={() => void handleRequestMintpayChange()}>
             {mintpayBusy ? (
               <><Loader2 className="mr-2 size-4 animate-spin" />Sending...</>
+            ) : (
+              "Send for Approval"
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <AlertDialog
+      open={showSplitPaymentDialog}
+      onOpenChange={(open) => { if (!open && !splitPaymentBusy) setShowSplitPaymentDialog(false); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Split KOKO + Bank Transfer</AlertDialogTitle>
+          <AlertDialogDescription>
+            Enter both paid amounts. Finance will verify the KOKO reference and approval will create
+            one ERP Payment Entry for each method.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-koko-amount">
+              KOKO amount
+            </label>
+            <Input
+              id="split-koko-amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={splitKokoAmount}
+              onChange={(event) => setSplitKokoAmount(event.target.value)}
+              disabled={splitPaymentBusy}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium" htmlFor="split-bank-amount">
+              Bank Transfer amount
+            </label>
+            <Input
+              id="split-bank-amount"
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={splitBankAmount}
+              onChange={(event) => setSplitBankAmount(event.target.value)}
+              disabled={splitPaymentBusy}
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Invoice total: {formatPrice(detail?.totalPrice ?? order?.totalPrice, currency)}
+          </p>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={splitPaymentBusy}>Cancel</AlertDialogCancel>
+          <Button disabled={splitPaymentBusy} onClick={() => void handleSaveSplitPayment()}>
+            {splitPaymentBusy ? (
+              <><Loader2 className="mr-2 size-4 animate-spin" />Saving...</>
             ) : (
               "Send for Approval"
             )}

@@ -16,6 +16,7 @@ const defaultPermissions: FulfillmentPermissions = {
   canManageRemarks: false,
   canResendRiderSms: false,
   canChangePaymentMethod: false,
+  canManageSplitPayment: false,
   canCancelOrder: false,
 };
 

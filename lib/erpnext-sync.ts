@@ -24,6 +24,11 @@ import {
 import { markOrderFinanciallyInvoiceComplete } from "@/lib/financial-invoice-complete";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { isCitypakCourier } from "@/lib/courier";
+import {
+  APPROVAL_SPLIT_BANK_TRANSFER,
+  APPROVAL_SPLIT_KOKO,
+  validateApprovalSplitAmounts,
+} from "@/lib/approval-payment-split";
 
 /**
  * Pre-fill ERP custom field used by the Hutch Auto-SMS Server Script.
@@ -903,6 +908,8 @@ export type CreateDeliveryPaymentEntryOptions = {
   paidAmount?: number;
   /** Payment Entry reference_no for idempotency (defaults to SI name). */
   referenceNo?: string;
+  /** Require the requested partial amount to match available SI outstanding exactly. */
+  requireExactAmount?: boolean;
 };
 
 export type CreateDeliveryPaymentEntryResult = {
@@ -1043,6 +1050,11 @@ export async function createDeliveryPaymentEntry(
   }
 
   if (invoice.outstanding_amount <= 0) {
+    if (options?.requireExactAmount) {
+      throw new Error(
+        `Sales Invoice ${invoice.name} is already paid before all split Payment Entries were created`,
+      );
+    }
     console.log(`[ERPNext] Sales Invoice ${invoice.name} already fully paid — skipping delivery PE`);
     return { outcome: "already_paid" };
   }
@@ -1051,6 +1063,11 @@ export async function createDeliveryPaymentEntry(
     options?.paidAmount != null && Number.isFinite(options.paidAmount) && options.paidAmount > 0
       ? options.paidAmount
       : invoice.outstanding_amount;
+  if (options?.requireExactAmount && requested > invoice.outstanding_amount + 0.005) {
+    throw new Error(
+      `Split payment amount ${requested.toFixed(2)} exceeds Sales Invoice ${invoice.name} outstanding ${invoice.outstanding_amount.toFixed(2)}`,
+    );
+  }
   const amount = Math.min(requested, invoice.outstanding_amount);
   if (amount <= 0) {
     return { outcome: "already_paid" };
@@ -1232,6 +1249,98 @@ export async function syncOrderDeliveryPaymentEntriesToErp(
     throw new Error("No ERP payment entries were created for split delivery payment");
   }
   return { outcome: "skipped" };
+}
+
+/**
+ * Create one KOKO PE and one Bank Transfer PE for a single order-payment approval.
+ * Persisting each PE name makes retries safe when the first leg succeeds and the second fails.
+ */
+export async function syncApprovalSplitPaymentEntriesToErp(
+  approval: {
+    id: string;
+    kokoReference: string | null;
+    paymentLines: Array<{
+      id: string;
+      paymentMethod: string;
+      amount: { toString(): string } | string | number;
+      erpPaymentEntryName: string | null;
+    }>;
+  },
+  order: {
+    name: string | null;
+    shopifyOrderId: string;
+    sourceName: string | null;
+    paymentGatewayPrimary: string | null;
+    paymentGatewayNames: string[];
+    erpnextInvoiceId?: string | null;
+    totalPrice: { toString(): string } | string | number;
+  },
+  location: LocationWithErpInstance,
+  approvedAt: Date,
+): Promise<CreateDeliveryPaymentEntryResult> {
+  const kokoLine = approval.paymentLines.find(
+    (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
+  );
+  const bankLine = approval.paymentLines.find(
+    (line) => line.paymentMethod === APPROVAL_SPLIT_BANK_TRANSFER,
+  );
+  if (!kokoLine || !bankLine || approval.paymentLines.length !== 2) {
+    throw new Error("Split payment approval must contain one KOKO and one Bank Transfer line");
+  }
+  if (!approval.kokoReference?.trim()) {
+    throw new Error("KOKO reference number is required for split payment approval");
+  }
+
+  const validationError = validateApprovalSplitAmounts({
+    kokoAmount: Number(kokoLine.amount),
+    bankTransferAmount: Number(bankLine.amount),
+    invoiceTotal: Number(order.totalPrice),
+  });
+  if (validationError) throw new Error(validationError);
+
+  const cfg = getErpConfig(location.erpnextInstance);
+  const orderedLines = [kokoLine, bankLine];
+  let createdCount = 0;
+  let lastPaymentEntryName: string | undefined;
+
+  for (const line of orderedLines) {
+    if (line.erpPaymentEntryName) continue;
+    const mopName =
+      line.paymentMethod === APPROVAL_SPLIT_KOKO
+        ? cfg.kokoMop.trim()
+        : cfg.bankTransferMop.trim();
+    if (!mopName) {
+      throw new Error(
+        `${line.paymentMethod === APPROVAL_SPLIT_KOKO ? "KOKO" : "Bank Transfer"} ERP payment mode is not configured`,
+      );
+    }
+
+    const result = await createDeliveryPaymentEntry(order, location, approvedAt, {
+      mopNameOverride: mopName,
+      requireMop: true,
+      requireExactAmount: true,
+      paidAmount: Number(line.amount),
+      referenceNo:
+        line.paymentMethod === APPROVAL_SPLIT_KOKO
+          ? approval.kokoReference.trim()
+          : `OS-OPA-${line.id}`,
+    });
+    if (result.outcome !== "created" || !result.paymentEntryName) {
+      throw new Error(`ERP Payment Entry was not created for split ${line.paymentMethod} line`);
+    }
+
+    await prisma.approvalPaymentLine.update({
+      where: { id: line.id },
+      data: { erpPaymentEntryName: result.paymentEntryName },
+    });
+    createdCount += 1;
+    lastPaymentEntryName = result.paymentEntryName;
+  }
+
+  return {
+    outcome: createdCount > 0 ? "created" : "already_paid",
+    paymentEntryName: lastPaymentEntryName,
+  };
 }
 
 /** Exported for unit tests — paid returns must not update outstanding only on the return SI. */

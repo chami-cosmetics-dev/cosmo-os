@@ -314,8 +314,8 @@ export function FinanceApprovalsPanel({
   }, [searchedApprovals, selectedId]);
 
   useEffect(() => {
-    setKokoReference("");
-  }, [selectedId]);
+    setKokoReference(selected?.kokoReference ?? "");
+  }, [selectedId, selected?.kokoReference]);
 
   function switchView(next: "pending" | "history") {
     setView(next);
@@ -395,6 +395,12 @@ export function FinanceApprovalsPanel({
         );
       } else if (action === "approve" && selected.type === "delivery_payment_approval") {
         notify.success("Delivery payment approved — invoice complete and ERP payment recorded.");
+      } else if (
+        action === "approve" &&
+        selected.type === "order_payment_approval" &&
+        selected.paymentTypeLabel === "Split Payment"
+      ) {
+        notify.success("Split payment approved — KOKO and Bank Transfer ERP payments recorded.");
       } else if (action === "approve" && selected.type === "return_cancel") {
         const mode = data.completionMode ?? selected.completionMode;
         if (mode === "credit_note") {
