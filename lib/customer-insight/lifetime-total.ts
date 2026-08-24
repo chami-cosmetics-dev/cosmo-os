@@ -86,6 +86,7 @@ export type ContactOrderLookup = { phones: string[]; emails: string[] };
 export type AttributableOrderAmount = {
   customerPhone: string | null;
   customerEmail: string | null;
+  erpnextCustomerId?: string | null;
   totalPrice: number | string;
 };
 
@@ -127,14 +128,22 @@ export function attributeOrderTotalsByContact(input: {
 
   for (const order of input.orders) {
     const amount = toNumber(order.totalPrice);
+    const matchedContactIds = new Set<string>();
     const phone = order.customerPhone?.trim() || "";
     if (phone) {
-      for (const contactId of phoneIndex.get(phone) ?? []) add(contactId, amount);
+      for (const contactId of phoneIndex.get(phone) ?? []) matchedContactIds.add(contactId);
+    }
+    const erpCustomerId = order.erpnextCustomerId?.trim() || "";
+    if (erpCustomerId) {
+      for (const contactId of phoneIndex.get(erpCustomerId) ?? []) {
+        matchedContactIds.add(contactId);
+      }
     }
     const email = order.customerEmail?.trim().toLowerCase() || "";
     if (email) {
-      for (const contactId of emailIndex.get(email) ?? []) add(contactId, amount);
+      for (const contactId of emailIndex.get(email) ?? []) matchedContactIds.add(contactId);
     }
+    for (const contactId of matchedContactIds) add(contactId, amount);
   }
 
   return totals;
@@ -155,6 +164,7 @@ export function combineLifetimeTotals(
 export type AttributableOrderEvent = {
   customerPhone: string | null;
   customerEmail: string | null;
+  erpnextCustomerId?: string | null;
   at: Date;
   companyLocationId: string | null;
 };
@@ -206,6 +216,10 @@ export function attributeLastOrderEventByContact(input: {
     const phone = order.customerPhone?.trim() || "";
     if (phone) {
       for (const contactId of phoneIndex.get(phone) ?? []) consider(contactId, order);
+    }
+    const erpCustomerId = order.erpnextCustomerId?.trim() || "";
+    if (erpCustomerId) {
+      for (const contactId of phoneIndex.get(erpCustomerId) ?? []) consider(contactId, order);
     }
     const email = order.customerEmail?.trim().toLowerCase() || "";
     if (email) {

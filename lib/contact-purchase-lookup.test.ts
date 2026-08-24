@@ -17,13 +17,16 @@ describe("contact purchase lookup", () => {
     ).toEqual(["oshadhi@gmail.com"]);
   });
 
-  it("uses phone only when phone present", () => {
+  it("uses phone and ERP customer id when phone present", () => {
     expect(
       buildContactOrderLookupOr({
         phones: ["0777651973", "94777651973"],
         emails: ["nirukshi.cosmetics@outlook.com", "real@ex.com"],
       })
-    ).toEqual([{ customerPhone: { in: ["0777651973", "94777651973"] } }]);
+    ).toEqual([
+      { customerPhone: { in: ["0777651973", "94777651973"] } },
+      { erpnextCustomerId: { in: ["0777651973", "94777651973"] } },
+    ]);
   });
 
   it("falls back to non-merchant emails when no phone", () => {

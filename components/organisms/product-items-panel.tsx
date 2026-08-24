@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronsUpDown, Download, FolderOpen, Loader2, Package2, RefreshCw, Search, X } from "lucide-react";
 
+import { NmrApprovedItemsForm } from "@/components/molecules/nmr-approved-items-form";
 import { ProductItemStorageSheet } from "@/components/organisms/product-item-storage-sheet";
 
 import { Button } from "@/components/ui/button";
@@ -449,6 +450,8 @@ export function ProductItemsPanel({ initialData, canManage = false }: ProductIte
           </Button>
         </div>
       </div>
+
+      <NmrApprovedItemsForm canEdit={canManage} />
 
       <div className="rounded-lg border border-border/70 bg-background/80 p-3">
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_minmax(130px,0.8fr)_minmax(130px,0.8fr)_minmax(150px,1fr)_minmax(170px,1fr)_minmax(160px,1fr)_auto]">
