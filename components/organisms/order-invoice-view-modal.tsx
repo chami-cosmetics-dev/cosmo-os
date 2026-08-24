@@ -41,6 +41,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getOrderDispatchLabel, formatDeliveredTimelineWho, formatInvoiceCompleteTimelineWho, SHOW_INVOICE_COMPLETED_IN_ORDER_DETAILS } from "@/lib/order-dispatch";
+import {
+  formatOrderPaymentAmount,
+  formatOrderPaymentBreakdown,
+} from "@/lib/order-payment-entries";
 import { getPaymentMethodInfo } from "@/lib/payment-method-label";
 import { notify } from "@/lib/notify";
 import {
@@ -95,6 +99,20 @@ type OrderDetail = {
   fulfillmentStatus: string | null;
   paymentGatewayNames?: string[];
   paymentGatewayPrimary?: string | null;
+  payments?: Array<{
+    paymentEntryId: string;
+    paymentType: string;
+    modeOfPayment: string;
+    amount: string;
+    allocatedAmount: string;
+    postingDate: string;
+  }>;
+  paymentSummary?: {
+    incomingPaid: string;
+    refundedAmount: string;
+    totalPaid: string;
+    balance: string;
+  } | null;
   customerEmail: string | null;
   customerPhone: string | null;
   customerName?: string | null;
@@ -1322,12 +1340,49 @@ export function OrderInvoiceViewModal({
                     <div>
                       <span className="text-muted-foreground text-xs">Payment Type</span>
                       <p>
-                        {getPaymentMethodInfo({
-                          paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
-                          paymentGatewayNames: orderDetail.paymentGatewayNames,
-                          financialStatus: orderDetail.financialStatus,
-                        }).label}
+                        {orderDetail.payments?.length
+                          ? formatOrderPaymentBreakdown(
+                              orderDetail.payments,
+                              orderDetail.currency,
+                            )
+                          : getPaymentMethodInfo({
+                              paymentGatewayPrimary: orderDetail.paymentGatewayPrimary,
+                              paymentGatewayNames: orderDetail.paymentGatewayNames,
+                              financialStatus: orderDetail.financialStatus,
+                            }).label}
                       </p>
+                      {orderDetail.payments?.length && orderDetail.paymentSummary ? (
+                        <div className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+                          <p>
+                            Total paid:{" "}
+                            {formatOrderPaymentAmount(
+                              orderDetail.paymentSummary.totalPaid,
+                              orderDetail.currency,
+                            )}
+                          </p>
+                          {Number(orderDetail.paymentSummary.refundedAmount) > 0 ? (
+                            <p>
+                              Refunds:{" "}
+                              {formatOrderPaymentAmount(
+                                `-${orderDetail.paymentSummary.refundedAmount}`,
+                                orderDetail.currency,
+                              )}
+                            </p>
+                          ) : null}
+                          <p>
+                            Balance:{" "}
+                            {formatOrderPaymentAmount(
+                              orderDetail.paymentSummary.balance,
+                              orderDetail.currency,
+                            )}
+                          </p>
+                          {orderDetail.financialStatus?.toLowerCase() === "partially_paid" ? (
+                            <p className="font-medium text-amber-700 dark:text-amber-300">
+                              Partly Paid
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                     <div>
                       <span className="text-muted-foreground text-xs">Location</span>

@@ -743,6 +743,7 @@ model Order {
   companyLocation                 CompanyLocation        @relation(fields: [companyLocationId], references: [id], onDelete: Cascade)
   customer                        Customer?              @relation(fields: [customerId], references: [id])
   deliveryPayment                 DeliveryPayment?
+  paymentEntries                  OrderPaymentEntry[]
   deliveryCompleteBy              User?                  @relation("OrderDeliveryCompleteBy", fields: [deliveryCompleteById], references: [id])
   dispatchedByCourierService      CourierService?        @relation(fields: [dispatchedByCourierServiceId], references: [id])
   dispatchedBy                    User?                  @relation("OrderDispatchedBy", fields: [dispatchedById], references: [id])
@@ -1113,6 +1114,25 @@ model DeliveryPaymentLine {
 
   @@index([deliveryPaymentId, sortOrder])
   @@index([paymentMethod])
+}
+
+/// ERP Payment Entry allocation attributed to one Sales Invoice/order.
+model OrderPaymentEntry {
+  id                String   @id @default(cuid())
+  orderId           String
+  paymentEntryId    String
+  paymentType       String
+  modeOfPayment     String
+  amount            Decimal  @db.Decimal(12, 2)
+  allocatedAmount   Decimal  @db.Decimal(12, 2)
+  postingDate       DateTime
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, paymentEntryId])
+  @@index([paymentEntryId])
+  @@index([orderId, postingDate])
 }
 
 model RiderCashHandover {
