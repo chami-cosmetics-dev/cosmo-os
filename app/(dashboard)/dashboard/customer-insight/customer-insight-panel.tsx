@@ -2014,16 +2014,44 @@ export function CustomerInsightPanel({
               <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-start gap-3">
                   <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary text-lg font-semibold text-primary-foreground">
-                    {initialFromName(insight.assignedMerchant ?? "C")}
+                    {initialFromName(insight.contact?.name ?? insight.assignedMerchant ?? "C")}
                   </div>
                   <div className="space-y-1">
-                    <CardTitle className="text-xl">Customer (limited view)</CardTitle>
+                    <CardTitle className="text-xl">
+                      {insight.contact?.name?.trim() || "Customer (limited view)"}
+                    </CardTitle>
                     <CardDescription>
                       Allocated merchant:{" "}
                       <span className="font-medium text-foreground">
                         {insight.assignedMerchant ?? "Unallocated"}
                       </span>
                     </CardDescription>
+                    {insight.contact ? (
+                      <div className="flex flex-col gap-1 pt-1 text-sm text-muted-foreground">
+                        {contactPhoneList(insight.contact).length > 0 ? (
+                          contactPhoneList(insight.contact).map((p, idx) => (
+                            <span
+                              key={`${p}-${idx}`}
+                              className="inline-flex items-center gap-1.5"
+                            >
+                              <Phone className="size-3.5 shrink-0" aria-hidden />
+                              <span className="text-foreground">{p}</span>
+                            </span>
+                          ))
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5">
+                            <Phone className="size-3.5 shrink-0" aria-hidden />
+                            No phone
+                          </span>
+                        )}
+                        <span className="inline-flex items-center gap-1.5">
+                          <Mail className="size-3.5 shrink-0" aria-hidden />
+                          <span className="truncate text-foreground">
+                            {insight.contact.email?.trim() || "-"}
+                          </span>
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -2051,9 +2079,8 @@ export function CustomerInsightPanel({
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  You are not the allocated merchant. Profile, progress bar, contacted, and
-                  spend chart stay hidden. Invoice line items and top items are visible for
-                  exact phone lookups.
+                  You are not the allocated merchant. Name, phone, and email are visible.
+                  Full profile, progress bar, contacted, and spend chart stay hidden.
                 </p>
               </CardContent>
             </Card>

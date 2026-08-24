@@ -4,20 +4,40 @@ import type {
 } from "@/lib/customer-insight/types";
 
 /**
- * Limited view (non-allocated merchant, typically exact phone lookup):
- * keep loyalty + invoices with line items + top items.
- * Still hide profile, progress, contacted, spend chart, edit actions.
+ * Limited view (non-allocated merchant, typically exact phone/name lookup):
+ * keep name, phone, email + loyalty + invoices with line items + top items.
+ * Still hide full profile, progress, contacted, spend chart, edit actions.
  */
 export function toLimitedInsightDto(full: CustomerInsightDto): CustomerInsightDto {
+  const contact = full.contact;
   return {
     visibility: "limited",
     assignedMerchant: full.assignedMerchant,
     loyalty: full.loyalty,
     loyaltyEligibility: full.loyaltyEligibility ?? null,
     topItems: full.topItems ?? [],
+    contact: contact
+      ? {
+          id: contact.id,
+          name: contact.name,
+          phoneNumber: contact.phoneNumber,
+          phones: contact.phones ?? [],
+          email: contact.email,
+          gender: null,
+          language: null,
+          address: null,
+          city: null,
+          birthYear: null,
+          birthMonth: null,
+          birthDay: null,
+          assignedMerchant: contact.assignedMerchant,
+          category: null,
+          lastPurchaseAt: null,
+        }
+      : undefined,
     invoices: full.invoices.map((row) => ({
       ...row,
-      // Keep purchase lines for exact-number lookups of other merchants' customers.
+      // Keep purchase lines for exact lookups of other merchants' customers.
       lineItems: row.lineItems,
     })),
     invoicePagination: full.invoicePagination,

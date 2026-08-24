@@ -9,6 +9,7 @@ export const erpnextPaymentEntryWebhookSchema = z.object({
   party_type: z.string().optional().nullable(),
   party: z.string().optional().nullable(),
   paid_amount: z.number().optional().nullable(),
+  posting_date: z.string().optional().nullable(),
   references: z
     .array(
       z.object({
