@@ -28,6 +28,7 @@ export type FulfillmentPermissions = {
   canManageRemarks: boolean;
   canResendRiderSms: boolean;
   canChangePaymentMethod: boolean;
+  canManageSplitPayment: boolean;
   canCancelOrder: boolean;
 };
 
@@ -126,6 +127,7 @@ export function buildFulfillmentPermissions(
       canManageRemarks: false,
       canResendRiderSms: false,
       canChangePaymentMethod: false,
+      canManageSplitPayment: false,
       canCancelOrder: false,
     };
   }
@@ -145,6 +147,9 @@ export function buildFulfillmentPermissions(
       hasPermission(context, "fulfillment.ready_dispatch.manage_remarks"),
     canResendRiderSms: hasPermission(context, "orders.manage"),
     canChangePaymentMethod: hasPermission(context, "orders.update_payment_method"),
+    canManageSplitPayment:
+      hasPermission(context, "orders.update_payment_method") ||
+      hasPermission(context, "fulfillment.sample_free_issue.manage"),
     canCancelOrder: hasPermission(context, "orders.cancel"),
   };
 }

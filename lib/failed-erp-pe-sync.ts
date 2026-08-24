@@ -222,6 +222,21 @@ export async function retryOrderErpPeSync(input: {
     throw new Error("No failed ERP payment entry on this order");
   }
 
+  const splitApproval = await prisma.approvalRequest.findFirst({
+    where: {
+      orderId: order.id,
+      type: "order_payment_approval",
+      status: "pending",
+      paymentLines: { some: {} },
+    },
+    select: { id: true },
+  });
+  if (splitApproval) {
+    throw new Error(
+      "Split payment retry must be approved again from Finance Approvals so each payment method keeps its correct amount",
+    );
+  }
+
   const mopName = input.mopName.trim();
   if (!mopName) {
     throw new Error("ERP payment mode is required to retry");
