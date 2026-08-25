@@ -5,7 +5,7 @@ import {
   normalizeNmrItemCode,
 } from "@/lib/nmr-approved-items";
 
-describe("NMR-approved item codes", () => {
+describe("NMRA-approved item codes", () => {
   it("normalizes whitespace and casing", () => {
     expect(normalizeNmrItemCode(" cb004_1 ")).toBe("CB004_1");
   });

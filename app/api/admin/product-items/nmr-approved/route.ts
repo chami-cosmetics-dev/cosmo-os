@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     select: { id: true },
   });
   if (existing) {
-    return NextResponse.json({ error: "Item is already NMR approved" }, { status: 409 });
+    return NextResponse.json({ error: "Item is already NMRA approved" }, { status: 409 });
   }
 
   const item = await prisma.nmrApprovedItemCode.create({
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     action: "setting_created",
     entityType: "NmrApprovedItemCode",
     entityId: item.id,
-    summary: `Added NMR-approved item ${item.itemCode}`,
+    summary: `Added NMRA-approved item ${item.itemCode}`,
     afterData: { itemCode: item.itemCode },
   });
 

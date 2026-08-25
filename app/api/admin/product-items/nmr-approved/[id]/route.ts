@@ -29,7 +29,7 @@ export async function DELETE(
     select: { id: true, itemCode: true },
   });
   if (!existing) {
-    return NextResponse.json({ error: "NMR-approved item not found" }, { status: 404 });
+    return NextResponse.json({ error: "NMRA-approved item not found" }, { status: 404 });
   }
 
   await prisma.nmrApprovedItemCode.delete({ where: { id: existing.id } });
@@ -41,7 +41,7 @@ export async function DELETE(
     action: "setting_deleted",
     entityType: "NmrApprovedItemCode",
     entityId: existing.id,
-    summary: `Removed NMR-approved item ${existing.itemCode}`,
+    summary: `Removed NMRA-approved item ${existing.itemCode}`,
     beforeData: { itemCode: existing.itemCode },
   });
 
