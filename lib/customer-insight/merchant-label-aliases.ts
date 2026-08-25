@@ -26,14 +26,20 @@ export type AssignedMerchantAliasGroup = {
 
 /**
  * Fixed buckets (not merchant-role users):
- * - MER115 ≡ DM - General
+ * - MER115 / DM_General (Vault ERP) ≡ DM - General
  * - STAFF SALES stays separate
  */
 export const ASSIGNED_MERCHANT_ALIAS_GROUPS: AssignedMerchantAliasGroup[] = [
   {
     value: "DM - General",
-    label: "DM - General (MER115)",
-    aliases: ["DM - General", "DM-General", "DM General", "MER115"],
+    label: "DM - General (MER115 / DM_General)",
+    aliases: [
+      "DM - General",
+      "DM-General",
+      "DM General",
+      "DM_General",
+      "MER115",
+    ],
   },
   {
     value: "STAFF SALES",

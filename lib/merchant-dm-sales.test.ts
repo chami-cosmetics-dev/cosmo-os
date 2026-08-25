@@ -14,6 +14,7 @@ describe("isDmCouponCode", () => {
     expect(isDmCouponCode("MER115-Sandali")).toBe(true);
     expect(isDmCouponCode("DM - General")).toBe(true);
     expect(isDmCouponCode("DM-General")).toBe(true);
+    expect(isDmCouponCode("DM_General")).toBe(true);
     expect(isDmCouponCode("MER91")).toBe(false);
     expect(isDmCouponCode("MER91-Sandali")).toBe(false);
   });
@@ -74,6 +75,16 @@ describe("classifyMerchantSalesBucket", () => {
     ).toBe("dm");
   });
 
+  it("puts ERP DM_General on order into dm even when not on user couponCodes", () => {
+    expect(
+      classifyMerchantSalesBucket({
+        orderCoupons: ["dm_general"],
+        ...sets,
+        assignedToViewer: false,
+      }),
+    ).toBe("dm");
+  });
+
   it("ignores other merchants MER codes", () => {
     expect(
       classifyMerchantSalesBucket({
@@ -130,6 +141,19 @@ describe("resolveCohortMerchantId", () => {
         orderCoupons: ["mer115"],
         couponToMerchantId,
         assignedMerchantId: null,
+        cohortIds: new Set(["u-sandali"]),
+        dmBucketId: "__dm_general__",
+      }),
+    ).toBe("__dm_general__");
+  });
+
+  it("routes ERP DM_General to the DM bucket when not in coupon map", () => {
+    const couponToMerchantId = new Map([["mer91", "u-sandali"]]);
+    expect(
+      resolveCohortMerchantId({
+        orderCoupons: ["dm_general"],
+        couponToMerchantId,
+        assignedMerchantId: "u-sandali",
         cohortIds: new Set(["u-sandali"]),
         dmBucketId: "__dm_general__",
       }),

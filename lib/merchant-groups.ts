@@ -154,8 +154,15 @@ export function matchMerchantFromCouponMap(
 ): { id: string | null; name: string } | null {
   let dmMatch: { id: string | null; name: string } | null = null;
   for (const code of merchantCoupons) {
-    const hit = couponToMerchant.get(code.trim().toLowerCase());
-    if (!hit) continue;
+    const trimmed = code.trim();
+    const hit = couponToMerchant.get(trimmed.toLowerCase());
+    if (!hit) {
+      // Vault ERP Sales Person DM_General may not be on any user couponCodes.
+      if (isDmCouponCode(trimmed)) {
+        dmMatch ??= { id: null, name: DM_GENERAL_DISPLAY_NAME };
+      }
+      continue;
+    }
     const name = normalizeDashboardMerchantLabel(hit.name);
     if (name === DM_GENERAL_DISPLAY_NAME) {
       dmMatch ??= { id: null, name: DM_GENERAL_DISPLAY_NAME };
@@ -186,6 +193,9 @@ export function resolveAssignedMerchantDashboardFallback(input: {
     .map((c) => c.trim().toLowerCase())
     .filter((c) => isMerchantTrackingCode(c));
   const personalHit = tracking.some((c) => sets.personal.has(c));
+  if (!personalHit && tracking.some((c) => isDmCouponCode(c))) {
+    return { id: null, name: DM_GENERAL_DISPLAY_NAME };
+  }
   if (sets.hasDm && !personalHit) {
     return { id: null, name: DM_GENERAL_DISPLAY_NAME };
   }

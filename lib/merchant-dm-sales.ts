@@ -1,7 +1,13 @@
 import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
 
-/** Company DM-General tracking code (same bucket as dashboard "DM-General"). */
+/** Cosmetics DM-General tracking code (same bucket as dashboard "DM-General"). */
 export const DM_MER_CODE = "MER115";
+
+/**
+ * Vault / Supplement Vault ERP Sales Person for direct Shopify (and replace) flow.
+ * Same dashboard bucket as MER115 / DM-General.
+ */
+export const DM_GENERAL_ERP_CODE = "DM_General";
 
 /** Synthetic cohort / peer-board id for DM-General sales (not a User id). */
 export const DM_GENERAL_COHORT_ID = "__dm_general__";
@@ -25,6 +31,7 @@ export function isDmCouponCode(code: string | null | undefined): boolean {
   const raw = String(code ?? "").trim();
   if (!raw) return false;
   const lower = raw.toLowerCase();
+  if (lower === DM_GENERAL_ERP_CODE.toLowerCase()) return true;
   if (lower.includes("dm") && (lower.includes("general") || lower === "dm")) {
     return true;
   }
@@ -81,7 +88,10 @@ export function classifyMerchantSalesBucket(input: {
 }): MerchantSalesBucket | null {
   const tracking = input.orderCoupons.filter((c) => isMerchantTrackingCode(c));
   const merHit = tracking.some((c) => input.personal.has(c));
-  const dmHit = tracking.some((c) => input.dm.has(c));
+  // Known DM set OR any DM-shaped code (e.g. ERP DM_General not on user couponCodes).
+  const dmHit = tracking.some(
+    (c) => input.dm.has(c) || (input.hasDm && isDmCouponCode(c)),
+  );
   if (merHit) return "mer";
   if (dmHit) return "dm";
   if (tracking.length > 0) return null;
@@ -107,6 +117,10 @@ export function resolveCohortMerchantId(input: {
   for (const code of tracking) {
     const hit = input.couponToMerchantId.get(code);
     if (hit) return hit;
+  }
+  // ERP DM_General (etc.) may not be on any Vault user couponCodes — still DM bucket.
+  if (input.dmBucketId && tracking.some((c) => isDmCouponCode(c))) {
+    return input.dmBucketId;
   }
   if (tracking.length === 0 && input.dmBucketId) {
     return input.dmBucketId;
