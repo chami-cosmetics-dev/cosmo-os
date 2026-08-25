@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, RefreshCw, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
+import { orderQty } from "@/lib/osf/formulas";
 
 type ColumnMeta = { key: string; label: string; includeInRop: boolean; active: boolean };
 
@@ -27,6 +28,13 @@ type Props = { canManage: boolean; canManageThreshold?: boolean };
 const SEARCH_DEBOUNCE_MS = 400;
 const SEARCH_MIN_CHARS = 3;
 
+function parseRopInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Math.floor(Number(trimmed));
+  return Number.isFinite(n) ? Math.max(0, n) : null;
+}
+
 export function OsfProductEditor({ canManage, canManageThreshold = false }: Props) {
   const [q, setQ] = useState("");
   const [maxStockPct, setMaxStockPct] = useState("");
@@ -37,11 +45,16 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
   const [ogfPrice, setOgfPrice] = useState<string>("");
   const [thresholdPercent, setThresholdPercent] = useState<string>("");
   const [rops, setRops] = useState<Record<string, string>>({});
+  /** Live ERP stock keyed by column — null value = no warehouse / unknown */
+  const [stockByColumn, setStockByColumn] = useState<Record<string, number | null>>({});
+  const [stockLoading, setStockLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const searchSeq = useRef(0);
+  const stockSeq = useRef(0);
 
   const canEditAnything = canManage || canManageThreshold;
+  const isBusy = loading || saving || stockLoading;
   const ropColumns = columns.filter((c) => c.active && c.includeInRop);
 
   useEffect(() => {
@@ -101,6 +114,25 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on q only when no % filter
   }, [q]);
 
+  async function loadLiveStock(sku: string) {
+    const seq = ++stockSeq.current;
+    setStockLoading(true);
+    setStockByColumn({});
+    try {
+      const res = await fetch(`/api/admin/osf/profiles/${encodeURIComponent(sku)}/stock`);
+      const json = await res.json();
+      if (seq !== stockSeq.current) return;
+      if (!res.ok) throw new Error(json.error ?? "Failed to load ERP stock");
+      setStockByColumn(json.stock ?? {});
+    } catch (err) {
+      if (seq !== stockSeq.current) return;
+      setStockByColumn({});
+      notify.error(err instanceof Error ? err.message : "Failed to load ERP stock");
+    } finally {
+      if (seq === stockSeq.current) setStockLoading(false);
+    }
+  }
+
   function selectItem(item: ProfileItem) {
     setSelected(item);
     setShopAvailability(item.shopAvailability ?? "");
@@ -113,6 +145,7 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
       next[col.key] = item.rops[col.key] != null ? String(item.rops[col.key]) : "";
     }
     setRops(next);
+    void loadLiveStock(item.sku);
   }
 
   async function save() {
@@ -268,7 +301,7 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
                 Shop Availability
                 <select
                   className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-                  disabled={!canManage}
+                  disabled={!canManage || isBusy}
                   value={shopAvailability}
                   onChange={(e) => setShopAvailability(e.target.value)}
                 >
@@ -283,7 +316,7 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
                   type="number"
                   step="0.01"
                   className="mt-1"
-                  disabled={!canManage}
+                  disabled={!canManage || isBusy}
                   value={ogfPrice}
                   placeholder="From ERP OGF Price List"
                   onChange={(e) => setOgfPrice(e.target.value)}
@@ -299,37 +332,106 @@ export function OsfProductEditor({ canManage, canManageThreshold = false }: Prop
                   min={1}
                   max={100}
                   className="mt-1"
-                  disabled={!canManage && !canManageThreshold}
+                  disabled={(!canManage && !canManageThreshold) || isBusy}
                   value={thresholdPercent}
                   placeholder="70"
                   onChange={(e) => setThresholdPercent(e.target.value)}
                 />
               </label>
               <div className="space-y-2">
-                <div className="text-xs font-medium">ROP by column</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-medium">ROP by column</div>
+                  {selected ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={stockLoading}
+                      onClick={() => void loadLiveStock(selected.sku)}
+                    >
+                      {stockLoading ? (
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <RefreshCw className="size-3.5" aria-hidden />
+                      )}
+                      Refresh stock
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Stock is live from Cosmo ERP Bin. Reorder qty = ROP − stock.
+                </p>
                 {ropColumns.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     No ROP columns configured. Enable “Set ROP” under OSF location columns.
                   </p>
                 ) : (
-                  ropColumns.map((col) => (
-                    <label key={col.key} className="flex items-center gap-2 text-xs">
-                      <span className="w-28 shrink-0 truncate">{col.label}</span>
-                      <Input
-                        type="number"
-                        className="h-8"
-                        disabled={!canManage}
-                        value={rops[col.key] ?? ""}
-                        onChange={(e) => setRops({ ...rops, [col.key]: e.target.value })}
-                      />
-                    </label>
-                  ))
+                  <div className="overflow-x-auto">
+                    <div className="grid min-w-[20rem] grid-cols-[minmax(5rem,1fr)_4.5rem_4.5rem_4.5rem] gap-x-2 gap-y-1.5 text-xs">
+                      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Location
+                      </div>
+                      <div className="text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Stock
+                      </div>
+                      <div className="text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        ROP
+                      </div>
+                      <div className="text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Reorder
+                      </div>
+                      {ropColumns.map((col) => {
+                        const hasStock = col.key in stockByColumn;
+                        const stock = stockByColumn[col.key];
+                        const ropNum = parseRopInput(rops[col.key] ?? "");
+                        const reorder =
+                          !hasStock || stock == null ? null : orderQty(ropNum, stock);
+                        return (
+                          <div key={col.key} className="contents">
+                            <span className="truncate self-center" title={col.label}>
+                              {col.label}
+                            </span>
+                            <span className="self-center text-center tabular-nums text-muted-foreground">
+                              {stockLoading && !hasStock
+                                ? "…"
+                                : !hasStock || stock == null
+                                  ? "—"
+                                  : stock}
+                            </span>
+                            <Input
+                              type="number"
+                              className="h-8"
+                              disabled={!canManage || isBusy}
+                              value={rops[col.key] ?? ""}
+                              onChange={(e) => setRops({ ...rops, [col.key]: e.target.value })}
+                            />
+                            <span
+                              className={`self-center text-center tabular-nums ${
+                                reorder != null && reorder > 0
+                                  ? "font-medium text-foreground"
+                                  : "text-muted-foreground"
+                              }`}
+                            >
+                              {stockLoading && !hasStock ? "…" : reorder == null ? "—" : reorder}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
               {canEditAnything && (
-                <Button type="button" onClick={() => void save()} disabled={saving}>
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Save profile
+                <Button type="button" onClick={() => void save()} disabled={isBusy}>
+                  {saving ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save profile"
+                  )}
                 </Button>
               )}
             </>

@@ -84,6 +84,20 @@ describe("matchMerchantFromCouponMap", () => {
     ]);
     expect(matchMerchantFromCouponMap(["mer115"], map)?.name).toBe("DM-General");
   });
+
+  it("returns DM-General for ERP DM_General even when not on any user", () => {
+    const map = buildCouponToMerchantMap([
+      {
+        id: "sandali",
+        knownName: "sandali",
+        couponCodes: ["MER91"],
+      },
+    ]);
+    expect(matchMerchantFromCouponMap(["dm_general"], map)?.name).toBe(
+      "DM-General",
+    );
+    expect(matchMerchantFromCouponMap(["DM_General"], map)?.id).toBeNull();
+  });
 });
 
 describe("resolveAssignedMerchantDashboardFallback", () => {
@@ -112,5 +126,18 @@ describe("resolveAssignedMerchantDashboardFallback", () => {
     });
     expect(hit.id).toBe("sandali");
     expect(hit.name).toBe("sandali");
+  });
+
+  it("sends ERP DM_General on order to DM-General even without DM holder assignee", () => {
+    const hit = resolveAssignedMerchantDashboardFallback({
+      assignedMerchantId: "other",
+      assignedMerchant: {
+        knownName: "other",
+        couponCodes: ["MER99"],
+      },
+      orderCoupons: ["dm_general"],
+      userToGroup: new Map(),
+    });
+    expect(hit).toEqual({ id: null, name: "DM-General" });
   });
 });
