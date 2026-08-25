@@ -144,7 +144,7 @@ export function StickerPreviewCard({
 
       {showNmrApproved ? (
         <div className="text-center text-[7px] font-bold leading-none">
-          NMR approved
+          NMRA approved
         </div>
       ) : null}
 

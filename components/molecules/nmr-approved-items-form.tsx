@@ -28,12 +28,12 @@ export function NmrApprovedItemsForm({ canEdit }: { canEdit: boolean }) {
         const response = await fetch("/api/admin/product-items/nmr-approved");
         const data = (await response.json()) as NmrApprovedItem[] & { error?: string };
         if (!response.ok) {
-          notify.error(data.error ?? "Failed to load NMR-approved items");
+          notify.error(data.error ?? "Failed to load NMRA-approved items");
           return;
         }
         setItems(data);
       } catch {
-        notify.error("Failed to load NMR-approved items");
+        notify.error("Failed to load NMRA-approved items");
       } finally {
         setLoading(false);
       }
@@ -53,16 +53,16 @@ export function NmrApprovedItemsForm({ canEdit }: { canEdit: boolean }) {
       });
       const data = (await response.json()) as NmrApprovedItem & { error?: string };
       if (!response.ok) {
-        notify.error(data.error ?? "Failed to add NMR-approved item");
+        notify.error(data.error ?? "Failed to add NMRA-approved item");
         return;
       }
       setItems((current) =>
         [...current, data].sort((a, b) => a.itemCode.localeCompare(b.itemCode)),
       );
       setItemCode("");
-      notify.success(`${data.itemCode} added to NMR-approved items.`);
+      notify.success(`${data.itemCode} added to NMRA-approved items.`);
     } catch {
-      notify.error("Failed to add NMR-approved item");
+      notify.error("Failed to add NMRA-approved item");
     } finally {
       setBusyKey(null);
     }
@@ -71,8 +71,8 @@ export function NmrApprovedItemsForm({ canEdit }: { canEdit: boolean }) {
   async function handleRemove(item: NmrApprovedItem) {
     if (!canEdit) return;
     const confirmed = await confirm({
-      title: "Remove NMR approval?",
-      description: `${item.itemCode} stickers will no longer show "NMR approved".`,
+      title: "Remove NMRA approval?",
+      description: `${item.itemCode} stickers will no longer show "NMRA approved".`,
       confirmLabel: "Remove",
       variant: "destructive",
     });
@@ -85,13 +85,13 @@ export function NmrApprovedItemsForm({ canEdit }: { canEdit: boolean }) {
       });
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        notify.error(data.error ?? "Failed to remove NMR-approved item");
+        notify.error(data.error ?? "Failed to remove NMRA-approved item");
         return;
       }
       setItems((current) => current.filter((currentItem) => currentItem.id !== item.id));
-      notify.success(`${item.itemCode} removed from NMR-approved items.`);
+      notify.success(`${item.itemCode} removed from NMRA-approved items.`);
     } catch {
-      notify.error("Failed to remove NMR-approved item");
+      notify.error("Failed to remove NMRA-approved item");
     } finally {
       setBusyKey(null);
     }
@@ -102,10 +102,10 @@ export function NmrApprovedItemsForm({ canEdit }: { canEdit: boolean }) {
       <CardHeader className="border-b border-border/50">
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldCheck className="size-4 text-emerald-600" />
-          NMR-approved items
+          NMRA-approved items
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Only item codes in this list show “NMR approved” on Cosmo stickers.
+          Only item codes in this list show “NMRA approved” on Cosmo stickers.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -136,7 +136,7 @@ export function NmrApprovedItemsForm({ canEdit }: { canEdit: boolean }) {
             Loading...
           </div>
         ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No NMR-approved items.</p>
+          <p className="text-sm text-muted-foreground">No NMRA-approved items.</p>
         ) : (
           <ul className="flex flex-wrap gap-2">
             {items.map((item) => (
