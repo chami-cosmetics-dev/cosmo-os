@@ -13,8 +13,11 @@ describe("assigned merchant aliases", () => {
     expect(findAssignedMerchantAliasGroup("DM - General")?.value).toBe(
       "DM - General"
     );
+    expect(findAssignedMerchantAliasGroup("DM_General")?.value).toBe(
+      "DM - General"
+    );
     expect(expandAssignedMerchantFilter("MER115")).toEqual(
-      expect.arrayContaining(["DM - General", "MER115"])
+      expect.arrayContaining(["DM - General", "MER115", "DM_General"])
     );
   });
 

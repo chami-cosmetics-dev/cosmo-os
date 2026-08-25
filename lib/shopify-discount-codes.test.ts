@@ -24,6 +24,9 @@ describe("shopify-discount-codes", () => {
 
   it("treats MER and zero-amount codes as merchant tracking", () => {
     expect(isMerchantTrackingDiscountCode({ code: "MER99", amount: 0 })).toBe(true);
+    expect(isMerchantTrackingDiscountCode({ code: "DM_General", amount: 0 })).toBe(
+      true,
+    );
     expect(isMerchantTrackingDiscountCode({ code: "SV20", amount: 5990 })).toBe(false);
   });
 
