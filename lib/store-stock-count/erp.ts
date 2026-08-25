@@ -149,22 +149,23 @@ async function fetchWarehousesForCompany(
 }
 
 async function fetchStockItems(cfg: OsfErpCredentials): Promise<
-  Array<{ item_code: string; item_name: string; description: string; barcode: string | null }>
+  Array<{ item_code: string; item_name: string; description: string }>
 > {
   const filters = [
     ["disabled", "=", 0],
     ["is_stock_item", "=", 1],
   ];
+  // Do NOT request Item.barcode — ERPNext list API rejects it
+  // ("Field not permitted in query: barcode"). Barcodes come from Item Barcode.
   const rows = await paginateResource<{
     item_code?: string;
     name?: string;
     item_name?: string;
     description?: string;
-    barcode?: string | null;
   }>({
     cfg,
     doctype: "Item",
-    fields: ["item_code", "item_name", "description", "barcode"],
+    fields: ["item_code", "item_name", "description"],
     filters,
   });
 
@@ -179,7 +180,6 @@ async function fetchStockItems(cfg: OsfErpCredentials): Promise<
           .replace(/<[^>]+>/g, " ")
           .replace(/\s+/g, " ")
           .trim(),
-        barcode: row.barcode != null ? String(row.barcode).trim() || null : null,
       };
     })
     .filter((r): r is NonNullable<typeof r> => r != null);
@@ -202,7 +202,7 @@ async function fetchBarcodeMap(cfg: OsfErpCredentials): Promise<Map<string, stri
       map.set(parent, list);
     }
   } catch {
-    // Child table may be missing or permission-denied; Item.barcode still used.
+    // Child table may be missing or permission-denied — items load with empty barcodes.
   }
   return map;
 }
@@ -286,19 +286,13 @@ export async function fetchCompanyStockItems(input: {
     ]);
     const binQty = await fetchBinQtyByItem(inst.cfg, warehouses);
 
-    const items: StoreStockCountApiItem[] = catalog.map((row) => {
-      const barcodes = [...(barcodeMap.get(row.item_code) ?? [])];
-      if (row.barcode && !barcodes.includes(row.barcode)) {
-        barcodes.unshift(row.barcode);
-      }
-      return {
-        sku: row.item_code,
-        name: row.item_name || row.item_code,
-        description: row.description,
-        barcodes,
-        stock: binQty.get(row.item_code) ?? 0,
-      };
-    });
+    const items: StoreStockCountApiItem[] = catalog.map((row) => ({
+      sku: row.item_code,
+      name: row.item_name || row.item_code,
+      description: row.description,
+      barcodes: [...(barcodeMap.get(row.item_code) ?? [])],
+      stock: binQty.get(row.item_code) ?? 0,
+    }));
 
     return {
       instanceId: inst.id,
