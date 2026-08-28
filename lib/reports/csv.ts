@@ -163,11 +163,24 @@ export function formatDispatchOrderReference(order: {
   return formatFulfillmentOrderReferenceText(order);
 }
 
+import { resolveAddressDistrict } from "@/lib/address-district";
+
+/** Sri Lanka Shopify stores district name in `province`; infers from address text when missing. */
+export function getAddressDistrict(address: unknown) {
+  return resolveAddressDistrict(address);
+}
+
+function formatAddressCityLine(address: unknown) {
+  const city = getAddressField(address, "city");
+  const district = getAddressDistrict(address);
+  return [city, district].filter(Boolean).join(", ");
+}
+
 export function formatAddress(address: unknown) {
   const parts = [
     getAddressField(address, "address1"),
     getAddressField(address, "address2"),
-    [getAddressField(address, "city"), getAddressField(address, "province_code")].filter(Boolean).join(", "),
+    formatAddressCityLine(address),
     getAddressField(address, "country"),
     getAddressField(address, "zip"),
   ].filter(Boolean);

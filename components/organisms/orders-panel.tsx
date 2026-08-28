@@ -20,6 +20,7 @@ import { TableSkeleton } from "@/components/skeletons/table-skeleton";
 import { createClientPerfLogger } from "@/lib/client-perf";
 import { notify } from "@/lib/notify";
 import { formatAppDateTime } from "@/lib/format-datetime";
+import { formatAddress as formatOrderAddress } from "@/lib/reports/csv";
 
 const OrderInvoiceViewModal = dynamic(
   () =>
@@ -433,16 +434,8 @@ export function OrdersPanel({
   }
 
   function formatAddress(addr: unknown): string {
-    if (!addr || typeof addr !== "object") return "—";
-    const a = addr as Record<string, unknown>;
-    const parts = [
-      a.address1,
-      a.address2,
-      [a.city, a.province_code].filter(Boolean).join(", "),
-      a.country,
-      a.zip,
-    ].filter(Boolean) as string[];
-    return parts.join(", ") || "—";
+    const formatted = formatOrderAddress(addr);
+    return formatted || "—";
   }
 
   function getAddressPhone(addr: unknown): string | null {
