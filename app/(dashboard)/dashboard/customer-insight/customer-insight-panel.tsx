@@ -666,6 +666,7 @@ export function CustomerInsightPanel({
   const [queueBrandOptions, setQueueBrandOptions] = useState<InsightSelectOption[]>([]);
   const [queueSelectCount, setQueueSelectCount] = useState("");
   const [queueEligibleTotal, setQueueEligibleTotal] = useState(0);
+  const [queueAllocatedTotal, setQueueAllocatedTotal] = useState(0);
   const [queueReport, setQueueReport] = useState<{
     rows: Array<{
       queueId: string;
@@ -970,6 +971,7 @@ export function CustomerInsightPanel({
       setQueueCandidates((data.items ?? []) as CallQueueRow[]);
       setQueueCandidateTotal(data.pagination?.total ?? 0);
       setQueueEligibleTotal(data.pagination?.eligibleTotal ?? data.pagination?.total ?? 0);
+      setQueueAllocatedTotal(data.pagination?.allocatedTotal ?? 0);
       setQueueCandidatePage(data.pagination?.page ?? page);
       setQueueSelectedIds([]);
     } catch {
@@ -3633,8 +3635,18 @@ export function CustomerInsightPanel({
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    {queueEligibleTotal} eligible · oldest/never contacted first, then oldest
-                    purchase
+                    {queueAllocatedTotal > 0
+                      ? `${queueAllocatedTotal.toLocaleString()} allocated · `
+                      : null}
+                    {queueEligibleTotal.toLocaleString()} eligible to assign · oldest/never
+                    contacted first, then oldest purchase
+                    {queueAllocatedTotal > queueEligibleTotal ? (
+                      <>
+                        {" "}
+                        · rest hidden (2-month cooling after allocation or outreach, already
+                        queued, Black List / Wrong Number)
+                      </>
+                    ) : null}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="flex items-center gap-1 text-xs">

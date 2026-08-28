@@ -241,12 +241,12 @@ type RankedContact = {
 async function listRankedEligibleContacts(input: {
   companyId: string;
   filters: CallQueueAssignFilters;
-}): Promise<RankedContact[]> {
+}): Promise<{ ranked: RankedContact[]; allocatedTotal: number }> {
   const aliases = await resolveAssignedMerchantFilterLabels(
     input.companyId,
     input.filters.merchantValue
   );
-  if (aliases.length === 0) return [];
+  if (aliases.length === 0) return { ranked: [], allocatedTotal: 0 };
 
   const purchase = lastPurchaseWhere(
     input.filters.lastPurchaseFrom,
@@ -280,14 +280,15 @@ async function listRankedEligibleContacts(input: {
       brandNeedle
     );
     brandIdSet = new Set(ranks.map((r) => r.contactId));
-    if (brandIdSet.size === 0) return [];
+    if (brandIdSet.size === 0) return { ranked: [], allocatedTotal: 0 };
   }
 
   const afterBrand = brandIdSet
     ? contacts.filter((c) => brandIdSet!.has(c.id))
     : contacts;
-  if (afterBrand.length === 0) return [];
+  if (afterBrand.length === 0) return { ranked: [], allocatedTotal: 0 };
 
+  const allocatedTotal = afterBrand.length;
   const ids = afterBrand.map((c) => c.id);
   const now = new Date();
   const [contacted, queuedRows, allocated, lastEvent] = await Promise.all([
@@ -343,7 +344,7 @@ async function listRankedEligibleContacts(input: {
     }))
     .sort(compareCallQueueCandidateOrder);
 
-  return ranked;
+  return { ranked, allocatedTotal };
 }
 
 export async function listCallQueueCandidates(input: {
@@ -357,11 +358,12 @@ export async function listCallQueueCandidates(input: {
     pageSize: number;
     total: number;
     eligibleTotal: number;
+    allocatedTotal: number;
   };
 }> {
   const pageSize = Math.min(100, Math.max(1, input.pageSize ?? CALL_QUEUE_PAGE_SIZE));
   const page = Math.max(1, input.page);
-  const ranked = await listRankedEligibleContacts({
+  const { ranked, allocatedTotal } = await listRankedEligibleContacts({
     companyId: input.companyId,
     filters: input,
   });
@@ -385,7 +387,7 @@ export async function listCallQueueCandidates(input: {
       lastContactedAt: c.lastContactedAt?.toISOString() ?? null,
       queued: false,
     })),
-    pagination: { page, pageSize, total, eligibleTotal: total },
+    pagination: { page, pageSize, total, eligibleTotal: total, allocatedTotal },
   };
 }
 
@@ -395,9 +397,10 @@ export async function listCallQueueEligibleIds(input: {
 } & CallQueueAssignFilters): Promise<{
   contactIds: string[];
   eligibleTotal: number;
+  allocatedTotal: number;
   truncated: boolean;
 }> {
-  const ranked = await listRankedEligibleContacts({
+  const { ranked, allocatedTotal } = await listRankedEligibleContacts({
     companyId: input.companyId,
     filters: input,
   });
@@ -410,6 +413,7 @@ export async function listCallQueueEligibleIds(input: {
   return {
     contactIds,
     eligibleTotal,
+    allocatedTotal,
     truncated: eligibleTotal > contactIds.length,
   };
 }
