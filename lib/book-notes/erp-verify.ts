@@ -13,6 +13,8 @@ export type BookNoteErpVerifyRowInput = {
   sales_invoice: string;
   cash: number;
   card: number;
+  /** Last 4 digits of POS card receipt ref (ss9 `card_last_4`). */
+  card_last_4?: string | null;
   koko: number;
   bank_transfer: number;
 };
@@ -198,6 +200,7 @@ export async function sendBookNoteRowsToErp(input: {
       sales_invoice: r.sales_invoice,
       cash: r.cash,
       card: r.card,
+      card_last_4: r.card_last_4 ?? null,
       koko: r.koko,
       bank_transfer: r.bank_transfer,
     })),

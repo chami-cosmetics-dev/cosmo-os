@@ -25,117 +25,164 @@ pdfMake.addFonts({
 pdfMake.setUrlAccessPolicy(() => false);
 pdfMake.setLocalAccessPolicy(() => false);
 
-export type PickListBrand = {
-  brandName: string;
-  items: Array<{
-    productTitle: string;
-    variantTitle: string | null;
-    sku: string | null;
-    barcode: string | null;
-    quantity: number;
-  }>;
+export type PickListPdfItem = {
+  productTitle: string;
+  variantTitle: string | null;
+  sku: string | null;
+  barcode: string | null;
+  quantity: number;
 };
 
-const tableLayout = {
-  hLineWidth: () => 0.5,
-  vLineWidth: () => 0,
-  hLineColor: () => "#cbd5e1",
-  paddingLeft: () => 6,
-  paddingRight: () => 6,
-  paddingTop: () => 5,
-  paddingBottom: () => 5,
-};
+function compactLayout(itemCount: number) {
+  if (itemCount <= 20) {
+    return {
+      landscape: false,
+      margins: [24, 28, 24, 28] as [number, number, number, number],
+      title: 16,
+      subtitle: 9,
+      th: 8,
+      td: 8,
+      qty: 12,
+      padding: 4,
+    };
+  }
+  if (itemCount <= 35) {
+    return {
+      landscape: false,
+      margins: [20, 22, 20, 22] as [number, number, number, number],
+      title: 14,
+      subtitle: 8,
+      th: 7,
+      td: 7,
+      qty: 10,
+      padding: 3,
+    };
+  }
+  if (itemCount <= 55) {
+    return {
+      landscape: false,
+      margins: [16, 18, 16, 18] as [number, number, number, number],
+      title: 12,
+      subtitle: 7,
+      th: 6,
+      td: 6,
+      qty: 9,
+      padding: 2,
+    };
+  }
+  return {
+    landscape: true,
+    margins: [14, 16, 14, 16] as [number, number, number, number],
+    title: 11,
+    subtitle: 7,
+    th: 5.5,
+    td: 5.5,
+    qty: 8,
+    padding: 1.5,
+  };
+}
+
+function itemLabel(item: PickListPdfItem) {
+  const title = item.productTitle.trim();
+  const variant = item.variantTitle?.trim();
+  if (!variant || variant === "Default Title") return title;
+  return `${title} — ${variant}`;
+}
 
 export async function generatePickListPdf(
-  brands: PickListBrand[],
+  items: PickListPdfItem[],
   date: string,
   companyName: string | null,
   headerLine?: string | null,
+  meta?: { orderCount?: number },
 ): Promise<Buffer> {
-  const content: unknown[] = [
-    {
-      columns: [
-        { text: companyName ?? "Pick List", style: "title", width: "*" },
-        { text: date, style: "headerSub", width: "auto" },
-      ],
-      margin: [0, 0, 0, 2],
-    },
-    { text: headerLine ?? "Inventory Pick List", style: "subtitle", margin: [0, 0, 0, 20] },
+  const layout = compactLayout(items.length);
+  const totalUnits = items.reduce((s, i) => s + i.quantity, 0);
+  const orderNote =
+    meta?.orderCount != null
+      ? `${meta.orderCount} order${meta.orderCount !== 1 ? "s" : ""} · `
+      : "";
+
+  const tableLayout = {
+    hLineWidth: () => 0.25,
+    vLineWidth: () => 0,
+    hLineColor: () => "#cbd5e1",
+    paddingLeft: () => layout.padding,
+    paddingRight: () => layout.padding,
+    paddingTop: () => layout.padding,
+    paddingBottom: () => layout.padding,
+  };
+
+  const tableBody: unknown[][] = [
+    [
+      { text: "#", style: "th" },
+      { text: "Item", style: "th" },
+      { text: "SKU", style: "th" },
+      { text: "Barcode", style: "th" },
+      { text: "Qty", style: "th", alignment: "right" },
+    ],
+    ...items.map((item, idx) => [
+      { text: String(idx + 1), style: "tdMuted" },
+      { text: itemLabel(item), style: "td" },
+      { text: item.sku ?? "—", style: "tdMono" },
+      { text: formatPickListBarcode(item.barcode), style: "barcode" },
+      { text: String(item.quantity), style: "qty", alignment: "right" },
+    ]),
+    [
+      {
+        text: `${orderNote}${items.length} item type${items.length !== 1 ? "s" : ""}`,
+        colSpan: 4,
+        style: "total",
+      },
+      { text: "" },
+      { text: "" },
+      { text: "" },
+      { text: String(totalUnits), style: "total", alignment: "right" },
+    ],
   ];
-
-  for (let li = 0; li < brands.length; li++) {
-    const brand = brands[li];
-    const totalUnits = brand.items.reduce((s, i) => s + i.quantity, 0);
-
-    const tableBody: unknown[][] = [
-      [
-        { text: "#", style: "th" },
-        { text: "Item", style: "th" },
-        { text: "SKU", style: "th" },
-        { text: "Barcode", style: "th" },
-        { text: "Qty", style: "th", alignment: "right" },
-      ],
-      ...brand.items.map((item, idx) => [
-        { text: String(idx + 1), style: "tdMuted" },
-        item.variantTitle
-          ? { stack: [{ text: item.productTitle, style: "td" }, { text: item.variantTitle, style: "cellSub" }] }
-          : { text: item.productTitle, style: "td" },
-        { text: item.sku ?? "—", style: "td" },
-        { text: formatPickListBarcode(item.barcode), style: "barcode" },
-        { text: String(item.quantity), style: "qty", alignment: "right" },
-      ]),
-      [
-        {
-          text: `${brand.items.length} item type${brand.items.length !== 1 ? "s" : ""}`,
-          colSpan: 4,
-          style: "total",
-        },
-        { text: "" },
-        { text: "" },
-        { text: "" },
-        { text: String(totalUnits), style: "total", alignment: "right" },
-      ],
-    ];
-
-    const sectionBlock: Record<string, unknown> = {
-      stack: [
-        { text: brand.brandName, style: "brandHeader", margin: [0, 0, 0, 8] },
-        {
-          table: {
-            headerRows: 1,
-            widths: ["auto", "*", "auto", "auto", "auto"],
-            body: tableBody,
-          },
-          layout: {
-            ...tableLayout,
-            fillColor: (i: number) =>
-              i === 0 ? "#1e40af" : i === tableBody.length - 1 ? "#f1f5f9" : i % 2 === 0 ? "#f8fafc" : null,
-          },
-        },
-      ],
-    };
-
-    if (li > 0) sectionBlock.pageBreak = "before";
-    content.push(sectionBlock);
-  }
 
   const docDef = {
     pageSize: "A4",
-    pageOrientation: "portrait",
-    pageMargins: [30, 40, 30, 40],
-    content,
+    pageOrientation: layout.landscape ? "landscape" : "portrait",
+    pageMargins: layout.margins,
+    content: [
+      {
+        columns: [
+          { text: companyName ?? "Pick List", style: "title", width: "*" },
+          { text: date, style: "headerSub", width: "auto" },
+        ],
+        margin: [0, 0, 0, 2],
+      },
+      {
+        text: headerLine ?? "Inventory Pick List",
+        style: "subtitle",
+        margin: [0, 0, 0, 8],
+      },
+      {
+        table: {
+          headerRows: 1,
+          dontBreakRows: true,
+          widths: ["auto", "*", "auto", "auto", "auto"],
+          body: tableBody,
+        },
+        layout: {
+          ...tableLayout,
+          fillColor: (i: number) =>
+            i === 0 ? "#1e40af" : i === tableBody.length - 1 ? "#f1f5f9" : i % 2 === 0 ? "#f8fafc" : null,
+        },
+      },
+    ],
     styles: {
-      title: { fontSize: 18, bold: true, color: "#0f172a" },
-      subtitle: { fontSize: 10, color: "#64748b" },
-      headerSub: { fontSize: 10, color: "#64748b", alignment: "right" },
-      brandHeader: { fontSize: 14, bold: true, color: "#1e40af" },
-      th: { fontSize: 9, bold: true, color: "#ffffff" },
-      td: { fontSize: 9, color: "#0f172a" },
-      tdMuted: { fontSize: 9, color: "#94a3b8" },
-      cellSub: { fontSize: 8, color: "#64748b" },
-      barcode: { fontSize: 10, bold: true, color: "#0f172a" },
-      qty: { fontSize: 14, bold: true, color: "#0f172a" },
-      total: { fontSize: 9, bold: true, color: "#0f172a" },
+      title: { fontSize: layout.title, bold: true, color: "#0f172a" },
+      subtitle: { fontSize: layout.subtitle, color: "#64748b" },
+      headerSub: { fontSize: layout.subtitle, color: "#64748b", alignment: "right" },
+      th: { fontSize: layout.th, bold: true, color: "#ffffff" },
+      td: { fontSize: layout.td, color: "#0f172a" },
+      tdMono: { fontSize: layout.td, color: "#0f172a" },
+      tdMuted: { fontSize: layout.td, color: "#94a3b8" },
+      barcode: { fontSize: layout.td + 0.5, bold: true, color: "#0f172a" },
+      qty: { fontSize: layout.qty, bold: true, color: "#0f172a" },
+      total: { fontSize: layout.td, bold: true, color: "#0f172a" },
     },
     defaultStyle: { font: "Roboto" },
   };

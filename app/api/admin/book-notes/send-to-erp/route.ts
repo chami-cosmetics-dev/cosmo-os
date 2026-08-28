@@ -139,6 +139,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  for (const r of day.rows) {
+    if (r.card > 0 && !r.card_receipt_ref_last4) {
+      return NextResponse.json(
+        {
+          error: `Row ${r.idx_no || "?"} (${r.sales_invoice || "no invoice"}): card amount entered but card receipt last 4 digits missing. Open the day, fill Last 4 ref, save, then send again.`,
+          code: "CARD_REF_MISSING",
+          step: "validate",
+          locationName: shopLabel,
+          postingDate,
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const company = companyLabelForLocation(location);
   const result = await sendBookNoteRowsToErp({
     erpnextInstance: location.erpnextInstance,
@@ -149,6 +164,7 @@ export async function POST(request: NextRequest) {
       sales_invoice: r.sales_invoice,
       cash: r.cash,
       card: r.card,
+      card_last_4: r.card_receipt_ref_last4,
       koko: r.koko,
       bank_transfer: r.bank_transfer,
     })),

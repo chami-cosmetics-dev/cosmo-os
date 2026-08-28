@@ -63,6 +63,26 @@ export function compareOldestContactedFirst(
   return a.lastContactedAt.getTime() - b.lastContactedAt.getTime();
 }
 
+export function compareOldestPurchaseFirst(
+  a: { lastPurchaseAt: Date | null },
+  b: { lastPurchaseAt: Date | null }
+): number {
+  if (a.lastPurchaseAt == null && b.lastPurchaseAt == null) return 0;
+  if (a.lastPurchaseAt == null) return 1;
+  if (b.lastPurchaseAt == null) return -1;
+  return a.lastPurchaseAt.getTime() - b.lastPurchaseAt.getTime();
+}
+
+/** Oldest / never contacted first, then oldest last purchase. */
+export function compareCallQueueCandidateOrder(
+  a: { lastContactedAt: Date | null; lastPurchaseAt: Date | null },
+  b: { lastContactedAt: Date | null; lastPurchaseAt: Date | null }
+): number {
+  const byContacted = compareOldestContactedFirst(a, b);
+  if (byContacted !== 0) return byContacted;
+  return compareOldestPurchaseFirst(a, b);
+}
+
 export function takeFirstEligibleContactIds(
   rows: Array<{ contactId: string; hidden: boolean; queued: boolean }>,
   n: number
@@ -321,7 +341,7 @@ async function listRankedEligibleContacts(input: {
       lastContactedAt: contacted.get(c.id) ?? null,
       lifetimeTotal: lifetimeById.get(c.id) ?? 0,
     }))
-    .sort(compareOldestContactedFirst);
+    .sort(compareCallQueueCandidateOrder);
 
   return ranked;
 }
@@ -586,14 +606,21 @@ export async function listMerchantCallQueue(input: {
       lastContactedAt: contacted.get(c.id)?.toISOString() ?? null,
       queued: true,
       lastContactedAtDate: contacted.get(c.id) ?? null,
+      lastPurchaseAtDate: c.lastPurchaseAt,
     }))
     .sort((a, b) =>
-      compareOldestContactedFirst(
-        { lastContactedAt: a.lastContactedAtDate },
-        { lastContactedAt: b.lastContactedAtDate }
+      compareCallQueueCandidateOrder(
+        {
+          lastContactedAt: a.lastContactedAtDate,
+          lastPurchaseAt: a.lastPurchaseAtDate,
+        },
+        {
+          lastContactedAt: b.lastContactedAtDate,
+          lastPurchaseAt: b.lastPurchaseAtDate,
+        }
       )
     )
-    .map(({ lastContactedAtDate: _drop, ...row }) => row);
+    .map(({ lastContactedAtDate: _drop, lastPurchaseAtDate: _drop2, ...row }) => row);
 
   return { items };
 }
