@@ -6,7 +6,11 @@ import {
   type OsfErpCredentials,
   type OsfErpInstance,
 } from "@/lib/osf/erp-stock";
-import type { SelectableErpCompany, StoreStockCountApiItem } from "@/lib/store-stock-count/types";
+import type {
+  SelectableErpCompany,
+  StoreStockCountApiItem,
+  StoreStockCountWarehouseColumn,
+} from "@/lib/store-stock-count/types";
 
 const PAGE_LENGTH = 500;
 const MAX_PAGES = 80;
@@ -143,31 +147,68 @@ async function fetchWarehousesForCompany(
   for (const row of rows) {
     if (row.disabled === 1 || row.disabled === true) continue;
     const name = String(row.name ?? "").trim();
+    if (!/\b(main|shop)\b/i.test(name)) continue;
     if (name) names.push(name);
   }
   return names;
 }
 
+export async function listErpWarehousesForCompany(input: {
+  companyId: string;
+  instanceId: string;
+  erpCompany: string;
+}): Promise<StoreStockCountWarehouseColumn[]> {
+  const instances = await getAllOsfErpInstances(input.companyId);
+  const inst = resolveInstance(instances, input.instanceId);
+  if (!inst) {
+    throw new StoreStockCountErpError("ERP instance not found for this OS", 400);
+  }
+
+  const erpCompany = input.erpCompany.trim();
+  await assertCompanyExists(inst.cfg, erpCompany);
+  const instanceLabel = (inst.label ?? inst.id).trim() || inst.id;
+  const warehouses = await fetchWarehousesForCompany(inst.cfg, erpCompany);
+  return warehouses.map((warehouse) => ({
+    key: `${inst.id}::${erpCompany}::${warehouse}`,
+    label: warehouse,
+    warehouse,
+    instanceId: inst.id,
+    instanceLabel,
+    erpCompany,
+  }));
+}
+
 async function fetchStockItems(cfg: OsfErpCredentials): Promise<
-  Array<{ item_code: string; item_name: string; description: string }>
+  Array<{ item_code: string; item_name: string; description: string; barcode: string }>
 > {
   const filters = [
     ["disabled", "=", 0],
     ["is_stock_item", "=", 1],
   ];
-  // Do NOT request Item.barcode — ERPNext list API rejects it
-  // ("Field not permitted in query: barcode"). Barcodes come from Item Barcode.
-  const rows = await paginateResource<{
+  let rows: Array<{
     item_code?: string;
     name?: string;
     item_name?: string;
     description?: string;
-  }>({
-    cfg,
-    doctype: "Item",
-    fields: ["item_code", "item_name", "description"],
-    filters,
-  });
+    barcode?: string;
+  }>;
+  try {
+    rows = await paginateResource({
+      cfg,
+      doctype: "Item",
+      fields: ["item_code", "item_name", "description", "barcode"],
+      filters,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("barcode") && !msg.includes("Field not permitted")) throw err;
+    rows = await paginateResource({
+      cfg,
+      doctype: "Item",
+      fields: ["item_code", "item_name", "description"],
+      filters,
+    });
+  }
 
   return rows
     .map((row) => {
@@ -176,6 +217,7 @@ async function fetchStockItems(cfg: OsfErpCredentials): Promise<
       return {
         item_code: code,
         item_name: String(row.item_name ?? "").trim(),
+        barcode: String(row.barcode ?? "").trim(),
         description: String(row.description ?? "")
           .replace(/<[^>]+>/g, " ")
           .replace(/\s+/g, " ")
@@ -188,10 +230,19 @@ async function fetchStockItems(cfg: OsfErpCredentials): Promise<
 async function fetchBarcodeMap(cfg: OsfErpCredentials): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   try {
-    const rows = await paginateResource<{ parent?: string; barcode?: string }>({
+    const rows = await paginateResource<{
+      parent?: string;
+      parenttype?: string;
+      parentfield?: string;
+      barcode?: string;
+    }>({
       cfg,
       doctype: "Item Barcode",
-      fields: ["parent", "barcode"],
+      fields: ["parent", "parenttype", "parentfield", "barcode"],
+      filters: [
+        ["parenttype", "=", "Item"],
+        ["parentfield", "=", "barcodes"],
+      ],
     });
     for (const row of rows) {
       const parent = String(row.parent ?? "").trim();
@@ -207,11 +258,48 @@ async function fetchBarcodeMap(cfg: OsfErpCredentials): Promise<Map<string, stri
   return map;
 }
 
-async function fetchBinQtyByItem(
+function pushBarcode(map: Map<string, string[]>, itemCode: string, rawBarcode: unknown) {
+  const barcode = String(rawBarcode ?? "").trim();
+  if (!itemCode || !barcode) return;
+  const list = map.get(itemCode) ?? [];
+  if (!list.includes(barcode)) list.push(barcode);
+  map.set(itemCode, list);
+}
+
+async function fillBarcodeMapFromItemDetails(
+  cfg: OsfErpCredentials,
+  itemCodes: string[],
+  map: Map<string, string[]>,
+): Promise<void> {
+  const DETAIL_BATCH = 10;
+  for (let i = 0; i < itemCodes.length; i += DETAIL_BATCH) {
+    const batch = itemCodes.slice(i, i + DETAIL_BATCH);
+    await Promise.all(
+      batch.map(async (itemCode) => {
+        try {
+          const json = await erpGetJson<{
+            data?: {
+              barcode?: string;
+              barcodes?: Array<{ barcode?: string }>;
+            };
+          }>(cfg, `/api/resource/Item/${encodeURIComponent(itemCode)}`);
+          pushBarcode(map, itemCode, json.data?.barcode);
+          for (const row of json.data?.barcodes ?? []) {
+            pushBarcode(map, itemCode, row.barcode);
+          }
+        } catch {
+          // Some ERP keys may not allow Item detail reads; keep existing barcode sources.
+        }
+      }),
+    );
+  }
+}
+
+async function fetchBinQtyByItemAndWarehouse(
   cfg: OsfErpCredentials,
   warehouses: string[],
-): Promise<Map<string, number>> {
-  const qty = new Map<string, number>();
+): Promise<Map<string, Map<string, number>>> {
+  const qty = new Map<string, Map<string, number>>();
   if (warehouses.length === 0) return qty;
 
   const WH_BATCH = 40;
@@ -230,10 +318,14 @@ async function fetchBinQtyByItem(
     });
     for (const row of rows) {
       const item = String(row.item_code ?? "").trim();
+      const warehouse = String(row.warehouse ?? "").trim();
       if (!item) continue;
+      if (!warehouse) continue;
       const n = Number(row.actual_qty);
       if (!Number.isFinite(n)) continue;
-      qty.set(item, (qty.get(item) ?? 0) + n);
+      const byWarehouse = qty.get(item) ?? new Map<string, number>();
+      byWarehouse.set(warehouse, (byWarehouse.get(warehouse) ?? 0) + n);
+      qty.set(item, byWarehouse);
     }
   }
   return qty;
@@ -253,10 +345,12 @@ export async function fetchCompanyStockItems(input: {
   companyId: string;
   instanceId: string;
   erpCompany: string;
+  warehouses?: StoreStockCountWarehouseColumn[];
 }): Promise<{
   instanceId: string;
   instanceLabel: string;
   erpCompany: string;
+  warehouses: StoreStockCountWarehouseColumn[];
   items: StoreStockCountApiItem[];
 }> {
   const instances = await getAllOsfErpInstances(input.companyId);
@@ -282,22 +376,53 @@ export async function fetchCompanyStockItems(input: {
     const [catalog, barcodeMap, warehouses] = await Promise.all([
       fetchStockItems(inst.cfg),
       fetchBarcodeMap(inst.cfg),
-      fetchWarehousesForCompany(inst.cfg, erpCompany),
+      input.warehouses ? Promise.resolve(input.warehouses.map((w) => w.warehouse)) : fetchWarehousesForCompany(inst.cfg, erpCompany),
     ]);
-    const binQty = await fetchBinQtyByItem(inst.cfg, warehouses);
+    const missingBarcodeItemCodes = catalog
+      .filter((row) => !row.barcode && (barcodeMap.get(row.item_code)?.length ?? 0) === 0)
+      .map((row) => row.item_code);
+    if (missingBarcodeItemCodes.length > 0) {
+      await fillBarcodeMapFromItemDetails(inst.cfg, missingBarcodeItemCodes, barcodeMap);
+    }
+    const binQty = await fetchBinQtyByItemAndWarehouse(inst.cfg, warehouses);
+    const instanceLabel = (inst.label ?? inst.id).trim() || inst.id;
+    const warehouseColumns = input.warehouses ?? warehouses.map((warehouse) => ({
+      key: `${inst.id}::${erpCompany}::${warehouse}`,
+      label: warehouse,
+      warehouse,
+      instanceId: inst.id,
+      instanceLabel,
+      erpCompany,
+    }));
 
     const items: StoreStockCountApiItem[] = catalog.map((row) => ({
       sku: row.item_code,
       name: row.item_name || row.item_code,
       description: row.description,
-      barcodes: [...(barcodeMap.get(row.item_code) ?? [])],
-      stock: binQty.get(row.item_code) ?? 0,
+      barcodes: [
+        ...new Set(
+          [row.barcode, ...(barcodeMap.get(row.item_code) ?? [])]
+            .map((barcode) => barcode.trim())
+            .filter(Boolean),
+        ),
+      ],
+      stockByWarehouse: Object.fromEntries(
+        warehouseColumns.map((col) => [
+          col.key,
+          binQty.get(row.item_code)?.get(col.warehouse) ?? 0,
+        ]),
+      ),
+      stock: warehouseColumns.reduce(
+        (sum, col) => sum + (binQty.get(row.item_code)?.get(col.warehouse) ?? 0),
+        0,
+      ),
     }));
 
     return {
       instanceId: inst.id,
-      instanceLabel: (inst.label ?? inst.id).trim() || inst.id,
+      instanceLabel,
       erpCompany,
+      warehouses: warehouseColumns,
       items,
     };
   } catch (err) {

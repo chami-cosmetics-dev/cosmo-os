@@ -79,6 +79,8 @@ model Company {
   osfColumnConfigs              OsfColumnConfig[]
   osfBuyers                     OsfBuyer[]
   osfUserColumnAccess           OsfUserColumnAccess[]
+  storeStockCountReports        StoreStockCountReport[]
+  storeStockCountItems          StoreStockCountReportItem[]
   shopifyAbandonedCheckouts     ShopifyAbandonedCheckout[]
   abandonedCheckoutSyncs       CompanyAbandonedCheckoutSync[]
   adaptPurchaseHistories        AdaptPurchaseHistory[]
@@ -354,6 +356,9 @@ model User {
   riderDeliveryTasks                  RiderDeliveryTask[]
   userRoles                           UserRole[]
   osfUserColumnAccess                 OsfUserColumnAccess[]
+  storeStockCountReportsCreated       StoreStockCountReport[]    @relation("StoreStockCountReportCreatedBy")
+  storeStockCountReportsUpdated       StoreStockCountReport[]    @relation("StoreStockCountReportUpdatedBy")
+  storeStockCountReportsSubmitted     StoreStockCountReport[]    @relation("StoreStockCountReportSubmittedBy")
   auditLogs                           AuditLog[]                @relation("AuditLogActor")
   cosmoAcademyExplanationsCreated     CosmoAcademyExplanation[] @relation("CosmoAcademyExplanationCreatedBy")
   cosmoAcademyProgress                CosmoAcademyProgress[]
@@ -2047,6 +2052,53 @@ model OsfUserColumnAccess {
   @@unique([companyId, userId])
   @@index([companyId])
   @@index([userId])
+}
+
+model StoreStockCountReport {
+  id              String                      @id @default(cuid())
+  companyId       String
+  title           String
+  selectedCompanies Json
+  warehouses      Json                        @default("[]")
+  status          String                      @default("draft")
+  createdByUserId String?
+  updatedByUserId String?
+  submittedByUserId String?
+  submittedAt     DateTime?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  company         Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       User?                       @relation("StoreStockCountReportCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy       User?                       @relation("StoreStockCountReportUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  submittedBy     User?                       @relation("StoreStockCountReportSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  items           StoreStockCountReportItem[]
+
+  @@index([companyId, updatedAt(sort: Desc)])
+  @@index([companyId, status, updatedAt(sort: Desc)])
+}
+
+model StoreStockCountReportItem {
+  id          String                @id @default(cuid())
+  companyId   String
+  reportId    String
+  sku         String
+  skuKey      String
+  name        String
+  description String                @default("")
+  barcodes    String[]              @default([])
+  stockByWarehouse Json
+  stockSum    Int?
+  manualCount Int?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  report      StoreStockCountReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, skuKey])
+  @@index([companyId, skuKey])
+  @@index([reportId, name])
+  @@index([reportId, manualCount])
+  @@index([reportId, stockSum])
 }
 
 /// Singleton: one payday day-of-month for all companies in this database.
