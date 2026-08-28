@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Boxes, Download, History, Loader2, MapPin, Printer, RefreshCw, Users } from "lucide-react";
+import { Boxes, Download, History, Loader2, Printer, RefreshCw, Search, Tag, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,9 +17,9 @@ type PickListItem = {
   quantity: number;
 };
 
-type LocationGroup = {
-  locationId: string;
-  locationName: string;
+type BrandGroup = {
+  brandId: string;
+  brandName: string;
   items: PickListItem[];
   totalUnits: number;
 };
@@ -31,18 +31,18 @@ type PickListGroup = {
   label: string;
   printedByName: string | null;
   orderCount: number;
-  totalLocations: number;
+  totalBrands: number;
   totalUnits: number;
-  locationGroups: LocationGroup[];
+  brandGroups: BrandGroup[];
 };
 
 type ActivePickListData = {
   activeGroups: PickListGroup[];
   singlePrints: {
     orderCount: number;
-    totalLocations: number;
+    totalBrands: number;
     totalUnits: number;
-    locationGroups: LocationGroup[];
+    brandGroups: BrandGroup[];
   };
   todayLabel?: string;
 };
@@ -60,7 +60,7 @@ function todayLK() {
   }).format(new Date());
 }
 
-function LocationTables({ groups }: { groups: LocationGroup[] }) {
+function BrandTables({ groups }: { groups: BrandGroup[] }) {
   if (groups.length === 0) {
     return (
       <p className="rounded-md border border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
@@ -72,10 +72,10 @@ function LocationTables({ groups }: { groups: LocationGroup[] }) {
   return (
     <div className="space-y-4">
       {groups.map((group) => (
-        <div key={group.locationId} className="rounded-md border border-border/70 bg-background">
+        <div key={group.brandId} className="rounded-md border border-border/70 bg-background">
           <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3">
-            <MapPin className="size-4 text-blue-500" />
-            <span className="font-semibold">{group.locationName}</span>
+            <Tag className="size-4 text-blue-500" />
+            <span className="font-semibold">{group.brandName}</span>
             <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
               {group.items.length} item type{group.items.length !== 1 ? "s" : ""}
             </span>
@@ -96,7 +96,7 @@ function LocationTables({ groups }: { groups: LocationGroup[] }) {
               </thead>
               <tbody>
                 {group.items.map((item, idx) => (
-                  <tr key={`${group.locationId}-${item.sku ?? item.productTitle}-${idx}`} className="border-b border-border/40 last:border-0">
+                  <tr key={`${group.brandId}-${item.sku ?? item.productTitle}-${idx}`} className="border-b border-border/40 last:border-0">
                     <td className="px-4 py-2 text-muted-foreground">{idx + 1}</td>
                     <td className="px-4 py-2">
                       <div className="font-medium">{item.productTitle}</div>
@@ -266,7 +266,7 @@ export function PickListPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Inventory Pick List</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bulk print batches and single-print orders grouped by location
+            Bulk print batches and single-print orders grouped by brand
             {activeData?.todayLabel ? ` (${activeData.todayLabel})` : ""}.
           </p>
         </div>
@@ -354,7 +354,7 @@ export function PickListPage() {
                       <p className="font-semibold">{group.label}</p>
                       <p className="text-xs text-muted-foreground">
                         {group.orderCount} order{group.orderCount !== 1 ? "s" : ""} ·{" "}
-                        {group.totalLocations} location{group.totalLocations !== 1 ? "s" : ""} ·{" "}
+                        {group.totalBrands} brand{group.totalBrands !== 1 ? "s" : ""} ·{" "}
                         {group.totalUnits} units
                       </p>
                     </div>
@@ -372,7 +372,7 @@ export function PickListPage() {
                       Download PDF
                     </Button>
                   </div>
-                  <LocationTables groups={group.locationGroups} />
+                  <BrandTables groups={group.brandGroups} />
                 </div>
               ))
             )}
@@ -385,7 +385,7 @@ export function PickListPage() {
                 <div>
                   <h2 className="text-lg font-semibold">Single-print orders (today)</h2>
                   <p className="text-xs text-muted-foreground">
-                    Individually printed today, not part of a bulk batch — grouped by location.
+                    Individually printed today, not part of a bulk batch — grouped by brand.
                   </p>
                 </div>
               </div>
@@ -394,7 +394,7 @@ export function PickListPage() {
                 variant="outline"
                 className="gap-2"
                 disabled={
-                  downloadingId === "singles" || !singles || singles.locationGroups.length === 0
+                  downloadingId === "singles" || !singles || singles.brandGroups.length === 0
                 }
                 onClick={downloadSingles}
               >
@@ -410,12 +410,12 @@ export function PickListPage() {
             {singles && singles.orderCount > 0 && (
               <div className="grid gap-3 sm:grid-cols-3">
                 <StatCard icon={Printer} label="Orders Printed" value={singles.orderCount} />
-                <StatCard icon={MapPin} label="Locations" value={singles.totalLocations} />
+                <StatCard icon={Tag} label="Brands" value={singles.totalBrands} />
                 <StatCard icon={Boxes} label="Total Units" value={singles.totalUnits} />
               </div>
             )}
 
-            <LocationTables groups={singles?.locationGroups ?? []} />
+            <BrandTables groups={singles?.brandGroups ?? []} />
           </section>
         </div>
       )}
@@ -439,7 +439,7 @@ export function PickListPage() {
                     {group.orderCount} orders · {group.totalUnits} units
                   </span>
                 </div>
-                <LocationTables groups={group.locationGroups} />
+                <BrandTables groups={group.brandGroups} />
               </div>
             ))
           )}

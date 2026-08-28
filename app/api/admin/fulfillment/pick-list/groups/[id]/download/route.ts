@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   buildPickListAggregationForOrders,
-  toPdfLocations,
+  toPdfBrands,
 } from "@/lib/pick-list-data";
 import { generatePickListPdf } from "@/lib/pick-list-pdf";
 import {
@@ -56,7 +56,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
   ]);
 
-  if (aggregation.locationGroups.length === 0) {
+  if (aggregation.brandGroups.length === 0) {
     return NextResponse.json({ error: "No pick list items found" }, { status: 404 });
   }
 
@@ -69,7 +69,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
   const headerLine = formatPickListGroupLabel(groupMeta.createdAt, printedByName);
 
   const pdf = await generatePickListPdf(
-    toPdfLocations(aggregation.locationGroups),
+    toPdfBrands(aggregation.brandGroups),
     dateLabel,
     company?.name ?? null,
     headerLine,

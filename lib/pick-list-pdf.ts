@@ -25,8 +25,8 @@ pdfMake.addFonts({
 pdfMake.setUrlAccessPolicy(() => false);
 pdfMake.setLocalAccessPolicy(() => false);
 
-export type PickListLocation = {
-  locationName: string;
+export type PickListBrand = {
+  brandName: string;
   items: Array<{
     productTitle: string;
     variantTitle: string | null;
@@ -47,7 +47,7 @@ const tableLayout = {
 };
 
 export async function generatePickListPdf(
-  locations: PickListLocation[],
+  brands: PickListBrand[],
   date: string,
   companyName: string | null,
   headerLine?: string | null,
@@ -63,9 +63,9 @@ export async function generatePickListPdf(
     { text: headerLine ?? "Inventory Pick List", style: "subtitle", margin: [0, 0, 0, 20] },
   ];
 
-  for (let li = 0; li < locations.length; li++) {
-    const location = locations[li];
-    const totalUnits = location.items.reduce((s, i) => s + i.quantity, 0);
+  for (let li = 0; li < brands.length; li++) {
+    const brand = brands[li];
+    const totalUnits = brand.items.reduce((s, i) => s + i.quantity, 0);
 
     const tableBody: unknown[][] = [
       [
@@ -75,7 +75,7 @@ export async function generatePickListPdf(
         { text: "Barcode", style: "th" },
         { text: "Qty", style: "th", alignment: "right" },
       ],
-      ...location.items.map((item, idx) => [
+      ...brand.items.map((item, idx) => [
         { text: String(idx + 1), style: "tdMuted" },
         item.variantTitle
           ? { stack: [{ text: item.productTitle, style: "td" }, { text: item.variantTitle, style: "cellSub" }] }
@@ -86,7 +86,7 @@ export async function generatePickListPdf(
       ]),
       [
         {
-          text: `${location.items.length} item type${location.items.length !== 1 ? "s" : ""}`,
+          text: `${brand.items.length} item type${brand.items.length !== 1 ? "s" : ""}`,
           colSpan: 4,
           style: "total",
         },
@@ -99,7 +99,7 @@ export async function generatePickListPdf(
 
     const sectionBlock: Record<string, unknown> = {
       stack: [
-        { text: location.locationName, style: "locationHeader", margin: [0, 0, 0, 8] },
+        { text: brand.brandName, style: "brandHeader", margin: [0, 0, 0, 8] },
         {
           table: {
             headerRows: 1,
@@ -128,7 +128,7 @@ export async function generatePickListPdf(
       title: { fontSize: 18, bold: true, color: "#0f172a" },
       subtitle: { fontSize: 10, color: "#64748b" },
       headerSub: { fontSize: 10, color: "#64748b", alignment: "right" },
-      locationHeader: { fontSize: 14, bold: true, color: "#1e40af" },
+      brandHeader: { fontSize: 14, bold: true, color: "#1e40af" },
       th: { fontSize: 9, bold: true, color: "#ffffff" },
       td: { fontSize: 9, color: "#0f172a" },
       tdMuted: { fontSize: 9, color: "#94a3b8" },
