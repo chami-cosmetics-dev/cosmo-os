@@ -204,7 +204,7 @@ Content-Type: application/x-www-form-urlencoded
 rows_json=<json array>&company=<erpnextCompany or location name>
 ```
 
-`rows_json` items: `idx_no`, `sales_invoice`, `cash`, `card`, `koko`, `bank_transfer` (matches `ss9_verify_book_note.py`).
+`rows_json` items: `idx_no`, `sales_invoice`, `cash`, `card`, `card_last_4` (when card > 0), `koko`, `bank_transfer` (matches `ss9_verify_book_note.py`).
 
 Override method name with env `ERPNEXT_BOOK_NOTE_VERIFY_METHOD` (default `verify_book_note`).
 
