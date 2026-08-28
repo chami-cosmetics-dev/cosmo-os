@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CheckCircle2, Loader2, RefreshCw, Search, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, Plus, RefreshCw, Search, Trash2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,9 @@ export type FinanceApprovalItem = {
   requestNote: string | null;
   reviewNote: string | null;
   kokoReference: string | null;
+  multipleKokoPayments?: boolean;
+  kokoReferences?: Array<{ reference: string; amount: string }>;
+  kokoPaymentAmount?: string | null;
   requiresKokoReference: boolean;
   createdAt: string;
   reviewedAt: string | null;
@@ -121,6 +124,34 @@ function TypeBadge({ type }: { type: string }) {
       {badge.label}
     </span>
   );
+}
+
+function formatMoney(value: number): string {
+  return value.toLocaleString("en-LK", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function kokoTargetAmount(approval: FinanceApprovalItem): number {
+  const splitKoko = approval.kokoPaymentAmount
+    ? Number(approval.kokoPaymentAmount)
+    : Number.NaN;
+  if (Number.isFinite(splitKoko) && splitKoko > 0) return splitKoko;
+  const total = approval.totalPrice ? Number(approval.totalPrice) : Number.NaN;
+  return Number.isFinite(total) ? total : 0;
+}
+
+type KokoReferenceRow = {
+  reference: string;
+  amount: string;
+};
+
+function emptyKokoRows(): KokoReferenceRow[] {
+  return [
+    { reference: "", amount: "" },
+    { reference: "", amount: "" },
+  ];
 }
 
 function paymentLabel(approval: Pick<FinanceApprovalItem, "type" | "paymentTypeLabel" | "requestNote">) {
@@ -238,6 +269,8 @@ export function FinanceApprovalsPanel({
   );
   const [reviewNote, setReviewNote] = useState("");
   const [kokoReference, setKokoReference] = useState("");
+  const [multipleKokoPayments, setMultipleKokoPayments] = useState(false);
+  const [kokoReferenceRows, setKokoReferenceRows] = useState<KokoReferenceRow[]>(emptyKokoRows);
   const [hodPassword, setHodPassword] = useState("");
   const [revertReason, setRevertReason] = useState("");
   const [busy, setBusy] = useState<"refresh" | "approve" | "reject" | "revert" | null>(null);
@@ -276,8 +309,33 @@ export function FinanceApprovalsPanel({
   const rejectionReasonLength = reviewNote.trim().length;
   const rejectionReasonValid =
     !requiresRejectionReason || (rejectionReasonLength >= 5 && rejectionReasonLength <= 500);
-  const kokoReferenceValid =
-    !selected?.requiresKokoReference || kokoReference.trim().length > 0;
+  const kokoTarget = selected ? kokoTargetAmount(selected) : 0;
+  const kokoMultiTotal = useMemo(() => {
+    if (!multipleKokoPayments) return 0;
+    return kokoReferenceRows.reduce((sum, row) => {
+      const amount = Number(row.amount);
+      return sum + (Number.isFinite(amount) ? amount : 0);
+    }, 0);
+  }, [multipleKokoPayments, kokoReferenceRows]);
+  const kokoReferenceValid = useMemo(() => {
+    if (!selected?.requiresKokoReference) return true;
+    if (multipleKokoPayments) {
+      if (kokoReferenceRows.length < 2) return false;
+      if (kokoReferenceRows.some((row) => !row.reference.trim())) return false;
+      if (kokoReferenceRows.some((row) => !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0)) {
+        return false;
+      }
+      return Math.abs(kokoMultiTotal - kokoTarget) <= 0.01;
+    }
+    return kokoReference.trim().length > 0;
+  }, [
+    selected?.requiresKokoReference,
+    multipleKokoPayments,
+    kokoReferenceRows,
+    kokoMultiTotal,
+    kokoTarget,
+    kokoReference,
+  ]);
   const groupByRider = typeFilter === "delivery_payment_approval";
   const deliveryRiderGroups = useMemo(
     () => (groupByRider ? groupDeliveryApprovalsByRider(searchedApprovals) : []),
@@ -315,7 +373,20 @@ export function FinanceApprovalsPanel({
 
   useEffect(() => {
     setKokoReference(selected?.kokoReference ?? "");
-  }, [selectedId, selected?.kokoReference]);
+    setMultipleKokoPayments(Boolean(selected?.multipleKokoPayments));
+    if (selected?.kokoReferences && selected.kokoReferences.length > 1) {
+      setKokoReferenceRows(
+        selected.kokoReferences.map((row) => ({
+          reference: row.reference,
+          amount: row.amount,
+        })),
+      );
+    } else if (selected?.multipleKokoPayments) {
+      setKokoReferenceRows(emptyKokoRows());
+    } else {
+      setKokoReferenceRows(emptyKokoRows());
+    }
+  }, [selectedId, selected?.kokoReference, selected?.multipleKokoPayments, selected?.kokoReferences]);
 
   function switchView(next: "pending" | "history") {
     setView(next);
@@ -366,9 +437,20 @@ export function FinanceApprovalsPanel({
           action,
           reviewNote: reviewNote.trim() || null,
           kokoReference:
-            action === "approve" && selected.requiresKokoReference
+            action === "approve" && selected.requiresKokoReference && !multipleKokoPayments
               ? kokoReference.trim()
               : null,
+          multipleKokoPayments:
+            action === "approve" && selected.requiresKokoReference
+              ? multipleKokoPayments
+              : false,
+          kokoReferences:
+            action === "approve" && selected.requiresKokoReference && multipleKokoPayments
+              ? kokoReferenceRows.map((row) => ({
+                  reference: row.reference.trim(),
+                  amount: Number(row.amount),
+                }))
+              : undefined,
         }),
       });
       const data = (await response.json()) as {
@@ -376,6 +458,9 @@ export function FinanceApprovalsPanel({
         code?: string;
         erpSyncFailed?: boolean;
         erpSyncError?: string;
+        kokoOrderSyncFailed?: boolean;
+        kokoOrderSyncError?: string;
+        kokoOrderSyncStatus?: string;
         completionMode?: "credit_note" | "cancel_si";
         creditNoteName?: string;
         invoiceName?: string;
@@ -392,6 +477,11 @@ export function FinanceApprovalsPanel({
             (isDelivery
               ? "ERP payment entry failed — approval was not completed. Fix the issue and retry."
               : "Approval saved but ERP Sales Invoice could not be created. Check Failed ERP syncs."),
+        );
+      } else if (action === "approve" && data.kokoOrderSyncFailed) {
+        notify.error(
+          data.kokoOrderSyncError ??
+            "Approval saved but KOKO order could not be verified in ERP bank recon.",
         );
       } else if (action === "approve" && selected.type === "delivery_payment_approval") {
         notify.success("Delivery payment approved — invoice complete and ERP payment recorded.");
@@ -421,6 +511,8 @@ export function FinanceApprovalsPanel({
       }
       setReviewNote("");
       setKokoReference("");
+      setMultipleKokoPayments(false);
+      setKokoReferenceRows(emptyKokoRows());
       await refresh();
     } catch {
       notify.error("Failed to review approval");
@@ -712,22 +804,140 @@ export function FinanceApprovalsPanel({
                 {selected.status === "pending" ? (
                   <>
                     {selected.requiresKokoReference && (
-                      <div>
-                        <label className="mb-1.5 block text-sm font-medium" htmlFor="finance-koko-reference">
-                          KOKO reference number <span className="text-destructive">*</span>
+                      <div className="space-y-3">
+                        <label className="flex items-center gap-2 text-sm font-medium">
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border border-input"
+                            checked={multipleKokoPayments}
+                            onChange={(event) => {
+                              const checked = event.target.checked;
+                              setMultipleKokoPayments(checked);
+                              if (checked) {
+                                setKokoReferenceRows((rows) =>
+                                  rows.length >= 2
+                                    ? rows
+                                    : emptyKokoRows(),
+                                );
+                              } else if (kokoReferenceRows[0]?.reference.trim()) {
+                                setKokoReference(kokoReferenceRows[0].reference);
+                              }
+                            }}
+                            disabled={busy !== null}
+                          />
+                          Customer paid with multiple KOKO payments
                         </label>
-                        <Input
-                          id="finance-koko-reference"
-                          value={kokoReference}
-                          onChange={(event) => setKokoReference(event.target.value)}
-                          placeholder="Enter the KOKO payment reference"
-                          maxLength={120}
-                          disabled={busy !== null}
-                          autoComplete="off"
-                        />
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Required for approval. Each reference can be used only once.
-                        </p>
+
+                        {!multipleKokoPayments ? (
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium" htmlFor="finance-koko-reference">
+                              KOKO reference number <span className="text-destructive">*</span>
+                            </label>
+                            <Input
+                              id="finance-koko-reference"
+                              value={kokoReference}
+                              onChange={(event) => setKokoReference(event.target.value)}
+                              placeholder="Enter the KOKO payment reference"
+                              maxLength={120}
+                              disabled={busy !== null}
+                              autoComplete="off"
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Required for approval. Each reference can be used only once.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium">
+                                KOKO payments <span className="text-destructive">*</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Must total Rs {formatMoney(kokoTarget)}
+                              </p>
+                            </div>
+                            {kokoReferenceRows.map((row, index) => (
+                              <div key={`koko-row-${index}`} className="grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+                                <Input
+                                  value={row.reference}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setKokoReferenceRows((rows) =>
+                                      rows.map((item, rowIndex) =>
+                                        rowIndex === index ? { ...item, reference: value } : item,
+                                      ),
+                                    );
+                                  }}
+                                  placeholder={`KOKO reference ${index + 1}`}
+                                  maxLength={120}
+                                  disabled={busy !== null}
+                                  autoComplete="off"
+                                />
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={row.amount}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setKokoReferenceRows((rows) =>
+                                      rows.map((item, rowIndex) =>
+                                        rowIndex === index ? { ...item, amount: value } : item,
+                                      ),
+                                    );
+                                  }}
+                                  placeholder="Amount"
+                                  disabled={busy !== null}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  disabled={busy !== null || kokoReferenceRows.length <= 2}
+                                  onClick={() => {
+                                    setKokoReferenceRows((rows) =>
+                                      rows.filter((_, rowIndex) => rowIndex !== index),
+                                    );
+                                  }}
+                                  aria-label={`Remove KOKO payment ${index + 1}`}
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                              </div>
+                            ))}
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="gap-2"
+                                disabled={busy !== null || kokoReferenceRows.length >= 10}
+                                onClick={() => {
+                                  setKokoReferenceRows((rows) => [
+                                    ...rows,
+                                    { reference: "", amount: "" },
+                                  ]);
+                                }}
+                              >
+                                <Plus className="size-4" />
+                                Add KOKO payment
+                              </Button>
+                              <p
+                                className={`text-xs ${
+                                  Math.abs(kokoMultiTotal - kokoTarget) <= 0.01
+                                    ? "text-muted-foreground"
+                                    : "text-destructive"
+                                }`}
+                              >
+                                Entered total: Rs {formatMoney(kokoMultiTotal)}
+                              </p>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Add one reference per KOKO transaction. Amounts must match the order
+                              {selected.kokoPaymentAmount ? " KOKO portion" : ""} total.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     )}
                     <div>
@@ -789,11 +999,25 @@ export function FinanceApprovalsPanel({
                   <div className="space-y-3">
                     <div className="rounded-md border border-border/70 p-3 text-sm text-muted-foreground">
                       Reviewed by {selected.reviewedByName ?? selected.reviewedByEmail ?? "-"} on {formatDate(selected.reviewedAt)}.
-                      {selected.kokoReference && (
-                        <p className="mt-2">
-                          <span className="font-medium text-foreground">KOKO reference:</span>{" "}
-                          {selected.kokoReference}
-                        </p>
+                      {selected.kokoReferences && selected.kokoReferences.length > 1 ? (
+                        <div className="mt-2 text-sm">
+                          <span className="font-medium text-foreground">KOKO references:</span>
+                          <ul className="mt-1 space-y-1 text-muted-foreground">
+                            {selected.kokoReferences.map((row, index) => (
+                              <li key={`${row.reference}-${index}`}>
+                                {row.reference}
+                                {row.amount ? ` — Rs ${formatMoney(Number(row.amount))}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        selected.kokoReference && (
+                          <p className="mt-2">
+                            <span className="font-medium text-foreground">KOKO reference:</span>{" "}
+                            {selected.kokoReference}
+                          </p>
+                        )
                       )}
                       {selected.reviewNote && <p className="mt-2 whitespace-pre-wrap">{selected.reviewNote}</p>}
                     </div>

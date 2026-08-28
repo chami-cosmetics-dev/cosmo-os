@@ -17,7 +17,10 @@ import {
   notifyApprovalRequester,
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
-import { buildDefaultOrderPaymentRequestNote } from "@/lib/approval-payment-split";
+import {
+  APPROVAL_SPLIT_KOKO,
+  buildDefaultOrderPaymentRequestNote,
+} from "@/lib/approval-payment-split";
 import { writeAuditLog } from "@/lib/audit-log";
 import {
   cancelErpnextSalesInvoice,
@@ -49,9 +52,14 @@ import {
   paymentMethodChangeGateway,
 } from "@/lib/payment-method-label";
 import {
-  normalizeKokoReference,
+  findTakenKokoReferences,
+  parseKokoApprovalPayload,
+  type ParsedKokoApprovalPayload,
+} from "@/lib/koko-approval-references";
+import {
   requiresKokoApprovalReference,
 } from "@/lib/koko-approval-reference";
+import { syncKokoOrdersForApproval } from "@/lib/koko-orders/erp-sync";
 import {
   finalizeReturnCancelOsState,
   runReturnCancelExternalCompletion,
@@ -65,16 +73,56 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+const kokoReferenceLineSchema = z.object({
+  reference: z.string().trim().max(120),
+  amount: z.coerce.number().positive().optional(),
+});
+
 const reviewSchema = z.object({
   action: z.enum(["approve", "reject"]),
   reviewNote: z.string().trim().max(2000).optional().nullable(),
   kokoReference: z.string().trim().max(120).optional().nullable(),
+  multipleKokoPayments: z.boolean().optional(),
+  kokoReferences: z.array(kokoReferenceLineSchema).max(20).optional(),
 });
 
 class ConcurrentApprovalDecisionError extends Error {
   constructor() {
     super("Approval request was already reviewed");
     this.name = "ConcurrentApprovalDecisionError";
+  }
+}
+
+async function trySyncKokoOrdersAfterApproval(input: {
+  orderId: string;
+  entries: Array<{ reference: string; amount: number }>;
+  requestedAt: Date;
+  reviewedById: string;
+}): Promise<{ failed: boolean; error?: string; status?: string }> {
+  if (input.entries.length === 0) {
+    return { failed: false };
+  }
+  try {
+    const result = await syncKokoOrdersForApproval(input);
+    if (!result.ok) {
+      return {
+        failed: true,
+        error: result.error ?? "KOKO order ERP sync failed",
+      };
+    }
+    const bad = result.results.find((row) => row.status && row.status !== "verified");
+    if (bad) {
+      return {
+        failed: true,
+        status: bad.status,
+        error: `KOKO order saved in ERP with status "${bad.status}"`,
+      };
+    }
+    return { failed: false, status: "verified" };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.error("[ERPNext] KOKO order sync failed:", error);
+    return { failed: true, error };
   }
 }
 
@@ -175,6 +223,7 @@ export async function PATCH(
     orderReturnId: string | null;
     requestedById: string | null;
     requestNote: string | null;
+    createdAt: Date;
     orderLinked: boolean;
     orderName: string | null;
     orderNumber: string | null;
@@ -192,6 +241,7 @@ export async function PATCH(
         ar."orderReturnId",
         ar."requestedById",
         ar."requestNote",
+        ar."createdAt",
         (o."id" IS NOT NULL) AS "orderLinked",
         o."name" AS "orderName",
         o."orderNumber",
@@ -252,22 +302,66 @@ export async function PATCH(
     paymentGatewayPrimary: approval.paymentGatewayPrimary,
     paymentGatewayNames: approval.paymentGatewayNames,
   });
-  const submittedKokoReference = parsed.data.kokoReference
-    ? normalizeKokoReference(parsed.data.kokoReference)
-    : "";
-  if (parsed.data.action === "approve" && requiresKokoReference && !submittedKokoReference) {
-    return NextResponse.json(
-      {
-        error: "KOKO reference number is required before approval.",
-        code: "KOKO_REFERENCE_REQUIRED",
-      },
-      { status: 400 },
+
+  let kokoApprovalPayload: ParsedKokoApprovalPayload | null = null;
+  if (parsed.data.action === "approve" && requiresKokoReference) {
+    if (!approval.orderId) {
+      return NextResponse.json(
+        {
+          error: "KOKO reference cannot be recorded without a linked order.",
+          code: "ORDER_MISSING",
+        },
+        { status: 400 },
+      );
+    }
+
+    const orderForKoko = await prisma.order.findUnique({
+      where: { id: approval.orderId },
+      select: { totalPrice: true },
+    });
+    const kokoSplitLine = splitPaymentLines.find(
+      (line) => line.paymentMethod === APPROVAL_SPLIT_KOKO,
     );
+    const targetAmount = kokoSplitLine
+      ? Number(kokoSplitLine.amount)
+      : Number(orderForKoko?.totalPrice ?? 0);
+
+    const parsedKoko = parseKokoApprovalPayload({
+      multipleKokoPayments: parsed.data.multipleKokoPayments,
+      kokoReference: parsed.data.kokoReference,
+      kokoReferences: parsed.data.kokoReferences,
+      targetAmount,
+    });
+    if (!parsedKoko.ok) {
+      return NextResponse.json(
+        { error: parsedKoko.error, code: parsedKoko.code },
+        { status: 400 },
+      );
+    }
+
+    const taken = await findTakenKokoReferences(
+      companyId,
+      parsedKoko.value.entries.map((entry) => entry.normalized),
+      approval.id,
+    );
+    if (taken.length > 0) {
+      return NextResponse.json(
+        {
+          error: `KOKO reference already used: ${taken.join(", ")}`,
+          code: "KOKO_REFERENCE_TAKEN",
+        },
+        { status: 409 },
+      );
+    }
+
+    kokoApprovalPayload = parsedKoko.value;
   }
+
   const kokoReference =
-    parsed.data.action === "approve" && requiresKokoReference
-      ? submittedKokoReference
+    parsed.data.action === "approve" && kokoApprovalPayload
+      ? kokoApprovalPayload.primaryReference
       : null;
+  const multipleKokoPayments = kokoApprovalPayload?.multipleKokoPayments ?? false;
   const orderMissing = !approval.orderId || !approval.orderLinked;
   if (orderMissing && parsed.data.action === "approve") {
     return NextResponse.json(
@@ -797,12 +891,25 @@ export async function PATCH(
         reviewedById: reviewerId,
         reviewNote,
         kokoReference,
+        multipleKokoPayments,
         reviewedAt: now,
         updatedAt: now,
       },
     });
     if (updated.count === 0) {
       throw new ConcurrentApprovalDecisionError();
+    }
+
+    if (nextStatus === "approved" && kokoApprovalPayload) {
+      await tx.approvalKokoReference.createMany({
+        data: kokoApprovalPayload.entries.map((entry, sortOrder) => ({
+          companyId,
+          approvalRequestId: approval.id,
+          reference: entry.normalized,
+          amount: entry.amount,
+          sortOrder,
+        })),
+      });
     }
 
     if (nextStatus === "rejected" && approval.type === RETURN_CANCEL_APPROVAL && approval.orderReturnId) {
@@ -1144,6 +1251,9 @@ export async function PATCH(
 
   let erpSyncFailed = false;
   let erpSyncError: string | undefined;
+  let kokoOrderSyncFailed = false;
+  let kokoOrderSyncError: string | undefined;
+  let kokoOrderSyncStatus: string | undefined;
 
   // First-time approval only — re-approval after HOD revert updates Vault paid status; ERP SI stays unchanged.
   // Bank transfer method change gets a PE (not SI), handled separately below.
@@ -1157,6 +1267,22 @@ export async function PATCH(
   ) {
     try {
       await runPostApprovalErpSync(approval.orderId, now);
+      if (kokoApprovalPayload && kokoApprovalPayload.entries.length > 0) {
+        const kokoSync = await trySyncKokoOrdersAfterApproval({
+          orderId: approval.orderId,
+          entries: kokoApprovalPayload.entries.map((entry) => ({
+            reference: entry.reference,
+            amount: entry.amount,
+          })),
+          requestedAt: approval.createdAt,
+          reviewedById: reviewerId,
+        });
+        if (kokoSync.failed) {
+          kokoOrderSyncFailed = true;
+          kokoOrderSyncError = kokoSync.error;
+          kokoOrderSyncStatus = kokoSync.status;
+        }
+      }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error("[ERPNext] post-approval sync failed:", errMsg);
@@ -1240,6 +1366,22 @@ export async function PATCH(
         approvedAt: now,
       });
       await clearOrderErpPeSyncFailure(order.id);
+      if (kokoApprovalPayload && kokoApprovalPayload.entries.length > 0) {
+        const kokoSync = await trySyncKokoOrdersAfterApproval({
+          orderId: order.id,
+          entries: kokoApprovalPayload.entries.map((entry) => ({
+            reference: entry.reference,
+            amount: entry.amount,
+          })),
+          requestedAt: approval.createdAt,
+          reviewedById: reviewerId,
+        });
+        if (kokoSync.failed) {
+          kokoOrderSyncFailed = true;
+          kokoOrderSyncError = kokoSync.error;
+          kokoOrderSyncStatus = kokoSync.status;
+        }
+      }
       await notifyApprovalRequester({
         companyId,
         approvalId: approval.id,
@@ -1411,5 +1553,12 @@ export async function PATCH(
     ok: true,
     status: nextStatus,
     ...(erpSyncFailed ? { erpSyncFailed: true, erpSyncError } : { erpSyncFailed: false }),
+    ...(kokoOrderSyncFailed
+      ? {
+          kokoOrderSyncFailed: true,
+          kokoOrderSyncError,
+          ...(kokoOrderSyncStatus ? { kokoOrderSyncStatus } : {}),
+        }
+      : { kokoOrderSyncFailed: false }),
   });
 }

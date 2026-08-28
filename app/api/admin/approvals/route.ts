@@ -18,6 +18,10 @@ import {
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
+import {
+  loadKokoFieldsForApprovals,
+  mergeKokoFieldsIntoApproval,
+} from "@/lib/approval-koko-list";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
 import { requiresKokoApprovalReference } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
@@ -164,6 +168,8 @@ export async function GET() {
     `
   );
 
+  const kokoByApproval = await loadKokoFieldsForApprovals(rows.map((row) => row.id));
+
   return NextResponse.json({
     approvals: rows.map((row) => {
       const cancelNote = row.type === RETURN_CANCEL_APPROVAL ? parseReturnCancelApprovalNote(row.requestNote) : null;
@@ -175,8 +181,9 @@ export async function GET() {
       });
 
       const isOrderCancel = row.type === ORDER_CANCEL_APPROVAL;
-      return {
-        ...enriched,
+      return mergeKokoFieldsIntoApproval(
+        {
+          ...enriched,
         shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
         erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
         completionMode:
@@ -206,7 +213,9 @@ export async function GET() {
           paymentGatewayPrimary: row.paymentGatewayPrimary,
           paymentGatewayNames: row.paymentGatewayNames,
         }),
-      };
+        },
+        kokoByApproval,
+      );
     }),
   });
 }

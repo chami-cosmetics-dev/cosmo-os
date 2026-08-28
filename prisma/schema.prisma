@@ -47,6 +47,7 @@ model Company {
   orderWaybillUploads      WaybillUpload[]
   orderWaybills            OrderWaybill[]
   approvalRequests         ApprovalRequest[]
+  approvalKokoReferences   ApprovalKokoReference[]
   notifications            Notification[]
   smsLogs                  SmsLog[]
   smsNotificationConfigs   SmsNotificationConfig[]
@@ -955,6 +956,7 @@ model ApprovalRequest {
   requestNote   String?
   reviewNote    String?
   kokoReference String?
+  multipleKokoPayments Boolean @default(false)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   reviewedAt    DateTime?
@@ -964,6 +966,7 @@ model ApprovalRequest {
   requestedBy   User?        @relation("ApprovalRequestRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
   reviewedBy    User?        @relation("ApprovalRequestReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   paymentLines  ApprovalPaymentLine[]
+  kokoReferences ApprovalKokoReference[]
 
   @@index([companyId, status, createdAt(sort: Desc)])
   @@index([companyId, type, status, createdAt(sort: Desc)])
@@ -985,6 +988,22 @@ model ApprovalPaymentLine {
 
   @@unique([approvalRequestId, paymentMethod])
   @@index([approvalRequestId, createdAt])
+}
+
+/// One KOKO payment reference captured at finance approval (single or multi-KOKO orders).
+model ApprovalKokoReference {
+  id                String          @id @default(cuid())
+  companyId         String
+  approvalRequestId String
+  reference         String
+  amount            Decimal         @db.Decimal(12, 2)
+  sortOrder         Int             @default(0)
+  createdAt         DateTime        @default(now())
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  approvalRequest   ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, reference])
+  @@index([approvalRequestId, sortOrder])
 }
 
 model Notification {
