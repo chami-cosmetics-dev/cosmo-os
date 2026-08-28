@@ -61,6 +61,7 @@ import {
 } from "@/lib/shopify-admin";
 import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppStoredDateTime } from "@/lib/format-datetime";
+import { getAddressDistrict } from "@/lib/reports/csv";
 import { OrderReplaceLinkPanel } from "@/components/molecules/order-replace-link-panel";
 
 const STAGE_LABELS: Record<string, string> = {
@@ -1320,6 +1321,10 @@ export function OrderInvoiceViewModal({
                     <div>
                       <span className="text-muted-foreground text-xs">Customer</span>
                       <p>{orderDetail.customerName ?? "-"}</p>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-xs">District</span>
+                      <p>{getAddressDistrict(orderDetail.shippingAddress) || "-"}</p>
                     </div>
                     <div>
                       <span className="text-muted-foreground text-xs">Shipping address</span>
