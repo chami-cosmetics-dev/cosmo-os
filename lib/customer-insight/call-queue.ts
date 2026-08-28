@@ -289,6 +289,7 @@ async function listRankedEligibleContacts(input: {
   if (afterBrand.length === 0) return { ranked: [], allocatedTotal: 0 };
 
   const allocatedTotal = afterBrand.length;
+  const ids = afterBrand.map((c) => c.id);
   const now = new Date();
   const [contacted, queuedRows, allocated, lastEvent] = await Promise.all([
     lastContactedMap(input.companyId, ids),
