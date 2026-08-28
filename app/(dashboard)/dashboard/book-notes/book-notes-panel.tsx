@@ -29,6 +29,7 @@ type LedgerRow = {
   salesInvoice: string;
   cash: string;
   card: string;
+  cardReceiptRefLast4: string;
   koko: string;
   bankTransfer: string;
   orderId: string | null;
@@ -48,6 +49,7 @@ function emptyRow(idx: number): LedgerRow {
     salesInvoice: "",
     cash: "",
     card: "",
+    cardReceiptRefLast4: "",
     koko: "",
     bankTransfer: "",
     orderId: null,
@@ -70,6 +72,7 @@ function dayToRows(day: BookNoteDayDto | null): LedgerRow[] {
     salesInvoice: r.sales_invoice,
     cash: r.cash ? String(r.cash) : "",
     card: r.card ? String(r.card) : "",
+    cardReceiptRefLast4: r.card_receipt_ref_last4 ?? "",
     koko: r.koko ? String(r.koko) : "",
     bankTransfer: r.bank_transfer ? String(r.bank_transfer) : "",
     orderId: r.orderId ?? null,
@@ -151,7 +154,16 @@ export function BookNotesPanel({
   }, [companyLocationId, postingDate, loadDay]);
 
   function updateRow(key: string, patch: Partial<LedgerRow>) {
-    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, ...patch };
+        if ("card" in patch && toNum(next.card) === 0) {
+          next.cardReceiptRefLast4 = "";
+        }
+        return next;
+      }),
+    );
   }
 
   function createRowsFromCount() {
@@ -285,6 +297,17 @@ export function BookNotesPanel({
 
   /** Persist current ledger to Cosmo OS. Returns saved day or null on failure. */
   async function saveCurrentDay(): Promise<BookNoteDayDto | null> {
+    for (const r of rows) {
+      const cardAmt = toNum(r.card);
+      const ref = r.cardReceiptRefLast4.trim();
+      if (cardAmt > 0 && !/^\d{4}$/.test(ref)) {
+        showError(
+          `Row ${r.idxNo || "?"}: enter last 4 digits of card receipt reference when card amount is entered`,
+        );
+        return null;
+      }
+    }
+
     const payload = {
       companyLocationId,
       postingDate,
@@ -293,6 +316,8 @@ export function BookNotesPanel({
         salesInvoice: r.salesInvoice.trim(),
         cash: toNum(r.cash),
         card: toNum(r.card),
+        cardReceiptRefLast4:
+          toNum(r.card) > 0 ? r.cardReceiptRefLast4.trim() || null : null,
         koko: toNum(r.koko),
         bankTransfer: toNum(r.bankTransfer),
         orderId: r.orderId,
@@ -556,8 +581,9 @@ export function BookNotesPanel({
         <h1 className="text-xl font-semibold tracking-tight">Daily Book Note</h1>
         <p className="text-muted-foreground text-sm">
           Enter shop invoices and payment splits as recorded in the physical
-          book. New entry uses today&apos;s date; open a history day to edit or
-          resend. History is shop-scoped
+          book. When a row includes card payment, enter the last 4 digits of the
+          POS receipt reference. New entry uses today&apos;s date; open a history
+          day to edit or resend. History is shop-scoped
           {canAccessAllShops
             ? " — admins see all shops"
             : " — you only see your assigned shop(s)"}
@@ -670,7 +696,7 @@ export function BookNotesPanel({
               <th className="p-2 w-14">Idx</th>
               <th className="p-2">Sales Invoice</th>
               <th className="p-2 w-28 text-right">Cash</th>
-              <th className="p-2 w-28 text-right">Card</th>
+              <th className="p-2 w-32 text-right">Card</th>
               <th className="p-2 w-28 text-right">KOKO</th>
               <th className="p-2 w-28 text-right">Bank</th>
               <th className="p-2 w-28 text-right">Row Total</th>
@@ -753,10 +779,48 @@ export function BookNotesPanel({
                       </ul>
                     )}
                   </td>
+                  <td className="p-1">
+                    <Input
+                      inputMode="decimal"
+                      value={row.cash}
+                      disabled={isBusy || readOnly}
+                      className="h-8 text-right font-mono text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, { cash: e.target.value })
+                      }
+                    />
+                  </td>
+                  <td className="p-1 align-top">
+                    <Input
+                      inputMode="decimal"
+                      value={row.card}
+                      disabled={isBusy || readOnly}
+                      className="h-8 text-right font-mono text-xs"
+                      onChange={(e) =>
+                        updateRow(row.key, { card: e.target.value })
+                      }
+                    />
+                    {card > 0 ? (
+                      <Input
+                        inputMode="numeric"
+                        maxLength={4}
+                        value={row.cardReceiptRefLast4}
+                        disabled={isBusy || readOnly}
+                        placeholder="Last 4 ref"
+                        aria-label="Card receipt reference last 4 digits"
+                        className="mt-1 h-7 text-center font-mono text-xs tracking-widest"
+                        onChange={(e) =>
+                          updateRow(row.key, {
+                            cardReceiptRefLast4: e.target.value
+                              .replace(/\D/g, "")
+                              .slice(0, 4),
+                          })
+                        }
+                      />
+                    ) : null}
+                  </td>
                   {(
                     [
-                      ["cash", row.cash],
-                      ["card", row.card],
                       ["koko", row.koko],
                       ["bankTransfer", row.bankTransfer],
                     ] as const

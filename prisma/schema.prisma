@@ -2124,6 +2124,8 @@ model BookNoteRow {
   salesInvoice   String
   cash           Decimal     @db.Decimal(12, 2)
   card           Decimal     @db.Decimal(12, 2)
+  /// Last 4 digits of POS card receipt reference (required when card > 0).
+  cardReceiptRefLast4 String?
   koko           Decimal     @db.Decimal(12, 2)
   bankTransfer   Decimal     @db.Decimal(12, 2)
   orderId        String?

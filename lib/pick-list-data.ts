@@ -70,14 +70,17 @@ function aggregateOrdersToBrandGroups(
     }>;
   }>,
   barcodeBySku: ReadonlyMap<string, string>,
+  vendorBySku: ReadonlyMap<string, { id: string; name: string }>,
 ): PickListBrandGroup[] {
   const brandMap = new Map<string, { name: string; items: Map<string, PickListItem> }>();
 
   for (const order of orders) {
     for (const li of order.lineItems) {
       const p = li.productItem;
-      const brandId = p.vendor?.id ?? "no-brand";
-      const brandName = p.vendor?.name?.trim() || "No Brand";
+      const sku = p.sku?.trim() ?? "";
+      const vendor = p.vendor ?? (sku ? vendorBySku.get(sku) : undefined);
+      const brandId = vendor?.id ?? "no-brand";
+      const brandName = vendor?.name?.trim() || "No Brand";
 
       if (!brandMap.has(brandId)) {
         brandMap.set(brandId, { name: brandName, items: new Map() });
@@ -114,6 +117,33 @@ function aggregateOrdersToBrandGroups(
     });
 }
 
+async function loadVendorLookupBySku(companyId: string, skus: string[]) {
+  const unique = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
+  if (unique.length === 0) return new Map<string, { id: string; name: string }>();
+
+  const rows = await prisma.productItem.findMany({
+    where: {
+      companyId,
+      sku: { in: unique },
+      vendorId: { not: null },
+    },
+    select: {
+      sku: true,
+      vendor: { select: { id: true, name: true } },
+      updatedAt: true,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  const map = new Map<string, { id: string; name: string }>();
+  for (const row of rows) {
+    const key = row.sku?.trim();
+    if (!key || !row.vendor || map.has(key)) continue;
+    map.set(key, row.vendor);
+  }
+  return map;
+}
+
 export async function buildPickListAggregationForOrders(
   companyId: string,
   orderIds: string[],
@@ -137,9 +167,11 @@ export async function buildPickListAggregationForOrders(
     o.lineItems.map((li) => li.productItem.sku).filter((s): s is string => Boolean(s?.trim())),
   );
   const barcodeBySku = await loadBarcodeLookupBySku(companyId, skus);
+  const vendorBySku = await loadVendorLookupBySku(companyId, skus);
   const brandGroups = aggregateOrdersToBrandGroups(
     orders,
     barcodeBySku as ReadonlyMap<string, string>,
+    vendorBySku,
   );
 
   return {
@@ -170,9 +202,11 @@ export async function fetchSinglePrintPickList(companyId: string, date?: string)
     o.lineItems.map((li) => li.productItem.sku).filter((s): s is string => Boolean(s?.trim())),
   );
   const barcodeBySku = await loadBarcodeLookupBySku(companyId, skus);
+  const vendorBySku = await loadVendorLookupBySku(companyId, skus);
   const brandGroups = aggregateOrdersToBrandGroups(
     orders,
     barcodeBySku as ReadonlyMap<string, string>,
+    vendorBySku,
   );
 
   return {

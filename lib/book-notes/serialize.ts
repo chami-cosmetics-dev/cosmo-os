@@ -45,6 +45,7 @@ export function serializeBookNoteRow(row: {
   salesInvoice: string;
   cash: unknown;
   card: unknown;
+  cardReceiptRefLast4?: string | null;
   koko: unknown;
   bankTransfer: unknown;
   orderId?: string | null;
@@ -54,11 +55,13 @@ export function serializeBookNoteRow(row: {
   const koko = money(row.koko);
   const bank_transfer = money(row.bankTransfer);
   const nonzero = [cash, card, koko, bank_transfer].filter((a) => a > 0).length;
+  const ref = row.cardReceiptRefLast4?.trim() ?? "";
   return {
     idx_no: row.idxNo,
     sales_invoice: row.salesInvoice,
     cash,
     card,
+    card_receipt_ref_last4: ref.length > 0 ? ref : null,
     koko,
     bank_transfer,
     row_total: Math.round((cash + card + koko + bank_transfer) * 100) / 100,
@@ -99,6 +102,7 @@ export function serializeBookNoteDay(input: {
     salesInvoice: string;
     cash: unknown;
     card: unknown;
+    cardReceiptRefLast4?: string | null;
     koko: unknown;
     bankTransfer: unknown;
     orderId?: string | null;
