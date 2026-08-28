@@ -23,15 +23,44 @@ export const bookNoteSuggestionsQuerySchema = z.object({
   postingDate: ymdSchema.optional(),
 });
 
-export const bookNotePutRowSchema = z.object({
-  idxNo: z.string().trim().max(LIMITS.bookNoteIdxNo.max).default(""),
-  salesInvoice: z.string().trim().max(LIMITS.bookNoteSalesInvoice.max),
-  cash: moneySchema.default(0),
-  card: moneySchema.default(0),
-  koko: moneySchema.default(0),
-  bankTransfer: moneySchema.default(0),
-  orderId: cuidSchema.nullable().optional(),
-});
+
+export const bookNotePutRowSchema = z
+  .object({
+    idxNo: z.string().trim().max(LIMITS.bookNoteIdxNo.max).default(""),
+    salesInvoice: z.string().trim().max(LIMITS.bookNoteSalesInvoice.max),
+    cash: moneySchema.default(0),
+    card: moneySchema.default(0),
+    cardReceiptRefLast4: z
+      .string()
+      .trim()
+      .max(4)
+      .optional()
+      .nullable()
+      .transform((v) => {
+        const t = (v ?? "").trim();
+        return t.length === 0 ? null : t;
+      }),
+    koko: moneySchema.default(0),
+    bankTransfer: moneySchema.default(0),
+    orderId: cuidSchema.nullable().optional(),
+  })
+  .superRefine((row, ctx) => {
+    if (row.card > 0) {
+      if (!row.cardReceiptRefLast4 || !/^\d{4}$/.test(row.cardReceiptRefLast4)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Card receipt last 4 digits required when card amount is entered",
+          path: ["cardReceiptRefLast4"],
+        });
+      }
+    } else if (row.cardReceiptRefLast4 && !/^\d{4}$/.test(row.cardReceiptRefLast4)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Card receipt reference must be exactly 4 digits",
+        path: ["cardReceiptRefLast4"],
+      });
+    }
+  });
 
 export const bookNotePutBodySchema = z.object({
   companyLocationId: cuidSchema,
