@@ -16,6 +16,15 @@ function filenameSafe(value: string) {
   return value.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || "stock-count";
 }
 
+function itemStatus(reportStatus: string, manualCount: number | null, stockSum: number | null) {
+  if (manualCount == null) return "Pending";
+  if (stockSum == null) return "Difference";
+  const diff = manualCount - stockSum;
+  if (diff === 0) return "Done";
+  if (diff < 0 && reportStatus !== "submitted") return "Ongoing";
+  return "Difference";
+}
+
 export async function GET(_request: NextRequest, context: Ctx) {
   const auth = await requireStoreStockCountAccess();
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -25,30 +34,31 @@ export async function GET(_request: NextRequest, context: Ctx) {
   if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
   const header = [
-    "SKU",
+    "Item Code",
     "Name",
-    "Description",
-    "Barcodes",
+    "Barcode",
     ...report.warehouses.map((w) => w.label),
-    "Total Stock",
+    "Total Quantity",
     "Manual Count",
     "Difference",
+    "Status",
   ];
   const lines = [header.map(csvCell).join(",")];
 
   for (const item of report.items) {
     const warehouseStocks = report.warehouses.map((w) => item.stockByWarehouse[w.key] ?? "");
     const diff = item.manualCount == null || item.stockSum == null ? "" : item.manualCount - item.stockSum;
+    const status = itemStatus(report.status, item.manualCount, item.stockSum);
     lines.push(
       [
         item.sku,
         item.name,
-        item.description,
         item.barcodes.join(" | "),
         ...warehouseStocks,
         item.stockSum ?? "",
         item.manualCount ?? "",
         diff,
+        status,
       ]
         .map(csvCell)
         .join(","),
