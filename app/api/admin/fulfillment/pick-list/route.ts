@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { fetchSinglePrintPickList, fetchTodayUngroupedPrintOrderIds, toPdfLocations } from "@/lib/pick-list-data";
+import { fetchSinglePrintPickList, fetchTodayUngroupedPrintOrderIds, toPdfBrands } from "@/lib/pick-list-data";
 import { formatPickListTodayLabel } from "@/lib/pick-list-date";
 import { generatePickListPdf } from "@/lib/pick-list-pdf";
 import { createPickListGroup, listPickListGroups } from "@/lib/pick-list-groups";
@@ -83,13 +83,13 @@ export async function POST(request: NextRequest) {
     prisma.company.findUnique({ where: { id: companyId }, select: { name: true } }),
   ]);
 
-  if (data.locationGroups.length === 0) {
+  if (data.brandGroups.length === 0) {
     return NextResponse.json({ error: "No single-print orders found." }, { status: 404 });
   }
 
   const dateLabel = formatPickListTodayLabel();
   const pdf = await generatePickListPdf(
-    toPdfLocations(data.locationGroups),
+    toPdfBrands(data.brandGroups),
     dateLabel,
     company?.name ?? null,
     "Single-print orders (today)",
