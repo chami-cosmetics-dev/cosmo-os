@@ -18,6 +18,10 @@ import {
   resolveViewerFinanceLocationIds,
 } from "@/lib/approval-workflow";
 import { enrichApprovalDisplay } from "@/lib/approval-display";
+import {
+  loadKokoFieldsForApprovals,
+  mergeKokoFieldsIntoApproval,
+} from "@/lib/approval-koko-list";
 import { buildErpAdminInvoiceUrl } from "@/lib/erp-admin-url";
 import { requiresKokoApprovalReference } from "@/lib/koko-approval-reference";
 import { prisma } from "@/lib/prisma";
@@ -135,6 +139,8 @@ async function fetchInitialApprovals(
     `
   );
 
+  const kokoByApproval = await loadKokoFieldsForApprovals(rows.map((row) => row.id));
+
   return rows.map((row) => {
     const cancelNote = row.type === RETURN_CANCEL_APPROVAL ? parseReturnCancelApprovalNote(row.requestNote) : null;
     const isOrderCancel = row.type === ORDER_CANCEL_APPROVAL;
@@ -145,8 +151,9 @@ async function fetchInitialApprovals(
       reviewedAt: row.reviewedAt?.toISOString() ?? null,
     });
 
-    return {
-      ...enriched,
+    return mergeKokoFieldsIntoApproval(
+      {
+        ...enriched,
       shopifyOrderId: cancelNote?.shopifyOrderId ?? row.shopifyOrderId,
       erpnextInvoiceId: cancelNote?.erpnextInvoiceId ?? row.erpnextInvoiceId,
       erpAdminInvoiceUrl: buildErpAdminInvoiceUrl({
@@ -172,7 +179,9 @@ async function fetchInitialApprovals(
         paymentGatewayPrimary: row.paymentGatewayPrimary,
         paymentGatewayNames: row.paymentGatewayNames,
       }),
-    };
+      },
+      kokoByApproval,
+    );
   });
 }
 
