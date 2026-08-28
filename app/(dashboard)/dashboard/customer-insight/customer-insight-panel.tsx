@@ -3633,7 +3633,8 @@ export function CustomerInsightPanel({
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    {queueEligibleTotal} eligible · oldest/never contacted first
+                    {queueEligibleTotal} eligible · oldest/never contacted first, then oldest
+                    purchase
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="flex items-center gap-1 text-xs">

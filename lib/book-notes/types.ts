@@ -10,6 +10,8 @@ export type BookNoteRowDto = {
   sales_invoice: string;
   cash: number;
   card: number;
+  /** Last 4 digits of POS card receipt reference (when card > 0). */
+  card_receipt_ref_last4: string | null;
   koko: number;
   bank_transfer: number;
   row_total: number;

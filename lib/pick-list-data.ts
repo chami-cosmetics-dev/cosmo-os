@@ -12,18 +12,11 @@ export type PickListItem = {
   quantity: number;
 };
 
-export type PickListBrandGroup = {
-  brandId: string;
-  brandName: string;
-  items: PickListItem[];
-  totalUnits: number;
-};
-
 export type PickListAggregation = {
   orderCount: number;
-  totalBrands: number;
+  totalItemTypes: number;
   totalUnits: number;
-  brandGroups: PickListBrandGroup[];
+  items: PickListItem[];
 };
 
 const orderPickListSelect = {
@@ -37,7 +30,6 @@ const orderPickListSelect = {
           variantTitle: true,
           sku: true,
           barcode: true,
-          vendor: { select: { id: true, name: true } },
         },
       },
     },
@@ -55,7 +47,7 @@ function pickListItemKey(product: {
   return `id:${product.id}`;
 }
 
-function aggregateOrdersToBrandGroups(
+function aggregateOrdersToItems(
   orders: Array<{
     lineItems: Array<{
       quantity: number;
@@ -65,30 +57,22 @@ function aggregateOrdersToBrandGroups(
         variantTitle: string | null;
         sku: string | null;
         barcode: string | null;
-        vendor: { id: string; name: string } | null;
       };
     }>;
   }>,
   barcodeBySku: ReadonlyMap<string, string>,
-): PickListBrandGroup[] {
-  const brandMap = new Map<string, { name: string; items: Map<string, PickListItem> }>();
+): PickListItem[] {
+  const itemMap = new Map<string, PickListItem>();
 
   for (const order of orders) {
     for (const li of order.lineItems) {
       const p = li.productItem;
-      const brandId = p.vendor?.id ?? "no-brand";
-      const brandName = p.vendor?.name?.trim() || "No Brand";
-
-      if (!brandMap.has(brandId)) {
-        brandMap.set(brandId, { name: brandName, items: new Map() });
-      }
-      const brand = brandMap.get(brandId)!;
       const itemKey = pickListItemKey(p);
-      const existing = brand.items.get(itemKey);
+      const existing = itemMap.get(itemKey);
       if (existing) {
         existing.quantity += li.quantity;
       } else {
-        brand.items.set(itemKey, {
+        itemMap.set(itemKey, {
           productTitle: p.productTitle,
           variantTitle: p.variantTitle,
           sku: p.sku,
@@ -99,19 +83,16 @@ function aggregateOrdersToBrandGroups(
     }
   }
 
-  return [...brandMap.entries()]
-    .sort(([, a], [, b]) => a.name.localeCompare(b.name))
-    .map(([brandId, brand]) => {
-      const items = [...brand.items.values()].sort((a, b) =>
-        a.productTitle.localeCompare(b.productTitle),
-      );
-      return {
-        brandId,
-        brandName: brand.name,
-        items,
-        totalUnits: items.reduce((s, i) => s + i.quantity, 0),
-      };
-    });
+  return [...itemMap.values()].sort((a, b) => a.productTitle.localeCompare(b.productTitle));
+}
+
+function toAggregation(orderCount: number, items: PickListItem[]): PickListAggregation {
+  return {
+    orderCount,
+    totalItemTypes: items.length,
+    totalUnits: items.reduce((s, i) => s + i.quantity, 0),
+    items,
+  };
 }
 
 export async function buildPickListAggregationForOrders(
@@ -119,7 +100,7 @@ export async function buildPickListAggregationForOrders(
   orderIds: string[],
 ): Promise<PickListAggregation> {
   if (orderIds.length === 0) {
-    return { orderCount: 0, totalBrands: 0, totalUnits: 0, brandGroups: [] };
+    return { orderCount: 0, totalItemTypes: 0, totalUnits: 0, items: [] };
   }
 
   const orders = await prisma.order.findMany({
@@ -137,17 +118,9 @@ export async function buildPickListAggregationForOrders(
     o.lineItems.map((li) => li.productItem.sku).filter((s): s is string => Boolean(s?.trim())),
   );
   const barcodeBySku = await loadBarcodeLookupBySku(companyId, skus);
-  const brandGroups = aggregateOrdersToBrandGroups(
-    orders,
-    barcodeBySku as ReadonlyMap<string, string>,
-  );
+  const items = aggregateOrdersToItems(orders, barcodeBySku as ReadonlyMap<string, string>);
 
-  return {
-    orderCount: orders.length,
-    totalBrands: brandGroups.length,
-    totalUnits: brandGroups.reduce((s, g) => s + g.totalUnits, 0),
-    brandGroups,
-  };
+  return toAggregation(orders.length, items);
 }
 
 export async function fetchSinglePrintPickList(companyId: string, date?: string): Promise<PickListAggregation> {
@@ -170,17 +143,9 @@ export async function fetchSinglePrintPickList(companyId: string, date?: string)
     o.lineItems.map((li) => li.productItem.sku).filter((s): s is string => Boolean(s?.trim())),
   );
   const barcodeBySku = await loadBarcodeLookupBySku(companyId, skus);
-  const brandGroups = aggregateOrdersToBrandGroups(
-    orders,
-    barcodeBySku as ReadonlyMap<string, string>,
-  );
+  const items = aggregateOrdersToItems(orders, barcodeBySku as ReadonlyMap<string, string>);
 
-  return {
-    orderCount: orders.length,
-    totalBrands: brandGroups.length,
-    totalUnits: brandGroups.reduce((s, g) => s + g.totalUnits, 0),
-    brandGroups,
-  };
+  return toAggregation(orders.length, items);
 }
 
 export async function fetchTodayUngroupedPrintOrderIds(companyId: string, date?: string): Promise<string[]> {
@@ -198,11 +163,4 @@ export async function fetchTodayUngroupedPrintOrderIds(companyId: string, date?:
     orderBy: { lastPrintedAt: "asc" },
   });
   return rows.map((row) => row.id);
-}
-
-export function toPdfBrands(brandGroups: PickListBrandGroup[]) {
-  return brandGroups.map((g) => ({
-    brandName: g.brandName,
-    items: g.items,
-  }));
 }

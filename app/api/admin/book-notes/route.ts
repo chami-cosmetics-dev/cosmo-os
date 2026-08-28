@@ -158,6 +158,8 @@ export async function PUT(request: NextRequest) {
       salesInvoice: r.salesInvoice.trim(),
       cash: r.cash,
       card: r.card,
+      cardReceiptRefLast4:
+        r.card > 0 && r.cardReceiptRefLast4 ? r.cardReceiptRefLast4 : null,
       koko: r.koko,
       bankTransfer: r.bankTransfer,
       orderId: r.orderId ?? null,
@@ -238,6 +240,7 @@ export async function PUT(request: NextRequest) {
           salesInvoice: r.salesInvoice.slice(0, LIMITS.bookNoteSalesInvoice.max),
           cash: r.cash,
           card: r.card,
+          cardReceiptRefLast4: r.cardReceiptRefLast4,
           koko: r.koko,
           bankTransfer: r.bankTransfer,
           orderId: r.orderId,
