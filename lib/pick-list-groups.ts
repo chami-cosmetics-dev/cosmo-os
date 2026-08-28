@@ -71,9 +71,9 @@ export async function createPickListGroup(
     label: formatPickListGroupLabel(group.createdAt, printedByName),
     printedByName,
     orderCount: aggregation.orderCount,
-    totalLocations: aggregation.totalLocations,
+    totalBrands: aggregation.totalBrands,
     totalUnits: aggregation.totalUnits,
-    locationGroups: aggregation.locationGroups,
+    brandGroups: aggregation.brandGroups,
   };
 }
 
@@ -110,9 +110,9 @@ export async function listPickListGroups(companyId: string, downloaded: boolean,
         label: formatPickListGroupLabel(group.createdAt, printedByName),
         printedByName,
         orderCount: aggregation.orderCount,
-        totalLocations: aggregation.totalLocations,
+        totalBrands: aggregation.totalBrands,
         totalUnits: aggregation.totalUnits,
-        locationGroups: aggregation.locationGroups,
+        brandGroups: aggregation.brandGroups,
       };
     }),
   );
