@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { emptyChannelSales } from "@/lib/merchant-dashboard/channel-sales";
 import {
   buildLocationShareRows,
   type CohortSalesResult,
@@ -35,6 +36,7 @@ describe("buildLocationShareRows", () => {
           { locationId: "loc1", locationName: "Colombo", total: 100, orderCount: 2 },
         ],
       ]),
+      byChannel: emptyChannelSales(),
     });
     byMerchant.set("b", {
       merchantId: "b",
@@ -47,6 +49,7 @@ describe("buildLocationShareRows", () => {
           { locationId: "loc1", locationName: "Colombo", total: 300, orderCount: 3 },
         ],
       ]),
+      byChannel: emptyChannelSales(),
     });
 
     const rows = buildLocationShareRows(emptyCohort(byMerchant), "a");
@@ -71,6 +74,7 @@ describe("buildLocationShareRows", () => {
           { locationId: "loc2", locationName: "Kandy", total: 50, orderCount: 1 },
         ],
       ]),
+      byChannel: emptyChannelSales(),
     });
     byMerchant.set("b", {
       merchantId: "b",
@@ -83,6 +87,7 @@ describe("buildLocationShareRows", () => {
           { locationId: "loc1", locationName: "Colombo", total: 200, orderCount: 2 },
         ],
       ]),
+      byChannel: emptyChannelSales(),
     });
 
     const rows = buildLocationShareRows(emptyCohort(byMerchant), "a");
@@ -104,6 +109,7 @@ describe("buildLocationShareRows", () => {
       total: 10,
       orderCount: 1,
       byLocation: byLocationSelf,
+      byChannel: emptyChannelSales(),
     });
     for (let i = 1; i <= 10; i += 1) {
       byMerchant.set(`p${i}`, {
@@ -122,6 +128,7 @@ describe("buildLocationShareRows", () => {
             },
           ],
         ]),
+        byChannel: emptyChannelSales(),
       });
     }
 
@@ -143,6 +150,7 @@ describe("buildLocationShareRows", () => {
           { locationId: "loc1", locationName: "Colombo", total: 100, orderCount: 1 },
         ],
       ]),
+      byChannel: emptyChannelSales(),
     });
     byMerchant.set("__dm_general__", {
       merchantId: "__dm_general__",
@@ -155,6 +163,7 @@ describe("buildLocationShareRows", () => {
           { locationId: "loc1", locationName: "Colombo", total: 900, orderCount: 9 },
         ],
       ]),
+      byChannel: emptyChannelSales(),
     });
 
     const rows = buildLocationShareRows(

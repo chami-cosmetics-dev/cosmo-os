@@ -13,6 +13,10 @@ import {
   resolveCohortMerchantId,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
+import {
+  emptyChannelSales,
+  isPosChannelOrder,
+} from "@/lib/merchant-dashboard/channel-sales";
 
 export type CohortMerchantInput = {
   id: string;
@@ -29,6 +33,11 @@ export type CohortMerchantTotals = {
     string,
     { locationId: string; locationName: string; total: number; orderCount: number }
   >;
+  /** Shop = POS; online = non-POS (accumulated in cohort order pass). */
+  byChannel: {
+    shop: { orderCount: number; amount: number };
+    online: { orderCount: number; amount: number };
+  };
 };
 
 export type CohortSalesResult = {
@@ -50,6 +59,7 @@ function emptyMerchantTotals(
     total: 0,
     orderCount: 0,
     byLocation: new Map(),
+    byChannel: emptyChannelSales(),
   };
 }
 
@@ -202,6 +212,12 @@ export async function fetchMerchantCohortSales(
     loc.total += amount;
     loc.orderCount += 1;
     row.byLocation.set(locationId, loc);
+
+    const channelBucket = isPosChannelOrder(order.sourceName)
+      ? row.byChannel.shop
+      : row.byChannel.online;
+    channelBucket.amount += amount;
+    channelBucket.orderCount += 1;
   }
 
   return {

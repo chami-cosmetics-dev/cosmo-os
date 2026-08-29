@@ -41,6 +41,7 @@ const updateStaffSchema = z.object({
   designationId: cuidSchema.nullable().optional(),
   appointmentDate: z.string().optional(),
   isRider: z.boolean().optional(),
+  isShopMerchant: z.boolean().optional(),
   shopifyUserIds: z
     .array(shopifyUserIdSchema)
     .max(20)
@@ -96,6 +97,7 @@ function serializeStaffUser(user: StaffUserWithDetails) {
           status: user.employeeProfile.status,
           resignedAt: user.employeeProfile.resignedAt?.toISOString() ?? null,
           isRider: user.employeeProfile.isRider,
+          isShopMerchant: user.employeeProfile.isShopMerchant,
         }
       : null,
   };
@@ -242,6 +244,19 @@ export async function PATCH(
       ? parsedAppointment
       : undefined;
 
+  const nextIsShopMerchant =
+    data.isShopMerchant ?? targetUser.employeeProfile?.isShopMerchant ?? false;
+  const nextLocationId =
+    data.locationId !== undefined
+      ? data.locationId
+      : targetUser.employeeProfile?.locationId ?? null;
+  if (nextIsShopMerchant && !nextLocationId) {
+    return NextResponse.json(
+      { error: "Outlet is required for shop merchants" },
+      { status: 400 },
+    );
+  }
+
   const beforeData = {
     name: targetUser.name,
     knownName: targetUser.knownName,
@@ -277,6 +292,9 @@ export async function PATCH(
       ...(data.designationId !== undefined && { designationId: data.designationId }),
       appointmentDate: validAppointment ?? undefined,
       ...(data.isRider !== undefined && { isRider: data.isRider }),
+      ...(data.isShopMerchant !== undefined && {
+        isShopMerchant: data.isShopMerchant,
+      }),
     };
 
     if (targetUser.employeeProfile) {

@@ -39,9 +39,30 @@ export const merchantMonthlyTargetUpsertSchema = z.object({
     .number()
     .finite()
     .positive()
-    .max(1_000_000_000),
+    .max(1_000_000_000)
+    .optional(),
+  shopTargetAmount: z
+    .number()
+    .finite()
+    .positive()
+    .max(1_000_000_000)
+    .nullable()
+    .optional(),
+  onlineTargetAmount: z
+    .number()
+    .finite()
+    .positive()
+    .max(1_000_000_000)
+    .nullable()
+    .optional(),
   note: trimmedString(0, LIMITS.description.max).nullable().optional(),
-});
+}).refine(
+  (data) =>
+    data.targetAmount != null ||
+    (data.shopTargetAmount != null && data.shopTargetAmount > 0) ||
+    (data.onlineTargetAmount != null && data.onlineTargetAmount > 0),
+  { message: "Provide targetAmount or at least one channel target" },
+);
 
 export const birthdayWishSendSchema = z.object({
   contactId: cuidSchema,
