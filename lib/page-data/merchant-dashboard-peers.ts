@@ -3,20 +3,23 @@ import {
   isDashboardSalesOrderEligible,
 } from "@/lib/page-data/dashboard-sales";
 import type { DashboardSalesDateType } from "@/lib/page-data/dashboard-overview-shared";
+import {
+  emptyChannelSales,
+  isPosChannelOrder,
+  mergeMerchantCohortWithDmBucket,
+} from "@/lib/merchant-dashboard/channel-sales";
 import type { LocationShareRow } from "@/lib/merchant-dashboard/motivation-types";
+import type { PeerBoardInputRow } from "@/lib/merchant-dashboard/peer-board";
 import { prisma } from "@/lib/prisma";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import {
   DM_GENERAL_COHORT_ID,
   DM_GENERAL_DISPLAY_NAME,
+  dmBucketShareForHolder,
   parseOrderCouponList,
   resolveCohortMerchantId,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
-import {
-  emptyChannelSales,
-  isPosChannelOrder,
-} from "@/lib/merchant-dashboard/channel-sales";
 
 export type CohortMerchantInput = {
   id: string;
@@ -47,7 +50,15 @@ export type CohortSalesResult = {
   locationNames: Map<string, string>;
   /** Synthetic DM-General id when a cohort merchant holds DM MER codes. */
   dmBucketId: string | null;
+  /** Merchant user ids who hold DM coupon codes (DM-General attributees). */
+  dmHolderIds: string[];
 };
+
+function resolveDmHolderIds(merchants: CohortMerchantInput[]): string[] {
+  return merchants
+    .filter((m) => splitMerchantCouponSets(m.couponCodes).hasDm)
+    .map((m) => m.id);
+}
 
 function emptyMerchantTotals(
   merchantId: string,
@@ -99,6 +110,7 @@ export async function fetchMerchantCohortSales(
   }
 
   const locationNames = new Map<string, string>();
+  const dmHolderIds = resolveDmHolderIds(merchants);
   if (fromDate > toDate || merchants.length === 0) {
     return {
       fromYmd: params.fromYmd,
@@ -106,6 +118,7 @@ export async function fetchMerchantCohortSales(
       byMerchant,
       locationNames,
       dmBucketId: null,
+      dmHolderIds,
     };
   }
 
@@ -226,7 +239,46 @@ export async function fetchMerchantCohortSales(
     byMerchant,
     locationNames,
     dmBucketId,
+    dmHolderIds,
   };
+}
+
+/**
+ * Peer board rows with DM-General sales merged into DM holders.
+ * Orphan DM bucket (no holder) stays as a separate chart row.
+ */
+export function buildCohortPeerRows(
+  cohort: CohortSalesResult,
+  merchants: CohortMerchantInput[],
+): PeerBoardInputRow[] {
+  const rows: PeerBoardInputRow[] = merchants.map((merchant) => {
+    const merged = mergeMerchantCohortWithDmBucket({
+      merchantRow: cohort.byMerchant.get(merchant.id),
+      dmRow: cohort.dmBucketId
+        ? cohort.byMerchant.get(cohort.dmBucketId)
+        : undefined,
+      dmShare: dmBucketShareForHolder(merchant.id, cohort.dmHolderIds),
+    });
+    return {
+      merchantId: merchant.id,
+      displayName: merchant.displayName,
+      total: merged.total,
+      orderCount: merged.orderCount,
+    };
+  });
+
+  if (cohort.dmBucketId && cohort.dmHolderIds.length === 0) {
+    const dm = cohort.byMerchant.get(cohort.dmBucketId);
+    rows.push({
+      merchantId: cohort.dmBucketId,
+      displayName: dm?.displayName ?? DM_GENERAL_DISPLAY_NAME,
+      total: dm?.total ?? 0,
+      orderCount: dm?.orderCount ?? 0,
+      excludeFromRace: true,
+    });
+  }
+
+  return rows;
 }
 
 /** Pure: build location share rows for viewed merchant from a cohort scan.
@@ -236,7 +288,40 @@ export function buildLocationShareRows(
   viewedMerchantId: string,
 ): LocationShareRow[] {
   const viewed = cohort.byMerchant.get(viewedMerchantId);
-  if (!viewed) return [];
+  const dmShare = dmBucketShareForHolder(viewedMerchantId, cohort.dmHolderIds);
+  const dmRow =
+    cohort.dmBucketId && dmShare > 0
+      ? cohort.byMerchant.get(cohort.dmBucketId)
+      : undefined;
+
+  const selfByLocation = new Map<
+    string,
+    { locationName: string; total: number; orderCount: number }
+  >();
+  if (viewed) {
+    for (const loc of viewed.byLocation.values()) {
+      selfByLocation.set(loc.locationId, {
+        locationName: loc.locationName,
+        total: loc.total,
+        orderCount: loc.orderCount,
+      });
+    }
+  }
+  if (dmRow) {
+    for (const loc of dmRow.byLocation.values()) {
+      const prev = selfByLocation.get(loc.locationId) ?? {
+        locationName: loc.locationName,
+        total: 0,
+        orderCount: 0,
+      };
+      prev.total += loc.total * dmShare;
+      prev.orderCount +=
+        dmShare === 1 ? loc.orderCount : Math.round(loc.orderCount * dmShare);
+      selfByLocation.set(loc.locationId, prev);
+    }
+  }
+
+  if (!viewed && selfByLocation.size === 0) return [];
 
   const locationTotals = new Map<
     string,
@@ -281,7 +366,7 @@ export function buildLocationShareRows(
   const rows: LocationShareRow[] = [];
   for (const [locationId, bucket] of locationTotals) {
     if (bucket.total <= 0) continue;
-    const selfLoc = viewed.byLocation.get(locationId);
+    const selfLoc = selfByLocation.get(locationId);
     const selfAmount = selfLoc?.total ?? 0;
     const selfOrderCount = selfLoc?.orderCount ?? 0;
     const peers = [...bucket.peers]

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { emptyChannelSales } from "@/lib/merchant-dashboard/channel-sales";
 import {
+  buildCohortPeerRows,
   buildLocationShareRows,
   type CohortSalesResult,
 } from "@/lib/page-data/merchant-dashboard-peers";
@@ -18,6 +19,7 @@ function emptyCohort(
       ["loc2", "Kandy"],
     ]),
     dmBucketId: null,
+    dmHolderIds: [],
   };
 }
 
@@ -137,7 +139,7 @@ describe("buildLocationShareRows", () => {
     expect(rows[0]?.peers[0]?.total).toBeGreaterThanOrEqual(rows[0]?.peers[1]?.total ?? 0);
   });
 
-  it("keeps DM sales in location total but omits DM-General from peers", () => {
+  it("merges DM-General into DM holder self share and omits DM from peers", () => {
     const byMerchant = new Map();
     byMerchant.set("a", {
       merchantId: "a",
@@ -170,11 +172,97 @@ describe("buildLocationShareRows", () => {
       {
         ...emptyCohort(byMerchant),
         dmBucketId: "__dm_general__",
+        dmHolderIds: ["a"],
+      },
+      "a",
+    );
+    expect(rows[0]?.locationTotal).toBe(1000);
+    expect(rows[0]?.selfSharePct).toBe(100);
+    expect(rows[0]?.peers).toHaveLength(0);
+  });
+
+  it("keeps DM sales in location total for non-holders", () => {
+    const byMerchant = new Map();
+    byMerchant.set("a", {
+      merchantId: "a",
+      displayName: "Ada",
+      total: 100,
+      orderCount: 1,
+      byLocation: new Map([
+        [
+          "loc1",
+          { locationId: "loc1", locationName: "Colombo", total: 100, orderCount: 1 },
+        ],
+      ]),
+      byChannel: emptyChannelSales(),
+    });
+    byMerchant.set("b", {
+      merchantId: "b",
+      displayName: "Bea",
+      total: 0,
+      orderCount: 0,
+      byLocation: new Map(),
+      byChannel: emptyChannelSales(),
+    });
+    byMerchant.set("__dm_general__", {
+      merchantId: "__dm_general__",
+      displayName: "DM-General",
+      total: 900,
+      orderCount: 9,
+      byLocation: new Map([
+        [
+          "loc1",
+          { locationId: "loc1", locationName: "Colombo", total: 900, orderCount: 9 },
+        ],
+      ]),
+      byChannel: emptyChannelSales(),
+    });
+
+    const rows = buildLocationShareRows(
+      {
+        ...emptyCohort(byMerchant),
+        dmBucketId: "__dm_general__",
+        dmHolderIds: ["b"],
       },
       "a",
     );
     expect(rows[0]?.locationTotal).toBe(1000);
     expect(rows[0]?.selfSharePct).toBe(10);
     expect(rows[0]?.peers).toHaveLength(0);
+  });
+});
+
+describe("buildCohortPeerRows", () => {
+  it("merges DM-General into holder and drops separate DM row", () => {
+    const byMerchant = new Map();
+    byMerchant.set("sandali", {
+      merchantId: "sandali",
+      displayName: "Sandali",
+      total: 100,
+      orderCount: 1,
+      byLocation: new Map(),
+      byChannel: emptyChannelSales(),
+    });
+    byMerchant.set("__dm_general__", {
+      merchantId: "__dm_general__",
+      displayName: "DM-General",
+      total: 400,
+      orderCount: 4,
+      byLocation: new Map(),
+      byChannel: emptyChannelSales(),
+    });
+
+    const rows = buildCohortPeerRows(
+      {
+        ...emptyCohort(byMerchant),
+        dmBucketId: "__dm_general__",
+        dmHolderIds: ["sandali"],
+      },
+      [{ id: "sandali", displayName: "Sandali", couponCodes: ["MER115"] }],
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.merchantId).toBe("sandali");
+    expect(rows[0]?.total).toBe(500);
   });
 });

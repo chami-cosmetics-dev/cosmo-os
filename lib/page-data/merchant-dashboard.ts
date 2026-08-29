@@ -13,7 +13,7 @@ import type {
   SalesHistoryDto,
   TodaySalesDto,
 } from "@/lib/merchant-dashboard/motivation-types";
-import { buildPeerBoard, type PeerBoardInputRow } from "@/lib/merchant-dashboard/peer-board";
+import { buildPeerBoard } from "@/lib/merchant-dashboard/peer-board";
 import { getMerchantDisplayName } from "@/lib/merchant-groups";
 import { normalizeDashboardMerchantLabel } from "@/lib/merchant-dm-sales";
 import { isMerchantRoleName } from "@/lib/merchant-role";
@@ -21,6 +21,7 @@ import { fetchMerchantNearestBirthdays } from "@/lib/page-data/merchant-dashboar
 import { fetchMerchantLoyaltyOutreach } from "@/lib/page-data/merchant-dashboard-loyalty";
 import { fetchMerchantSalesHistory } from "@/lib/page-data/merchant-dashboard-history";
 import {
+  buildCohortPeerRows,
   buildLocationShareRows,
   fetchMerchantCohortSales,
 } from "@/lib/page-data/merchant-dashboard-peers";
@@ -38,10 +39,7 @@ import {
 import { formatAppIsoDate } from "@/lib/format-datetime";
 import { listMerchantCallQueue, type CallQueueRowDto } from "@/lib/customer-insight/call-queue";
 import type { GmAlert, GmPulseInput } from "@/lib/merchant-dashboard/gm-score";
-import {
-  dmBucketShareForHolder,
-  resolveDmHolderMerchantIds,
-} from "@/lib/merchant-dm-sales";
+import { dmBucketShareForHolder } from "@/lib/merchant-dm-sales";
 import {
   mergeMerchantCohortWithDmBucket,
   resolveEffectiveTotalTarget,
@@ -378,7 +376,6 @@ export async function getMerchantDashboardPageData(input: {
     select: { id: true, couponCodes: true },
   });
   const couponById = new Map(cohortUsers.map((u) => [u.id, u.couponCodes]));
-  const dmHolderIds = resolveDmHolderMerchantIds(merchants, couponById);
   const cohortInputs = merchants.map((m) => ({
     id: m.id,
     displayName: m.displayName,
@@ -556,29 +553,9 @@ export async function getMerchantDashboardPageData(input: {
     dmOrderCount: todaySalesSplit.dmOrderCount,
   };
 
-  // Merchants race on podium; DM-General still on share/ranked sales charts.
-  const peerBoardRows = (cohort: typeof mtdCohort): PeerBoardInputRow[] => {
-    const rows: PeerBoardInputRow[] = merchants.map((m) => {
-      const row = cohort.byMerchant.get(m.id);
-      return {
-        merchantId: m.id,
-        displayName: m.displayName,
-        total: row?.total ?? 0,
-        orderCount: row?.orderCount ?? 0,
-      };
-    });
-    if (cohort.dmBucketId) {
-      const dm = cohort.byMerchant.get(cohort.dmBucketId);
-      rows.push({
-        merchantId: cohort.dmBucketId,
-        displayName: dm?.displayName ?? "DM-General",
-        total: dm?.total ?? 0,
-        orderCount: dm?.orderCount ?? 0,
-        excludeFromRace: true,
-      });
-    }
-    return rows;
-  };
+  // DM-General merged into DM holders on peer boards and GM scorecard.
+  const peerBoardRows = (cohort: typeof mtdCohort) =>
+    buildCohortPeerRows(cohort, cohortInputs);
 
   const peerBoards: PeerBoardsDto = {
     today: buildPeerBoard(peerBoardRows(todayCohort), {
@@ -586,9 +563,6 @@ export async function getMerchantDashboardPageData(input: {
       fromYmd: todayYmd,
       toYmd: todayYmd,
       viewedMerchantId: selectedMerchantId,
-      alwaysIncludeMerchantIds: todayCohort.dmBucketId
-        ? [todayCohort.dmBucketId]
-        : undefined,
       cheerMessageForBand: getMerchantPeerCheerMessage,
     }),
     mtd: buildPeerBoard(peerBoardRows(mtdCohort), {
@@ -596,9 +570,6 @@ export async function getMerchantDashboardPageData(input: {
       fromYmd,
       toYmd: rangeToYmd,
       viewedMerchantId: selectedMerchantId,
-      alwaysIncludeMerchantIds: mtdCohort.dmBucketId
-        ? [mtdCohort.dmBucketId]
-        : undefined,
       cheerMessageForBand: getMerchantPeerCheerMessage,
     }),
   };
@@ -716,7 +687,7 @@ export async function getMerchantDashboardPageData(input: {
   const viewedMerchantChannelMtd = mergeMerchantCohortWithDmBucket({
     merchantRow: viewedMerchantRow,
     dmRow: viewedDmRow,
-    dmShare: dmBucketShareForHolder(selectedMerchantId, dmHolderIds),
+    dmShare: dmBucketShareForHolder(selectedMerchantId, mtdCohort.dmHolderIds),
   }).channel;
 
   let overview: MerchantDashboardOverviewRow[] | null = null;
@@ -754,7 +725,7 @@ export async function getMerchantDashboardPageData(input: {
         dmRow: cohort.dmBucketId
           ? cohort.byMerchant.get(cohort.dmBucketId)
           : undefined,
-        dmShare: dmBucketShareForHolder(merchantId, dmHolderIds),
+        dmShare: dmBucketShareForHolder(merchantId, mtdCohort.dmHolderIds),
       });
 
     const mtdSalesByMerchant = new Map(
@@ -797,7 +768,7 @@ export async function getMerchantDashboardPageData(input: {
       fromYmd: rangeFromYmd,
       toYmd: chartRangeToYmd,
       isCurrentMonth,
-      dmHolderIds,
+      dmHolderIds: periodCohort.dmHolderIds,
     });
     overview = gm.overview;
     gmPulse = gm.pulse;
