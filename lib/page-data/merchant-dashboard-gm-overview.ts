@@ -263,7 +263,7 @@ async function fetchStaffProfiles(input: {
 
 export async function buildGmOverview(input: {
   companyId: string;
-  merchants: MerchantDashboardMerchantOption[];
+  merchants: Array<{ id: string; displayName: string }>;
   targetsByMerchant: Map<string, ChannelTargets>;
   periodCohort: CohortSalesResult;
   mtdSalesByMerchant: Map<string, number>;

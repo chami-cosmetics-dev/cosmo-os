@@ -800,6 +800,8 @@ export async function getMerchantDashboardPageData(input: {
       merOrderCount: sales.merOrderCount,
       dmTotal: sales.dmTotal,
       dmOrderCount: sales.dmOrderCount,
+      merTargetPercent: sales.merTargetPercent,
+      dmTargetPercent: sales.dmTargetPercent,
     },
     target,
     history,
