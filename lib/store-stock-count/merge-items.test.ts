@@ -8,14 +8,24 @@ import {
 } from "@/lib/store-stock-count/merge-items";
 import type { StoreStockCountRow } from "@/lib/store-stock-count/types";
 
+function apiItem(input: {
+  sku: string;
+  name: string;
+  description: string;
+  barcodes: string[];
+  stock: number;
+}) {
+  return { ...input, stockByWarehouse: {} };
+}
+
 describe("mergeCompanyItems", () => {
   it("unions SKUs and sets company stock", () => {
     const a = mergeCompanyItems({
       existing: [],
       companyKey: "i1::Pevi",
       items: [
-        { sku: "abc", name: "A", description: "d", barcodes: ["1"], stock: 5 },
-        { sku: "xyz", name: "X", description: "", barcodes: [], stock: 0 },
+        apiItem({ sku: "abc", name: "A", description: "d", barcodes: ["1"], stock: 5 }),
+        apiItem({ sku: "xyz", name: "X", description: "", barcodes: [], stock: 0 }),
       ],
     });
     expect(a).toHaveLength(2);
@@ -25,7 +35,7 @@ describe("mergeCompanyItems", () => {
     const b = mergeCompanyItems({
       existing: a,
       companyKey: "i1::SPK",
-      items: [{ sku: "ABC", name: "A2", description: "d2", barcodes: ["2"], stock: 3 }],
+      items: [apiItem({ sku: "ABC", name: "A2", description: "d2", barcodes: ["2"], stock: 3 })],
     });
     const row = b.find((r) => r.skuKey === "ABC")!;
     expect(row.stockByCompany["i1::Pevi"]).toBe(5);
@@ -48,7 +58,7 @@ describe("mergeCompanyItems", () => {
       existing,
       companyKey: "i1::Pevi",
       replaceCompanyStock: true,
-      items: [{ sku: "A", name: "A", description: "", barcodes: [], stock: 2 }],
+      items: [apiItem({ sku: "A", name: "A", description: "", barcodes: [], stock: 2 })],
     });
     expect(next[0]!.stockByCompany["i1::Pevi"]).toBe(2);
   });

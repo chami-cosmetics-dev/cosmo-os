@@ -55,6 +55,25 @@ describe("matchMerchantFromCouponMap", () => {
     expect(hit?.id).toBe("sandali");
   });
 
+  it("returns fixed sales buckets before DM or personal merchant matches", () => {
+    const map = buildCouponToMerchantMap([
+      {
+        id: "sandali",
+        knownName: "sandali",
+        couponCodes: ["MER91", "MER115"],
+      },
+    ]);
+
+    expect(matchMerchantFromCouponMap(["staff-sale", "mer91"], map)).toEqual({
+      id: null,
+      name: "Staff Sales",
+    });
+    expect(matchMerchantFromCouponMap(["staff-sale", "dir100"], map)).toEqual({
+      id: null,
+      name: "Director Sales",
+    });
+  });
+
   it("returns DM-General for DM-only coupons", () => {
     const map = buildCouponToMerchantMap([
       {
