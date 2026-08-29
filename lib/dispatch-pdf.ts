@@ -9,6 +9,9 @@ const pdfMake = require("pdfmake") as {
 const vfsFonts = require("pdfmake/build/vfs_fonts") as Record<string, string>;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
+import { isCitypakCourier } from "@/lib/courier";
+import { formatAppIsoDate } from "@/lib/format-datetime";
+
 export type DispatchGroupForPdf = {
   dispatcherName: string;
   dispatchType: "rider" | "courier" | "customer";
@@ -43,6 +46,40 @@ pdfMake.addFonts({
 });
 pdfMake.setUrlAccessPolicy(() => false);
 pdfMake.setLocalAccessPolicy(() => false);
+
+function formatDate(iso: string) {
+  return formatAppIsoDate(iso, "-");
+}
+
+function formatAmount(price: string) {
+  const n = parseFloat(price);
+  return Number.isNaN(n) ? price : n.toLocaleString("en-LK", { minimumFractionDigits: 2 });
+}
+
+function formatPayment(raw: string | null) {
+  if (!raw) return "-";
+  const normalized = raw.toLowerCase().replace(/[_\-\s]+/g, " ").trim();
+  if (normalized === "cod" || normalized.includes("cash on delivery") || normalized.includes("cash")) {
+    return "CASH PAYMENT\nON DEL";
+  }
+  if (
+    normalized.includes("card on delivery") ||
+    normalized.includes("card payment on delivery") ||
+    normalized.includes("card")
+  ) {
+    return "CARD ON DEL";
+  }
+  if (normalized.includes("koko")) return "KOKO";
+  if (normalized.includes("mintpay")) return "MINTPAY";
+  if (normalized.includes("bank")) return "BANK TRANSFER";
+  return raw.replace(/[_-]+/g, " ").toUpperCase();
+}
+
+function dispatchHandlerLabel(type: DispatchGroupForPdf["dispatchType"]) {
+  if (type === "rider") return "Rider";
+  if (type === "courier") return "Courier";
+  return "Handler";
+}
 
 function compactLayout(orderCount: number) {
   if (orderCount <= 30) {
@@ -117,13 +154,166 @@ function orderReferenceRef(order: DispatchGroupForPdf["orders"][number]) {
   return order.erpReference || order.reference;
 }
 
-function dispatchHandlerLabel(type: DispatchGroupForPdf["dispatchType"]) {
-  if (type === "rider") return "Rider";
-  if (type === "courier") return "Courier";
-  return "Pickup";
+function usesCitypakSummary(group: DispatchGroupForPdf) {
+  return group.dispatchType === "courier" && isCitypakCourier(group.dispatcherName);
 }
 
-export async function generateDispatchGroupPdf(
+async function generateLegacyDispatchPdf(
+  group: DispatchGroupForPdf,
+  dateFrom: string,
+  dateTo: string,
+): Promise<Buffer> {
+  const dateLabel = dateFrom === dateTo ? dateFrom : `${dateFrom} to ${dateTo}`;
+  const grandTotal = group.orders.reduce((sum, order) => sum + (parseFloat(order.totalPrice) || 0), 0);
+  const isRider = group.dispatchType === "rider";
+
+  const tableBody: unknown[][] = [
+    isRider
+      ? [
+          { text: "NO", style: "th", alignment: "center" },
+          { text: "LOCATION", style: "th" },
+          { text: "L.DEL.DATE", style: "th" },
+          { text: "INV. NO", style: "th" },
+          { text: "P.M", style: "th" },
+          { text: "CITY", style: "th" },
+          { text: "ADDRESS", style: "th" },
+          { text: "T/P NO", style: "th" },
+          { text: "CUSTOMER", style: "th" },
+          { text: "MERCHANT", style: "th" },
+          { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
+        ]
+      : [
+          { text: "NO", style: "th", alignment: "center" },
+          { text: "LOCATION", style: "th" },
+          { text: "L.DEL.DATE", style: "th" },
+          { text: "INV. NO", style: "th" },
+          { text: "P.M", style: "th" },
+          { text: "CITY", style: "th" },
+          { text: "ADDRESS", style: "th" },
+          { text: "T/P NO", style: "th" },
+          { text: "MERCHANT", style: "th" },
+          { text: "TOTAL", style: "th", alignment: "right", noWrap: true },
+        ],
+    ...group.orders.map((order, index) => {
+      const invLines: string[] = [];
+      if (order.shopifyReference) invLines.push(order.shopifyReference);
+      if (order.erpReference && order.erpReference !== order.shopifyReference) {
+        invLines.push(order.erpReference);
+      }
+      if (invLines.length === 0) invLines.push(order.reference);
+
+      const baseRow: unknown[] = [
+        { text: String(index + 1), style: "td", alignment: "center" },
+        { text: order.locationName, style: "td" },
+        { text: formatDate(order.dispatchedAt), style: "td" },
+        { text: invLines.join("\n"), style: "emphasisTd" },
+        { text: formatPayment(order.paymentType), style: "td" },
+        { text: order.city ?? "-", style: "td" },
+        { text: order.address ?? "-", style: "td" },
+        { text: order.customerPhone ?? "-", style: "emphasisTd" },
+      ];
+      if (isRider) {
+        baseRow.push({ text: order.customerName ?? "-", style: "td" });
+      }
+      baseRow.push(
+        { text: order.merchantName ?? "-", style: "merchantTd" },
+        { text: formatAmount(order.totalPrice), style: "td", alignment: "right", noWrap: true },
+      );
+      return baseRow;
+    }),
+    isRider
+      ? [
+          { text: `TOTAL (${group.orders.length} orders)`, style: "totalLabel", colSpan: 10, alignment: "right", bold: true },
+          {}, {}, {}, {}, {}, {}, {}, {}, {},
+          { text: formatAmount(String(grandTotal)), style: "totalAmount", alignment: "right", bold: true, noWrap: true },
+        ]
+      : [
+          { text: `TOTAL (${group.orders.length} orders)`, style: "totalLabel", colSpan: 9, alignment: "right", bold: true },
+          {}, {}, {}, {}, {}, {}, {}, {},
+          { text: formatAmount(String(grandTotal)), style: "totalAmount", alignment: "right", bold: true, noWrap: true },
+        ],
+  ];
+
+  const tableLayout = {
+    hLineWidth: () => 0.5,
+    vLineWidth: () => 0.5,
+    hLineColor: () => "#000000",
+    vLineColor: () => "#000000",
+    paddingLeft: () => 4,
+    paddingRight: () => 4,
+    paddingTop: () => 4,
+    paddingBottom: () => 4,
+  };
+
+  const docDef = {
+    pageSize: "A4",
+    pageOrientation: "landscape",
+    pageMargins: [22, 18, 22, 18],
+    content: [
+      {
+        columns: [
+          { text: "Full Delivery Summary", style: "title" },
+          {
+            stack: [
+              {
+                text: `${dispatchHandlerLabel(group.dispatchType)}: ${group.dispatcherName}`,
+                style: "headerMeta",
+                alignment: "right",
+              },
+              {
+                text: `Date: ${dateLabel}`,
+                style: "headerMeta",
+                alignment: "right",
+                margin: [0, 2, 0, 0],
+              },
+            ],
+          },
+        ],
+        columnGap: 12,
+        margin: [0, 0, 0, 14],
+      },
+      {
+        table: {
+          headerRows: 1,
+          widths: isRider
+            ? [22, 65, 55, 66, 68, 55, 108, 60, 72, 60, 78]
+            : [22, 78, 62, 68, 76, 66, 132, 68, 72, 82],
+          body: tableBody,
+        },
+        layout: {
+          ...tableLayout,
+          fillColor: (i: number) => {
+            if (i === 0) return "#eeeeee";
+            if (i === tableBody.length - 1) return "#f5f5f5";
+            return null;
+          },
+        },
+      },
+    ],
+    styles: {
+      title: { fontSize: 15, bold: true, color: "#000000" },
+      headerMeta: { fontSize: 9, bold: true, color: "#000000" },
+      th: { fontSize: 9, bold: true, color: "#000000" },
+      td: { fontSize: 9, color: "#111111" },
+      emphasisTd: { fontSize: 10, color: "#000000" },
+      merchantTd: { fontSize: 8, color: "#111111" },
+      totalLabel: { fontSize: 9, bold: true, color: "#000000" },
+      totalAmount: { fontSize: 10, bold: true, color: "#000000" },
+    },
+    footer: {
+      text: `${dateLabel} | ${group.dispatcherName}`,
+      alignment: "right",
+      margin: [0, 0, 22, 0],
+      fontSize: 7,
+      color: "#333333",
+    },
+    defaultStyle: { font: "Roboto" },
+  };
+
+  return pdfMake.createPdf(docDef).getBuffer();
+}
+
+async function generateCitypakDispatchPdf(
   group: DispatchGroupForPdf,
   dateFrom: string,
   dateTo: string,
@@ -182,7 +372,7 @@ export async function generateDispatchGroupPdf(
       {
         columns: [
           {
-            text: `${dispatchHandlerLabel(group.dispatchType)}: ${group.dispatcherName}`,
+            text: `Courier: ${group.dispatcherName}`,
             style: "meta",
             width: "*",
           },
@@ -249,4 +439,15 @@ export async function generateDispatchGroupPdf(
   };
 
   return pdfMake.createPdf(docDef).getBuffer();
+}
+
+export async function generateDispatchGroupPdf(
+  group: DispatchGroupForPdf,
+  dateFrom: string,
+  dateTo: string,
+): Promise<Buffer> {
+  if (usesCitypakSummary(group)) {
+    return generateCitypakDispatchPdf(group, dateFrom, dateTo);
+  }
+  return generateLegacyDispatchPdf(group, dateFrom, dateTo);
 }
