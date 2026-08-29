@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Cake, Crown, Download, Loader2, Phone, Target } from "lucide-react";
+import { Cake, Crown, Download, Loader2, Phone, Target, AlertTriangle } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -40,6 +40,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
   CALL_CENTER_CATEGORY_VALUES,
@@ -59,6 +69,83 @@ function formatMoney(value: number) {
     currency: "LKR",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function formatChannelSubline(parts: Array<string | null | undefined>) {
+  const text = parts.filter(Boolean).join(" · ");
+  return text || null;
+}
+
+function formatPercentOneDecimal(value: number | null) {
+  if (value == null) return null;
+  return `${Math.round(value * 10) / 10}%`;
+}
+
+function formatScorecardTargetSubline(input: {
+  periodPreset: "today" | "mtd" | "custom";
+  periodLabel: string;
+  periodTargetAmount: number | null;
+  dailyTargetAmount: number | null;
+  monthlyTargetAmount: number | null;
+}) {
+  if (input.periodTargetAmount == null || input.periodTargetAmount <= 0) {
+    return null;
+  }
+  if (input.periodPreset === "today") {
+    return `Today ${formatMoney(input.periodTargetAmount)}`;
+  }
+  if (input.periodPreset === "mtd") {
+    const monthly =
+      input.monthlyTargetAmount != null && input.monthlyTargetAmount > 0
+        ? ` · Mo ${formatMoney(input.monthlyTargetAmount)}`
+        : "";
+    return `MTD ${formatMoney(input.periodTargetAmount)}${monthly}`;
+  }
+  return `${input.periodLabel} ${formatMoney(input.periodTargetAmount)}`;
+}
+
+/** Between primary numbers and faint footnotes — readable but clearly subordinate. */
+const SCORECARD_SUB =
+  "text-foreground/70 text-[11px] leading-snug tabular-nums";
+const SCORECARD_SUB_MUTED =
+  "text-muted-foreground text-[11px] leading-snug tabular-nums";
+
+type ScorecardSortKey =
+  | "default"
+  | "shopAmount"
+  | "onlineAmount"
+  | "totalAmount"
+  | "shopPercent"
+  | "onlinePercent"
+  | "totalPercent";
+
+function toggleScorecardSort(
+  current: { key: ScorecardSortKey; dir: "asc" | "desc" },
+  nextKey: ScorecardSortKey,
+): { key: ScorecardSortKey; dir: "asc" | "desc" } {
+  if (current.key !== nextKey) {
+    return { key: nextKey, dir: "desc" };
+  }
+  return { key: nextKey, dir: current.dir === "desc" ? "asc" : "desc" };
+}
+
+function healthStatusLabel(status: "green" | "amber" | "red") {
+  if (status === "green") return "On track";
+  if (status === "amber") return "Watch";
+  return "At risk";
+}
+
+function healthStatusClass(status: "green" | "amber" | "red") {
+  if (status === "green") return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+  if (status === "amber") return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
+  return "bg-red-500/15 text-red-700 dark:text-red-400";
+}
+
+function paceStatusLabel(status: "on_pace" | "behind" | "ahead" | "no_target") {
+  if (status === "ahead") return "Ahead";
+  if (status === "behind") return "Behind";
+  if (status === "on_pace") return "On pace";
+  return "—";
 }
 
 function formatQueueDate(iso: string | null | undefined) {
@@ -205,6 +292,21 @@ export function MerchantDashboardPanel({ initialData }: Props) {
       ? String(Math.round(initialData.target.targetAmount))
       : "",
   );
+  const [shopTargetInput, setShopTargetInput] = useState(
+    initialData.target.shopTargetAmount != null && initialData.target.shopTargetAmount > 0
+      ? String(Math.round(initialData.target.shopTargetAmount))
+      : "",
+  );
+  const [onlineTargetInput, setOnlineTargetInput] = useState(
+    initialData.target.onlineTargetAmount != null &&
+      initialData.target.onlineTargetAmount > 0
+      ? String(Math.round(initialData.target.onlineTargetAmount))
+      : "",
+  );
+  const [scorecardSort, setScorecardSort] = useState<{
+    key: ScorecardSortKey;
+    dir: "asc" | "desc";
+  }>({ key: "default", dir: "desc" });
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [showAllToday, setShowAllToday] = useState(false);
   const [showAllLifetime, setShowAllLifetime] = useState(false);
@@ -249,7 +351,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     initialData.rangeToYmd ?? initialData.toYmd,
   );
   const [isPending, startTransition] = useTransition();
+  const [dashboardTab, setDashboardTab] = useState<"merchant" | "admin">("merchant");
   const isBusy = busyKey !== null || isPending;
+  const showAdminTab = data.viewerIsAdmin || data.canManageTargets;
 
   useEffect(() => {
     setData(initialData);
@@ -257,6 +361,18 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     setTargetInput(
       initialData.target.targetAmount > 0
         ? String(Math.round(initialData.target.targetAmount))
+        : "",
+    );
+    setShopTargetInput(
+      initialData.target.shopTargetAmount != null &&
+        initialData.target.shopTargetAmount > 0
+        ? String(Math.round(initialData.target.shopTargetAmount))
+        : "",
+    );
+    setOnlineTargetInput(
+      initialData.target.onlineTargetAmount != null &&
+        initialData.target.onlineTargetAmount > 0
+        ? String(Math.round(initialData.target.onlineTargetAmount))
         : "",
     );
     setShowAllToday(false);
@@ -300,6 +416,17 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         setTargetInput(
           json.target.targetAmount > 0
             ? String(Math.round(json.target.targetAmount))
+            : "",
+        );
+        setShopTargetInput(
+          json.target.shopTargetAmount != null && json.target.shopTargetAmount > 0
+            ? String(Math.round(json.target.shopTargetAmount))
+            : "",
+        );
+        setOnlineTargetInput(
+          json.target.onlineTargetAmount != null &&
+            json.target.onlineTargetAmount > 0
+            ? String(Math.round(json.target.onlineTargetAmount))
             : "",
         );
         setShowAllToday(false);
@@ -400,11 +527,32 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   }
 
   async function saveTarget() {
-    const amount = Number(targetInput);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      notify.error("Enter a positive target amount");
+    const amount = targetInput.trim() ? Number(targetInput) : null;
+    const shopAmount = shopTargetInput.trim() ? Number(shopTargetInput) : null;
+    const onlineAmount = onlineTargetInput.trim()
+      ? Number(onlineTargetInput)
+      : null;
+
+    const hasCombined = amount != null && Number.isFinite(amount) && amount > 0;
+    const hasShop =
+      shopAmount != null && Number.isFinite(shopAmount) && shopAmount > 0;
+    const hasOnline =
+      onlineAmount != null && Number.isFinite(onlineAmount) && onlineAmount > 0;
+
+    if (!hasCombined && !hasShop && !hasOnline) {
+      notify.error("Enter a combined target or shop/online targets");
       return;
     }
+    if (
+      (amount != null && (!Number.isFinite(amount) || amount <= 0)) ||
+      (shopAmount != null && (!Number.isFinite(shopAmount) || shopAmount <= 0)) ||
+      (onlineAmount != null &&
+        (!Number.isFinite(onlineAmount) || onlineAmount <= 0))
+    ) {
+      notify.error("Target amounts must be positive numbers");
+      return;
+    }
+
     setBusyKey("save-target");
     try {
       const res = await fetch("/api/admin/merchant-dashboard/targets", {
@@ -413,7 +561,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         body: JSON.stringify({
           merchantUserId: merchantId,
           yearMonth: data.yearMonth,
-          targetAmount: amount,
+          ...(hasCombined ? { targetAmount: amount } : {}),
+          ...(hasShop ? { shopTargetAmount: shopAmount } : {}),
+          ...(hasOnline ? { onlineTargetAmount: onlineAmount } : {}),
         }),
       });
       const json = await res.json();
@@ -542,6 +692,88 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     if (b.mtdSales !== a.mtdSales) return b.mtdSales - a.mtdSales;
     return a.displayName.localeCompare(b.displayName);
   });
+  const isCustomGmPeriod =
+    data.rangeFromYmd !== data.fromYmd || data.rangeToYmd !== data.toYmd;
+  const gmPeriodLabel = data.gmChannelFooter?.periodLabel ?? "MTD";
+  const gmPeriodPreset = useMemo((): "today" | "mtd" | "custom" => {
+    if (rangeFrom === data.today.ymd && rangeTo === data.today.ymd) {
+      return "today";
+    }
+    if (rangeFrom === data.fromYmd && rangeTo === data.toYmd) {
+      return "mtd";
+    }
+    return "custom";
+  }, [rangeFrom, rangeTo, data.today.ymd, data.fromYmd, data.toYmd]);
+
+  function applyGmPeriod(preset: "today" | "mtd") {
+    if (preset === "today") {
+      const day = data.today.ymd;
+      setRangeFrom(day);
+      setRangeTo(day);
+      void reload(merchantId, { fromDate: day, toDate: day });
+      return;
+    }
+    setRangeFrom(data.fromYmd);
+    setRangeTo(data.toYmd);
+    void reload(merchantId, {
+      fromDate: data.fromYmd,
+      toDate: data.toYmd,
+    });
+  }
+
+  function applyGmCustomRange() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rangeFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(rangeTo)) {
+      notify.error("Pick valid from and to dates");
+      return;
+    }
+    if (rangeFrom > rangeTo) {
+      notify.error("From date must be on or before to date");
+      return;
+    }
+    void reload(merchantId, { fromDate: rangeFrom, toDate: rangeTo });
+  }
+  const scorecardRows = useMemo(() => {
+    const rows = [...(data.overview ?? [])];
+    if (scorecardSort.key === "default") {
+      return rows.sort((a, b) => {
+        const aHasTarget =
+          (a.effectiveTotalTarget ?? 0) > 0 || (a.targetAmount ?? 0) > 0;
+        const bHasTarget =
+          (b.effectiveTotalTarget ?? 0) > 0 || (b.targetAmount ?? 0) > 0;
+        const aTarget = a.effectiveTotalTarget ?? a.targetAmount ?? 0;
+        const bTarget = b.effectiveTotalTarget ?? b.targetAmount ?? 0;
+        const aRate = aHasTarget ? a.periodSales / aTarget : -1;
+        const bRate = bHasTarget ? b.periodSales / bTarget : -1;
+        if (bRate !== aRate) return bRate - aRate;
+        if (b.periodSales !== a.periodSales) return b.periodSales - a.periodSales;
+        return a.displayName.localeCompare(b.displayName);
+      });
+    }
+    const dir = scorecardSort.dir === "asc" ? 1 : -1;
+    const valueFor = (row: (typeof rows)[number]) => {
+      switch (scorecardSort.key) {
+        case "shopAmount":
+          return row.shop.amount;
+        case "onlineAmount":
+          return row.online.amount;
+        case "totalAmount":
+          return row.periodSales;
+        case "shopPercent":
+          return row.shopPercent ?? -1;
+        case "onlinePercent":
+          return row.onlinePercent ?? -1;
+        case "totalPercent":
+          return row.percent ?? -1;
+        default:
+          return 0;
+      }
+    };
+    return rows.sort((a, b) => {
+      const diff = valueFor(a) - valueFor(b);
+      if (diff !== 0) return diff * dir;
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [data.overview, scorecardSort]);
   const overviewChartRows = [...(data.overview ?? [])].sort(
     (a, b) => b.mtdSales - a.mtdSales,
   );
@@ -648,6 +880,26 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 ? ` · ${data.returns.returnRatePct}% returns`
                 : ""}
             </p>
+            {data.viewedMerchantChannelMtd.shop.amount > 0 ||
+            data.viewedMerchantChannelMtd.online.amount > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {data.viewedMerchantChannelMtd.shop.amount > 0 ? (
+                  <span className="bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
+                    Shop MTD {formatMoney(data.viewedMerchantChannelMtd.shop.amount)}
+                    {" · "}
+                    {data.viewedMerchantChannelMtd.shop.orderCount} orders
+                  </span>
+                ) : null}
+                {data.viewedMerchantChannelMtd.online.amount > 0 ? (
+                  <span className="bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
+                    Online MTD{" "}
+                    {formatMoney(data.viewedMerchantChannelMtd.online.amount)}
+                    {" · "}
+                    {data.viewedMerchantChannelMtd.online.orderCount} orders
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             {data.sales.hasDmSplit ? (
               <p className="text-muted-foreground text-xs">
                 Full {formatMoney(data.sales.total)} · Your MER{" "}
@@ -689,51 +941,31 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             )}
           </div>
 
-          {data.canManageTargets && (
-            <div className="rounded-xl border border-white/15 bg-black/10 p-3 backdrop-blur-sm dark:bg-white/5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <div className="flex-1 space-y-1">
-                  <label className="text-muted-foreground text-xs font-medium">
-                    Assign monthly target (LKR) — {data.profile.displayName} · {data.yearMonth}
-                  </label>
-                  <Input
-                    type="number"
-                    min={1}
-                    step={1000}
-                    disabled={isBusy}
-                    value={targetInput}
-                    onChange={(e) => setTargetInput(e.target.value)}
-                    placeholder="e.g. 500000"
-                    className="bg-background/80"
-                  />
-                </div>
-                <Button disabled={isBusy} onClick={() => void saveTarget()}>
-                  {busyKey === "save-target" ? (
-                    <>
-                      <Loader2 className="animate-spin" aria-hidden />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Target aria-hidden />
-                      Save target
-                    </>
-                  )}
-                </Button>
-              </div>
-              {data.target.assignedByName && (
-                <p className="text-muted-foreground mt-2 text-xs">
-                  Last assigned by {data.target.assignedByName}
-                  {data.target.assignedAt
-                    ? ` · ${new Date(data.target.assignedAt).toLocaleString()}`
-                    : ""}
-                </p>
-              )}
-            </div>
-          )}
         </div>
       </section>
 
+      {showAdminTab ? (
+        <Tabs
+          value={dashboardTab}
+          onValueChange={(value) =>
+            setDashboardTab(value as "merchant" | "admin")
+          }
+          className="gap-4"
+        >
+          <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
+            <TabsTrigger value="merchant">Merchant view</TabsTrigger>
+            <TabsTrigger value="admin">GM view</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ) : null}
+
+      <div
+        className={
+          showAdminTab && dashboardTab !== "merchant"
+            ? "hidden"
+            : "space-y-6"
+        }
+      >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="pb-2">
@@ -846,6 +1078,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               <p className="text-xl font-semibold tabular-nums">
                 {formatMoney(data.sales.merTotal)}
               </p>
+              {data.sales.merTargetPercent != null ? (
+                <p className="text-sm font-medium tabular-nums text-teal-700 dark:text-teal-400">
+                  {Math.round(data.sales.merTargetPercent)}% of target
+                </p>
+              ) : null}
               <p className="text-muted-foreground text-xs">
                 {data.sales.merOrderCount} orders on your personal MER codes
               </p>
@@ -861,6 +1098,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               <p className="text-xl font-semibold tabular-nums">
                 {formatMoney(data.sales.dmTotal)}
               </p>
+              {data.sales.dmTargetPercent != null ? (
+                <p className="text-sm font-medium tabular-nums text-teal-700 dark:text-teal-400">
+                  {Math.round(data.sales.dmTargetPercent)}% of target
+                </p>
+              ) : null}
               <p className="text-muted-foreground text-xs">
                 {data.sales.dmOrderCount} orders · DM MER + orders with no MER
                 code
@@ -1965,180 +2207,6 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         </Card>
       </div>
 
-      {data.viewerIsAdmin && overviewRows.length > 0 && (
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-base">
-              All merchants — MTD performance
-            </CardTitle>
-            <p className="text-muted-foreground text-xs">
-              {hasAnyTarget
-                ? "Bars = sales vs target. Cards sorted by highest target completion. Click a card to open that merchant."
-                : "No targets set yet — % is share of top MTD this month. Use Assign monthly target at the top after selecting a merchant."}
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div
-              className="w-full"
-              style={{ height: Math.max(220, overviewChartRows.length * 28) }}
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={overviewChart}
-                  margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
-                  layout="vertical"
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    className="stroke-border"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={88}
-                    tick={{ fontSize: 11 }}
-                  />
-                  <Tooltip
-                    content={<MerchantChartTooltip />}
-                    cursor={{ fill: "rgba(148, 163, 184, 0.15)" }}
-                  />
-                  {hasAnyTarget && (
-                    <Bar
-                      dataKey="target"
-                      name="Target"
-                      fill="#64748b"
-                      radius={[0, 4, 4, 0]}
-                    />
-                  )}
-                  <Bar
-                    dataKey="sales"
-                    name="MTD sales"
-                    fill="#14b8a6"
-                    radius={[0, 4, 4, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-              {overviewRows.map((row, index) => {
-                const hasTarget =
-                  hasAnyTarget &&
-                  row.targetAmount != null &&
-                  row.targetAmount > 0;
-                const towardTarget = hasTarget
-                  ? Math.min(
-                      100,
-                      Math.round(
-                        (row.mtdSales / (row.targetAmount as number)) * 1000,
-                      ) / 10,
-                    )
-                  : null;
-                const relativeShare =
-                  Math.round((row.mtdSales / maxOverviewSales) * 1000) / 10;
-                const progressPct = hasTarget
-                  ? Math.min(100, towardTarget ?? 0)
-                  : relativeShare;
-                const ringColor =
-                  hasTarget && (towardTarget ?? 0) >= 100
-                    ? "#10b981"
-                    : hasTarget && (towardTarget ?? 0) >= 80
-                      ? "#14b8a6"
-                      : hasTarget && (towardTarget ?? 0) >= 50
-                        ? "#f59e0b"
-                        : hasTarget
-                          ? "#0ea5e9"
-                          : "#14b8a6";
-                const ringR = 18;
-                const ringC = 2 * Math.PI * ringR;
-                const ringOffset = ringC * (1 - Math.min(100, progressPct) / 100);
-
-                return (
-                  <li key={row.merchantId}>
-                    <button
-                      type="button"
-                      disabled={isBusy}
-                      onClick={() => {
-                        setMerchantId(row.merchantId);
-                        void reload(row.merchantId);
-                      }}
-                      className="hover:bg-muted/50 flex h-full w-full flex-col items-center gap-2 rounded-xl border border-border/60 px-3 py-3 text-center transition-colors disabled:opacity-60"
-                      title={
-                        hasTarget
-                          ? `${towardTarget}% of target`
-                          : `${relativeShare}% of top MTD`
-                      }
-                    >
-                      <div className="flex w-full items-center justify-between gap-1">
-                        <span className="bg-muted text-muted-foreground inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums">
-                          {index + 1}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
-                          {row.displayName}
-                        </span>
-                      </div>
-                      <div
-                        className="relative size-14 shrink-0"
-                        aria-hidden
-                      >
-                        <svg
-                          viewBox="0 0 44 44"
-                          className="size-14 -rotate-90"
-                        >
-                          <circle
-                            cx="22"
-                            cy="22"
-                            r={ringR}
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3.5"
-                            className="text-muted"
-                          />
-                          <circle
-                            cx="22"
-                            cy="22"
-                            r={ringR}
-                            fill="none"
-                            stroke={ringColor}
-                            strokeWidth="3.5"
-                            strokeLinecap="round"
-                            strokeDasharray={ringC}
-                            strokeDashoffset={ringOffset}
-                          />
-                        </svg>
-                        <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums">
-                          {Math.round(progressPct)}%
-                        </span>
-                      </div>
-                      <div className="w-full space-y-0.5">
-                        <p className="truncate text-sm font-semibold tabular-nums">
-                          {formatMoney(row.mtdSales)}
-                        </p>
-                        {hasTarget ? (
-                          <p className="text-muted-foreground truncate text-[11px] tabular-nums">
-                            / {formatMoney(row.targetAmount as number)}
-                          </p>
-                        ) : (
-                          <p className="text-muted-foreground text-[11px]">
-                            No target
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">Customer lists</p>
@@ -2716,55 +2784,880 @@ export function MerchantDashboardPanel({ initialData }: Props) {
           )}
         </CardContent>
       </Card>
+      </div>
 
-      {data.viewerIsAdmin ? (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Target assignment history</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.history.length === 0 ? (
-            <p className="text-muted-foreground text-sm">No targets assigned yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-muted-foreground border-b text-left">
-                    <th className="py-2 pr-3 font-medium">Month</th>
-                    <th className="py-2 pr-3 font-medium">Target</th>
-                    <th className="py-2 pr-3 font-medium">Achieved</th>
-                    <th className="py-2 pr-3 font-medium">Status</th>
-                    <th className="py-2 pr-3 font-medium">Assigned by</th>
-                    <th className="py-2 font-medium">When</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.history.map((row) => (
-                    <tr key={row.id} className="border-b border-border/60">
-                      <td className="py-2 pr-3">{row.yearMonth}</td>
-                      <td className="py-2 pr-3">{formatMoney(row.targetAmount)}</td>
-                      <td className="py-2 pr-3">
-                        {row.achievedAmount != null
-                          ? formatMoney(row.achievedAmount)
-                          : "—"}
-                      </td>
-                      <td className="py-2 pr-3 capitalize">
-                        {row.status.replaceAll("_", " ")}
-                      </td>
-                      <td className="py-2 pr-3">{row.assignedByName ?? "—"}</td>
-                      <td className="py-2">
-                        {row.assignedAt
-                          ? new Date(row.assignedAt).toLocaleString()
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {showAdminTab && dashboardTab === "admin" ? (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="space-y-1">
+                <CardTitle className="text-base">Period</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Channel scorecard, footer, and target % use this range.
+                  Active: <span className="font-medium">{gmPeriodLabel}</span>
+                  {isCustomGmPeriod
+                    ? " · monthly targets vs period actuals"
+                    : ""}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={gmPeriodPreset === "today" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => applyGmPeriod("today")}
+                >
+                  Today
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={gmPeriodPreset === "mtd" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => applyGmPeriod("mtd")}
+                >
+                  MTD
+                </Button>
+                <label className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">From</span>
+                  <Input
+                    type="date"
+                    value={rangeFrom}
+                    disabled={isBusy}
+                    onChange={(e) => setRangeFrom(e.target.value)}
+                  />
+                </label>
+                <label className="space-y-1 text-xs">
+                  <span className="text-muted-foreground">To</span>
+                  <Input
+                    type="date"
+                    value={rangeTo}
+                    disabled={isBusy}
+                    onChange={(e) => setRangeTo(e.target.value)}
+                  />
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={gmPeriodPreset === "custom" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => void applyGmCustomRange()}
+                >
+                  Apply range
+                </Button>
+              </div>
+            </CardHeader>
+          </Card>
+
+          {data.viewerIsAdmin && data.gmPulse ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    Team today
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {formatMoney(data.gmPulse.companyTodaySales)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    Team MTD
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {formatMoney(data.gmPulse.companyMtdSales)}
+                  </p>
+                  {data.gmPulse.companyMtdTarget != null ? (
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      / {formatMoney(data.gmPulse.companyMtdTarget)}
+                      {data.gmPulse.companyMtdPercent != null
+                        ? ` · ${data.gmPulse.companyMtdPercent}%`
+                        : ""}
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    Calls today
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {data.gmPulse.totalCallsToday}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {data.gmPulse.totalCallsMtd} MTD
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    On target
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {data.gmPulse.merchantsAchieved}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {data.gmPulse.merchantsBehind} behind ·{" "}
+                    {data.gmPulse.merchantsNoTarget} no target
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    Alerts
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xl font-semibold tabular-nums">
+                    {data.gmPulse.alertCount}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    Needs attention
+                  </p>
+                </CardContent>
+              </Card>
+              {data.gmPulse.shopAmount != null &&
+              data.gmPulse.onlineAmount != null ? (
+                <>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                        Shop ({gmPeriodLabel})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xl font-semibold tabular-nums">
+                        {formatMoney(data.gmPulse.shopAmount)}
+                      </p>
+                      <p className="text-muted-foreground text-xs tabular-nums">
+                        {data.gmPulse.shopOrderCount ?? 0} orders
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                        Online ({gmPeriodLabel})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xl font-semibold tabular-nums">
+                        {formatMoney(data.gmPulse.onlineAmount)}
+                      </p>
+                      <p className="text-muted-foreground text-xs tabular-nums">
+                        {data.gmPulse.onlineOrderCount ?? 0} orders
+                      </p>
+                    </CardContent>
+                  </Card>
+                </>
+              ) : null}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          ) : null}
+
+          {data.viewerIsAdmin && data.gmAlerts.length > 0 ? (
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <AlertTriangle className="size-4 text-amber-500" aria-hidden />
+                  Alerts
+                </CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Merchants that need a check-in today.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {data.gmAlerts.map((alert) => (
+                    <li
+                      key={`${alert.merchantId}-${alert.message}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <span className="font-medium">{alert.displayName}</span>
+                        <span className="text-muted-foreground"> — {alert.message}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={
+                            alert.severity === "critical"
+                              ? "rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-400"
+                              : "rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+                          }
+                        >
+                          {alert.severity === "critical" ? "Critical" : "Warning"}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isBusy}
+                          onClick={() => {
+                            setMerchantId(alert.merchantId);
+                            setDashboardTab("merchant");
+                            void reload(alert.merchantId);
+                          }}
+                        >
+                          Open
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.viewerIsAdmin && scorecardRows.length > 0 ? (
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">Merchant scorecard</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Primary = amounts. Secondary lines below each cell are
+                  context (orders, mix %, today/MTD, ops) — visible but not
+                  main figures.
+                </p>
+                {isCustomGmPeriod ? (
+                  <p className="text-amber-700 text-xs dark:text-amber-400">
+                    Monthly targets vs {gmPeriodLabel} actuals — channel % is
+                    indicative for custom ranges.
+                  </p>
+                ) : null}
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Merchant</TableHead>
+                      <TableHead className="text-right">
+                        <button
+                          type="button"
+                          className="hover:text-foreground ml-auto block w-full text-right font-medium"
+                          onClick={() =>
+                            setScorecardSort((s) =>
+                              toggleScorecardSort(s, "shopAmount"),
+                            )
+                          }
+                        >
+                          Shop
+                          {scorecardSort.key === "shopAmount"
+                            ? scorecardSort.dir === "desc"
+                              ? " ↓"
+                              : " ↑"
+                            : ""}
+                        </button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <button
+                          type="button"
+                          className="hover:text-foreground ml-auto block w-full text-right font-medium"
+                          onClick={() =>
+                            setScorecardSort((s) =>
+                              toggleScorecardSort(s, "onlineAmount"),
+                            )
+                          }
+                        >
+                          Online
+                          {scorecardSort.key === "onlineAmount"
+                            ? scorecardSort.dir === "desc"
+                              ? " ↓"
+                              : " ↑"
+                            : ""}
+                        </button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <button
+                          type="button"
+                          className="hover:text-foreground ml-auto block w-full text-right font-medium"
+                          onClick={() =>
+                            setScorecardSort((s) =>
+                              toggleScorecardSort(s, "totalAmount"),
+                            )
+                          }
+                        >
+                          Total
+                          {scorecardSort.key === "totalAmount"
+                            ? scorecardSort.dir === "desc"
+                              ? " ↓"
+                              : " ↑"
+                            : ""}
+                        </button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <button
+                          type="button"
+                          className="hover:text-foreground ml-auto block w-full text-right font-medium"
+                          onClick={() =>
+                            setScorecardSort((s) =>
+                              toggleScorecardSort(s, "totalPercent"),
+                            )
+                          }
+                        >
+                          Target %
+                          {scorecardSort.key === "totalPercent"
+                            ? scorecardSort.dir === "desc"
+                              ? " ↓"
+                              : " ↑"
+                            : ""}
+                        </button>
+                      </TableHead>
+                      <TableHead className="text-right">Ops</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {scorecardRows.map((row) => (
+                      <TableRow
+                        key={row.merchantId}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          setMerchantId(row.merchantId);
+                          setDashboardTab("merchant");
+                          void reload(row.merchantId);
+                        }}
+                      >
+                        <TableCell>
+                          <div className="font-medium">{row.displayName}</div>
+                          {row.isShopMerchant ? (
+                            <div className={`${SCORECARD_SUB_MUTED} mt-1`}>
+                              <span className="bg-teal-500/15 text-teal-800 dark:text-teal-300 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium uppercase">
+                                Shop
+                              </span>
+                              {row.outletName ? ` · ${row.outletName}` : ""}
+                            </div>
+                          ) : null}
+                          <div className={`${SCORECARD_SUB} mt-1`}>
+                            Today {formatMoney(row.todaySales)} · MTD{" "}
+                            {formatMoney(row.mtdSales)}
+                          </div>
+                          <div className={SCORECARD_SUB_MUTED}>
+                            {gmPeriodLabel} total{" "}
+                            {formatMoney(row.periodSales)}
+                          </div>
+                          {row.hasDmSplit ? (
+                            <div className={SCORECARD_SUB_MUTED}>
+                              MER {formatMoney(row.merPeriodSales)} · DM{" "}
+                              {formatMoney(row.dmPeriodSales)}
+                            </div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="text-right align-top tabular-nums">
+                          <div className="font-medium">
+                            {formatMoney(row.shop.amount)}
+                          </div>
+                          <div className={SCORECARD_SUB}>
+                            {formatChannelSubline([
+                              `${row.shop.orderCount} orders`,
+                              formatPercentOneDecimal(row.shopPercent),
+                            ]) ?? "—"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right align-top tabular-nums">
+                          <div className="font-medium">
+                            {formatMoney(row.online.amount)}
+                          </div>
+                          <div className={SCORECARD_SUB}>
+                            {formatChannelSubline([
+                              `${row.online.orderCount} orders`,
+                              formatPercentOneDecimal(row.onlinePercent),
+                            ]) ?? "—"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right align-top tabular-nums">
+                          <div className="font-medium">
+                            {formatMoney(row.periodSales)}
+                          </div>
+                          <div className={SCORECARD_SUB_MUTED}>{gmPeriodLabel}</div>
+                        </TableCell>
+                        <TableCell className="text-right align-top tabular-nums">
+                          <div className="font-medium">
+                            {row.percent != null
+                              ? `${Math.round(row.percent)}%`
+                              : "—"}
+                          </div>
+                          {row.effectiveTotalTarget != null &&
+                          row.effectiveTotalTarget > 0 ? (
+                            <div className={SCORECARD_SUB}>
+                              {formatScorecardTargetSubline({
+                                periodPreset: gmPeriodPreset,
+                                periodLabel: gmPeriodLabel,
+                                periodTargetAmount: row.periodTargetAmount,
+                                dailyTargetAmount: row.dailyTargetAmount,
+                                monthlyTargetAmount: row.effectiveTotalTarget,
+                              }) ??
+                                `/ ${formatMoney(row.effectiveTotalTarget)}`}
+                            </div>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className={`${SCORECARD_SUB} align-top`}>
+                          <div className="tabular-nums">
+                            {row.callsToday}/{row.callsMtd} calls
+                          </div>
+                          <div>
+                            Int {row.interestedPct ?? "—"}% · Ret{" "}
+                            {row.returnRatePct ?? "—"}%
+                          </div>
+                          <div>
+                            Queue {row.pendingQueueCount} ·{" "}
+                            {paceStatusLabel(row.paceStatus)}
+                          </div>
+                          <span
+                            className={`mt-0.5 inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-medium ${healthStatusClass(row.healthStatus)}`}
+                          >
+                            {healthStatusLabel(row.healthStatus)}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  {data.gmChannelFooter ? (
+                    <TableFooter>
+                      <TableRow className="bg-muted/40 font-semibold">
+                        <TableCell>Company total</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(data.gmChannelFooter.shop.amount)}
+                          <span className="text-muted-foreground block text-[11px] font-normal tabular-nums">
+                            {data.gmChannelFooter.shop.orderCount} orders
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(data.gmChannelFooter.online.amount)}
+                          <span className="text-muted-foreground block text-[11px] font-normal tabular-nums">
+                            {data.gmChannelFooter.online.orderCount} orders
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(data.gmChannelFooter.grandTotal.amount)}
+                        </TableCell>
+                        <TableCell />
+                        <TableCell />
+                      </TableRow>
+                    </TableFooter>
+                  ) : null}
+                </Table>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.viewerIsAdmin && data.gmChannelFooter ? (
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">Channel totals</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Company shop vs online for {data.gmChannelFooter.periodLabel}.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border/60 px-4 py-3">
+                    <p className="text-muted-foreground text-xs font-medium uppercase">
+                      Shop
+                    </p>
+                    <p className="text-lg font-semibold tabular-nums">
+                      {formatMoney(data.gmChannelFooter.shop.amount)}
+                    </p>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {data.gmChannelFooter.shop.orderCount} orders
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 px-4 py-3">
+                    <p className="text-muted-foreground text-xs font-medium uppercase">
+                      Online
+                    </p>
+                    <p className="text-lg font-semibold tabular-nums">
+                      {formatMoney(data.gmChannelFooter.online.amount)}
+                    </p>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {data.gmChannelFooter.online.orderCount} orders
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 px-4 py-3">
+                    <p className="text-muted-foreground text-xs font-medium uppercase">
+                      Grand total
+                    </p>
+                    <p className="text-lg font-semibold tabular-nums">
+                      {formatMoney(data.gmChannelFooter.grandTotal.amount)}
+                    </p>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      {data.gmChannelFooter.grandTotal.orderCount} orders
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.viewerIsAdmin ? (
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">Manage merchant</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  Pick a merchant to assign targets or open their dashboard in
+                  Merchant view.
+                </p>
+              </CardHeader>
+              <CardContent className="max-w-xs space-y-1">
+                <label className="text-muted-foreground text-xs font-medium">
+                  Merchant
+                </label>
+                <Select
+                  value={merchantId}
+                  disabled={isBusy || data.merchants.length === 0}
+                  onValueChange={(value) => {
+                    setMerchantId(value);
+                    void reload(value);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select merchant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {data.merchants.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.displayName}
+                        {m.roleNames[0] ? ` (${m.roleNames[0]})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.canManageTargets ? (
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">Assign monthly target</CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  {data.profile.displayName} · {data.yearMonth}
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="text-muted-foreground text-xs font-medium">
+                      Combined target (LKR)
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1000}
+                      disabled={isBusy}
+                      value={targetInput}
+                      onChange={(e) => setTargetInput(e.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-muted-foreground text-xs font-medium">
+                      Shop target (LKR)
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1000}
+                      disabled={isBusy}
+                      value={shopTargetInput}
+                      onChange={(e) => setShopTargetInput(e.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-muted-foreground text-xs font-medium">
+                      Online target (LKR)
+                    </label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1000}
+                      disabled={isBusy}
+                      value={onlineTargetInput}
+                      onChange={(e) => setOnlineTargetInput(e.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button disabled={isBusy} onClick={() => void saveTarget()}>
+                    {busyKey === "save-target" ? (
+                      <>
+                        <Loader2 className="animate-spin" aria-hidden />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Target aria-hidden />
+                        Save target
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Enter combined and/or shop + online targets. Combined syncs when
+                  channel targets are saved.
+                </p>
+                {data.target.assignedByName ? (
+                  <p className="text-muted-foreground text-xs">
+                    Last assigned by {data.target.assignedByName}
+                    {data.target.assignedAt
+                      ? ` · ${new Date(data.target.assignedAt).toLocaleString()}`
+                      : ""}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.viewerIsAdmin && overviewRows.length > 0 ? (
+            <Card>
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">
+                  All merchants — MTD performance
+                </CardTitle>
+                <p className="text-muted-foreground text-xs">
+                  {hasAnyTarget
+                    ? "Bars = sales vs target. Cards sorted by highest target completion. Click a card to open that merchant in Merchant view."
+                    : "No targets set yet — % is share of top MTD this month. Assign targets above after selecting a merchant."}
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div
+                  className="w-full"
+                  style={{ height: Math.max(220, overviewChartRows.length * 28) }}
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={overviewChart}
+                      margin={{ top: 8, right: 12, left: 4, bottom: 8 }}
+                      layout="vertical"
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        className="stroke-border"
+                        horizontal={false}
+                      />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={88}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <Tooltip
+                        content={<MerchantChartTooltip />}
+                        cursor={{ fill: "rgba(148, 163, 184, 0.15)" }}
+                      />
+                      {hasAnyTarget ? (
+                        <Bar
+                          dataKey="target"
+                          name="Target"
+                          fill="#64748b"
+                          radius={[0, 4, 4, 0]}
+                        />
+                      ) : null}
+                      <Bar
+                        dataKey="sales"
+                        name="MTD sales"
+                        fill="#14b8a6"
+                        radius={[0, 4, 4, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                  {overviewRows.map((row, index) => {
+                    const hasTarget =
+                      hasAnyTarget &&
+                      row.targetAmount != null &&
+                      row.targetAmount > 0;
+                    const towardTarget = hasTarget
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (row.mtdSales / (row.targetAmount as number)) * 1000,
+                          ) / 10,
+                        )
+                      : null;
+                    const relativeShare =
+                      Math.round((row.mtdSales / maxOverviewSales) * 1000) / 10;
+                    const progressPct = hasTarget
+                      ? Math.min(100, towardTarget ?? 0)
+                      : relativeShare;
+                    const ringColor =
+                      hasTarget && (towardTarget ?? 0) >= 100
+                        ? "#10b981"
+                        : hasTarget && (towardTarget ?? 0) >= 80
+                          ? "#14b8a6"
+                          : hasTarget && (towardTarget ?? 0) >= 50
+                            ? "#f59e0b"
+                            : hasTarget
+                              ? "#0ea5e9"
+                              : "#14b8a6";
+                    const ringR = 18;
+                    const ringC = 2 * Math.PI * ringR;
+                    const ringOffset =
+                      ringC * (1 - Math.min(100, progressPct) / 100);
+
+                    return (
+                      <li key={row.merchantId}>
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => {
+                            setMerchantId(row.merchantId);
+                            setDashboardTab("merchant");
+                            void reload(row.merchantId);
+                          }}
+                          className="hover:bg-muted/50 flex h-full w-full flex-col items-center gap-2 rounded-xl border border-border/60 px-3 py-3 text-center transition-colors disabled:opacity-60"
+                          title={
+                            hasTarget
+                              ? `${towardTarget}% of target`
+                              : `${relativeShare}% of top MTD`
+                          }
+                        >
+                          <div className="flex w-full items-center justify-between gap-1">
+                            <span className="bg-muted text-muted-foreground inline-flex size-5 items-center justify-center rounded-full text-[10px] font-semibold tabular-nums">
+                              {index + 1}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+                              {row.displayName}
+                            </span>
+                          </div>
+                          <div className="relative size-14 shrink-0" aria-hidden>
+                            <svg viewBox="0 0 44 44" className="size-14 -rotate-90">
+                              <circle
+                                cx="22"
+                                cy="22"
+                                r={ringR}
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="3.5"
+                                className="text-muted"
+                              />
+                              <circle
+                                cx="22"
+                                cy="22"
+                                r={ringR}
+                                fill="none"
+                                stroke={ringColor}
+                                strokeWidth="3.5"
+                                strokeLinecap="round"
+                                strokeDasharray={ringC}
+                                strokeDashoffset={ringOffset}
+                              />
+                            </svg>
+                            <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums">
+                              {Math.round(progressPct)}%
+                            </span>
+                          </div>
+                          <div className="w-full space-y-0.5">
+                            <p className="truncate text-sm font-semibold tabular-nums">
+                              {formatMoney(row.mtdSales)}
+                            </p>
+                            {hasTarget ? (
+                              <p className="text-muted-foreground truncate text-[11px] tabular-nums">
+                                / {formatMoney(row.targetAmount as number)}
+                              </p>
+                            ) : (
+                              <p className="text-muted-foreground text-[11px]">
+                                No target
+                              </p>
+                            )}
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {data.viewerIsAdmin ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Target assignment history</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {data.history.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">
+                    No targets assigned yet.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-muted-foreground border-b text-left">
+                          <th className="py-2 pr-3 font-medium">Month</th>
+                          <th className="py-2 pr-3 font-medium">Combined</th>
+                          <th className="py-2 pr-3 font-medium">Shop</th>
+                          <th className="py-2 pr-3 font-medium">Online</th>
+                          <th className="py-2 pr-3 font-medium">Achieved</th>
+                          <th className="py-2 pr-3 font-medium">Status</th>
+                          <th className="py-2 pr-3 font-medium">Assigned by</th>
+                          <th className="py-2 font-medium">When</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.history.map((row) => (
+                          <tr key={row.id} className="border-b border-border/60">
+                            <td className="py-2 pr-3">{row.yearMonth}</td>
+                            <td className="py-2 pr-3">
+                              {formatMoney(row.targetAmount)}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {row.shopTargetAmount != null
+                                ? formatMoney(row.shopTargetAmount)
+                                : "—"}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {row.onlineTargetAmount != null
+                                ? formatMoney(row.onlineTargetAmount)
+                                : "—"}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {row.achievedAmount != null
+                                ? formatMoney(row.achievedAmount)
+                                : "—"}
+                            </td>
+                            <td className="py-2 pr-3 capitalize">
+                              {row.status.replaceAll("_", " ")}
+                            </td>
+                            <td className="py-2 pr-3">
+                              {row.assignedByName ?? "—"}
+                            </td>
+                            <td className="py-2">
+                              {row.assignedAt
+                                ? new Date(row.assignedAt).toLocaleString()
+                                : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

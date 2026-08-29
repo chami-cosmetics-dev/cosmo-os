@@ -24,6 +24,11 @@ describe("resolveErpSalesInvoiceCouponFields", () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("/Coupon%20Code/LOYALCS2")) {
+        if (url.includes("pricing_rule")) {
+          return new Response(JSON.stringify({ data: { pricing_rule: "PRLE-0004" } }), {
+            status: 200,
+          });
+        }
         return new Response(JSON.stringify({ data: { name: "LOYALCS2" } }), { status: 200 });
       }
       if (url.includes("/Sales%20Person/MER102")) {
@@ -49,6 +54,7 @@ describe("resolveErpSalesInvoiceCouponFields", () => {
     expect(result.couponCode).toBe("LOYALCS2");
     expect(result.discountCodeLabel).toBe("LOYALCS2");
     expect(result.merchantSalesPerson).toBe("MER102-Maheshi Soysa");
+    expect(result.pricingRule).toBe("PRLE-0004");
   });
 
   it("keeps discount label when coupon is missing in ERP", async () => {
@@ -61,6 +67,7 @@ describe("resolveErpSalesInvoiceCouponFields", () => {
 
     expect(result.couponCode).toBeNull();
     expect(result.discountCodeLabel).toBe("LOYALCS2");
+    expect(result.pricingRule).toBeNull();
   });
 
   it("maps CODHO05 to SPVL5 for Koko when resolving ERP coupon fields", async () => {

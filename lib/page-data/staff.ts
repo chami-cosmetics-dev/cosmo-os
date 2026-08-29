@@ -183,6 +183,7 @@ export async function fetchStaffPageData(
             status: true,
             resignedAt: true,
             isRider: true,
+            isShopMerchant: true,
           },
         },
       },
@@ -221,6 +222,7 @@ export async function fetchStaffPageData(
           status: u.employeeProfile.status,
           resignedAt: u.employeeProfile.resignedAt?.toISOString() ?? null,
           isRider: u.employeeProfile.isRider,
+          isShopMerchant: u.employeeProfile.isShopMerchant,
         }
       : null,
   }));
