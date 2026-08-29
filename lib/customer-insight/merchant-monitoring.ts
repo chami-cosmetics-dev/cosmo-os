@@ -1,7 +1,8 @@
 import {
   contactOrderLookupKeys,
-  type ContactOrderLookup,
 } from "@/lib/contact-purchase-lookup";
+
+type ContactOrderLookup = ReturnType<typeof contactOrderLookupKeys>;
 import {
   listInsightMerchantRosterOptions,
   resolveAssignedMerchantFilterLabels,

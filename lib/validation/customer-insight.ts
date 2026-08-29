@@ -165,6 +165,11 @@ const optionalIsoDate = z.preprocess(
     .optional()
 );
 
+const optionalBoolQuery = z
+  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
+  .optional()
+  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
+
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   item: insightFilterListSchema(500),
@@ -290,11 +295,6 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   q: trimmedString(1, 100).optional(),
 });
-
-const optionalBoolQuery = z
-  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
-  .optional()
-  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
 
 export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),

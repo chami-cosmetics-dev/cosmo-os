@@ -27,6 +27,15 @@ pdfMake.addFonts({
 pdfMake.setUrlAccessPolicy(() => false);
 pdfMake.setLocalAccessPolicy(() => false);
 
+type PdfTableCell = {
+  text: string;
+  alignment?: "left" | "center" | "right";
+  bold?: boolean;
+  style?: string;
+};
+
+type PdfTableRow = (string | PdfTableCell)[];
+
 function portfolioTable(report: MerchantMonitoringReport) {
   const header = [
     { text: "Merchant", style: "tableHeader" },
@@ -38,7 +47,7 @@ function portfolioTable(report: MerchantMonitoringReport) {
     { text: "Email %", style: "tableHeader", alignment: "right" },
     { text: "Bought", style: "tableHeader", alignment: "right" },
   ];
-  const body = report.portfolioRows.map((row) => [
+  const body: PdfTableRow[] = report.portfolioRows.map((row) => [
     row.merchantLabel,
     { text: String(row.allocatedTotal), alignment: "right" },
     { text: String(row.tiers.gold), alignment: "right" },
