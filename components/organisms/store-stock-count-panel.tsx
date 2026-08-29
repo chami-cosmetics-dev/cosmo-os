@@ -13,6 +13,7 @@ import {
   Search,
   Send,
   Trash2,
+  Upload,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ type ScanJob = {
   totalCount?: number | null;
   manualCount?: number | null;
   diff?: number | null;
+  qbStock?: number | null;
 };
 type AutoSaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
@@ -128,12 +130,14 @@ function ScanStatusCard({
   empty,
   tone,
   onSelectItem,
+  showQbStock = false,
 }: {
   title: string;
   jobs: ScanJob[];
   empty: string;
   tone: "muted" | "success" | "warning";
   onSelectItem?: (itemId: string) => void;
+  showQbStock?: boolean;
 }) {
   const toneClass =
     tone === "success"
@@ -142,15 +146,23 @@ function ScanStatusCard({
         ? "text-amber-700 dark:text-amber-400"
         : "text-muted-foreground";
 
+  const gridColumns = showQbStock
+    ? "minmax(7rem,1fr) 4rem 4rem 4rem 5rem"
+    : "minmax(7rem,1fr) 4rem 4rem 5rem";
+
   return (
     <div className="rounded-lg border p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="text-sm font-medium">{title}</h2>
         <span className="text-xs text-muted-foreground">{jobs.length}</span>
       </div>
-      <div className="grid grid-cols-[minmax(7rem,1fr)_4rem_4rem_5rem] gap-2 border-b pb-2 text-xs font-medium text-muted-foreground">
+      <div
+        className="grid gap-2 border-b pb-2 text-xs font-medium text-muted-foreground"
+        style={{ gridTemplateColumns: gridColumns }}
+      >
         <span>Item</span>
         <span className="text-right">Total</span>
+        {showQbStock ? <span className="text-right">QB Stock</span> : null}
         <span className="text-right">Count</span>
         <span className="text-right">Diff</span>
       </div>
@@ -159,7 +171,8 @@ function ScanStatusCard({
           <button
             key={job.id}
             type="button"
-            className="grid w-full grid-cols-[minmax(7rem,1fr)_4rem_4rem_5rem] gap-2 border-b py-2 text-left last:border-b-0 hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent"
+            className="grid w-full gap-2 border-b py-2 text-left last:border-b-0 hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent"
+            style={{ gridTemplateColumns: gridColumns }}
             disabled={!job.itemId || !onSelectItem}
             onClick={() => {
               if (job.itemId) onSelectItem?.(job.itemId);
@@ -169,7 +182,13 @@ function ScanStatusCard({
               {job.sku ?? job.barcode}
             </span>
             {job.status === "errored" ? (
-              <span className="col-span-3 truncate text-xs text-destructive">
+              <span
+                className={
+                  showQbStock
+                    ? "col-span-4 truncate text-xs text-destructive"
+                    : "col-span-3 truncate text-xs text-destructive"
+                }
+              >
                 {job.message}
               </span>
             ) : (
@@ -177,6 +196,11 @@ function ScanStatusCard({
                 <span className={`text-right tabular-nums ${toneClass}`}>
                   {job.totalCount ?? "-"}
                 </span>
+                {showQbStock ? (
+                  <span className={`text-right tabular-nums ${toneClass}`}>
+                    {job.qbStock ?? "-"}
+                  </span>
+                ) : null}
                 <span className={`text-right tabular-nums ${toneClass}`}>
                   {job.manualCount ?? "-"}
                 </span>
@@ -226,6 +250,7 @@ export function StoreStockCountPanel({
   const [selectedCardItemId, setSelectedCardItemId] = useState<string | null>(
     null,
   );
+  const [qbImportBusy, setQbImportBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [scanQueue, setScanQueue] = useState<ScanJob[]>([]);
   const [highlightedSku, setHighlightedSku] = useState<string | null>(null);
@@ -252,6 +277,7 @@ export function StoreStockCountPanel({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const qbImportInputRef = useRef<HTMLInputElement>(null);
   const countFocusedRef = useRef(false);
   const lastScanKeyAtRef = useRef(0);
   const scanBufferRef = useRef("");
@@ -301,10 +327,13 @@ export function StoreStockCountPanel({
     activeReport?.warehouses.filter((w) => visibleWarehouseKeys.has(w.key)) ??
     [];
   const visibleLoadedKeys = visibleWarehouses.map((w) => w.key);
+  const hasQbStock =
+    activeReport?.items.some((item) => item.qbStock != null) ?? false;
   const warehouseGridColumns = visibleLoadedKeys
     .map(() => "minmax(7.5rem,1fr)")
     .join(" ");
-  const tableGridColumns = `minmax(6.5rem,0.65fr) minmax(10rem,1.15fr) minmax(7rem,0.7fr) ${warehouseGridColumns} 6.5rem 6.5rem 4.5rem`;
+  const qbStockGridColumn = hasQbStock ? " 6rem" : "";
+  const tableGridColumns = `minmax(6.5rem,0.65fr) minmax(10rem,1.15fr) minmax(7rem,0.7fr) ${warehouseGridColumns} 6.5rem${qbStockGridColumn} 6.5rem 4.5rem`;
   const filteredReports = useMemo(() => {
     const fromTime = reportDateFrom
       ? new Date(`${reportDateFrom}T00:00:00`).getTime()
@@ -1039,6 +1068,44 @@ export function StoreStockCountPanel({
     });
   }
 
+  async function importQbStockFile(file: File) {
+    if (!activeReport) return;
+    setQbImportBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(
+        `/api/admin/store-stock-count/reports/${activeReport.id}/qb-import`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
+      const json = (await res.json()) as {
+        report?: StoreStockCountSavedReport;
+        updatedCount?: number;
+        missingSkus?: string[];
+        error?: string;
+      };
+      if (!res.ok || !json.report)
+        throw new Error(json.error ?? "Could not import QB stock");
+      setActiveReport(json.report);
+      activeReportRef.current = json.report;
+      const missingCount = json.missingSkus?.length ?? 0;
+      notify.success(
+        missingCount > 0
+          ? `Imported QB stock for ${json.updatedCount ?? 0} items. ${missingCount} item codes were not found.`
+          : `Imported QB stock for ${json.updatedCount ?? 0} items`,
+      );
+    } catch (err) {
+      notify.error(
+        err instanceof Error ? err.message : "Could not import QB stock",
+      );
+    } finally {
+      setQbImportBusy(false);
+      if (qbImportInputRef.current) qbImportInputRef.current.value = "";
+    }
+  }
   async function submitReport() {
     if (!activeReport) return;
     if (
@@ -1125,6 +1192,7 @@ export function StoreStockCountPanel({
               totalCount: item.stockSum,
               manualCount,
               diff,
+              qbStock: item.qbStock,
             } satisfies ScanJob,
           ];
         })
@@ -1367,6 +1435,7 @@ export function StoreStockCountPanel({
               empty="No ongoing counts"
               tone="warning"
               onSelectItem={setSelectedCardItemId}
+              showQbStock={hasQbStock}
             />
             <ScanStatusCard
               title="Done"
@@ -1374,6 +1443,7 @@ export function StoreStockCountPanel({
               empty="No completed counts"
               tone="success"
               onSelectItem={setSelectedCardItemId}
+              showQbStock={hasQbStock}
             />
             <ScanStatusCard
               title="Difference"
@@ -1381,6 +1451,7 @@ export function StoreStockCountPanel({
               empty="No differences"
               tone="warning"
               onSelectItem={setSelectedCardItemId}
+              showQbStock={hasQbStock}
             />
           </div>
         </div>
@@ -1476,6 +1547,38 @@ export function StoreStockCountPanel({
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" asChild>
+                  <a
+                    href={`/api/admin/store-stock-count/reports/${activeReport.id}/qb-template`}
+                  >
+                    <Download className="size-4" aria-hidden />
+                    QB Template
+                  </a>
+                </Button>
+                <input
+                  ref={qbImportInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  disabled={qbImportBusy || isLocked}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void importQbStockFile(file);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={qbImportBusy || isLocked}
+                  onClick={() => qbImportInputRef.current?.click()}
+                >
+                  {qbImportBusy ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="size-4" aria-hidden />
+                  )}
+                  Import QB
+                </Button>
                 <Button type="button" variant="outline" asChild>
                   <a
                     href={`/api/admin/store-stock-count/reports/${activeReport.id}/export`}
@@ -1635,6 +1738,9 @@ export function StoreStockCountPanel({
                   </Button>
                   <span className="block truncate">Total Stock</span>
                 </span>
+                {hasQbStock ? (
+                  <span className="min-w-0 text-right">QB Stock</span>
+                ) : null}
                 <span className="min-w-0 text-center">Manual Count</span>
                 <span className="min-w-0 text-right">Diff</span>
               </div>
@@ -1685,6 +1791,11 @@ export function StoreStockCountPanel({
                       <span className="min-w-0 text-right tabular-nums">
                         {row.stockSum ?? "-"}
                       </span>
+                      {hasQbStock ? (
+                        <span className="min-w-0 text-right tabular-nums">
+                          {row.qbStock ?? "-"}
+                        </span>
+                      ) : null}
                       <Input
                         className="h-8 w-full text-right tabular-nums"
                         inputMode="numeric"
