@@ -44,6 +44,25 @@ export function normalizeCouponKey(code: string): string {
   return code.trim().toLowerCase();
 }
 
+/** Merchants who own DM coupon codes (DM-General bucket attributee). */
+export function resolveDmHolderMerchantIds(
+  merchants: Array<{ id: string }>,
+  couponByMerchantId: Map<string, string[]>,
+): string[] {
+  return merchants
+    .filter((m) => splitMerchantCouponSets(couponByMerchantId.get(m.id)).hasDm)
+    .map((m) => m.id);
+}
+
+/** Share of DM-General bucket sales attributed to one holder (split evenly if multiple). */
+export function dmBucketShareForHolder(
+  merchantId: string,
+  holderIds: string[],
+): number {
+  if (holderIds.length === 0 || !holderIds.includes(merchantId)) return 0;
+  return 1 / holderIds.length;
+}
+
 export function resolveFixedSalesCouponBucket(
   couponCodes: string[],
 ): { id: string | null; name: string } | null {

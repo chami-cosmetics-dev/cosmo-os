@@ -395,7 +395,35 @@ function withCouponDiscountFallback(
   if (label && !retryBody.custom_coupon_code) {
     retryBody.custom_coupon_code = label;
   }
+  retryBody.ignore_pricing_rule = 1;
   return retryBody;
+}
+
+function buildErpSalesInvoicePricingRuleRows(
+  items: ErpSalesInvoiceItem[],
+  pricingRule: string,
+): Array<{ pricing_rule: string; item_code: string; rule_applied: number }> {
+  const rule = pricingRule.trim();
+  if (!rule) return [];
+
+  const seen = new Set<string>();
+  const rows: Array<{ pricing_rule: string; item_code: string; rule_applied: number }> = [];
+  for (const item of items) {
+    const code = item.item_code?.trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    rows.push({ pricing_rule: rule, item_code: code, rule_applied: 1 });
+  }
+  return rows;
+}
+
+function shopifyLineItemsFromOrderRawPayload(
+  rawPayload: unknown,
+): ShopifyOrderWebhookPayload["line_items"] | null {
+  if (!rawPayload || typeof rawPayload !== "object") return null;
+  const row = rawPayload as Record<string, unknown>;
+  if (!Array.isArray(row.line_items)) return null;
+  return row.line_items as ShopifyOrderWebhookPayload["line_items"];
 }
 
 async function erpnextSaveSalesInvoice(
@@ -493,6 +521,22 @@ async function postErpSalesInvoiceCreate(
         }, retryOpts);
       }
     }
+    if (msg.includes("417") && /MultiplePricingRuleConflict/i.test(msg)) {
+      console.warn(
+        "[ERPNext] SI creation failed — pricing rule conflict, retrying with ignore_pricing_rule:",
+        msg.slice(0, 200),
+      );
+      const { coupon_code: _coupon, ...withoutCoupon } = body;
+      const retryBody = withCouponDiscountFallback(
+        { ...withoutCoupon, ignore_pricing_rule: 1 },
+        opts,
+        opts?.couponLabel ?? null,
+      );
+      if (opts?.netRateItems?.length) {
+        retryBody.items = opts.netRateItems;
+      }
+      return postErpSalesInvoiceCreate(cfg, retryBody, opts);
+    }
     if (msg.includes("417") && /coupon/i.test(msg) && "coupon_code" in body) {
       const couponLabel =
         (typeof body.coupon_code === "string" && body.coupon_code) ||
@@ -535,15 +579,27 @@ async function createErpSalesInvoice(
 ): Promise<ErpSalesInvoiceCreateResult> {
   const submitNow = siBody.docstatus === 1;
   const couponCode = typeof siBody.coupon_code === "string" ? siBody.coupon_code.trim() : "";
+  const explicitDiscount =
+    typeof siBody.discount_amount === "number" && siBody.discount_amount > 0;
+
+  // Shopify discount is carried as header discount_amount + list rates. Draft+submit lets ERP
+  // re-run pricing rules (MultiplePricingRuleConflict, 502s) and can drop the header discount.
+  if (explicitDiscount) {
+    return postErpSalesInvoiceCreate(
+      cfg,
+      { ...siBody, docstatus: submitNow ? 1 : siBody.docstatus, ignore_pricing_rule: 1 },
+      opts,
+    );
+  }
 
   if (submitNow && couponCode) {
     console.log(`[ERPNext] Creating draft Sales Invoice with coupon ${couponCode} before submit`);
     try {
-      // siBody already includes coupon_code and discount_amount. We skip the extra PUT save here
-      // because PUT triggers ERP's validate/calculate_taxes_and_totals hook which overrides
-      // discount_amount to 0. API creation (POST) does not fire pricing rules, so values from
-      // siBody are preserved. ensureErpSalesInvoiceCouponLabels sets coupon labels post-submit.
-      const draft = await postErpSalesInvoiceCreate(cfg, { ...siBody, docstatus: 0 }, opts);
+      const draft = await postErpSalesInvoiceCreate(
+        cfg,
+        { ...siBody, docstatus: 0, ignore_pricing_rule: 1 },
+        opts,
+      );
       const draftCheck = await erpnextGet<{ coupon_code?: string | null; discount_amount?: number | null }>(
         cfg,
         `/api/resource/Sales Invoice/${encodeURIComponent(draft.name)}?fields=${encodeURIComponent(JSON.stringify(["coupon_code", "discount_amount"]))}`,
@@ -572,7 +628,20 @@ async function createErpSalesInvoice(
       };
     } catch (draftErr) {
       const msg = draftErr instanceof Error ? draftErr.message : String(draftErr);
-      throw new Error(`[ERPNext] Draft+submit coupon SI failed: ${msg.slice(0, 400)}`);
+      console.warn(
+        `[ERPNext] Draft+submit coupon SI failed — falling back to direct create with discount:`,
+        msg.slice(0, 300),
+      );
+      const { coupon_code: _coupon, ...withoutCoupon } = siBody;
+      const fallbackBody = withCouponDiscountFallback(withoutCoupon, opts, couponCode || opts?.couponLabel);
+      if (opts?.netRateItems?.length) {
+        fallbackBody.items = opts.netRateItems;
+      }
+      if (opts?.discountFallback && opts.discountFallback > 0) {
+        fallbackBody.discount_amount = opts.discountFallback;
+        fallbackBody.apply_discount_on = "Net Total";
+      }
+      return postErpSalesInvoiceCreate(cfg, fallbackBody, opts);
     }
   }
 
@@ -589,7 +658,7 @@ async function buildErpSalesInvoiceCouponFields(
     paymentGatewayPrimary?: string | null;
     paymentGatewayNames?: string[] | null;
   },
-): Promise<{ fields: Record<string, string>; discountCodeLabel: string | null }> {
+): Promise<{ fields: Record<string, string>; discountCodeLabel: string | null; pricingRule: string | null }> {
   const resolved = await resolveErpSalesInvoiceCouponFields(cfg, params);
   const fields: Record<string, string> = {};
   if (resolved.couponCode) {
@@ -600,7 +669,11 @@ async function buildErpSalesInvoiceCouponFields(
   if (resolved.merchantSalesPerson) {
     fields.custom_merchant_coupon_code = resolved.merchantSalesPerson;
   }
-  return { fields, discountCodeLabel: resolved.discountCodeLabel };
+  return {
+    fields,
+    discountCodeLabel: resolved.discountCodeLabel,
+    pricingRule: resolved.pricingRule,
+  };
 }
 
 async function erpnextSetDocumentField(
@@ -2124,6 +2197,10 @@ export async function syncOrderToERPNext(
   const billingAddressHtml = formatAddressHtml(billingAddr);
   const shippingAddressHtml = formatAddressHtml(shippingAddr);
 
+  const pricingRuleRows = erpCouponResolved.pricingRule
+    ? buildErpSalesInvoicePricingRuleRows(siItems, erpCouponResolved.pricingRule)
+    : [];
+
   const siBody = {
     doctype: "Sales Invoice",
     company: location.erpnextCompany,
@@ -2138,6 +2215,7 @@ export async function syncOrderToERPNext(
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
     ...erpCouponFields,
+    ...(pricingRuleRows.length > 0 ? { pricing_rules: pricingRuleRows } : {}),
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     // Payment type mapped from Shopify gateway names
@@ -2316,13 +2394,34 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
 
   const { date: dateStr, time: postingTime } = toColomboDT();
 
-  const siItems: Array<{ item_code: string; item_name?: string; qty: number; rate: number; warehouse: string }> = lineItems.map((li) => ({
-    item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
-    item_name: [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ") || undefined,
-    qty: li.quantity,
-    rate: parseFloat(li.price.toString()),
-    warehouse: erpnextWarehouse,
-  }));
+  const erpCouponResolved = await buildErpSalesInvoiceCouponFields(cfg, {
+    sourceName: order.sourceName,
+    discountCodes: order.discountCodes,
+    rawPayload: order.rawPayload,
+    paymentGatewayPrimary: order.paymentGatewayPrimary,
+    paymentGatewayNames: order.paymentGatewayNames ?? [],
+  });
+  const erpCouponFields = erpCouponResolved.fields;
+  const useCouponPricing = !!erpCouponFields.coupon_code;
+
+  const shopifyLineItems = shopifyLineItemsFromOrderRawPayload(order.rawPayload);
+  let siItems: ErpSalesInvoiceItem[];
+  let netRateItems: ErpSalesInvoiceItem[] | undefined;
+
+  if (shopifyLineItems && shopifyLineItems.length > 0) {
+    const netSiItems = buildErpItemsFromShopifyLineItems(shopifyLineItems, erpnextWarehouse, "net");
+    const listSiItems = buildErpItemsFromShopifyLineItems(shopifyLineItems, erpnextWarehouse, "list");
+    siItems = useCouponPricing ? [...listSiItems] : [...netSiItems];
+    netRateItems = useCouponPricing ? [...netSiItems] : undefined;
+  } else {
+    siItems = lineItems.map((li) => ({
+      item_code: li.productItem.sku ?? li.productItem.productTitle.slice(0, 140),
+      item_name: [li.productItem.productTitle, li.productItem.variantTitle].filter(Boolean).join(" - ") || undefined,
+      qty: li.quantity,
+      rate: parseFloat(li.price.toString()),
+      warehouse: erpnextWarehouse,
+    }));
+  }
 
   const shippingAmt = resolveOrderShippingAmountForErp({
     discountCodes: order.discountCodes,
@@ -2333,23 +2432,28 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const useShippingItem = shippingAmt > 0 && !!cfg.shippingItem && !useShippingTaxRow;
 
   if (useShippingItem) {
-    siItems.push({ item_code: cfg.shippingItem, item_name: "Delivery Charges", qty: 1, rate: shippingAmt, warehouse: erpnextWarehouse });
+    const shippingRow: ErpSalesInvoiceItem = {
+      item_code: cfg.shippingItem,
+      item_name: "Delivery Charges",
+      qty: 1,
+      rate: shippingAmt,
+      warehouse: erpnextWarehouse,
+    };
+    siItems.push(shippingRow);
+    netRateItems?.push(shippingRow);
   }
 
-  const itemsTotal = siItems.reduce((sum, li) => sum + li.rate * li.qty, 0);
+  const itemsTotal =
+    sumErpInvoiceItemsTotal(siItems) +
+    (useShippingTaxRow || useShippingItem ? shippingAmt : 0);
   const vaultTotal = parseFloat(order.totalPrice.toString());
-  const discountAmt = parseFloat((itemsTotal + (useShippingTaxRow ? shippingAmt : 0) - vaultTotal).toFixed(2));
+  const discountAmt = parseFloat((itemsTotal - vaultTotal).toFixed(2));
 
   const addrHtml = formatAddressHtml(addr);
 
-  const erpCouponResolved = await buildErpSalesInvoiceCouponFields(cfg, {
-    sourceName: order.sourceName,
-    discountCodes: order.discountCodes,
-    rawPayload: order.rawPayload,
-    paymentGatewayPrimary: order.paymentGatewayPrimary,
-    paymentGatewayNames: order.paymentGatewayNames ?? [],
-  });
-  const erpCouponFields = erpCouponResolved.fields;
+  const pricingRuleRows = erpCouponResolved.pricingRule
+    ? buildErpSalesInvoicePricingRuleRows(siItems, erpCouponResolved.pricingRule)
+    : [];
 
   const siBody = {
     doctype: "Sales Invoice",
@@ -2365,6 +2469,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
     sms_ebill_token: generateSmsEbillToken(),
     items: siItems,
     ...erpCouponFields,
+    ...(pricingRuleRows.length > 0 ? { pricing_rules: pricingRuleRows } : {}),
     ...(customerEmail ? { contact_email: customerEmail } : {}),
     ...(contactMobile ? { contact_mobile: contactMobile } : {}),
     ...(erpPaymentType ? { custom_payment_type: erpPaymentType } : {}),
@@ -2378,7 +2483,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
       : cfg.taxesAndCharges
         ? { taxes_and_charges: cfg.taxesAndCharges }
         : { taxes: [] }),
-  ...(discountAmt > 0 && !erpCouponFields.coupon_code
+    ...(discountAmt > 0
       ? { discount_amount: discountAmt, apply_discount_on: "Net Total" }
       : {}),
   };
@@ -2386,6 +2491,7 @@ export async function syncOrderToERPNextFromOrder(order: OrderWithVaultData): Pr
   const si = await createErpSalesInvoice(cfg, siBody as Record<string, unknown>, {
     discountFallback: discountAmt > 0 ? discountAmt : undefined,
     couponLabel: erpCouponResolved.discountCodeLabel,
+    netRateItems,
   });
 
   const couponLabel = erpCouponFields.coupon_code ?? erpCouponResolved.discountCodeLabel;

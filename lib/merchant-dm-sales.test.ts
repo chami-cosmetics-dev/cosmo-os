@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   classifyMerchantSalesBucket,
+  dmBucketShareForHolder,
   isDmCouponCode,
   parseOrderCouponList,
   resolveCohortMerchantId,
+  resolveDmHolderMerchantIds,
   splitMerchantCouponSets,
 } from "@/lib/merchant-dm-sales";
 
@@ -174,5 +176,26 @@ describe("resolveCohortMerchantId", () => {
         dmBucketId: "__dm_general__",
       }),
     ).toBe("u-sandali");
+  });
+});
+
+describe("resolveDmHolderMerchantIds", () => {
+  it("returns merchants with DM coupon codes", () => {
+    const merchants = [{ id: "u-sandali" }, { id: "u-other" }];
+    const couponById = new Map<string, string[]>([
+      ["u-sandali", ["MER91-Sandali", "MER115-Sandali"]],
+      ["u-other", ["MER50-Other"]],
+    ]);
+    expect(resolveDmHolderMerchantIds(merchants, couponById)).toEqual([
+      "u-sandali",
+    ]);
+  });
+});
+
+describe("dmBucketShareForHolder", () => {
+  it("gives full share to sole holder and splits evenly when multiple", () => {
+    expect(dmBucketShareForHolder("a", ["a"])).toBe(1);
+    expect(dmBucketShareForHolder("a", ["a", "b"])).toBe(0.5);
+    expect(dmBucketShareForHolder("c", ["a", "b"])).toBe(0);
   });
 });

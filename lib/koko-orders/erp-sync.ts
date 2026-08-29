@@ -12,7 +12,8 @@ import type { ErpnextInstance } from "@prisma/client";
 /** ERP Server Script API method for ss16_sync_koko_orders.py (override via env). */
 export function getKokoOrderSyncMethod(): string {
   return (
-    process.env.ERPNEXT_KOKO_ORDER_SYNC_METHOD?.trim() || "sync_koko_orders"
+    process.env.ERPNEXT_KOKO_ORDER_SYNC_METHOD?.trim() ||
+    "bank_recon_sync_koko_orders"
   );
 }
 
@@ -270,7 +271,7 @@ export async function sendKokoOrdersToErp(input: {
       code: "ERP_UNKNOWN",
       httpStatus: res.status,
       error:
-        "ERP returned 200 but no { results } from sync_koko_orders. Check the Server Script sets frappe.response['message'] = { results, ... }.",
+        `ERP returned 200 but no { results } from ${method}. Check the Server Script sets frappe.response['message'] = { results, ... }.`,
     };
   }
 

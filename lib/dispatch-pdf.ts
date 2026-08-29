@@ -24,6 +24,9 @@ export type DispatchGroupForPdf = {
     customerName: string | null;
     customerPhone: string | null;
     merchantName: string | null;
+    merchantStaffName: string | null;
+    merchantNumber: string | null;
+    merchantContactPhone: string | null;
     city: string | null;
     address: string | null;
     totalPrice: string;
@@ -154,6 +157,27 @@ function orderReferenceRef(order: DispatchGroupForPdf["orders"][number]) {
   return order.erpReference || order.reference;
 }
 
+function formatMultilineCell(...parts: Array<string | null | undefined>) {
+  const lines = parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part && part !== "-"));
+  return lines.length > 0 ? lines.join("\n") : "-";
+}
+
+function formatCustomerCell(order: DispatchGroupForPdf["orders"][number]) {
+  return formatMultilineCell(order.customerName, order.customerPhone);
+}
+
+function formatMerchantCell(order: DispatchGroupForPdf["orders"][number]) {
+  const formatted = formatMultilineCell(
+    order.merchantStaffName,
+    order.merchantNumber,
+    order.merchantContactPhone,
+  );
+  if (formatted !== "-") return formatted;
+  return order.merchantName ?? "-";
+}
+
 function usesCitypakSummary(group: DispatchGroupForPdf) {
   return group.dispatchType === "courier" && isCitypakCourier(group.dispatcherName);
 }
@@ -216,7 +240,7 @@ async function generateLegacyDispatchPdf(
         baseRow.push({ text: order.customerName ?? "-", style: "td" });
       }
       baseRow.push(
-        { text: order.merchantName ?? "-", style: "merchantTd" },
+        { text: formatMerchantCell(order), style: "merchantTd" },
         { text: formatAmount(order.totalPrice), style: "td", alignment: "right", noWrap: true },
       );
       return baseRow;
@@ -337,7 +361,7 @@ async function generateCitypakDispatchPdf(
       { text: String(index + 1), style: "td", alignment: "center" },
       { text: orderTrackingRef(order), style: "tdMono" },
       { text: orderReferenceRef(order), style: "tdMono" },
-      { text: order.customerName ?? "-", style: "td" },
+      { text: formatCustomerCell(order), style: "td" },
       { text: addressWithoutCity(order.address, order.city), style: "td" },
       { text: order.city ?? "-", style: "td" },
       { text: formatAmountCompact(order.totalPrice), style: "td", alignment: "right", noWrap: true },

@@ -5,7 +5,7 @@ import { generateDispatchGroupPdf } from "@/lib/dispatch-pdf";
 import { createZip } from "@/lib/falcon-upload";
 import { resolveFalconExportGroupKey } from "@/lib/falcon-waybill-brand";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
-import { resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
+import { getMerchantCouponCode, resolveOrderMerchantLabel } from "@/lib/order-merchant-coupon";
 import { prisma } from "@/lib/prisma";
 import { buildCsv, formatDispatchOrderReference } from "@/lib/reports/csv";
 import { formatAppIsoDate } from "@/lib/format-datetime";
@@ -97,6 +97,9 @@ type DispatchGroup = {
     city: string | null;
     address: string | null;
     merchantName: string | null;
+    merchantStaffName: string | null;
+    merchantNumber: string | null;
+    merchantContactPhone: string | null;
     totalPrice: string;
     currency: string;
     paymentType: string | null;
@@ -157,7 +160,7 @@ async function fetchDispatchGroups(
       dispatchedByCourierService: { select: { id: true, name: true } },
       dispatchedBy: { select: { id: true, name: true } },
       companyLocation: { select: { name: true } },
-      assignedMerchant: { select: { name: true, email: true, couponCodes: true } },
+      assignedMerchant: { select: { name: true, email: true, mobile: true, couponCodes: true } },
     },
   });
 
@@ -258,6 +261,18 @@ async function fetchDispatchGroups(
         rawPayload: order.rawPayload,
         assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
       }),
+      merchantStaffName:
+        order.assignedMerchant?.name?.trim() ||
+        order.assignedMerchant?.email?.trim() ||
+        null,
+      merchantNumber:
+        getMerchantCouponCode({
+          sourceName: order.sourceName,
+          discountCodes: order.discountCodes,
+          rawPayload: order.rawPayload,
+          assignedMerchantCouponCodes: order.assignedMerchant?.couponCodes ?? null,
+        }) ?? null,
+      merchantContactPhone: order.assignedMerchant?.mobile?.trim() || null,
       totalPrice: order.totalPrice.toString(),
       currency: order.currency ?? "LKR",
       paymentType,

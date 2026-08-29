@@ -58,6 +58,8 @@ export async function PUT(request: NextRequest) {
     merchantUserId: parsed.data.merchantUserId,
     yearMonth: parsed.data.yearMonth,
     targetAmount: parsed.data.targetAmount,
+    shopTargetAmount: parsed.data.shopTargetAmount,
+    onlineTargetAmount: parsed.data.onlineTargetAmount,
     assignedByUserId: context.user.id,
     note: parsed.data.note ?? null,
   });
@@ -70,6 +72,12 @@ export async function PUT(request: NextRequest) {
       userId: result.target.userId,
       yearMonth: result.target.yearMonth,
       targetAmount: Number(result.target.targetAmount),
+      shopTargetAmount: result.target.shopTargetAmount
+        ? Number(result.target.shopTargetAmount)
+        : null,
+      onlineTargetAmount: result.target.onlineTargetAmount
+        ? Number(result.target.onlineTargetAmount)
+        : null,
       assignedAt: result.target.assignedAt.toISOString(),
     },
   });

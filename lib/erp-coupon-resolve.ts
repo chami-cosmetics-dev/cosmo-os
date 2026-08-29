@@ -199,7 +199,30 @@ export type ResolvedErpSalesInvoiceCoupons = {
   merchantSalesPerson: string | null;
   /** Shopify discount code label (e.g. LOYALCS2), even when ERP coupon_code is omitted. */
   discountCodeLabel: string | null;
+  /** ERP Pricing Rule linked to the resolved Coupon Code (e.g. PRLE-0019). */
+  pricingRule: string | null;
 };
+
+/** Read the Pricing Rule name from a resolved ERP Coupon Code document. */
+export async function resolveErpPricingRuleForCouponCode(
+  cfg: ErpCouponApiConfig,
+  couponCodeName: string,
+): Promise<string | null> {
+  const name = couponCodeName.trim();
+  if (!name) return null;
+
+  const base = cfg.baseUrl.replace(/\/$/, "");
+  const fields = encodeURIComponent(JSON.stringify(["pricing_rule"]));
+  const res = await fetch(
+    `${base}/api/resource/Coupon%20Code/${encodeURIComponent(name)}?fields=${fields}`,
+    { headers: authHeaders(cfg) },
+  );
+  if (!res.ok) return null;
+
+  const json = (await res.json()) as { data?: { pricing_rule?: string | null } };
+  const rule = json.data?.pricing_rule?.trim();
+  return rule || null;
+}
 
 /**
  * Map Shopify discount_codes to ERP Sales Invoice coupon fields.
@@ -252,9 +275,14 @@ export async function resolveErpSalesInvoiceCouponFields(
     }
   }
 
+  const pricingRule = couponCode
+    ? await resolveErpPricingRuleForCouponCode(cfg, couponCode)
+    : null;
+
   return {
     couponCode,
     merchantSalesPerson,
     discountCodeLabel: discountCode,
+    pricingRule,
   };
 }
