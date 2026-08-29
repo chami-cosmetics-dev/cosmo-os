@@ -185,6 +185,13 @@ const customerInsightFilterFieldsSchema = z.object({
   loyaltyRegisteredTo: optionalIsoDate,
   noPurchaseFrom: optionalIsoDate,
   noPurchaseTo: optionalIsoDate,
+  lastPurchaseFrom: optionalIsoDate,
+  lastPurchaseTo: optionalIsoDate,
+  loyalty: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.enum(["standard", "gold", "platinum"]).optional()
+  ),
+  hasLastPurchase: optionalBoolQuery,
   /** Legacy presets still accepted. */
   noPurchaseMonths: z
     .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
@@ -341,3 +348,26 @@ export const customerInsightCallQueueAssignBodySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
   contactIds: z.array(cuidSchema).min(1).max(200),
 });
+
+export const customerInsightMerchantMonitoringQuerySchema = z
+  .object({
+    fromYmd: z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+    toYmd: z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
+    assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
+    preset: z.enum(["today", "mtd", "custom"]).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.fromYmd > val.toYmd) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "fromYmd cannot be after toYmd",
+        path: ["fromYmd"],
+      });
+    }
+  });
