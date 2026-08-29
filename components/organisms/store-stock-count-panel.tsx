@@ -16,6 +16,13 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { notify } from "@/lib/notify";
 import {
@@ -49,6 +56,10 @@ type ScanJob = {
   status: ScanStatus;
   message: string;
   sku?: string;
+  itemId?: string;
+  totalCount?: number | null;
+  manualCount?: number | null;
+  diff?: number | null;
 };
 type AutoSaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
@@ -116,11 +127,13 @@ function ScanStatusCard({
   jobs,
   empty,
   tone,
+  onSelectItem,
 }: {
   title: string;
   jobs: ScanJob[];
   empty: string;
   tone: "muted" | "success" | "warning";
+  onSelectItem?: (itemId: string) => void;
 }) {
   const toneClass =
     tone === "success"
@@ -135,34 +148,51 @@ function ScanStatusCard({
         <h2 className="text-sm font-medium">{title}</h2>
         <span className="text-xs text-muted-foreground">{jobs.length}</span>
       </div>
-      <div className="max-h-72 min-h-64 space-y-2 overflow-y-auto text-sm">
+      <div className="grid grid-cols-[minmax(7rem,1fr)_4rem_4rem_5rem] gap-2 border-b pb-2 text-xs font-medium text-muted-foreground">
+        <span>Item</span>
+        <span className="text-right">Total</span>
+        <span className="text-right">Count</span>
+        <span className="text-right">Diff</span>
+      </div>
+      <div className="max-h-72 min-h-64 overflow-y-auto text-sm">
         {jobs.map((job) => (
-          <div key={job.id} className="border-b pb-2 last:border-b-0">
-            <div className="truncate font-medium">{job.sku ?? job.barcode}</div>
+          <button
+            key={job.id}
+            type="button"
+            className="grid w-full grid-cols-[minmax(7rem,1fr)_4rem_4rem_5rem] gap-2 border-b py-2 text-left last:border-b-0 hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent"
+            disabled={!job.itemId || !onSelectItem}
+            onClick={() => {
+              if (job.itemId) onSelectItem?.(job.itemId);
+            }}
+          >
+            <span className="truncate font-medium">
+              {job.sku ?? job.barcode}
+            </span>
             {job.status === "errored" ? (
-              <div className="truncate text-xs text-destructive">
+              <span className="col-span-3 truncate text-xs text-destructive">
                 {job.message}
-              </div>
+              </span>
             ) : (
-              <div
-                className={`flex flex-wrap gap-x-3 gap-y-1 text-xs ${toneClass}`}
-              >
-                <span>Total {job.totalCount ?? "-"}</span>
-                <span>Count {job.manualCount ?? "-"}</span>
-                <span>
-                  Difference{" "}
+              <>
+                <span className={`text-right tabular-nums ${toneClass}`}>
+                  {job.totalCount ?? "-"}
+                </span>
+                <span className={`text-right tabular-nums ${toneClass}`}>
+                  {job.manualCount ?? "-"}
+                </span>
+                <span className={`text-right tabular-nums ${toneClass}`}>
                   {job.diff == null
                     ? "-"
                     : job.diff > 0
                       ? `+${job.diff}`
                       : job.diff}
                 </span>
-              </div>
+              </>
             )}
-          </div>
+          </button>
         ))}
         {jobs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{empty}</p>
+          <p className="py-2 text-sm text-muted-foreground">{empty}</p>
         ) : null}
       </div>
     </div>
@@ -193,6 +223,9 @@ export function StoreStockCountPanel({
   const [reportsLoading, setReportsLoading] = useState(true);
   const [activeReport, setActiveReport] =
     useState<StoreStockCountSavedReport | null>(null);
+  const [selectedCardItemId, setSelectedCardItemId] = useState<string | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [scanQueue, setScanQueue] = useState<ScanJob[]>([]);
   const [highlightedSku, setHighlightedSku] = useState<string | null>(null);
@@ -1074,38 +1107,46 @@ export function StoreStockCountPanel({
       (job.status === "processing" || job.status === "errored") &&
       matchesScanCardSearch(job),
   );
-  const reportCountJobs = activeReport
+  const reportCountJobs: ScanJob[] = activeReport
     ? activeReport.items
-        .map((item) => {
+        .flatMap((item) => {
           const manualCount = item.manualCount;
           const diff = difference(manualCount, item.stockSum);
-          if (manualCount == null || diff == null) return null;
-          return {
-            id: `${activeReport.id}:item:${item.id}`,
-            reportId: activeReport.id,
-            barcode: item.barcodes[0] ?? item.sku,
-            sku: item.sku,
-            status: diff === 0 ? "done" : "difference",
-            message: scanCountMessage(diff, manualCount),
-            totalCount: item.stockSum,
-            manualCount,
-            diff,
-          } satisfies ScanJob & { diff: number };
+          if (manualCount == null || diff == null) return [];
+          return [
+            {
+              id: `${activeReport.id}:item:${item.id}`,
+              reportId: activeReport.id,
+              barcode: item.barcodes[0] ?? item.sku,
+              sku: item.sku,
+              itemId: item.id,
+              status: diff === 0 ? "done" : "difference",
+              message: scanCountMessage(diff, manualCount),
+              totalCount: item.stockSum,
+              manualCount,
+              diff,
+            } satisfies ScanJob,
+          ];
         })
-        .filter(
-          (job): job is ScanJob & { diff: number } =>
-            job != null && matchesScanCardSearch(job),
-        )
+        .filter((job) => matchesScanCardSearch(job))
     : [];
   const doneScans = reportCountJobs.filter((job) => job.diff === 0);
   const ongoingScans =
     activeReport?.status === "draft"
-      ? reportCountJobs.filter((job) => job.diff < 0)
+      ? reportCountJobs.filter(
+          (job) => typeof job.diff === "number" && job.diff < 0,
+        )
       : [];
   const differenceScans = reportCountJobs.filter(
     (job) =>
-      job.diff > 0 || (activeReport?.status === "submitted" && job.diff < 0),
+      typeof job.diff === "number" &&
+      (job.diff > 0 || (activeReport?.status === "submitted" && job.diff < 0)),
   );
+  const selectedCardItem = selectedCardItemId
+    ? (activeReport?.items.find((item) => item.id === selectedCardItemId) ??
+      null)
+    : null;
+
   const pendingCount =
     activeReport?.items.filter((item) => item.manualCount == null).length ?? 0;
   const ongoingCount =
@@ -1325,18 +1366,21 @@ export function StoreStockCountPanel({
               jobs={ongoingScans}
               empty="No ongoing counts"
               tone="warning"
+              onSelectItem={setSelectedCardItemId}
             />
             <ScanStatusCard
               title="Done"
               jobs={doneScans}
               empty="No completed counts"
               tone="success"
+              onSelectItem={setSelectedCardItemId}
             />
             <ScanStatusCard
               title="Difference"
               jobs={differenceScans}
               empty="No differences"
               tone="warning"
+              onSelectItem={setSelectedCardItemId}
             />
           </div>
         </div>
@@ -1724,6 +1768,44 @@ export function StoreStockCountPanel({
           </section>
         </section>
       )}
+
+      <Dialog
+        open={selectedCardItem != null}
+        onOpenChange={(open) => !open && setSelectedCardItemId(null)}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedCardItem?.sku ?? "Warehouse stock"}
+            </DialogTitle>
+            <DialogDescription>{selectedCardItem?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-md border">
+            <div className="grid grid-cols-[minmax(12rem,1fr)_6rem] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+              <span>Warehouse</span>
+              <span className="text-right">Stock</span>
+            </div>
+            <div className="max-h-80 overflow-y-auto text-sm">
+              {activeReport?.warehouses.map((warehouse) => (
+                <div
+                  key={warehouse.key}
+                  className="grid grid-cols-[minmax(12rem,1fr)_6rem] gap-3 border-b px-3 py-2 last:border-b-0"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium">{warehouse.label}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {warehouse.erpCompany}
+                    </span>
+                  </span>
+                  <span className="text-right tabular-nums">
+                    {selectedCardItem?.stockByWarehouse[warehouse.key] ?? 0}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
