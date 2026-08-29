@@ -2112,6 +2112,7 @@ model StoreStockCountReportItem {
   barcodes    String[]              @default([])
   stockByWarehouse Json
   stockSum    Int?
+  qbStock     Int?
   manualCount Int?
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
@@ -2123,6 +2124,7 @@ model StoreStockCountReportItem {
   @@index([reportId, name])
   @@index([reportId, manualCount])
   @@index([reportId, stockSum])
+  @@index([reportId, qbStock])
 }
 
 /// Singleton: one payday day-of-month for all companies in this database.
