@@ -1,4 +1,5 @@
 import { effectiveLoyaltyTierKey } from "@/lib/customer-insight/erp-loyalty";
+import { matchesInsightLastPurchaseRange } from "@/lib/customer-insight/merchant-monitoring-recency";
 import { findContactIdsByLastPurchaseLocation } from "@/lib/customer-insight/last-purchase-location";
 import { lifetimeTotalsByContactId } from "@/lib/customer-insight/lifetime-totals-batch";
 import {
@@ -45,6 +46,10 @@ export type FilterQueryInput = {
   loyaltyRegisteredTo?: string;
   noPurchaseFrom?: string;
   noPurchaseTo?: string;
+  lastPurchaseFrom?: string;
+  lastPurchaseTo?: string;
+  loyalty?: LoyaltyTierKey;
+  hasLastPurchase?: boolean;
   noPurchaseMonths?: 3 | 6;
   page: number;
   pageSize: number;
@@ -274,6 +279,31 @@ async function buildAllocationWhere(input: FilterQueryInput): Promise<{
       { loyaltyAssignedAt: assignedAt },
       { loyaltyAssignedTier: { not: null } },
     ];
+  }
+
+  if (input.hasLastPurchase === false) {
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, { lastPurchaseAt: null }];
+  }
+
+  if (input.lastPurchaseFrom || input.lastPurchaseTo) {
+    const lastPurchaseAt: Record<string, Date> = {};
+    if (input.lastPurchaseFrom) {
+      lastPurchaseAt.gte = startOfColomboDay(input.lastPurchaseFrom);
+    }
+    if (input.lastPurchaseTo) {
+      lastPurchaseAt.lte = endOfColomboDay(input.lastPurchaseTo);
+    }
+    const existingAnd = Array.isArray(where.AND)
+      ? (where.AND as unknown[])
+      : where.AND
+        ? [where.AND]
+        : [];
+    where.AND = [...existingAnd, { lastPurchaseAt }];
   }
 
   if (input.noPurchaseMonths === 3 || input.noPurchaseMonths === 6) {
@@ -550,6 +580,16 @@ export async function filterAllocatedContacts(
       }
     }
 
+    if (
+      !matchesInsightLastPurchaseRange(contact.lastPurchaseAt, {
+        lastPurchaseFrom: input.lastPurchaseFrom,
+        lastPurchaseTo: input.lastPurchaseTo,
+        hasLastPurchase: input.hasLastPurchase,
+      })
+    ) {
+      continue;
+    }
+
     eligible.push(contact);
   }
 
@@ -576,6 +616,7 @@ export async function filterAllocatedContacts(
 
     // Badge = registered only; spend stays on lifetimeTotal / filters.
     const key = effectiveLoyaltyTierKey(contact.loyaltyAssignedTier);
+    if (input.loyalty && key !== input.loyalty) continue;
     if (input.minTotal != null && lifetimeTotal < input.minTotal) continue;
     if (input.maxTotal != null && lifetimeTotal > input.maxTotal) continue;
 

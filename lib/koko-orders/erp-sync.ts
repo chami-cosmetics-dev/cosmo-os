@@ -4,7 +4,7 @@ import {
   extractErpErrorMessage,
   type BookNoteErpFailCode,
 } from "@/lib/book-notes/erp-verify";
-import { formatAppIsoDateTime } from "@/lib/format-datetime";
+import { formatAppStoredDateTime } from "@/lib/format-datetime";
 import { getErpConfig } from "@/lib/erpnext-sync";
 import { prisma } from "@/lib/prisma";
 import type { ErpnextInstance } from "@prisma/client";
@@ -110,10 +110,27 @@ export function buildKokoOrderErpRow(input: {
     koko_reference: input.kokoReference.trim(),
     amount: roundMoney(input.amount),
     customer: input.customer.trim(),
-    requested_time: formatAppIsoDateTime(input.requestedAt),
+    requested_time: formatAppStoredDateTime(input.requestedAt, ""),
     reviewed_by: input.reviewedBy.trim(),
     company: input.company.trim(),
   };
+}
+
+/** rows_json payload for bank_recon_sync_koko_orders (ss16). */
+export function serializeKokoOrderRowsForErp(
+  rows: KokoOrderErpSyncRowInput[],
+): string {
+  return JSON.stringify(
+    rows.map((row) => ({
+      invoice: row.sales_invoice,
+      koko_reference: row.koko_reference,
+      amount: row.amount,
+      customer: row.customer,
+      requested: row.requested_time,
+      reviewed_by: row.reviewed_by,
+      company: row.company,
+    })),
+  );
 }
 
 function parseSyncResults(message: unknown): {
@@ -179,20 +196,7 @@ export async function sendKokoOrdersToErp(input: {
     };
   }
 
-  const rows_json = JSON.stringify(
-    input.rows.map((row) => ({
-      invoice: row.sales_invoice,
-      sales_invoice: row.sales_invoice,
-      koko_reference: row.koko_reference,
-      order_id: row.koko_reference,
-      amount: row.amount,
-      customer: row.customer,
-      requested: row.requested_time,
-      requested_time: row.requested_time,
-      reviewed_by: row.reviewed_by,
-      company: row.company,
-    })),
-  );
+  const rows_json = serializeKokoOrderRowsForErp(input.rows);
 
   const body = new URLSearchParams({ rows_json });
 

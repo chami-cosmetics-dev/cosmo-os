@@ -10,6 +10,7 @@ const vfsFonts = require("pdfmake/build/vfs_fonts") as Record<string, string>;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 import { isCitypakCourier } from "@/lib/courier";
+import { isVaultOsDeployment } from "@/lib/falcon-waybill-brand";
 import { formatAppIsoDate } from "@/lib/format-datetime";
 
 export type DispatchGroupForPdf = {
@@ -179,7 +180,11 @@ function formatMerchantCell(order: DispatchGroupForPdf["orders"][number]) {
 }
 
 function usesCitypakSummary(group: DispatchGroupForPdf) {
-  return group.dispatchType === "courier" && isCitypakCourier(group.dispatcherName);
+  return (
+    !isVaultOsDeployment() &&
+    group.dispatchType === "courier" &&
+    isCitypakCourier(group.dispatcherName)
+  );
 }
 
 async function generateLegacyDispatchPdf(

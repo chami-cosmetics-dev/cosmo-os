@@ -58,9 +58,14 @@ import {
   goldMilestoneRatio,
   progressBarFillRatio,
 } from "@/lib/customer-insight/progress-bar";
+import {
+  recencyBucketToLastPurchaseRange,
+  type PurchaseRecencyBucketKey,
+} from "@/lib/customer-insight/merchant-monitoring-recency";
 import type {
   AllocatedFilterItemDto,
   CustomerInsightDto,
+  LoyaltyTierKey,
   SearchMatchDto,
   SeriesPointDto,
   TopItemDto,
@@ -283,6 +288,62 @@ type CallQueueRow = {
   lastContactedAt: string | null;
   queued: boolean;
 };
+
+type MerchantMonitoringTierCounts = {
+  gold: number;
+  platinum: number;
+  standard: number;
+  total: number;
+};
+
+type MerchantMonitoringPortfolioRow = {
+  merchantValue: string;
+  merchantLabel: string;
+  allocatedTotal: number;
+  tiers: MerchantMonitoringTierCounts;
+  dobCompleteCount: number;
+  dobCompletePercent: number;
+  emailCompleteCount: number;
+  emailCompletePercent: number;
+  purchasedInPeriodCount: number;
+};
+
+type MerchantMonitoringRecencyCell = {
+  bucket: PurchaseRecencyBucketKey;
+  label: string;
+  tiers: MerchantMonitoringTierCounts;
+};
+
+type MerchantMonitoringReportDto = {
+  period: {
+    preset: string;
+    fromYmd: string;
+    toYmd: string;
+    periodEndYmd: string;
+    periodLabel: string;
+  };
+  portfolioRows: MerchantMonitoringPortfolioRow[];
+  companyPortfolio: MerchantMonitoringPortfolioRow;
+  recencyRows: Array<{
+    merchantValue: string;
+    merchantLabel: string;
+    buckets: MerchantMonitoringRecencyCell[];
+  }>;
+  companyRecency: MerchantMonitoringRecencyCell[];
+};
+
+function colomboTodayYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Colombo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function monthStartYmdFrom(ymd: string): string {
+  return `${ymd.slice(0, 7)}-01`;
+}
 
 function formatQueueDate(value: string | null) {
   return value ? formatAppDate(value) : "Never";
@@ -614,6 +675,10 @@ export function CustomerInsightPanel({
   const [filterLoyaltyRegTo, setFilterLoyaltyRegTo] = useState("");
   const [filterNoPurchaseFrom, setFilterNoPurchaseFrom] = useState("");
   const [filterNoPurchaseTo, setFilterNoPurchaseTo] = useState("");
+  const [filterLastPurchaseFrom, setFilterLastPurchaseFrom] = useState("");
+  const [filterLastPurchaseTo, setFilterLastPurchaseTo] = useState("");
+  const [filterLoyalty, setFilterLoyalty] = useState("");
+  const [filterHasLastPurchase, setFilterHasLastPurchase] = useState("");
   const [filterMin, setFilterMin] = useState("");
   const [filterMax, setFilterMax] = useState("");
   const [filterResults, setFilterResults] = useState<AllocatedFilterItemDto[] | null>(
@@ -694,6 +759,17 @@ export function CustomerInsightPanel({
     unallocatedCount: number;
     contactTotal: number;
   } | null>(null);
+  const [monitoringMerchant, setMonitoringMerchant] = useState("");
+  const [monitoringPreset, setMonitoringPreset] = useState<"today" | "mtd" | "custom">(
+    "mtd"
+  );
+  const [monitoringFrom, setMonitoringFrom] = useState(() =>
+    monthStartYmdFrom(colomboTodayYmd())
+  );
+  const [monitoringTo, setMonitoringTo] = useState(() => colomboTodayYmd());
+  const [monitoringReport, setMonitoringReport] =
+    useState<MerchantMonitoringReportDto | null>(null);
+  const [openedFromCallQueue, setOpenedFromCallQueue] = useState(false);
   const invoicesRef = useRef<HTMLDivElement>(null);
   const detailsRef = useRef<HTMLDivElement>(null);
 
@@ -858,8 +934,98 @@ export function CustomerInsightPanel({
   useEffect(() => {
     if (!canExportFilteredCsv) return;
     void loadAllocationSummary({ silent: true });
+    void loadMerchantMonitoring({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once for admin
   }, [canExportFilteredCsv]);
+
+  function monitoringQueryParams() {
+    const params = new URLSearchParams({
+      fromYmd: monitoringFrom,
+      toYmd: monitoringTo,
+      preset: monitoringPreset,
+    });
+    if (monitoringMerchant.trim()) {
+      params.set("assignedMerchant", monitoringMerchant.trim());
+    }
+    return params;
+  }
+
+  async function loadMerchantMonitoring(opts?: { silent?: boolean }) {
+    if (!canExportFilteredCsv) return;
+    if (!opts?.silent) setBusyKey("merchant-monitoring");
+    try {
+      const res = await fetch(
+        `/api/admin/customer-insight/merchant-monitoring?${monitoringQueryParams().toString()}`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (!opts?.silent) {
+          notify.error(data.error ?? "Failed to load merchant monitoring.");
+        }
+        return;
+      }
+      setMonitoringReport(data as MerchantMonitoringReportDto);
+    } catch {
+      if (!opts?.silent) notify.error("Failed to load merchant monitoring.");
+    } finally {
+      if (!opts?.silent) setBusyKey(null);
+    }
+  }
+
+  async function exportMerchantMonitoringPdf() {
+    if (!canExportFilteredCsv || !monitoringReport) return;
+    setBusyKey("merchant-monitoring-pdf");
+    try {
+      const res = await fetch(
+        `/api/admin/customer-insight/merchant-monitoring/export?${monitoringQueryParams().toString()}`
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify.error(data.error ?? "PDF export failed.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "insight-merchant-monitoring.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+      notify.success("PDF exported.");
+    } catch {
+      notify.error("PDF export failed.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function applyMonitoringPeriod(preset: "today" | "mtd") {
+    const today = colomboTodayYmd();
+    setMonitoringPreset(preset);
+    if (preset === "today") {
+      setMonitoringFrom(today);
+      setMonitoringTo(today);
+    } else {
+      setMonitoringFrom(monthStartYmdFrom(today));
+      setMonitoringTo(today);
+    }
+  }
+
+  function applyMonitoringDrillDown(opts: {
+    merchantValue: string;
+    bucket: PurchaseRecencyBucketKey;
+    loyalty?: LoyaltyTierKey;
+  }) {
+    const asOf = monitoringReport?.period.periodEndYmd ?? monitoringTo;
+    const range = recencyBucketToLastPurchaseRange(opts.bucket, asOf);
+    setFilterAssignedMerchant(opts.merchantValue);
+    setFilterLoyalty(opts.loyalty ?? "");
+    setFilterLastPurchaseFrom(range.lastPurchaseFrom ?? "");
+    setFilterLastPurchaseTo(range.lastPurchaseTo ?? "");
+    setFilterHasLastPurchase(range.hasLastPurchase === false ? "false" : "");
+    setInsightTab("filters");
+    void runFilters(1);
+  }
 
   async function loadAllocationSummary(opts?: { silent?: boolean }) {
     if (!canExportFilteredCsv) return;
@@ -1116,8 +1282,9 @@ export function CustomerInsightPanel({
   }
 
   async function openQueueContact(contactId: string) {
+    setOpenedFromCallQueue(true);
     setInsightTab("filters");
-    await loadInsight(contactId, 1);
+    await loadInsight(contactId, 1, undefined, { fromCallQueue: true });
     setEditing(true);
   }
 
@@ -1196,12 +1363,14 @@ export function CustomerInsightPanel({
   async function loadInsight(
     contactId: string,
     page: number,
-    scopeOverride?: { brands?: string[]; items?: string[] }
+    scopeOverride?: { brands?: string[]; items?: string[] },
+    opts?: { fromCallQueue?: boolean }
   ) {
     setBusyKey(`insight-${contactId}`);
     setEditing(false);
     setSelectedContactId(contactId);
     setItemFilter(null);
+    if (!opts?.fromCallQueue) setOpenedFromCallQueue(false);
     try {
       const brands = scopeOverride?.brands ?? filterBrands;
       const items = scopeOverride?.items ?? filterItems;
@@ -1480,6 +1649,15 @@ export function CustomerInsightPanel({
       params.set("noPurchaseFrom", filterNoPurchaseFrom.trim());
       params.set("noPurchaseTo", filterNoPurchaseTo.trim());
     }
+    if (filterLastPurchaseFrom.trim()) {
+      params.set("lastPurchaseFrom", filterLastPurchaseFrom.trim());
+    }
+    if (filterLastPurchaseTo.trim()) {
+      params.set("lastPurchaseTo", filterLastPurchaseTo.trim());
+    }
+    if (filterLoyalty.trim()) params.set("loyalty", filterLoyalty.trim());
+    if (filterHasLastPurchase === "false") params.set("hasLastPurchase", "false");
+    else if (filterHasLastPurchase === "true") params.set("hasLastPurchase", "true");
     if (filterMin.trim()) params.set("minTotal", filterMin.trim());
     if (filterMax.trim()) params.set("maxTotal", filterMax.trim());
     params.set("page", String(page));
@@ -2125,6 +2303,24 @@ export function CustomerInsightPanel({
 
       {insight && (
         <div ref={detailsRef} className="scroll-mt-4 space-y-6">
+          {openedFromCallQueue && isOwner && insight.contact ? (() => {
+            const missing: string[] = [];
+            if (!insight.contact.email?.trim()) missing.push("Email");
+            const bm = insight.contact.birthMonth;
+            const bd = insight.contact.birthDay;
+            if (!(bm != null && bm >= 1 && bm <= 12 && bd != null && bd >= 1 && bd <= 31)) {
+              missing.push("Birth date (month & day)");
+            }
+            if (missing.length === 0) return null;
+            return (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+                <p className="font-medium">Collect on this call</p>
+                <p className="text-xs text-muted-foreground">
+                  Missing: {missing.join(", ")} — update profile below while on the call.
+                </p>
+              </div>
+            );
+          })() : null}
           {insight.historyScope ? (
             <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3388,6 +3584,244 @@ export function CustomerInsightPanel({
 
         {canExportFilteredCsv ? (
           <TabsContent value="admin" className="flex flex-col gap-6">
+      {canExportFilteredCsv ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Merchant monitoring</CardTitle>
+            <CardDescription>
+              Portfolio and purchase recency for allocated contacts.
+              {monitoringReport
+                ? ` · ${monitoringReport.period.periodLabel} (${monitoringReport.period.fromYmd} – ${monitoringReport.period.toYmd})`
+                : null}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex flex-wrap gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={monitoringPreset === "today" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => {
+                    applyMonitoringPeriod("today");
+                  }}
+                >
+                  Today
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={monitoringPreset === "mtd" ? "default" : "outline"}
+                  disabled={isBusy}
+                  onClick={() => {
+                    applyMonitoringPeriod("mtd");
+                  }}
+                >
+                  MTD
+                </Button>
+              </div>
+              <Input
+                type="date"
+                className="w-[10.5rem]"
+                value={monitoringFrom}
+                disabled={isBusy}
+                onChange={(e) => {
+                  setMonitoringPreset("custom");
+                  setMonitoringFrom(e.target.value);
+                }}
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                type="date"
+                className="w-[10.5rem]"
+                value={monitoringTo}
+                disabled={isBusy}
+                onChange={(e) => {
+                  setMonitoringPreset("custom");
+                  setMonitoringTo(e.target.value);
+                }}
+              />
+              <select
+                className="h-9 rounded-md border bg-background px-2 text-sm"
+                value={monitoringMerchant}
+                disabled={isBusy}
+                onChange={(e) => setMonitoringMerchant(e.target.value)}
+              >
+                <option value="">All merchants</option>
+                {queueMerchantOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => void loadMerchantMonitoring()}
+              >
+                {busyKey === "merchant-monitoring" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Refreshing...
+                  </>
+                ) : (
+                  "Refresh"
+                )}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={isBusy || !monitoringReport}
+                onClick={() => void exportMerchantMonitoringPdf()}
+              >
+                {busyKey === "merchant-monitoring-pdf" ? (
+                  <>
+                    <Loader2 className="animate-spin" aria-hidden />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <Download aria-hidden />
+                    Export PDF
+                  </>
+                )}
+              </Button>
+            </div>
+            {!monitoringReport ? (
+              <p className="text-sm text-muted-foreground">Loading monitoring…</p>
+            ) : null}
+            {monitoringReport && monitoringReport.portfolioRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No allocated contacts for this filter.
+              </p>
+            ) : null}
+            {monitoringReport && monitoringReport.portfolioRows.length > 0 ? (
+              <div className="max-h-[24rem] overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-background">
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Merchant</th>
+                      <th className="px-3 py-2 text-right font-medium">Alloc</th>
+                      <th className="px-3 py-2 text-right font-medium">Gold</th>
+                      <th className="px-3 py-2 text-right font-medium">Plat</th>
+                      <th className="px-3 py-2 text-right font-medium">Std</th>
+                      <th className="px-3 py-2 text-right font-medium">DOB %</th>
+                      <th className="px-3 py-2 text-right font-medium">Email %</th>
+                      <th className="px-3 py-2 text-right font-medium">Bought</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {monitoringReport.portfolioRows.map((row) => (
+                      <tr key={row.merchantValue}>
+                        <td className="px-3 py-2">{row.merchantLabel}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.allocatedTotal.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.tiers.gold.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.tiers.platinum.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.tiers.standard.toLocaleString()}
+                        </td>
+                        <td
+                          className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
+                          title={`${row.dobCompleteCount} of ${row.allocatedTotal}`}
+                        >
+                          {row.dobCompletePercent}%
+                        </td>
+                        <td
+                          className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
+                          title={`${row.emailCompleteCount} of ${row.allocatedTotal}`}
+                        >
+                          {row.emailCompletePercent}%
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.purchasedInPeriodCount.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {monitoringReport ? (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">
+                  Purchase recency
+                  {monitoringMerchant.trim()
+                    ? ` · ${monitoringReport.portfolioRows.find((r) => r.merchantValue === monitoringMerchant)?.merchantLabel ?? monitoringMerchant}`
+                    : " · All merchants"}
+                </p>
+                <div className="overflow-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="px-3 py-2 font-medium">Bucket</th>
+                        <th className="px-3 py-2 text-right font-medium">Gold</th>
+                        <th className="px-3 py-2 text-right font-medium">Plat</th>
+                        <th className="px-3 py-2 text-right font-medium">Std</th>
+                        <th className="px-3 py-2 text-right font-medium">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {(monitoringMerchant.trim()
+                        ? monitoringReport.recencyRows.find(
+                            (r) => r.merchantValue === monitoringMerchant
+                          )?.buckets
+                        : monitoringReport.companyRecency
+                      )?.map((cell) => (
+                        <tr key={cell.bucket}>
+                          <td className="px-3 py-2">{cell.label}</td>
+                          {(["gold", "platinum", "standard"] as const).map((tier) => (
+                            <td
+                              key={tier}
+                              className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
+                              onClick={() => {
+                                if (!monitoringMerchant.trim()) {
+                                  notify.error("Select a merchant to drill into contacts.");
+                                  return;
+                                }
+                                applyMonitoringDrillDown({
+                                  merchantValue: monitoringMerchant.trim(),
+                                  bucket: cell.bucket,
+                                  loyalty: tier,
+                                });
+                              }}
+                            >
+                              {cell.tiers[tier].toLocaleString()}
+                            </td>
+                          ))}
+                          <td
+                            className="cursor-pointer px-3 py-2 text-right tabular-nums hover:bg-muted/40"
+                            onClick={() => {
+                              if (!monitoringMerchant.trim()) {
+                                notify.error("Select a merchant to drill into contacts.");
+                                return;
+                              }
+                              applyMonitoringDrillDown({
+                                merchantValue: monitoringMerchant.trim(),
+                                bucket: cell.bucket,
+                              });
+                            }}
+                          >
+                            {cell.tiers.total.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
       {canExportFilteredCsv ? (
         <Card>
           <CardHeader className="pb-2">

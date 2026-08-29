@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildKokoOrderErpRow,
   customerLabelForKokoOrder,
+  serializeKokoOrderRowsForErp,
 } from "@/lib/koko-orders/erp-sync";
 
 describe("customerLabelForKokoOrder", () => {
@@ -49,9 +50,55 @@ describe("buildKokoOrderErpRow", () => {
       koko_reference: "ORDER#0010502020",
       amount: 9950.01,
       customer: "0774223062",
-      requested_time: expect.stringMatching(/^2026-08-28 \d{2}:\d{2}:\d{2}$/),
+      requested_time: "8/28/2026, 9:30:00 AM",
       reviewed_by: "finance@example.com",
       company: "DRO Trading (Pvt) Ltd",
     });
+  });
+});
+
+describe("serializeKokoOrderRowsForErp", () => {
+  it("serializes multi-KOKO rows for bank_recon_sync_koko_orders", () => {
+    const rows = [
+      buildKokoOrderErpRow({
+        salesInvoice: "110-000289",
+        kokoReference: "ref_1",
+        amount: 10000,
+        customer: "0765969696",
+        requestedAt: new Date("2026-08-28T04:20:24.000Z"),
+        reviewedBy: "Akeel Hilal",
+        company: "Company Name",
+      }),
+      buildKokoOrderErpRow({
+        salesInvoice: "110-000289",
+        kokoReference: "ref_2",
+        amount: 5650,
+        customer: "0765969696",
+        requestedAt: new Date("2026-08-28T04:20:24.000Z"),
+        reviewedBy: "Akeel Hilal",
+        company: "Company Name",
+      }),
+    ];
+
+    expect(JSON.parse(serializeKokoOrderRowsForErp(rows))).toEqual([
+      {
+        invoice: "110-000289",
+        koko_reference: "ref_1",
+        amount: 10000,
+        customer: "0765969696",
+        requested: "8/28/2026, 9:50:24 AM",
+        reviewed_by: "Akeel Hilal",
+        company: "Company Name",
+      },
+      {
+        invoice: "110-000289",
+        koko_reference: "ref_2",
+        amount: 5650,
+        customer: "0765969696",
+        requested: "8/28/2026, 9:50:24 AM",
+        reviewed_by: "Akeel Hilal",
+        company: "Company Name",
+      },
+    ]);
   });
 });
