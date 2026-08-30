@@ -165,11 +165,6 @@ const optionalIsoDate = z.preprocess(
     .optional()
 );
 
-const optionalBoolQuery = z
-  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
-  .optional()
-  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
-
 const customerInsightFilterFieldsSchema = z.object({
   brand: insightFilterListSchema(LIMITS.name.max),
   item: insightFilterListSchema(500),
@@ -190,13 +185,6 @@ const customerInsightFilterFieldsSchema = z.object({
   loyaltyRegisteredTo: optionalIsoDate,
   noPurchaseFrom: optionalIsoDate,
   noPurchaseTo: optionalIsoDate,
-  lastPurchaseFrom: optionalIsoDate,
-  lastPurchaseTo: optionalIsoDate,
-  loyalty: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.enum(["standard", "gold", "platinum"]).optional()
-  ),
-  hasLastPurchase: optionalBoolQuery,
   /** Legacy presets still accepted. */
   noPurchaseMonths: z
     .union([z.literal("3"), z.literal("6"), z.literal(3), z.literal(6)])
@@ -296,6 +284,11 @@ export const customerInsightFilterOptionsQuerySchema = z.object({
   q: trimmedString(1, 100).optional(),
 });
 
+const optionalBoolQuery = z
+  .union([z.literal("true"), z.literal("1"), z.literal("false"), z.literal("0")])
+  .optional()
+  .transform((v) => (v == null ? undefined : v === "true" || v === "1"));
+
 export const customerInsightCallQueueCandidatesQuerySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
   page: z.coerce.number().int().min(1).max(LIMITS.pagination.pageMax).default(1),
@@ -348,26 +341,3 @@ export const customerInsightCallQueueAssignBodySchema = z.object({
   assignedMerchant: trimmedString(1, LIMITS.knownName.max),
   contactIds: z.array(cuidSchema).min(1).max(200),
 });
-
-export const customerInsightMerchantMonitoringQuerySchema = z
-  .object({
-    fromYmd: z
-      .string()
-      .trim()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
-    toYmd: z
-      .string()
-      .trim()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD"),
-    assignedMerchant: trimmedString(1, LIMITS.knownName.max).optional(),
-    preset: z.enum(["today", "mtd", "custom"]).optional(),
-  })
-  .superRefine((val, ctx) => {
-    if (val.fromYmd > val.toYmd) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "fromYmd cannot be after toYmd",
-        path: ["fromYmd"],
-      });
-    }
-  });
