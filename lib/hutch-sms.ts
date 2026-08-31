@@ -6,29 +6,54 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 const MAX_SEND_ATTEMPTS = 3;
 
+type HutchAuthResult =
+  | { ok: true; token: string }
+  | { ok: false; message: string; retryable: boolean };
+
 async function getHutchToken(config: {
   companyId: string;
   authUrl: string;
   username: string;
   password: string;
-}): Promise<string | null> {
+}): Promise<HutchAuthResult> {
   const cached = tokenCache.get(config.companyId);
-  if (cached && cached.expiresAt > Date.now()) return cached.token;
+  if (cached && cached.expiresAt > Date.now()) return { ok: true, token: cached.token };
 
   const authResponse = await fetch(config.authUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "*/*", "X-API-VERSION": "v1" },
     body: JSON.stringify({ username: config.username, password: config.password }),
   });
-  const authData = (await authResponse.json()) as { accessToken?: string };
-  if (!authData.accessToken) return null;
+
+  let authData: { accessToken?: string; error?: string; message?: string } = {};
+  try {
+    authData = (await authResponse.json()) as typeof authData;
+  } catch {
+    const retryable = authResponse.status >= 500 || authResponse.status === 429;
+    return {
+      ok: false,
+      message: `Hutch login rejected (${authResponse.status} non-JSON body)`,
+      retryable,
+    };
+  }
+
+  if (!authResponse.ok || !authData.accessToken) {
+    const detail =
+      authData.error ?? authData.message ?? (authResponse.statusText || "no access token");
+    console.error(`Hutch SMS login failed: ${authResponse.status} ${detail}`);
+    return {
+      ok: false,
+      message: `Hutch login rejected (${authResponse.status} ${detail})`,
+      retryable: authResponse.status >= 500 || authResponse.status === 429,
+    };
+  }
 
   // Cache for 4 minutes (tokens typically valid for 5+)
   tokenCache.set(config.companyId, {
     token: authData.accessToken,
     expiresAt: Date.now() + 4 * 60 * 1000,
   });
-  return authData.accessToken;
+  return { ok: true, token: authData.accessToken };
 }
 
 function formatPhoneNumber(tpNo: string): string {
@@ -56,7 +81,7 @@ function sleep(ms: number): Promise<void> {
 
 export type SendSmsResult =
   | { success: true }
-  | { success: false; message: string };
+  | { success: false; message: string; retryable?: boolean };
 
 async function sendSmsOnce(
   companyId: string,
@@ -78,13 +103,13 @@ async function sendSmsOnce(
   const formattedNumber = formatPhoneNumber(phoneNumber);
 
   try {
-    const accessToken = await getHutchToken(config);
+    const auth = await getHutchToken(config);
 
-    if (!accessToken) {
-      console.error("Hutch SMS: No access token in auth response");
+    if (!auth.ok) {
       tokenCache.delete(companyId);
-      return { success: false, message: "Failed to authenticate with SMS provider" };
+      return { success: false, message: auth.message, retryable: auth.retryable };
     }
+    const accessToken = auth.token;
 
     const smsResponse = await fetch(config.smsUrl, {
       method: "POST",
@@ -171,8 +196,11 @@ export async function sendSms(
     lastResult = await sendSmsOnce(companyId, phoneNumber, message, sentById);
     if (lastResult.success) return lastResult;
 
-    // Don't retry permanent config errors
-    if (lastResult.message.includes("not configured")) {
+    // Don't retry permanent config / credential errors
+    if (
+      lastResult.message.includes("not configured") ||
+      lastResult.retryable === false
+    ) {
       break;
     }
 
