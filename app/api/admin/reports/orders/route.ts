@@ -14,6 +14,12 @@ import {
 } from "@/lib/reports/csv";
 import { DUMP_TOTAL_HEADER } from "@/lib/reports/dump-download";
 import {
+  dumpInvoiceShippingRuleFromLive,
+  dumpInvoiceShippingRuleFromStored,
+  dumpShippingPersistFields,
+  hasStoredDumpShippingResolution,
+} from "@/lib/reports/dump-invoice-shipping";
+import {
   createOrderInvoiceItemRow,
   createOrderInvoiceRow,
   getOrderInvoiceCsvHeaders,
@@ -25,14 +31,14 @@ import {
   buildCouponToMerchantMap,
   getMerchantGroupUserMap,
 } from "@/lib/merchant-groups";
-import { getOrderDiscountCouponCode, resolveOrderDiscountCouponForOrder } from "@/lib/order-discount-coupon";
+import {
+  getOrderDiscountCouponCode,
+  mergeDiscountCouponIntoCodes,
+  resolveOrderDiscountCouponForOrder,
+} from "@/lib/order-discount-coupon";
 import { getMerchantCouponCode } from "@/lib/order-merchant-coupon";
 import { resolveOrderLineItemsPricing } from "@/lib/order-line-item-pricing";
-import {
-  normalizeZeroValueShippingLabel,
-  resolveOrderShippingDisplay,
-  resolveOrderShippingDisplayForOrder,
-} from "@/lib/order-shipping-display";
+import { resolveOrderShippingDisplayForOrder } from "@/lib/order-shipping-display";
 import { resolveCustomerPhone } from "@/lib/order-sms-resolvers";
 import { getOrderDumpPermission, getUtilityOrderDumpPermission } from "@/lib/report-permissions";
 import { requirePermission } from "@/lib/rbac";
@@ -113,10 +119,6 @@ async function writeOrderedConcurrentLines<T>(
   });
 }
 
-function shippingRuleFallbackFromOrder(order: { dispatchedToCustomer?: boolean | null }, shippingAddress: string): string | null {
-  if (order.dispatchedToCustomer) return "Pick Up";
-  return normalizeZeroValueShippingLabel(shippingAddress);
-}
 function decimalToString(value: Prisma.Decimal | null) {
   return value ? value.toString() : "";
 }
@@ -286,7 +288,14 @@ function getReportLabel(report: ReportKind, range: RangeKind) {
   return "Web-site Invoice Detail (Invoice Wise) [Last 90 Days]";
 }
 
-const ORDER_DUMP_INCLUDE = {
+const DUMP_ORDER_PAGE_SIZE = 200;
+const DUMP_ORDER_ORDER_BY = [
+  { createdAt: "desc" as const },
+  { updatedAt: "desc" as const },
+  { id: "desc" as const },
+];
+
+const ORDER_DUMP_BASE_INCLUDE = {
   companyLocation: {
     select: {
       name: true,
@@ -301,6 +310,15 @@ const ORDER_DUMP_INCLUDE = {
   lastPrintedBy: { select: { knownName: true, name: true, email: true } },
   deliveryCompleteBy: { select: { knownName: true, name: true, email: true } },
   invoiceCompleteBy: { select: { knownName: true, name: true, email: true } },
+} as const;
+
+const ORDER_DUMP_INVOICE_INCLUDE = {
+  ...ORDER_DUMP_BASE_INCLUDE,
+  _count: { select: { lineItems: true } },
+} as const;
+
+const ORDER_DUMP_ITEM_INCLUDE = {
+  ...ORDER_DUMP_BASE_INCLUDE,
   lineItems: {
     include: {
       productItem: {
@@ -314,6 +332,65 @@ const ORDER_DUMP_INCLUDE = {
     },
   },
 } as const;
+
+async function loadManualCreatorEmails(companyId: string, orderIds: string[]) {
+  const orderIdToManualCreatorEmail = new Map<string, string>();
+  if (orderIds.length === 0) return orderIdToManualCreatorEmail;
+  const logs = await prisma.auditLog.findMany({
+    where: {
+      companyId,
+      action: "manual_order_created",
+      entityType: "Order",
+      entityId: { in: orderIds },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      entityId: true,
+      actorUser: { select: { email: true } },
+    },
+  });
+  for (const log of logs) {
+    const email = log.actorUser?.email?.trim();
+    if (log.entityId && email && !orderIdToManualCreatorEmail.has(log.entityId)) {
+      orderIdToManualCreatorEmail.set(log.entityId, email);
+    }
+  }
+  return orderIdToManualCreatorEmail;
+}
+
+async function persistDumpShippingFill(
+  orderId: string,
+  live: Parameters<typeof dumpShippingPersistFields>[0],
+) {
+  const fields = dumpShippingPersistFields(live);
+  if (!fields?.shippingLines) return;
+  try {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        shippingLines: fields.shippingLines,
+        ...(fields.totalShipping
+          ? { totalShipping: new Prisma.Decimal(fields.totalShipping) }
+          : {}),
+      },
+    });
+  } catch {
+    /* dump still succeeds */
+  }
+}
+
+async function persistDumpDiscountCoupon(orderId: string, existing: unknown, coupon: string) {
+  const next = mergeDiscountCouponIntoCodes(existing, coupon);
+  if (next === existing) return;
+  try {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { discountCodes: next as Prisma.InputJsonValue },
+    });
+  } catch {
+    /* dump still succeeds */
+  }
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -412,34 +489,23 @@ export async function GET(request: NextRequest) {
       try {
         write(formatCsvHeaderLine(csvHeaders));
 
-        const orders = await prisma.order.findMany({
-          where: orderWhere,
-          orderBy: [{ createdAt: "desc" }, { updatedAt: "desc" }],
-          include: ORDER_DUMP_INCLUDE,
-        });
-        const manualOrderCreatedLogs = await prisma.auditLog.findMany({
-          where: {
-            companyId,
-            action: "manual_order_created",
-            entityType: "Order",
-            entityId: { in: orders.map((order) => order.id) },
-          },
-          orderBy: { createdAt: "asc" },
-          select: {
-            entityId: true,
-            actorUser: { select: { email: true } },
-          },
-        });
-        const orderIdToManualCreatorEmail = new Map<string, string>();
-        for (const log of manualOrderCreatedLogs) {
-          const email = log.actorUser?.email?.trim();
-          if (log.entityId && email && !orderIdToManualCreatorEmail.has(log.entityId)) {
-            orderIdToManualCreatorEmail.set(log.entityId, email);
-          }
-        }
-
         if (report === "invoice-item") {
-          await writeOrderedConcurrentLines(orders, write, async (order) => {
+          let cursorId: string | undefined;
+          for (;;) {
+            if (request.signal.aborted) break;
+            const orders = await prisma.order.findMany({
+              where: orderWhere,
+              orderBy: DUMP_ORDER_ORDER_BY,
+              take: DUMP_ORDER_PAGE_SIZE,
+              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              include: ORDER_DUMP_ITEM_INCLUDE,
+            });
+            if (orders.length === 0) break;
+            const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            await writeOrderedConcurrentLines(orders, write, async (order) => {
       const customerName =
         getCustomerName(order.shippingAddress) ||
         getCustomerName(order.billingAddress) ||
@@ -571,9 +637,27 @@ export async function GET(request: NextRequest) {
         });
       });
             return itemRows.map((row) => formatCsvDataLine(csvHeaders, row)).join("");
-          });
+            });
+            cursorId = orders[orders.length - 1]!.id;
+            if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
+          }
         } else {
-          await writeOrderedConcurrentLines(orders, write, async (order) => {
+          let cursorId: string | undefined;
+          for (;;) {
+            if (request.signal.aborted) break;
+            const orders = await prisma.order.findMany({
+              where: orderWhere,
+              orderBy: DUMP_ORDER_ORDER_BY,
+              take: DUMP_ORDER_PAGE_SIZE,
+              ...(cursorId ? { skip: 1, cursor: { id: cursorId } } : {}),
+              include: ORDER_DUMP_INVOICE_INCLUDE,
+            });
+            if (orders.length === 0) break;
+            const orderIdToManualCreatorEmail = await loadManualCreatorEmails(
+              companyId,
+              orders.map((order) => order.id),
+            );
+            await writeOrderedConcurrentLines(orders, write, async (order) => {
     const customerName =
       getCustomerName(order.shippingAddress) ||
       getCustomerName(order.billingAddress) ||
@@ -606,6 +690,9 @@ export async function GET(request: NextRequest) {
         erpnextInvoiceId: order.erpnextInvoiceId,
         erpnextInstance: order.companyLocation.erpnextInstance,
       });
+      if (discountCoupon) {
+        await persistDumpDiscountCoupon(order.id, order.discountCodes, discountCoupon);
+      }
     }
     const couponCode = joinDumpCouponCodes(merchantCouponCode, discountCoupon);
     const merchantName = resolveMerchantName({
@@ -635,13 +722,15 @@ export async function GET(request: NextRequest) {
       erpnextInvoiceId: order.erpnextInvoiceId,
       erpnextInstance: order.companyLocation.erpnextInstance,
       discountCodes: order.discountCodes,
+      dispatchedToCustomer: order.dispatchedToCustomer,
+      shippingAddress,
     };
-    const storedShippingRule =
-      resolveOrderShippingDisplay(shippingLookup).label ?? shippingRuleFallbackFromOrder(order, shippingAddress);
-    const shippingRule = storedShippingRule?.trim()
-      ? storedShippingRule
-      : (await resolveOrderShippingDisplayForOrder(shippingLookup)).label
-        ?? shippingRuleFallbackFromOrder(order, shippingAddress);
+    let shippingRule = dumpInvoiceShippingRuleFromStored(shippingLookup);
+    if (!hasStoredDumpShippingResolution(shippingLookup)) {
+      const live = await resolveOrderShippingDisplayForOrder(shippingLookup);
+      shippingRule = dumpInvoiceShippingRuleFromLive(live, shippingRule);
+      await persistDumpShippingFill(order.id, live);
+    }
 
     return formatCsvDataLine(csvHeaders, createOrderInvoiceRow({
       invoiceNo,
@@ -671,7 +760,7 @@ export async function GET(request: NextRequest) {
       discounts: decimalToString(order.totalDiscounts),
       shippingTotal: decimalToString(order.totalShipping),
       grandTotal: order.totalPrice.toString(),
-      itemCount: order.lineItems.length,
+      itemCount: order._count.lineItems,
       printCount: order.printCount,
       packageReadyAt: order.packageReadyAt,
       dispatchedAt: order.dispatchedAt,
@@ -686,7 +775,10 @@ export async function GET(request: NextRequest) {
       shippingRule,
       createdBy,
     }));
-          });
+            });
+            cursorId = orders[orders.length - 1]!.id;
+            if (orders.length < DUMP_ORDER_PAGE_SIZE) break;
+          }
         }
 
         if (!request.signal.aborted) {
