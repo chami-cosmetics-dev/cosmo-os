@@ -80,31 +80,45 @@ export async function buildStockCountPdfBuffer(
       {
         text:
           `Ongoing ${snapshot.ongoing}  ·  Done ${snapshot.done}  ·  Difference ${snapshot.difference}` +
-          `  ·  Pending ${snapshot.pending}  ·  Total count ${snapshot.totalManualCount}`,
+          `  ·  Counted ${snapshot.counted}/${snapshot.itemCount}  ·  Total count ${snapshot.totalManualCount}`,
         fontSize: 9,
         margin: [0, 0, 0, 8],
       },
-      {
-        table: {
-          headerRows: 1,
-          widths,
-          body: [
-            snapshot.countedListHeaders.map((h) => ({
-              text: h,
-              bold: true,
-              fontSize: 8,
-            })),
-            ...snapshot.rows.map((row) =>
-              countedListRowValues(snapshot, row).map((value, i) => ({
-                text: value === "" ? "-" : String(value),
-                fontSize: 7,
-                alignment: i === 0 || i === 1 || i === lastCol ? "left" : "right",
-              })),
-            ),
-          ],
-        },
-        layout: "lightHorizontalLines",
-      },
+      snapshot.countedRows.length === 0
+        ? {
+            text: "No items in Ongoing, Done, or Difference.",
+            fontSize: 9,
+            italics: true,
+          }
+        : {
+            table: {
+              headerRows: 1,
+              widths,
+              body: [
+                snapshot.countedListHeaders.map((h) => ({
+                  text: h,
+                  bold: true,
+                  fontSize: 8,
+                })),
+                ...snapshot.countedRows.map((row) =>
+                  countedListRowValues(snapshot, row).map((value, i) => ({
+                    text: value === "" ? "-" : String(value),
+                    fontSize: 7,
+                    alignment:
+                      i === 0 || i === 1 || i === lastCol ? "left" : "right",
+                  })),
+                ),
+              ],
+            },
+            layout: "lightHorizontalLines",
+          },
+      snapshot.pending > 0
+        ? {
+            text: `${snapshot.pending} pending SKUs omitted.`,
+            fontSize: 8,
+            margin: [0, 10, 0, 0],
+          }
+        : {},
     ],
   };
 

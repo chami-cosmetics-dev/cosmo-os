@@ -870,9 +870,6 @@ export function StoreStockCountPanel({
           dirtyCountsRef.current = {};
           setDraftCounts({});
           setCountDrafts({});
-          setScanQueue([]);
-          setLastScan(null);
-          setHighlightedSku(null);
         }
         activeReportRef.current = next;
         setActiveReport(next);
@@ -1701,7 +1698,7 @@ export function StoreStockCountPanel({
     if (!activeReport || isLocked) return;
     if (!opts?.afterDownload) {
       const ok = window.confirm(
-        "Start a new counting round? Combined Excel should already be downloaded. Personal counts will clear. Total stock stays frozen.",
+        "Start another counting round? Previous counts stay. Combined Excel should already be downloaded. You will count separately again, then Save my counts.",
       );
       if (!ok) return;
     }
@@ -1722,13 +1719,10 @@ export function StoreStockCountPanel({
       dirtyCountsRef.current = {};
       setDraftCounts({});
       setCountDrafts({});
-      setScanQueue([]);
-      setLastScan(null);
-      setHighlightedSku(null);
       setActiveReport(json.report);
       activeReportRef.current = json.report;
       notify.success(
-        "New round started. Count separately, download your file, then Save my counts.",
+        "Previous counts kept. Count separately again, then Save my counts.",
       );
     } catch (err) {
       notify.error(
@@ -1911,8 +1905,9 @@ export function StoreStockCountPanel({
           <p className="text-sm text-muted-foreground">
             Several people can count at once, including the same SKU. Each
             screen shows only your scans. After every counter saves, download
-            the combined Excel. A new round then starts so you can count and
-            save separately again. Total stock stays frozen from create.
+            the combined Excel. Then count separately again — previous counts
+            stay. Save my counts to combine the next round. Total stock stays
+            frozen from create.
           </p>
         </div>
         {!standalone ? (
@@ -2413,9 +2408,7 @@ export function StoreStockCountPanel({
                   )}
                   Import QB
                 </Button>
-                {!isLocked &&
-                activeReport.countView !== "combined" &&
-                activeReport.counterCount >= 2 ? (
+                {!isLocked && activeReport.countView !== "combined" ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -2459,7 +2452,7 @@ export function StoreStockCountPanel({
                     ) : (
                       <RefreshCw className="size-4" aria-hidden />
                     )}
-                    Start new round
+                    Continue counting
                   </Button>
                 ) : null}
                 {canSubmit ? (

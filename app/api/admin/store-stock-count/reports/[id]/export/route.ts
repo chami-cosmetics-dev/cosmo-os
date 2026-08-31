@@ -39,7 +39,7 @@ function buildCsv(snapshot: StockCountSnapshot) {
     "",
     snapshot.headers.map(csvCell).join(","),
   ];
-  for (const row of snapshot.rows) {
+  for (const row of snapshot.countedRows) {
     lines.push(snapshotRowValues(snapshot, row).map(csvCell).join(","));
   }
   return `${lines.join("\r\n")}\r\n`;
@@ -65,12 +65,13 @@ function buildXlsx(snapshot: StockCountSnapshot) {
     ["Ongoing", snapshot.ongoing],
     ["Done", snapshot.done],
     ["Difference", snapshot.difference],
-    ["Pending", snapshot.pending],
+    ["Pending omitted", snapshot.pending],
+    ["Counted items", snapshot.counted],
     ["Total items", snapshot.itemCount],
     ["Total manual count", snapshot.totalManualCount],
     [],
     snapshot.headers,
-    ...snapshot.rows.map((row) => snapshotRowValues(snapshot, row)),
+    ...snapshot.countedRows.map((row) => snapshotRowValues(snapshot, row)),
   ]);
   XLSX.utils.book_append_sheet(workbook, items, "Items");
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;

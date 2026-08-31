@@ -377,15 +377,8 @@ export async function startNewStoreStockCountRound(input: {
   }
 
   await prisma.$transaction([
-    prisma.storeStockCountItemLane.deleteMany({
-      where: { reportId: input.reportId, companyId: input.companyId },
-    }),
     prisma.storeStockCountUserSave.deleteMany({
       where: { reportId: input.reportId, companyId: input.companyId },
-    }),
-    prisma.storeStockCountReportItem.updateMany({
-      where: { reportId: input.reportId, companyId: input.companyId },
-      data: { manualCount: null },
     }),
     prisma.storeStockCountReport.update({
       where: { id: input.reportId },
