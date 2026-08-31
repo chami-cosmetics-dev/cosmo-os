@@ -58,18 +58,29 @@ describe("buildMerchantSalesMovement", () => {
     });
 
     expect(previousAppIsoDate("2026-08-31")).toBe("2026-08-30");
-    expect(movement.openingTotal).toBe(2_010_350);
-    expect(movement.additions.map((l) => l.invoiceLabel)).toEqual([
+    expect(movement.today.openingTotal).toBe(2_010_350);
+    expect(movement.today.additions.map((l) => l.invoiceLabel)).toEqual([
       "110-000427",
       "60018660",
     ]);
-    expect(movement.removals.map((l) => l.invoiceLabel)).toEqual([
+    expect(movement.today.removals.map((l) => l.invoiceLabel)).toEqual([
       "60018654",
       "60018660",
     ]);
-    expect(movement.closingTotal).toBe(2_005_710);
+    expect(movement.today.closingTotal).toBe(2_005_710);
     expect(movement.countedMtd).toBe(2_005_710);
     expect(movement.countedToday).toBe(5710);
+    expect(movement.mtd.additions.map((l) => l.invoiceLabel)).toEqual([
+      "110-000427",
+      "60018660",
+      "60018654",
+      "OLD-1",
+    ]);
+    expect(movement.mtd.removals.map((l) => l.invoiceLabel)).toEqual([
+      "60018654",
+      "60018660",
+    ]);
+    expect(movement.mtd.closingTotal).toBe(2_005_710);
   });
 
   it("labels returns separately from voids", () => {
@@ -86,9 +97,11 @@ describe("buildMerchantSalesMovement", () => {
         }),
       ],
     });
-    expect(movement.openingTotal).toBe(4000);
-    expect(movement.removals[0]?.reason).toBe("return");
-    expect(movement.closingTotal).toBe(0);
+    expect(movement.today.openingTotal).toBe(4000);
+    expect(movement.today.removals[0]?.reason).toBe("return");
+    expect(movement.today.closingTotal).toBe(0);
+    expect(movement.mtd.removals[0]?.reason).toBe("return");
+    expect(movement.mtd.closingTotal).toBe(0);
     expect(movement.countedMtd).toBe(0);
   });
 });

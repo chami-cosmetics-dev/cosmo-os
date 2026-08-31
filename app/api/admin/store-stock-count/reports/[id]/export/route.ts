@@ -58,9 +58,13 @@ function buildXlsx(snapshot: StockCountSnapshot) {
     ["Captured at", snapshot.capturedAt],
     [
       "Note",
-      snapshot.isDraft
-        ? "Draft snapshot. Counting can continue after this download."
-        : "Submitted report. Counts are locked.",
+      snapshot.countView === "personal"
+        ? snapshot.viewerLabel
+          ? `Your counts only (${snapshot.viewerLabel}). Other counters are not in this file.`
+          : "Your counts only. Other counters are not in this file."
+        : snapshot.isDraft
+          ? "Combined counts. Counting can continue after this download."
+          : "Submitted report. Counts are locked.",
     ],
     [],
     ["Ongoing", snapshot.ongoing],
@@ -93,6 +97,7 @@ export async function GET(request: NextRequest, context: Ctx) {
   const report = await getStoreStockCountReport({
     companyId: auth.companyId,
     reportId: id,
+    viewerUserId: auth.context.user.id,
   });
   if (!report)
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
@@ -100,8 +105,16 @@ export async function GET(request: NextRequest, context: Ctx) {
   const formatParam = request.nextUrl.searchParams.get("format")?.toLowerCase();
   const format =
     formatParam === "pdf" || formatParam === "csv" ? formatParam : "xlsx";
-  const snapshot = buildStockCountSnapshot(report);
-  const base = `${filenameSafe(report.title)}-counted`;
+  const viewerLabel =
+    auth.context.user.name?.trim() ||
+    auth.context.user.email?.trim() ||
+    null;
+  const snapshot = buildStockCountSnapshot(report, new Date(), viewerLabel);
+  const suffix =
+    snapshot.countView === "personal"
+      ? filenameSafe(viewerLabel ?? "my-counts")
+      : "combined";
+  const base = `${filenameSafe(report.title)}-${suffix}`;
 
   if (format === "pdf") {
     const buffer = await buildStockCountPdfBuffer(snapshot);

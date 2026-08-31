@@ -70,6 +70,10 @@ describe("buildStockCountSnapshot", () => {
       createdByName: null,
       updatedByName: null,
       submittedByName: null,
+      countView: "personal",
+      myCountsSaved: false,
+      counterCount: 0,
+      savedCounterCount: 0,
       items: [
         item("DONE1", 5, 5),
         item("PEND1", 2, null),
@@ -117,5 +121,12 @@ describe("buildStockCountSnapshot", () => {
       3,
       -7,
     ]);
+    const mine = buildStockCountSnapshot(
+      report,
+      new Date("2026-08-31T10:00:00.000Z"),
+      "Kasun",
+    );
+    expect(mine.title).toBe("Bay A (Kasun)");
+    expect(mine.countView).toBe("personal");
   });
 });
