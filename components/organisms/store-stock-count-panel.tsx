@@ -167,12 +167,7 @@ function countValue(
 function hasExactBarcodeMatch(code: string, rows: StoreStockCountSavedItem[]) {
   const trimmed = code.trim();
   if (trimmed.length < MIN_SCAN_LENGTH) return false;
-  let hits = 0;
-  for (const row of rows) {
-    if (row.barcodes.some((barcode) => barcode.trim() === trimmed)) hits += 1;
-    if (hits > 1) return false;
-  }
-  return hits === 1;
+  return matchScan(trimmed, rows).kind === "unique";
 }
 
 function prependRecentKeys(prev: string[], keys: string[]): string[] {
@@ -484,6 +479,7 @@ export function StoreStockCountPanel({
     null,
   );
   const [qbImportBusy, setQbImportBusy] = useState(false);
+  const [barcodeReloadBusy, setBarcodeReloadBusy] = useState(false);
   const [saveLanesBusy, setSaveLanesBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState<
     "xlsx" | "pdf" | "csv" | "both" | null
@@ -1518,6 +1514,38 @@ export function StoreStockCountPanel({
     scanInputRef.current?.focus();
   }
 
+  async function reloadBarcodes() {
+    if (!activeReport || isLocked) return;
+    setBarcodeReloadBusy(true);
+    try {
+      const res = await fetch(
+        `/api/admin/store-stock-count/reports/${activeReport.id}/barcodes`,
+        { method: "POST" },
+      );
+      const json = (await res.json()) as {
+        report?: StoreStockCountSavedReport;
+        error?: string;
+      };
+      if (!res.ok || !json.report) {
+        throw new Error(json.error ?? "Could not reload barcodes");
+      }
+      setActiveReport(json.report);
+      activeReportRef.current = json.report;
+      const withBarcode = json.report.items.filter(
+        (item) => item.barcodes.length > 0,
+      ).length;
+      notify.success(
+        `Barcodes loaded on ${withBarcode}/${json.report.items.length} items`,
+      );
+    } catch (err) {
+      notify.error(
+        err instanceof Error ? err.message : "Could not reload barcodes",
+      );
+    } finally {
+      setBarcodeReloadBusy(false);
+    }
+  }
+
   async function importQbStockFile(file: File) {
     if (!activeReport) return;
     setQbImportBusy(true);
@@ -2021,53 +2049,58 @@ export function StoreStockCountPanel({
                   }}
                 />
               </div>
-              <div className="space-y-2">
-                <label htmlFor="stock-count-qty" className="text-sm font-medium">
-                  Count
-                </label>
-                <DigitInput
-                  id="stock-count-qty"
-                  ref={qtyInputRef}
-                  className="h-9 w-28 text-lg tabular-nums"
-                  aria-label="Manual count for last scanned item"
-                  placeholder="Qty"
-                  disabled={busy || isLocked || !highlightedItem}
-                  value={
-                    highlightedItem
-                      ? Object.prototype.hasOwnProperty.call(
-                          countDrafts,
-                          highlightedItem.skuKey,
-                        )
-                        ? countDrafts[highlightedItem.skuKey]
-                        : highlightedItem.manualCount == null
-                          ? ""
-                          : String(highlightedItem.manualCount)
-                      : ""
-                  }
-                  onFocus={() => {
-                    countFocusedRef.current = true;
-                  }}
-                  onBlur={(e) => {
-                    countFocusedRef.current = false;
-                    if (highlightedItem) {
-                      commitDraft(highlightedItem, e.target.value);
+              {typeQtyMode ? (
+                <div className="space-y-2">
+                  <label
+                    htmlFor="stock-count-qty"
+                    className="text-sm font-medium"
+                  >
+                    Count
+                  </label>
+                  <DigitInput
+                    id="stock-count-qty"
+                    ref={qtyInputRef}
+                    className="h-9 w-28 text-lg tabular-nums"
+                    aria-label="Manual count for last scanned item"
+                    placeholder="Qty"
+                    disabled={busy || isLocked || !highlightedItem}
+                    value={
+                      highlightedItem
+                        ? Object.prototype.hasOwnProperty.call(
+                            countDrafts,
+                            highlightedItem.skuKey,
+                          )
+                          ? countDrafts[highlightedItem.skuKey]
+                          : highlightedItem.manualCount == null
+                            ? ""
+                            : String(highlightedItem.manualCount)
+                        : ""
                     }
-                  }}
-                  onChange={(e) => {
-                    if (!highlightedItem) return;
-                    setCountDrafts((d) => ({
-                      ...d,
-                      [highlightedItem.skuKey]: e.target.value,
-                    }));
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    e.preventDefault();
-                    (e.target as HTMLInputElement).blur();
-                    scanInputRef.current?.focus();
-                  }}
-                />
-              </div>
+                    onFocus={() => {
+                      countFocusedRef.current = true;
+                    }}
+                    onBlur={(e) => {
+                      countFocusedRef.current = false;
+                      if (highlightedItem) {
+                        commitDraft(highlightedItem, e.target.value);
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (!highlightedItem) return;
+                      setCountDrafts((d) => ({
+                        ...d,
+                        [highlightedItem.skuKey]: e.target.value,
+                      }));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                      scanInputRef.current?.focus();
+                    }}
+                  />
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <Switch
@@ -2075,14 +2108,20 @@ export function StoreStockCountPanel({
                 size="sm"
                 checked={typeQtyMode}
                 disabled={busy || isLocked}
-                onCheckedChange={setTypeQtyMode}
+                onCheckedChange={(checked) => {
+                  setTypeQtyMode(checked === true);
+                  if (checked !== true) {
+                    countFocusedRef.current = false;
+                    scanInputRef.current?.focus();
+                  }
+                }}
               />
               <label
                 htmlFor="stock-count-type-qty"
                 className="text-sm text-muted-foreground"
               >
-                Type quantity — scan once, then type how many (for piles of
-                500+)
+                Type quantity (optional) — only for big piles. Leave off to
+                count +1 per scan.
               </label>
             </div>
             {lastScan ? (
@@ -2102,9 +2141,9 @@ export function StoreStockCountPanel({
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Unknown barcode plays an error sound and is not counted. Big
-                pile: turn on Type quantity, scan one unit, type the full count.
-                Use − on a counted item to undo a mistaken scan.
+                Each scan adds 1. No need to type a count. Unknown barcode
+                plays an error sound and is not counted. Use − to undo a
+                mistaken scan.
               </p>
             )}
           </div>
@@ -2291,6 +2330,19 @@ export function StoreStockCountPanel({
                     if (file) void importQbStockFile(file);
                   }}
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={barcodeReloadBusy || isLocked}
+                  onClick={() => void reloadBarcodes()}
+                >
+                  {barcodeReloadBusy ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="size-4" aria-hidden />
+                  )}
+                  Reload barcodes
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
