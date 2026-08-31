@@ -4,11 +4,9 @@ import * as XLSX from "xlsx";
 import { requireStoreStockCountAccess } from "@/lib/store-stock-count/auth";
 import { buildStockCountPdfBuffer } from "@/lib/store-stock-count/export-pdf";
 import {
-  COUNTED_BUCKETS,
   buildStockCountSnapshot,
-  countedListRowValues,
   filenameSafe,
-  snapshotRowsForBucket,
+  snapshotRowValues,
   type StockCountSnapshot,
 } from "@/lib/store-stock-count/export-snapshot";
 import { getStoreStockCountReport } from "@/lib/store-stock-count/reports";
@@ -33,26 +31,23 @@ function buildCsv(snapshot: StockCountSnapshot) {
       snapshot.done,
       "Difference",
       snapshot.difference,
+      "Pending",
+      snapshot.pending,
     ]
       .map(csvCell)
       .join(","),
+    "",
+    snapshot.headers.map(csvCell).join(","),
   ];
-  for (const bucket of COUNTED_BUCKETS) {
-    const rows = snapshotRowsForBucket(snapshot, bucket);
-    lines.push("");
-    lines.push([bucket, rows.length].map(csvCell).join(","));
-    lines.push(snapshot.countedListHeaders.map(csvCell).join(","));
-    for (const row of rows) {
-      lines.push(countedListRowValues(snapshot, row).map(csvCell).join(","));
-    }
+  for (const row of snapshot.rows) {
+    lines.push(snapshotRowValues(snapshot, row).map(csvCell).join(","));
   }
   return `${lines.join("\r\n")}\r\n`;
 }
 
 function buildXlsx(snapshot: StockCountSnapshot) {
   const workbook = XLSX.utils.book_new();
-  const summary = XLSX.utils.aoa_to_sheet([
-    ["Stock count snapshot"],
+  const items = XLSX.utils.aoa_to_sheet([
     [snapshot.title],
     ["Status", snapshot.status],
     ["Captured at", snapshot.capturedAt],
@@ -70,21 +65,14 @@ function buildXlsx(snapshot: StockCountSnapshot) {
     ["Ongoing", snapshot.ongoing],
     ["Done", snapshot.done],
     ["Difference", snapshot.difference],
-    ["Pending omitted", snapshot.pending],
-    ["Counted items", snapshot.counted],
+    ["Pending", snapshot.pending],
     ["Total items", snapshot.itemCount],
     ["Total manual count", snapshot.totalManualCount],
+    [],
+    snapshot.headers,
+    ...snapshot.rows.map((row) => snapshotRowValues(snapshot, row)),
   ]);
-  XLSX.utils.book_append_sheet(workbook, summary, "Summary");
-
-  for (const bucket of COUNTED_BUCKETS) {
-    const rows = snapshotRowsForBucket(snapshot, bucket);
-    const sheet = XLSX.utils.aoa_to_sheet([
-      snapshot.countedListHeaders,
-      ...rows.map((row) => countedListRowValues(snapshot, row)),
-    ]);
-    XLSX.utils.book_append_sheet(workbook, sheet, bucket);
-  }
+  XLSX.utils.book_append_sheet(workbook, items, "Items");
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 

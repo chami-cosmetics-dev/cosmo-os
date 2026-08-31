@@ -105,6 +105,7 @@ describe("buildStockCountSnapshot", () => {
       "Total",
       "Count",
       "Diff",
+      "Status",
     ]);
     expect(snapshotRowsForBucket(snapshot, "Done")[0]?.sku).toBe("DONE1");
     expect(countedListRowValues(snapshot, snapshot.doneRows[0]!)).toEqual([
@@ -113,6 +114,7 @@ describe("buildStockCountSnapshot", () => {
       5,
       5,
       0,
+      "Done",
     ]);
     expect(countedListRowValues(snapshot, snapshot.ongoingRows[0]!)).toEqual([
       "ONG1",
@@ -120,6 +122,14 @@ describe("buildStockCountSnapshot", () => {
       10,
       3,
       -7,
+      "Ongoing",
+    ]);
+    expect(snapshot.headers.at(-1)).toBe("Status");
+    expect(snapshot.rows.map((row) => row.status)).toEqual([
+      "Done",
+      "Pending",
+      "Ongoing",
+      "Difference",
     ]);
     const mine = buildStockCountSnapshot(
       report,

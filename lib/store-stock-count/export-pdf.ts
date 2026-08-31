@@ -12,10 +12,7 @@ const vfsFonts = require("pdfmake/build/vfs_fonts") as Record<string, string>;
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 import {
-  COUNTED_BUCKETS,
   countedListRowValues,
-  snapshotRowsForBucket,
-  type CountedBucket,
   type StockCountSnapshot,
 } from "@/lib/store-stock-count/export-snapshot";
 
@@ -40,51 +37,6 @@ function formatCapturedAt(iso: string) {
   }).format(new Date(iso));
 }
 
-const EMPTY_COPY: Record<CountedBucket, string> = {
-  Ongoing: "No ongoing counts",
-  Done: "No completed counts",
-  Difference: "No differences",
-};
-
-function bucketSection(snapshot: StockCountSnapshot, bucket: CountedBucket) {
-  const rows = snapshotRowsForBucket(snapshot, bucket);
-  const widths = snapshot.countedListHeaders.map((_, i) =>
-    i === 1 ? "*" : "auto",
-  );
-
-  return [
-    {
-      text: `${bucket} (${rows.length})`,
-      fontSize: 12,
-      bold: true,
-      margin: [0, 12, 0, 6],
-    },
-    rows.length === 0
-      ? { text: EMPTY_COPY[bucket], fontSize: 9, italics: true }
-      : {
-          table: {
-            headerRows: 1,
-            widths,
-            body: [
-              snapshot.countedListHeaders.map((h) => ({
-                text: h,
-                bold: true,
-                fontSize: 8,
-              })),
-              ...rows.map((row) =>
-                countedListRowValues(snapshot, row).map((value, i) => ({
-                  text: value === "" ? "-" : String(value),
-                  fontSize: 7,
-                  alignment: i === 0 || i === 1 ? "left" : "right",
-                })),
-              ),
-            ],
-          },
-          layout: "lightHorizontalLines",
-        },
-  ];
-}
-
 export async function buildStockCountPdfBuffer(
   snapshot: StockCountSnapshot,
 ): Promise<Buffer> {
@@ -96,6 +48,10 @@ export async function buildStockCountPdfBuffer(
       : snapshot.isDraft
         ? "Combined counts from every counter. This download does not lock the count."
         : "Submitted report. Combined counts are locked.";
+  const lastCol = snapshot.countedListHeaders.length - 1;
+  const widths = snapshot.countedListHeaders.map((_, i) =>
+    i === 1 ? "*" : "auto",
+  );
 
   const docDef = {
     pageOrientation: "portrait" as const,
@@ -124,18 +80,31 @@ export async function buildStockCountPdfBuffer(
       {
         text:
           `Ongoing ${snapshot.ongoing}  ·  Done ${snapshot.done}  ·  Difference ${snapshot.difference}` +
-          `  ·  Counted ${snapshot.counted}/${snapshot.itemCount}  ·  Total count ${snapshot.totalManualCount}`,
+          `  ·  Pending ${snapshot.pending}  ·  Total count ${snapshot.totalManualCount}`,
         fontSize: 9,
-        margin: [0, 0, 0, 4],
+        margin: [0, 0, 0, 8],
       },
-      ...COUNTED_BUCKETS.flatMap((bucket) => bucketSection(snapshot, bucket)),
-      snapshot.pending > 0
-        ? {
-            text: `${snapshot.pending} pending SKUs omitted. Report uses Ongoing, Done, and Difference only.`,
-            fontSize: 8,
-            margin: [0, 10, 0, 0],
-          }
-        : {},
+      {
+        table: {
+          headerRows: 1,
+          widths,
+          body: [
+            snapshot.countedListHeaders.map((h) => ({
+              text: h,
+              bold: true,
+              fontSize: 8,
+            })),
+            ...snapshot.rows.map((row) =>
+              countedListRowValues(snapshot, row).map((value, i) => ({
+                text: value === "" ? "-" : String(value),
+                fontSize: 7,
+                alignment: i === 0 || i === 1 || i === lastCol ? "left" : "right",
+              })),
+            ),
+          ],
+        },
+        layout: "lightHorizontalLines",
+      },
     ],
   };
 

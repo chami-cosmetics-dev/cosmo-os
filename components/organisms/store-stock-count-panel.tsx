@@ -2377,7 +2377,7 @@ export function StoreStockCountPanel({
                   type="button"
                   variant="outline"
                   disabled={exportBusy != null}
-                  onClick={() => void downloadSnapshot(["xlsx", "pdf"])}
+                  onClick={() => void downloadSnapshot(["xlsx"])}
                 >
                   {exportBusy ? (
                     <Loader2 className="size-4 animate-spin" aria-hidden />
