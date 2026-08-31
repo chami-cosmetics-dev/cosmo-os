@@ -102,7 +102,8 @@ export async function GET(request: NextRequest, context: Ctx) {
     snapshot.countView === "personal"
       ? filenameSafe(viewerLabel ?? "my-counts")
       : "combined";
-  const base = `${filenameSafe(report.title)}-${suffix}`;
+  const stamp = snapshot.capturedAt.slice(0, 16).replace(/[:T]/g, "-");
+  const base = `${filenameSafe(report.title)}-${suffix}-${stamp}`;
 
   if (format === "pdf") {
     const buffer = await buildStockCountPdfBuffer(snapshot);

@@ -481,6 +481,7 @@ export function StoreStockCountPanel({
   const [qbImportBusy, setQbImportBusy] = useState(false);
   const [barcodeReloadBusy, setBarcodeReloadBusy] = useState(false);
   const [saveLanesBusy, setSaveLanesBusy] = useState(false);
+  const [newRoundBusy, setNewRoundBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState<
     "xlsx" | "pdf" | "csv" | "both" | null
   >(null);
@@ -862,6 +863,17 @@ export function StoreStockCountPanel({
           json.report,
           dirtyCountsRef.current,
         );
+        const startedNewRound =
+          current.countView === "combined" && next.countView === "personal";
+        if (startedNewRound) {
+          draftCountsRef.current = {};
+          dirtyCountsRef.current = {};
+          setDraftCounts({});
+          setCountDrafts({});
+          setScanQueue([]);
+          setLastScan(null);
+          setHighlightedSku(null);
+        }
         activeReportRef.current = next;
         setActiveReport(next);
         if (changedIds.length > 0) {
@@ -1632,9 +1644,12 @@ export function StoreStockCountPanel({
       }
       notify.success(
         activeReport.countView === "combined"
-          ? "Combined Excel and PDF downloaded. Keep counting."
-          : "Your counting report downloaded (Excel and PDF). Keep counting.",
+          ? "Combined Excel downloaded."
+          : "Your counting report downloaded.",
       );
+      if (activeReport.countView === "combined") {
+        await startNewRound({ afterDownload: true });
+      }
     } catch (err) {
       notify.error(
         err instanceof Error ? err.message : "Could not download report",
@@ -1670,8 +1685,8 @@ export function StoreStockCountPanel({
       activeReportRef.current = json.report;
       notify.success(
         json.report.countView === "combined"
-          ? "Counts combined into one report."
-          : "Your counts saved. Waiting for the other counter to save.",
+          ? "Counts combined. Download combined Excel, then a new round can start."
+          : "Your counts saved. Waiting for other counters to save.",
       );
     } catch (err) {
       notify.error(
@@ -1679,6 +1694,48 @@ export function StoreStockCountPanel({
       );
     } finally {
       setSaveLanesBusy(false);
+    }
+  }
+
+  async function startNewRound(opts?: { afterDownload?: boolean }) {
+    if (!activeReport || isLocked) return;
+    if (!opts?.afterDownload) {
+      const ok = window.confirm(
+        "Start a new counting round? Combined Excel should already be downloaded. Personal counts will clear. Total stock stays frozen.",
+      );
+      if (!ok) return;
+    }
+    setNewRoundBusy(true);
+    try {
+      const res = await fetch(
+        `/api/admin/store-stock-count/reports/${activeReport.id}/new-round`,
+        { method: "POST" },
+      );
+      const json = (await res.json()) as {
+        report?: StoreStockCountSavedReport;
+        error?: string;
+      };
+      if (!res.ok || !json.report) {
+        throw new Error(json.error ?? "Could not start a new round");
+      }
+      draftCountsRef.current = {};
+      dirtyCountsRef.current = {};
+      setDraftCounts({});
+      setCountDrafts({});
+      setScanQueue([]);
+      setLastScan(null);
+      setHighlightedSku(null);
+      setActiveReport(json.report);
+      activeReportRef.current = json.report;
+      notify.success(
+        "New round started. Count separately, download your file, then Save my counts.",
+      );
+    } catch (err) {
+      notify.error(
+        err instanceof Error ? err.message : "Could not start a new round",
+      );
+    } finally {
+      setNewRoundBusy(false);
     }
   }
 
@@ -1853,9 +1910,9 @@ export function StoreStockCountPanel({
           </h1>
           <p className="text-sm text-muted-foreground">
             Several people can count at once, including the same SKU. Each
-            screen shows only your scans. After every counter saves, those
-            counts add into one report. Download Excel and PDF anytime without
-            locking.
+            screen shows only your scans. After every counter saves, download
+            the combined Excel. A new round then starts so you can count and
+            save separately again. Total stock stays frozen from create.
           </p>
         </div>
         {!standalone ? (
@@ -2390,6 +2447,21 @@ export function StoreStockCountPanel({
                       ? "Download combined report"
                       : "Download my report"}
                 </Button>
+                {!isLocked && activeReport.countView === "combined" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={newRoundBusy || exportBusy != null}
+                    onClick={() => void startNewRound()}
+                  >
+                    {newRoundBusy ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                    ) : (
+                      <RefreshCw className="size-4" aria-hidden />
+                    )}
+                    Start new round
+                  </Button>
+                ) : null}
                 {canSubmit ? (
                   <Button type="button" disabled={busy} onClick={submitReport}>
                     <Send className="size-4" aria-hidden />
