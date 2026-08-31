@@ -152,6 +152,7 @@ export function buildStockCountSnapshot(
       ...(hasQbStock ? ["QB Stock"] : []),
       "Count",
       "Diff",
+      "Status",
     ],
     rows,
     countedRows: [...ongoingRows, ...doneRows, ...differenceRows],
@@ -198,5 +199,6 @@ export function countedListRowValues(
     ...(snapshot.hasQbStock ? [row.qbStock] : []),
     row.manualCount,
     row.diff,
+    row.status,
   ];
 }
