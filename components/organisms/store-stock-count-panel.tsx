@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import {
   ChevronDown,
   ChevronLeft,
@@ -26,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { notify } from "@/lib/notify";
 import {
   companyLabel,
@@ -85,6 +93,49 @@ function parseCountInput(raw: string, previous: number | null): number | null {
   const n = Number(t);
   if (!Number.isInteger(n) || n < 0) return previous;
   return n;
+}
+
+function sanitizeDigitInput(raw: string, allowNegative: boolean) {
+  if (!allowNegative) return raw.replace(/\D/g, "");
+  if (raw === "" || raw === "-") return raw;
+  const negative = raw.startsWith("-");
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return negative ? "-" : "";
+  return negative ? `-${digits}` : digits;
+}
+
+function DigitInput({
+  allowNegative = false,
+  onChange,
+  onKeyDown,
+  ...props
+}: ComponentProps<typeof Input> & { allowNegative?: boolean }) {
+  return (
+    <Input
+      {...props}
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
+      onWheel={(e) => {
+        e.preventDefault();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault();
+        }
+        onKeyDown?.(e);
+      }}
+      onChange={(e) => {
+        const cleaned = sanitizeDigitInput(e.target.value, allowNegative);
+        if (cleaned !== e.target.value) {
+          e.target.value = cleaned;
+        }
+        onChange?.(e);
+      }}
+    />
+  );
 }
 
 function formatDate(value: string) {
@@ -261,8 +312,8 @@ function ScanStatusCard({
         : "text-muted-foreground";
   const canEdit = !locked && !busy;
   const gridColumns = showQbStock
-    ? "minmax(8rem,1.2fr) 3.5rem 3.5rem 8.75rem 3.5rem"
-    : "minmax(8rem,1.2fr) 3.5rem 8.75rem 3.5rem";
+    ? "minmax(8rem,1.2fr) 3.5rem 3.5rem 10rem 3.5rem"
+    : "minmax(8rem,1.2fr) 3.5rem 10rem 3.5rem";
 
   return (
     <div className="rounded-lg border p-4">
@@ -344,9 +395,8 @@ function ScanStatusCard({
                       >
                         <Minus aria-hidden />
                       </Button>
-                      <Input
-                        className="h-7 w-12 px-1 text-center tabular-nums"
-                        inputMode="numeric"
+                      <DigitInput
+                        className="h-8 w-16 px-1 text-center tabular-nums"
                         aria-label={`Count for ${job.sku ?? job.barcode}`}
                         value={
                           draft !== undefined
@@ -442,6 +492,7 @@ export function StoreStockCountPanel({
   const [scanQueue, setScanQueue] = useState<ScanJob[]>([]);
   const [recentKeys, setRecentKeys] = useState<string[]>([]);
   const [highlightedSku, setHighlightedSku] = useState<string | null>(null);
+  const [typeQtyMode, setTypeQtyMode] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
   const [countDrafts, setCountDrafts] = useState<Record<string, string>>({});
   const [draftCounts, setDraftCounts] = useState<Record<string, number | null>>(
@@ -468,8 +519,10 @@ export function StoreStockCountPanel({
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const qtyInputRef = useRef<HTMLInputElement>(null);
   const qbImportInputRef = useRef<HTMLInputElement>(null);
   const countFocusedRef = useRef(false);
+  const typeQtyModeRef = useRef(false);
   const scanFieldFocusedRef = useRef(false);
   const lastScanKeyAtRef = useRef(0);
   const scanBufferRef = useRef("");
@@ -526,7 +579,7 @@ export function StoreStockCountPanel({
     .map(() => "minmax(7.5rem,1fr)")
     .join(" ");
   const qbStockGridColumn = hasQbStock ? " 6rem" : "";
-  const tableGridColumns = `minmax(6.5rem,0.65fr) minmax(9rem,1fr) minmax(10rem,1.1fr) ${warehouseGridColumns} 6.5rem${qbStockGridColumn} 6.5rem 4.5rem`;
+  const tableGridColumns = `minmax(6.5rem,0.65fr) minmax(9rem,1fr) minmax(10rem,1.1fr) ${warehouseGridColumns} 6.5rem${qbStockGridColumn} 7.5rem 4.5rem`;
   const filteredReports = useMemo(() => {
     const fromTime = reportDateFrom
       ? new Date(`${reportDateFrom}T00:00:00`).getTime()
@@ -773,6 +826,10 @@ export function StoreStockCountPanel({
   useEffect(() => {
     draftCountsRef.current = draftCounts;
   }, [draftCounts]);
+
+  useEffect(() => {
+    typeQtyModeRef.current = typeQtyMode;
+  }, [typeQtyMode]);
 
   useEffect(() => {
     if (initialReportId) void openReport(initialReportId);
@@ -1121,6 +1178,26 @@ export function StoreStockCountPanel({
         rejectBarcode(code, "ambiguous");
         return;
       }
+      if (typeQtyModeRef.current) {
+        const item = report.items.find((row) => row.skuKey === match.skuKey);
+        if (!item) {
+          rejectBarcode(code, "none");
+          return;
+        }
+        setHighlightedSku(item.skuKey);
+        setLastScan({
+          code,
+          ok: true,
+          message: `Type quantity for ${item.sku}`,
+        });
+        setRecentKeys((prev) => prependRecentKeys(prev, [item.id]));
+        requestAnimationFrame(() => {
+          scrollToSku(item.skuKey);
+          qtyInputRef.current?.focus();
+          qtyInputRef.current?.select();
+        });
+        return;
+      }
       const barcodeJobId = `${report.id}:barcode:${code}`;
       pendingScansRef.current.push(code);
       setLastScan({ code, ok: true, message: "Counting…" });
@@ -1153,14 +1230,22 @@ export function StoreStockCountPanel({
         }, SCAN_BATCH_DELAY_MS);
       }
     },
-    [drainPendingScans, rejectBarcode],
+    [drainPendingScans, rejectBarcode, scrollToSku],
   );
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       unlockScanSound();
       if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
       if (scanFieldFocusedRef.current) return;
+      const typingCountByHand =
+        countFocusedRef.current &&
+        (scanBufferRef.current.length === 0 ||
+          performance.now() - lastScanKeyAtRef.current > SCAN_KEY_INTERVAL_MS);
       if (e.key === "Enter" || e.key === "Tab") {
+        if (typingCountByHand) {
+          scanBufferRef.current = "";
+          return;
+        }
         const code = scanBufferRef.current;
         if (code.trim().length >= MIN_SCAN_LENGTH) {
           e.preventDefault();
@@ -1182,10 +1267,11 @@ export function StoreStockCountPanel({
         scanBufferRef.current.length > 0 &&
         now - lastScanKeyAtRef.current <= SCAN_KEY_INTERVAL_MS;
       lastScanKeyAtRef.current = now;
-      if (
-        countFocusedRef.current &&
-        (scanBufferRef.current.length > 0 || isScannerCadence)
-      ) {
+      if (countFocusedRef.current && !isScannerCadence) {
+        scanBufferRef.current = e.key;
+        return;
+      }
+      if (countFocusedRef.current) {
         e.preventDefault();
         e.stopImmediatePropagation();
       }
@@ -1686,6 +1772,10 @@ export function StoreStockCountPanel({
     ? (activeReport?.items.find((item) => item.id === selectedCardItemId) ??
       null)
     : null;
+  const highlightedItem = highlightedSku
+    ? (activeReport?.items.find((item) => item.skuKey === highlightedSku) ??
+      null)
+    : null;
   const countCardProps = {
     locked: isLocked,
     busy,
@@ -1884,46 +1974,116 @@ export function StoreStockCountPanel({
       {activeReport ? (
         <div className="space-y-3">
           <div className="space-y-2 rounded-lg border p-4">
-            <label htmlFor="stock-count-barcode" className="text-sm font-medium">
-              Barcode
-            </label>
-            <Input
-              id="stock-count-barcode"
-              ref={scanInputRef}
-              value={scanInput}
-              autoComplete="off"
-              autoFocus={!isLocked}
-              disabled={busy || isLocked}
-              placeholder="Scan or type barcode, then Enter"
-              className={`font-mono text-lg ${lastScan && !lastScan.ok ? "border-destructive focus-visible:ring-destructive/40" : ""}`}
-              onFocus={() => {
-                scanFieldFocusedRef.current = true;
-                unlockScanSound();
-              }}
-              onBlur={() => {
-                scanFieldFocusedRef.current = false;
-              }}
-              onChange={(e) => {
-                const v = e.target.value;
-                setScanInput(v);
-                const report = activeReportRef.current;
-                if (
-                  report &&
-                  report.status !== "submitted" &&
-                  hasExactBarcodeMatch(v, report.items)
-                ) {
-                  setScanInput("");
-                  processBarcode(v);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                const code = scanInput.trim();
-                setScanInput("");
-                processBarcode(code);
-              }}
-            />
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-[16rem] flex-1 space-y-2">
+                <label
+                  htmlFor="stock-count-barcode"
+                  className="text-sm font-medium"
+                >
+                  Barcode
+                </label>
+                <Input
+                  id="stock-count-barcode"
+                  ref={scanInputRef}
+                  value={scanInput}
+                  autoComplete="off"
+                  autoFocus={!isLocked}
+                  disabled={busy || isLocked}
+                  placeholder="Scan or type barcode, then Enter"
+                  className={`font-mono text-lg ${lastScan && !lastScan.ok ? "border-destructive focus-visible:ring-destructive/40" : ""}`}
+                  onFocus={() => {
+                    scanFieldFocusedRef.current = true;
+                    unlockScanSound();
+                  }}
+                  onBlur={() => {
+                    scanFieldFocusedRef.current = false;
+                  }}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setScanInput(v);
+                    const report = activeReportRef.current;
+                    if (
+                      report &&
+                      report.status !== "submitted" &&
+                      hasExactBarcodeMatch(v, report.items)
+                    ) {
+                      setScanInput("");
+                      processBarcode(v);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const code = scanInput.trim();
+                    setScanInput("");
+                    processBarcode(code);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="stock-count-qty" className="text-sm font-medium">
+                  Count
+                </label>
+                <DigitInput
+                  id="stock-count-qty"
+                  ref={qtyInputRef}
+                  className="h-9 w-28 text-lg tabular-nums"
+                  aria-label="Manual count for last scanned item"
+                  placeholder="Qty"
+                  disabled={busy || isLocked || !highlightedItem}
+                  value={
+                    highlightedItem
+                      ? Object.prototype.hasOwnProperty.call(
+                          countDrafts,
+                          highlightedItem.skuKey,
+                        )
+                        ? countDrafts[highlightedItem.skuKey]
+                        : highlightedItem.manualCount == null
+                          ? ""
+                          : String(highlightedItem.manualCount)
+                      : ""
+                  }
+                  onFocus={() => {
+                    countFocusedRef.current = true;
+                  }}
+                  onBlur={(e) => {
+                    countFocusedRef.current = false;
+                    if (highlightedItem) {
+                      commitDraft(highlightedItem, e.target.value);
+                    }
+                  }}
+                  onChange={(e) => {
+                    if (!highlightedItem) return;
+                    setCountDrafts((d) => ({
+                      ...d,
+                      [highlightedItem.skuKey]: e.target.value,
+                    }));
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    (e.target as HTMLInputElement).blur();
+                    scanInputRef.current?.focus();
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="stock-count-type-qty"
+                size="sm"
+                checked={typeQtyMode}
+                disabled={busy || isLocked}
+                onCheckedChange={setTypeQtyMode}
+              />
+              <label
+                htmlFor="stock-count-type-qty"
+                className="text-sm text-muted-foreground"
+              >
+                Type quantity — scan once, then type how many (for piles of
+                500+)
+              </label>
+            </div>
             {lastScan ? (
               <p
                 className={`text-sm ${lastScan.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}
@@ -1932,11 +2092,18 @@ export function StoreStockCountPanel({
                 <span className="font-mono">{lastScan.code}</span>
                 {" — "}
                 {lastScan.message}
+                {lastScan.ok && highlightedItem ? (
+                  <span className="text-muted-foreground">
+                    {" · "}
+                    {highlightedItem.sku}
+                  </span>
+                ) : null}
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Unknown barcode plays an error sound and is not counted. Use −
-                on a counted item to undo a mistaken scan.
+                Unknown barcode plays an error sound and is not counted. Big
+                pile: turn on Type quantity, scan one unit, type the full count.
+                Use − on a counted item to undo a mistaken scan.
               </p>
             )}
           </div>
@@ -2207,10 +2374,9 @@ export function StoreStockCountPanel({
                   <option value="gt">Stock greater than</option>
                   <option value="eq">Stock equals</option>
                 </select>
-                <Input
+                <DigitInput
                   value={stockTarget}
                   onChange={(e) => setStockTarget(e.target.value)}
-                  inputMode="numeric"
                   className="w-20"
                 />
               </div>
@@ -2225,10 +2391,9 @@ export function StoreStockCountPanel({
                   <option value="gt">Manual greater than</option>
                   <option value="eq">Manual equals</option>
                 </select>
-                <Input
+                <DigitInput
                   value={manualTarget}
                   onChange={(e) => setManualTarget(e.target.value)}
-                  inputMode="numeric"
                   className="w-20"
                 />
               </div>
@@ -2244,10 +2409,10 @@ export function StoreStockCountPanel({
                 <option value="gt">Diff greater than</option>
                 <option value="eq">Diff equals</option>
               </select>
-              <Input
+              <DigitInput
                 value={diffTarget}
                 onChange={(e) => setDiffTarget(e.target.value)}
-                inputMode="numeric"
+                allowNegative
                 className="w-20"
               />
             </div>
@@ -2379,9 +2544,8 @@ export function StoreStockCountPanel({
                           {row.qbStock ?? "-"}
                         </span>
                       ) : null}
-                      <Input
+                      <DigitInput
                         className="h-8 w-full text-right tabular-nums"
-                        inputMode="numeric"
                         value={
                           draft !== undefined
                             ? draft
