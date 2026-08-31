@@ -4,11 +4,12 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { normalizeSkuKey } from "@/lib/store-stock-count/company-key";
-import { fetchStockForSelectedCompanies } from "@/lib/store-stock-count/erp";
+import { fetchMergedBarcodeMap, fetchStockForSelectedCompanies } from "@/lib/store-stock-count/erp";
 import {
   allCountersSaved,
   displayManualCount,
 } from "@/lib/store-stock-count/lanes";
+import { matchScan } from "@/lib/store-stock-count/match-scan";
 import type {
   SelectableErpCompany,
   StoreStockCountReportListItem,
@@ -28,10 +29,6 @@ type CountPatch = { itemId: string; manualCount: number | null };
 type QbStockPatch = { sku: string; qbStock: number | null };
 const SAVE_BATCH_SIZE = 100;
 const CREATE_ITEM_BATCH_SIZE = 500;
-
-function digitsOnly(value: string): string {
-  return value.replace(/\D/g, "");
-}
 
 function countDifference(
   manualCount: number | null,
@@ -489,6 +486,74 @@ export async function createStoreStockCountReport(input: {
   return full;
 }
 
+export async function refreshStoreStockCountBarcodes(input: {
+  companyId: string;
+  reportId: string;
+  actor: Actor;
+}): Promise<StoreStockCountSavedReport | null> {
+  const report = await prisma.storeStockCountReport.findFirst({
+    where: { id: input.reportId, companyId: input.companyId },
+    select: {
+      id: true,
+      status: true,
+      selectedCompanies: true,
+      items: { select: { id: true, sku: true, skuKey: true, barcodes: true } },
+    },
+  });
+  if (!report) return null;
+  if (report.status === "submitted") {
+    throw new Error("Submitted reports cannot be edited");
+  }
+
+  const companies = asCompanies(report.selectedCompanies);
+  const map = await fetchMergedBarcodeMap({
+    companyId: input.companyId,
+    instanceIds: companies.map((company) => company.instanceId),
+  });
+
+  const updates: Array<{ id: string; barcodes: string[] }> = [];
+  for (const item of report.items) {
+    const next = [
+      ...new Set(
+        [
+          ...item.barcodes,
+          ...(map.get(item.sku) ?? []),
+          ...(map.get(item.skuKey) ?? []),
+        ]
+          .map((barcode) => barcode.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (next.length === item.barcodes.length && next.every((b, i) => b === item.barcodes[i])) {
+      continue;
+    }
+    updates.push({ id: item.id, barcodes: next });
+  }
+
+  for (let i = 0; i < updates.length; i += SAVE_BATCH_SIZE) {
+    const batch = updates.slice(i, i + SAVE_BATCH_SIZE);
+    await prisma.$transaction(
+      batch.map((row) =>
+        prisma.storeStockCountReportItem.update({
+          where: { id: row.id },
+          data: { barcodes: row.barcodes },
+        }),
+      ),
+    );
+  }
+
+  await prisma.storeStockCountReport.update({
+    where: { id: input.reportId },
+    data: { updatedByUserId: input.actor.userId },
+  });
+
+  return getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: input.reportId,
+    viewerUserId: input.actor.userId,
+  });
+}
+
 export async function saveStoreStockCountReport(input: {
   companyId: string;
   reportId: string;
@@ -624,28 +689,28 @@ export async function incrementStoreStockCountBarcode(input: {
     });
 
     if (matches.length === 0) {
-      const scannedDigits = digitsOnly(code);
-      if (scannedDigits) {
-        const rows = await tx.storeStockCountReportItem.findMany({
-          where: { reportId: input.reportId, companyId: input.companyId },
-          select: {
-            id: true,
-            reportId: true,
-            sku: true,
-            skuKey: true,
-            name: true,
-            description: true,
-            barcodes: true,
-            stockByWarehouse: true,
-            stockSum: true,
-            qbStock: true,
-            manualCount: true,
-            updatedAt: true,
-          },
-        });
-        matches = rows.filter((row) =>
-          row.barcodes.some((barcode) => digitsOnly(barcode) === scannedDigits),
-        );
+      const rows = await tx.storeStockCountReportItem.findMany({
+        where: { reportId: input.reportId, companyId: input.companyId },
+        select: {
+          id: true,
+          reportId: true,
+          sku: true,
+          skuKey: true,
+          name: true,
+          description: true,
+          barcodes: true,
+          stockByWarehouse: true,
+          stockSum: true,
+          qbStock: true,
+          manualCount: true,
+          updatedAt: true,
+        },
+      });
+      const result = matchScan(code, rows);
+      if (result.kind === "unique") {
+        matches = rows.filter((row) => row.skuKey === result.skuKey);
+      } else if (result.kind === "ambiguous") {
+        throw new Error("Barcode matches multiple items");
       }
     }
 

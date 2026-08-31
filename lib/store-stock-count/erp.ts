@@ -1,5 +1,7 @@
 import "server-only";
 
+import { prisma } from "@/lib/prisma";
+import { normalizeSkuKey } from "@/lib/store-stock-count/company-key";
 import {
   getAllOsfErpInstances,
   OsfErpError,
@@ -30,6 +32,29 @@ async function erpGetJson<T>(cfg: OsfErpCredentials, path: string): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new OsfErpError(`ERPNext GET ${path} [${res.status}]: ${text.slice(0, 300)}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function erpPostMethod<T>(
+  cfg: OsfErpCredentials,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const res = await fetch(`${cfg.baseUrl}/api/method/${method}`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(cfg),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new OsfErpError(
+      `ERPNext POST ${method} [${res.status}]: ${text.slice(0, 300)}`,
+    );
   }
   return (await res.json()) as T;
 }
@@ -230,32 +255,128 @@ async function fetchStockItems(cfg: OsfErpCredentials): Promise<
 async function fetchBarcodeMap(cfg: OsfErpCredentials): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   try {
-    const rows = await paginateResource<{
-      parent?: string;
-      parenttype?: string;
-      parentfield?: string;
-      barcode?: string;
-    }>({
-      cfg,
-      doctype: "Item Barcode",
+    absorbBarcodeRows(map, await paginateItemBarcodesViaGetList(cfg));
+  } catch {
+    // Child table list via method API is not always permitted.
+  }
+  if (map.size > 0) return map;
+
+  const attempts: Array<{ fields: string[]; filters?: unknown }> = [
+    {
+      fields: ["parent", "barcode"],
+      filters: [["parenttype", "=", "Item"]],
+    },
+    { fields: ["parent", "barcode"] },
+    {
       fields: ["parent", "parenttype", "parentfield", "barcode"],
       filters: [
         ["parenttype", "=", "Item"],
         ["parentfield", "=", "barcodes"],
       ],
-    });
-    for (const row of rows) {
-      const parent = String(row.parent ?? "").trim();
-      const barcode = String(row.barcode ?? "").trim();
-      if (!parent || !barcode) continue;
-      const list = map.get(parent) ?? [];
-      if (!list.includes(barcode)) list.push(barcode);
-      map.set(parent, list);
+    },
+  ];
+  for (const attempt of attempts) {
+    try {
+      const rows = await paginateResource<{
+        parent?: string;
+        barcode?: string;
+      }>({
+        cfg,
+        doctype: "Item Barcode",
+        fields: attempt.fields,
+        filters: attempt.filters,
+      });
+      absorbBarcodeRows(map, rows);
+      if (map.size > 0) return map;
+    } catch {
+      // Try the next Item Barcode query shape.
     }
-  } catch {
-    // Child table may be missing or permission-denied — items load with empty barcodes.
   }
   return map;
+}
+
+function absorbBarcodeRows(
+  map: Map<string, string[]>,
+  rows: Array<{ parent?: string; barcode?: string }>,
+) {
+  for (const row of rows) {
+    pushBarcode(map, String(row.parent ?? ""), String(row.barcode ?? ""));
+  }
+}
+
+function pushBarcode(map: Map<string, string[]>, itemCode: string, barcode: string) {
+  const code = itemCode.trim();
+  const bc = barcode.trim();
+  if (!code || !bc) return;
+  for (const key of new Set([code, normalizeSkuKey(code)])) {
+    const list = map.get(key) ?? [];
+    if (!list.includes(bc)) list.push(bc);
+    map.set(key, list);
+  }
+}
+
+async function paginateItemBarcodesViaGetList(
+  cfg: OsfErpCredentials,
+): Promise<Array<{ parent?: string; barcode?: string }>> {
+  const withParent = await paginateGetListBarcodes(cfg, [
+    ["parenttype", "=", "Item"],
+  ]);
+  if (withParent.length > 0) return withParent;
+  return paginateGetListBarcodes(cfg, undefined);
+}
+
+async function paginateGetListBarcodes(
+  cfg: OsfErpCredentials,
+  filters: unknown[] | undefined,
+): Promise<Array<{ parent?: string; barcode?: string }>> {
+  const out: Array<{ parent?: string; barcode?: string }> = [];
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const json = await erpPostMethod<{
+      message?: Array<{ parent?: string; barcode?: string }>;
+    }>(cfg, "frappe.client.get_list", {
+      doctype: "Item Barcode",
+      fields: ["parent", "barcode"],
+      ...(filters ? { filters } : {}),
+      limit_page_length: PAGE_LENGTH,
+      limit_start: page * PAGE_LENGTH,
+    });
+    const rows = json.message ?? [];
+    out.push(...rows);
+    if (rows.length < PAGE_LENGTH) break;
+    if (page === MAX_PAGES - 1 && rows.length === PAGE_LENGTH) {
+      throw new OsfErpError(
+        `ERP Item Barcode exceeded ${MAX_PAGES * PAGE_LENGTH} rows — raise MAX_PAGES`,
+      );
+    }
+  }
+  return out;
+}
+
+async function fetchOsBarcodeMap(
+  companyId: string,
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  const rows = await prisma.productItem.findMany({
+    where: {
+      companyId,
+      sku: { not: null },
+      barcode: { not: null },
+    },
+    select: { sku: true, barcode: true },
+  });
+  for (const row of rows) {
+    pushBarcode(map, row.sku ?? "", row.barcode ?? "");
+  }
+  return map;
+}
+
+function mergeBarcodeMaps(
+  into: Map<string, string[]>,
+  extra: Map<string, string[]>,
+) {
+  for (const [key, barcodes] of extra) {
+    for (const barcode of barcodes) pushBarcode(into, key, barcode);
+  }
 }
 
 function toWarehouseColumns(
@@ -291,7 +412,11 @@ function catalogToApiItems(
     description: row.description,
     barcodes: [
       ...new Set(
-        [row.barcode, ...(barcodeMap.get(row.item_code) ?? [])]
+        [
+          row.barcode,
+          ...(barcodeMap.get(row.item_code) ?? []),
+          ...(barcodeMap.get(normalizeSkuKey(row.item_code)) ?? []),
+        ]
           .map((barcode) => barcode.trim())
           .filter(Boolean),
       ),
@@ -409,7 +534,10 @@ export async function fetchStockForSelectedCompanies(input: {
     items: StoreStockCountApiItem[];
   }>
 > {
-  const instances = await getAllOsfErpInstances(input.companyId);
+  const [instances, osBarcodes] = await Promise.all([
+    getAllOsfErpInstances(input.companyId),
+    fetchOsBarcodeMap(input.companyId),
+  ]);
   const warehousesByCompany = new Map<string, StoreStockCountWarehouseColumn[]>();
   for (const warehouse of input.warehouses ?? []) {
     const key = `${warehouse.instanceId}::${warehouse.erpCompany}`;
@@ -469,6 +597,7 @@ export async function fetchStockForSelectedCompanies(input: {
           fetchBarcodeMap(inst.cfg),
           fetchBinQtyByItemAndWarehouse(inst.cfg, [...warehouseNames]),
         ]);
+        mergeBarcodeMaps(barcodeMap, osBarcodes);
         return companies.map((company) => {
           const erpCompany = company.erpCompany.trim();
           const key = `${inst.id}::${erpCompany}`;
@@ -494,4 +623,25 @@ export async function fetchStockForSelectedCompanies(input: {
   );
 
   return groups.flat();
+}
+
+export async function fetchMergedBarcodeMap(input: {
+  companyId: string;
+  instanceIds: string[];
+}): Promise<Map<string, string[]>> {
+  const [instances, osBarcodes] = await Promise.all([
+    getAllOsfErpInstances(input.companyId),
+    fetchOsBarcodeMap(input.companyId),
+  ]);
+  const map = new Map<string, string[]>();
+  mergeBarcodeMaps(map, osBarcodes);
+  const uniqueIds = [...new Set(input.instanceIds.filter(Boolean))];
+  await Promise.all(
+    uniqueIds.map(async (instanceId) => {
+      const inst = resolveInstance(instances, instanceId);
+      if (!inst) return;
+      mergeBarcodeMaps(map, await fetchBarcodeMap(inst.cfg));
+    }),
+  );
+  return map;
 }
