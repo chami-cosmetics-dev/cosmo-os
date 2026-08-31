@@ -51,6 +51,7 @@ export type StoreStockCountSavedItem = StoreStockCountRow & {
 };
 
 export type StoreStockCountReportStatus = "draft" | "submitted";
+export type StoreStockCountView = "personal" | "combined";
 
 export type StoreStockCountWarehouseColumn = {
   key: string;
@@ -73,6 +74,10 @@ export type StoreStockCountSavedReport = {
   createdByName: string | null;
   updatedByName: string | null;
   submittedByName: string | null;
+  countView: StoreStockCountView;
+  myCountsSaved: boolean;
+  counterCount: number;
+  savedCounterCount: number;
   items: StoreStockCountSavedItem[];
 };
 

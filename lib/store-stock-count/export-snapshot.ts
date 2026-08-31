@@ -22,6 +22,8 @@ export type StockCountSnapshot = {
   status: string;
   capturedAt: string;
   isDraft: boolean;
+  countView: "personal" | "combined";
+  viewerLabel: string | null;
   hasQbStock: boolean;
   warehouseLabels: string[];
   pending: number;
@@ -63,6 +65,7 @@ export function snapshotItemStatus(
 export function buildStockCountSnapshot(
   report: StoreStockCountSavedReport,
   capturedAt = new Date(),
+  viewerLabel: string | null = null,
 ): StockCountSnapshot {
   const hasQbStock = report.items.some((item) => item.qbStock != null);
   const warehouseLabels = report.warehouses.map((w) => w.label);
@@ -116,11 +119,22 @@ export function buildStockCountSnapshot(
   const doneRows = rows.filter((row) => row.status === "Done");
   const differenceRows = rows.filter((row) => row.status === "Difference");
 
+  const countView = report.countView ?? "personal";
+  const personal = countView === "personal";
+  const title =
+    personal && viewerLabel
+      ? `${report.title} (${viewerLabel})`
+      : countView === "combined"
+        ? `${report.title} (combined)`
+        : report.title;
+
   return {
-    title: report.title,
+    title,
     status: report.status,
     capturedAt: capturedAt.toISOString(),
     isDraft: report.status !== "submitted",
+    countView,
+    viewerLabel,
     hasQbStock,
     warehouseLabels,
     pending,

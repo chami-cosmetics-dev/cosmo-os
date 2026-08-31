@@ -156,6 +156,44 @@ function recentKeysFromReport(items: StoreStockCountSavedItem[]): string[] {
     .map((item) => item.id);
 }
 
+function mergeSharedReport(
+  current: StoreStockCountSavedReport,
+  remote: StoreStockCountSavedReport,
+  dirtyIds: Record<string, number | null>,
+): { report: StoreStockCountSavedReport; changedIds: string[] } {
+  const remoteById = new Map(remote.items.map((item) => [item.id, item]));
+  const changedIds: string[] = [];
+  const items = current.items.map((item) => {
+    const next = remoteById.get(item.id);
+    if (!next) return item;
+    if (Object.prototype.hasOwnProperty.call(dirtyIds, item.id)) return item;
+    if (
+      item.updatedAt &&
+      next.updatedAt &&
+      item.updatedAt > next.updatedAt
+    ) {
+      return item;
+    }
+    if (item.manualCount !== next.manualCount) changedIds.push(item.id);
+    return next;
+  });
+  return {
+    report: {
+      ...current,
+      status: remote.status,
+      submittedAt: remote.submittedAt,
+      submittedByName: remote.submittedByName,
+      updatedAt: remote.updatedAt,
+      countView: remote.countView,
+      myCountsSaved: remote.myCountsSaved,
+      counterCount: remote.counterCount,
+      savedCounterCount: remote.savedCounterCount,
+      items,
+    },
+    changedIds,
+  };
+}
+
 function upsertScanJob(jobs: ScanJob[], job: ScanJob) {
   return [job, ...jobs.filter((existing) => existing.id !== job.id)].slice(
     0,
@@ -172,25 +210,6 @@ function scanCountMessage(diff: number | null, count: number) {
 function formatBarcodes(barcodes: string[] | undefined, fallback = "-") {
   const text = (barcodes ?? []).map((b) => b.trim()).filter(Boolean).join(" · ");
   return text || fallback;
-}
-
-function mergeLiveStockFields(
-  current: StoreStockCountSavedReport,
-  live: StoreStockCountSavedReport,
-): StoreStockCountSavedReport {
-  const byId = new Map(live.items.map((item) => [item.id, item]));
-  return {
-    ...current,
-    items: current.items.map((item) => {
-      const next = byId.get(item.id);
-      if (!next) return item;
-      return {
-        ...item,
-        stockSum: next.stockSum,
-        stockByWarehouse: next.stockByWarehouse,
-      };
-    }),
-  };
 }
 
 function decrementCount(current: number | null): number | null {
@@ -415,6 +434,7 @@ export function StoreStockCountPanel({
     null,
   );
   const [qbImportBusy, setQbImportBusy] = useState(false);
+  const [saveLanesBusy, setSaveLanesBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState<
     "xlsx" | "pdf" | "csv" | "both" | null
   >(null);
@@ -445,8 +465,6 @@ export function StoreStockCountPanel({
   const [reportDateFrom, setReportDateFrom] = useState("");
   const [reportDateTo, setReportDateTo] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [liveStockAt, setLiveStockAt] = useState<string | null>(null);
-  const [liveStockBusy, setLiveStockBusy] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -463,7 +481,7 @@ export function StoreStockCountPanel({
   const pendingScansRef = useRef<string[]>([]);
   const drainScheduledRef = useRef(false);
   const scanBatchTimerRef = useRef<number | null>(null);
-  const liveStockInFlightRef = useRef(false);
+  const sharedSyncInFlightRef = useRef(false);
 
   const warehouseByKey = useMemo(() => {
     const m = new Map<string, SelectableErpWarehouse>();
@@ -725,7 +743,6 @@ export function StoreStockCountPanel({
         setRecentKeys(recentKeysFromReport(json.report.items));
         setCountDrafts({});
         setHighlightedSku(null);
-        setLiveStockAt(null);
         setScrollTop(0);
         requestAnimationFrame(() => {
           if (viewportRef.current) viewportRef.current.scrollTop = 0;
@@ -749,50 +766,6 @@ export function StoreStockCountPanel({
     );
   }, []);
 
-  const refreshLiveStock = useCallback(
-    async (scope: "all" | "counted", opts?: { silent?: boolean }) => {
-      const report = activeReportRef.current;
-      if (!report || report.status === "submitted") return;
-      if (liveStockInFlightRef.current) return;
-      liveStockInFlightRef.current = true;
-      if (!opts?.silent) setLiveStockBusy(true);
-      try {
-        const res = await fetch(
-          `/api/admin/store-stock-count/reports/${report.id}/refresh-stock`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ scope }),
-          },
-        );
-        const json = (await res.json()) as {
-          report?: StoreStockCountSavedReport;
-          liveStockAt?: string;
-          error?: string;
-        };
-        if (!res.ok || !json.report)
-          throw new Error(json.error ?? "Could not refresh live stock");
-        setActiveReport((current) => {
-          if (!current || current.id !== json.report?.id) return current;
-          const next = mergeLiveStockFields(current, json.report);
-          activeReportRef.current = next;
-          return next;
-        });
-        setLiveStockAt(json.liveStockAt ?? new Date().toISOString());
-      } catch (err) {
-        if (!opts?.silent) {
-          notify.error(
-            err instanceof Error ? err.message : "Could not refresh live stock",
-          );
-        }
-      } finally {
-        liveStockInFlightRef.current = false;
-        setLiveStockBusy(false);
-      }
-    },
-    [],
-  );
-
   useEffect(() => {
     activeReportRef.current = activeReport;
   }, [activeReport]);
@@ -807,23 +780,52 @@ export function StoreStockCountPanel({
 
   useEffect(() => {
     if (!activeReport || isLocked) return;
-    void refreshLiveStock("counted", { silent: true });
-  }, [activeReport?.id, isLocked, refreshLiveStock]);
-
-  useEffect(() => {
-    if (!activeReport || isLocked) return;
-    const tick = () => {
-      if (document.visibilityState !== "visible") return;
-      void refreshLiveStock("counted", { silent: true });
-    };
-    const timer = window.setInterval(tick, 45_000);
-    return () => window.clearInterval(timer);
-  }, [activeReport?.id, isLocked, refreshLiveStock]);
-
-  useEffect(() => {
-    if (!activeReport || isLocked) return;
     if (countFocusedRef.current) return;
     scanInputRef.current?.focus();
+  }, [activeReport?.id, isLocked]);
+
+  useEffect(() => {
+    if (!activeReport || isLocked) return;
+    let cancelled = false;
+    const syncSharedCount = async () => {
+      if (cancelled) return;
+      if (document.visibilityState !== "visible") return;
+      if (sharedSyncInFlightRef.current) return;
+      const report = activeReportRef.current;
+      if (!report || report.status === "submitted") return;
+      sharedSyncInFlightRef.current = true;
+      try {
+        const res = await fetch(
+          `/api/admin/store-stock-count/reports/${report.id}`,
+        );
+        const json = (await res.json()) as {
+          report?: StoreStockCountSavedReport;
+        };
+        if (cancelled || !res.ok || !json.report) return;
+        const current = activeReportRef.current;
+        if (!current || current.id !== json.report.id) return;
+        const { report: next, changedIds } = mergeSharedReport(
+          current,
+          json.report,
+          dirtyCountsRef.current,
+        );
+        activeReportRef.current = next;
+        setActiveReport(next);
+        if (changedIds.length > 0) {
+          setRecentKeys((prev) => prependRecentKeys(prev, changedIds));
+        }
+      } catch {
+        // Keep local counts if the other user's snapshot cannot be fetched.
+      } finally {
+        sharedSyncInFlightRef.current = false;
+      }
+    };
+    void syncSharedCount();
+    const timer = window.setInterval(() => void syncSharedCount(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [activeReport?.id, isLocked]);
 
   useEffect(() => {
@@ -1515,9 +1517,9 @@ export function StoreStockCountPanel({
         }
       }
       notify.success(
-        formats.includes("csv") && formats.includes("pdf")
-          ? "Counted list downloaded as CSV and PDF. Keep counting."
-          : "Counted list downloaded. Keep counting.",
+        activeReport.countView === "combined"
+          ? "Combined Excel and PDF downloaded. Keep counting."
+          : "Your counting report downloaded (Excel and PDF). Keep counting.",
       );
     } catch (err) {
       notify.error(
@@ -1525,6 +1527,44 @@ export function StoreStockCountPanel({
       );
     } finally {
       setExportBusy(null);
+    }
+  }
+
+  async function saveMyCounts() {
+    if (!activeReport || isLocked) return;
+    setSaveLanesBusy(true);
+    try {
+      while (autoSaveInFlightRef.current) {
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+      }
+      if (Object.keys(dirtyCountsRef.current).length > 0) {
+        const saved = await flushAutoSave();
+        if (!saved)
+          throw new Error("Could not save pending counts before combining");
+      }
+      const res = await fetch(
+        `/api/admin/store-stock-count/reports/${activeReport.id}/save-lanes`,
+        { method: "POST" },
+      );
+      const json = (await res.json()) as {
+        report?: StoreStockCountSavedReport;
+        error?: string;
+      };
+      if (!res.ok || !json.report)
+        throw new Error(json.error ?? "Could not save your counts");
+      setActiveReport(json.report);
+      activeReportRef.current = json.report;
+      notify.success(
+        json.report.countView === "combined"
+          ? "Counts combined into one report."
+          : "Your counts saved. Waiting for the other counter to save.",
+      );
+    } catch (err) {
+      notify.error(
+        err instanceof Error ? err.message : "Could not save your counts",
+      );
+    } finally {
+      setSaveLanesBusy(false);
     }
   }
 
@@ -1694,10 +1734,9 @@ export function StoreStockCountPanel({
             Store stock count
           </h1>
           <p className="text-sm text-muted-foreground">
-            Create saved reports from live ERP warehouse stock. Total and Diff
-            stay on live Bin qty while counting. Download Ongoing / Done /
-            Difference as CSV and PDF anytime without locking, and submit when
-            the count is finished.
+            Two people can count the same SKU separately. Each screen shows
+            only your scans. After both save, those counts add into one report.
+            Download Excel and PDF anytime without locking.
           </p>
         </div>
         {!standalone ? (
@@ -2056,13 +2095,11 @@ export function StoreStockCountPanel({
                     ? `Submitted ${activeReport.submittedAt ? formatDate(activeReport.submittedAt) : ""}`
                     : autoSaveLabel}
                   {activeReport.status === "draft"
-                    ? ` - ${
-                        liveStockBusy
-                          ? "Refreshing live ERP stock"
-                          : liveStockAt
-                            ? `Live ERP stock ${formatDate(liveStockAt)}`
-                            : "Live ERP stock"
-                      }`
+                    ? activeReport.countView === "combined"
+                      ? " - Combined counts"
+                      : activeReport.myCountsSaved
+                        ? ` - Your counts saved (${activeReport.savedCounterCount}/${Math.max(activeReport.counterCount, 1)} counters)`
+                        : " - Your counts only"
                     : null}
                 </p>
               </div>
@@ -2099,24 +2136,28 @@ export function StoreStockCountPanel({
                   )}
                   Import QB
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={liveStockBusy || isLocked}
-                  onClick={() => void refreshLiveStock("all")}
-                >
-                  {liveStockBusy ? (
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                  ) : (
-                    <RefreshCw className="size-4" aria-hidden />
-                  )}
-                  Refresh stock
-                </Button>
+                {!isLocked &&
+                activeReport.countView !== "combined" &&
+                activeReport.counterCount >= 2 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={saveLanesBusy}
+                    onClick={() => void saveMyCounts()}
+                  >
+                    {saveLanesBusy ? (
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                    ) : null}
+                    {activeReport.myCountsSaved
+                      ? "Saved — waiting"
+                      : "Save my counts"}
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"
                   disabled={exportBusy != null}
-                  onClick={() => void downloadSnapshot(["csv", "pdf"])}
+                  onClick={() => void downloadSnapshot(["xlsx", "pdf"])}
                 >
                   {exportBusy ? (
                     <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -2124,8 +2165,10 @@ export function StoreStockCountPanel({
                     <Download className="size-4" aria-hidden />
                   )}
                   {exportBusy
-                    ? "Downloading counted list..."
-                    : "Download counted list"}
+                    ? "Downloading..."
+                    : activeReport.countView === "combined"
+                      ? "Download combined report"
+                      : "Download my report"}
                 </Button>
                 {canSubmit ? (
                   <Button type="button" disabled={busy} onClick={submitReport}>

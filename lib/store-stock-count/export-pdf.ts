@@ -88,9 +88,14 @@ function bucketSection(snapshot: StockCountSnapshot, bucket: CountedBucket) {
 export async function buildStockCountPdfBuffer(
   snapshot: StockCountSnapshot,
 ): Promise<Buffer> {
-  const note = snapshot.isDraft
-    ? "Draft snapshot. This download does not lock the count — keep scanning."
-    : "Submitted report. Counts are locked.";
+  const note =
+    snapshot.countView === "personal"
+      ? snapshot.isDraft
+        ? "Your counts only. The other counter's scans are not in this file. Download does not lock the count."
+        : "Your counts from this report."
+      : snapshot.isDraft
+        ? "Combined counts from every counter. This download does not lock the count."
+        : "Submitted report. Combined counts are locked.";
 
   const docDef = {
     pageOrientation: "portrait" as const,
@@ -103,6 +108,13 @@ export async function buildStockCountPdfBuffer(
     }),
     content: [
       { text: snapshot.title, fontSize: 16, bold: true, margin: [0, 0, 0, 4] },
+      snapshot.countView === "personal" && snapshot.viewerLabel
+        ? {
+            text: `Counter: ${snapshot.viewerLabel}`,
+            fontSize: 10,
+            margin: [0, 0, 0, 4],
+          }
+        : {},
       { text: note, fontSize: 9, margin: [0, 0, 0, 8] },
       {
         text: `Status: ${snapshot.status}  ·  Captured: ${formatCapturedAt(snapshot.capturedAt)}`,

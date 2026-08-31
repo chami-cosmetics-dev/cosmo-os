@@ -1,13 +1,11 @@
 import "server-only";
 
 import {
-  fetchBinActualQty,
   getAllOsfErpInstances,
   OsfErpError,
   type OsfErpCredentials,
   type OsfErpInstance,
 } from "@/lib/osf/erp-stock";
-import { warehouseItemKey } from "@/lib/store-stock-count/live-stock";
 import type {
   SelectableErpCompany,
   StoreStockCountApiItem,
@@ -331,66 +329,6 @@ async function fetchBinQtyByItemAndWarehouse(
     }
   }
   return qty;
-}
-
-export async function fetchLiveStockByWarehouseKey(input: {
-  companyId: string;
-  warehouses: StoreStockCountWarehouseColumn[];
-  itemCodes?: string[];
-}): Promise<Map<string, number>> {
-  const out = new Map<string, number>();
-  const instances = await getAllOsfErpInstances(input.companyId);
-  const byInstance = new Map<string, StoreStockCountWarehouseColumn[]>();
-  for (const warehouse of input.warehouses) {
-    const list = byInstance.get(warehouse.instanceId) ?? [];
-    list.push(warehouse);
-    byInstance.set(warehouse.instanceId, list);
-  }
-  const itemCodes = [
-    ...new Set(
-      (input.itemCodes ?? []).map((sku) => sku.trim()).filter(Boolean),
-    ),
-  ];
-
-  await Promise.all(
-    [...byInstance.entries()].map(async ([instanceId, columns]) => {
-      const inst = instances.find((row) => row.id === instanceId);
-      if (!inst) return;
-      const warehouseNames = [
-        ...new Set(columns.map((column) => column.warehouse)),
-      ];
-      if (itemCodes.length > 0) {
-        const binMap = await fetchBinActualQty({
-          cfg: inst.cfg,
-          warehouses: warehouseNames,
-          itemCodes,
-        });
-        for (const column of columns) {
-          for (const sku of itemCodes) {
-            out.set(
-              warehouseItemKey(column.key, sku),
-              binMap.get(`${column.warehouse}::${sku}`) ?? 0,
-            );
-          }
-        }
-        return;
-      }
-      const byItem = await fetchBinQtyByItemAndWarehouse(
-        inst.cfg,
-        warehouseNames,
-      );
-      for (const [sku, byWarehouse] of byItem) {
-        for (const column of columns) {
-          out.set(
-            warehouseItemKey(column.key, sku),
-            byWarehouse.get(column.warehouse) ?? 0,
-          );
-        }
-      }
-    }),
-  );
-
-  return out;
 }
 
 export class StoreStockCountErpError extends Error {
