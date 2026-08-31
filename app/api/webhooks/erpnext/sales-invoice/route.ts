@@ -28,6 +28,7 @@ import { syncContactMasterSafely } from "@/lib/contact-master-sync";
 import { erpSlotSourceFromLabel } from "@/lib/erpnext-contact-sync";
 import { normalizeMerCodeKey } from "@/lib/merchant-allocation";
 import { linkedVaultOrderSubmittedInvoicePatch } from "@/lib/erp-fulfillment-block";
+import { resolveErpSalesInvoiceFinancialStatus } from "@/lib/erp-sales-invoice-financial-status";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -90,22 +91,46 @@ async function fetchPosDetailsFromSalesInvoice(
   }
 }
 
-async function fetchOutstandingAmount(
+type InvoicePaymentSnapshot = {
+  status: string | null;
+  outstandingAmount: number | null;
+  paidAmount: number | null;
+  grandTotal: number | null;
+};
+
+async function fetchInvoicePaymentSnapshot(
   invoiceName: string,
   baseUrl: string,
   apiKey: string,
   apiSecret: string,
-): Promise<number | null> {
+): Promise<InvoicePaymentSnapshot | null> {
   if (!baseUrl || !apiKey || !apiSecret) return null;
   try {
-    const fields = encodeURIComponent(JSON.stringify(["outstanding_amount"]));
+    const fields = encodeURIComponent(
+      JSON.stringify(["status", "outstanding_amount", "paid_amount", "grand_total"]),
+    );
     const res = await fetch(
       `${baseUrl}/api/resource/Sales Invoice/${encodeURIComponent(invoiceName)}?fields=${fields}`,
       { headers: { Authorization: `token ${apiKey}:${apiSecret}` } },
     );
     if (!res.ok) return null;
-    const json = (await res.json()) as { data: { outstanding_amount: number } };
-    return json.data.outstanding_amount ?? null;
+    const json = (await res.json()) as {
+      data?: {
+        status?: string | null;
+        outstanding_amount?: number | null;
+        paid_amount?: number | null;
+        grand_total?: number | null;
+      };
+    };
+    const row = json.data;
+    if (!row) return null;
+    return {
+      status: typeof row.status === "string" ? row.status : null,
+      outstandingAmount:
+        typeof row.outstanding_amount === "number" ? row.outstanding_amount : null,
+      paidAmount: typeof row.paid_amount === "number" ? row.paid_amount : null,
+      grandTotal: typeof row.grand_total === "number" ? row.grand_total : null,
+    };
   } catch {
     return null;
   }
@@ -314,26 +339,21 @@ export async function POST(request: NextRequest) {
   const isPOS =
     data.is_pos === 1 ||
     (!!data.posa_pos_opening_shift && data.posa_pos_opening_shift !== "None");
-  const isFullyPaid =
-    typeof data.outstanding_amount === "number" && data.outstanding_amount <= 0;
-  const isPartlyPaid =
-    data.status?.trim().toLowerCase() === "partly paid" ||
-    (typeof data.outstanding_amount === "number" &&
-      data.outstanding_amount > 0 &&
-      typeof data.grand_total === "number" &&
-      data.outstanding_amount < Math.abs(data.grand_total));
-  let financialStatus: string;
-  if (data.docstatus === 2) {
-    financialStatus = "voided";
-  } else if (isPOS || isFullyPaid) {
-    // POS orders and fully paid invoices (outstanding_amount = 0) are marked paid
-    financialStatus = "paid";
-  } else if (isPartlyPaid) {
-    financialStatus = "partially_paid";
-  } else {
-    // Non-POS ERP invoice: pending until PE webhook marks it paid
-    financialStatus = "pending";
-  }
+  const livePayment = await fetchInvoicePaymentSnapshot(
+    data.name,
+    instanceCreds.baseUrl,
+    instanceCreds.apiKey,
+    instanceCreds.apiSecret,
+  );
+  const financialStatus = resolveErpSalesInvoiceFinancialStatus({
+    docstatus: data.docstatus,
+    isPos: isPOS,
+    status: livePayment?.status ?? data.status,
+    outstandingAmount: livePayment?.outstandingAmount ?? data.outstanding_amount,
+    grandTotal: livePayment?.grandTotal ?? data.grand_total,
+    paidAmount: livePayment?.paidAmount ?? data.paid_amount,
+    payments: data.payments,
+  });
 
   // Shopify/web orders already live in Vault — skip ERP-native upsert, but honour cancellations.
   const linkedVaultOrder = await findLinkedVaultOrderForErpInvoice(data);

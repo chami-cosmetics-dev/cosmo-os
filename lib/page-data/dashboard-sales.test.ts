@@ -102,7 +102,7 @@ describe("isDashboardSalesOrderEligible", () => {
   const deliveredAt = new Date("2026-07-01T10:00:00.000Z");
   const closedAt = new Date("2026-07-02T10:00:00.000Z");
 
-  it("counts paid and pending for all_orders", () => {
+  it("counts paid, pending, and partially_paid for all_orders", () => {
     expect(
       isDashboardSalesOrderEligible(
         { sourceName: "web", financialStatus: "paid", fulfillmentStatus: null },
@@ -112,6 +112,12 @@ describe("isDashboardSalesOrderEligible", () => {
     expect(
       isDashboardSalesOrderEligible(
         { sourceName: "web", financialStatus: "pending", fulfillmentStatus: null },
+        "all_orders",
+      ),
+    ).toBe(true);
+    expect(
+      isDashboardSalesOrderEligible(
+        { sourceName: "web", financialStatus: "partially_paid", fulfillmentStatus: null },
         "all_orders",
       ),
     ).toBe(true);
