@@ -1236,6 +1236,9 @@ export function StoreStockCountPanel({
         (diff > 0 || (activeReport.status === "submitted" && diff < 0))
       );
     }).length ?? 0;
+  const totalManualCount =
+    activeReport?.items.reduce((sum, item) => sum + (item.manualCount ?? 0), 0) ??
+    0;
 
   return (
     <div className="space-y-4">
@@ -1393,7 +1396,7 @@ export function StoreStockCountPanel({
 
       {activeReport ? (
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div className="rounded-lg border p-4">
               <div className="text-xs text-muted-foreground">Pending</div>
               <div className="mt-1 text-2xl font-semibold tabular-nums">
@@ -1416,6 +1419,12 @@ export function StoreStockCountPanel({
               <div className="text-xs text-muted-foreground">Difference</div>
               <div className="mt-1 text-2xl font-semibold tabular-nums">
                 {differenceCount}
+              </div>
+            </div>
+            <div className="rounded-lg border p-4">
+              <div className="text-xs text-muted-foreground">Total Count</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums">
+                {totalManualCount}
               </div>
             </div>
           </div>
