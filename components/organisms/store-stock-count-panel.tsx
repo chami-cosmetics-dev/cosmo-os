@@ -396,6 +396,9 @@ export function StoreStockCountPanel({
     null,
   );
   const [qbImportBusy, setQbImportBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState<
+    "xlsx" | "pdf" | "csv" | "both" | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [scanQueue, setScanQueue] = useState<ScanJob[]>([]);
   const [recentKeys, setRecentKeys] = useState<string[]>([]);
@@ -1383,6 +1386,66 @@ export function StoreStockCountPanel({
       if (qbImportInputRef.current) qbImportInputRef.current.value = "";
     }
   }
+  async function downloadSnapshot(formats: Array<"xlsx" | "pdf" | "csv">) {
+    if (!activeReport || formats.length === 0) return;
+    setExportBusy(formats.length > 1 ? "both" : formats[0]!);
+    try {
+      if (activeReport.status !== "submitted") {
+        while (autoSaveInFlightRef.current) {
+          await new Promise((resolve) => window.setTimeout(resolve, 100));
+        }
+        if (Object.keys(dirtyCountsRef.current).length > 0) {
+          const saved = await flushAutoSave();
+          if (!saved)
+            throw new Error("Could not save pending counts before download");
+        }
+      }
+      const files = await Promise.all(
+        formats.map(async (format) => {
+          const res = await fetch(
+            `/api/admin/store-stock-count/reports/${activeReport.id}/export?format=${format}`,
+          );
+          if (!res.ok) {
+            const json = (await res.json().catch(() => null)) as {
+              error?: string;
+            } | null;
+            throw new Error(json?.error ?? "Could not download report");
+          }
+          const blob = await res.blob();
+          const match = res.headers
+            .get("Content-Disposition")
+            ?.match(/filename="([^"]+)"/);
+          return {
+            blob,
+            filename: match?.[1] ?? `stock-count-counted.${format}`,
+          };
+        }),
+      );
+      for (const [index, file] of files.entries()) {
+        const url = URL.createObjectURL(file.blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        if (index < files.length - 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+        }
+      }
+      notify.success(
+        formats.includes("csv") && formats.includes("pdf")
+          ? "Counted list downloaded as CSV and PDF. Keep counting."
+          : "Counted list downloaded. Keep counting.",
+      );
+    } catch (err) {
+      notify.error(
+        err instanceof Error ? err.message : "Could not download report",
+      );
+    } finally {
+      setExportBusy(null);
+    }
+  }
+
   async function submitReport() {
     if (!activeReport) return;
     if (
@@ -1550,7 +1613,8 @@ export function StoreStockCountPanel({
           </h1>
           <p className="text-sm text-muted-foreground">
             Create saved reports from live ERP warehouse stock, scan
-            continuously, save drafts, and submit to lock.
+            continuously, download Ongoing / Done / Difference as CSV and PDF
+            anytime without locking, and submit when the count is finished.
           </p>
         </div>
         {!standalone ? (
@@ -1943,13 +2007,20 @@ export function StoreStockCountPanel({
                   )}
                   Import QB
                 </Button>
-                <Button type="button" variant="outline" asChild>
-                  <a
-                    href={`/api/admin/store-stock-count/reports/${activeReport.id}/export`}
-                  >
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={exportBusy != null}
+                  onClick={() => void downloadSnapshot(["csv", "pdf"])}
+                >
+                  {exportBusy ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
                     <Download className="size-4" aria-hidden />
-                    Export
-                  </a>
+                  )}
+                  {exportBusy
+                    ? "Downloading counted list..."
+                    : "Download counted list"}
                 </Button>
                 {canSubmit ? (
                   <Button type="button" disabled={busy} onClick={submitReport}>
