@@ -676,7 +676,7 @@ async function buildErpSalesInvoiceCouponFields(
   };
 }
 
-async function erpnextSetDocumentField(
+export async function erpnextSetDocumentField(
   cfg: ErpConfig,
   doctype: string,
   name: string,
@@ -1734,6 +1734,36 @@ export async function ensureErpnextCreditNote(
     originalStatus,
     created,
   };
+}
+
+export const ERP_SI_CANCEL_KIND_FIELD = "custom_cancel_kind";
+
+export function erpCancelKindLabel(kind: "customer_cancel" | "replacement"): string {
+  return kind === "replacement" ? "Replacement" : "Customer Cancel";
+}
+
+/** Stamp Cosmo cancel kind on submitted SI so ERP Auto SMS can skip replacement CNs. Non-fatal. */
+export async function setErpSalesInvoiceCancelKind(
+  location: LocationWithErpInstance,
+  invoiceName: string | null | undefined,
+  kind: "customer_cancel" | "replacement",
+): Promise<void> {
+  const name = invoiceName?.trim();
+  if (!name || name === "pending" || name === "pending_approval") return;
+  const cfg = getErpConfig(location.erpnextInstance);
+  if (!cfg.baseUrl || !cfg.apiKey || !cfg.apiSecret) return;
+  const ok = await erpnextSetDocumentField(
+    cfg,
+    "Sales Invoice",
+    name,
+    ERP_SI_CANCEL_KIND_FIELD,
+    erpCancelKindLabel(kind),
+  );
+  if (ok) {
+    console.log(`[ERPNext] Set ${ERP_SI_CANCEL_KIND_FIELD}=${erpCancelKindLabel(kind)} on ${name}`);
+  } else {
+    console.warn(`[ERPNext] Could not set ${ERP_SI_CANCEL_KIND_FIELD} on Sales Invoice ${name}`);
+  }
 }
 
 export type SalesInvoiceCancellationResult = {

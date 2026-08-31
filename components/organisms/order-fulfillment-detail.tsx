@@ -16,6 +16,7 @@ import {
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
 import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
+import { OrderCancelKindSelect, type OrderCancelKindChoice } from "@/components/molecules/order-cancel-kind-select";
 import { Button } from "@/components/ui/button";
 import { useFulfillmentPermissions } from "@/components/contexts/fulfillment-permissions-context";
 import { FulfillmentOrderReference } from "@/components/molecules/fulfillment-order-reference";
@@ -221,6 +222,7 @@ type OrderDetail = {
   cancelledAt?: string | null;
   cancelledBy?: { id: string; name: string | null; email: string | null } | null;
   cancelReason?: string | null;
+  cancelKind?: "customer_cancel" | "replacement" | null;
   hasPendingCancelApproval?: boolean;
   replacedByOrder?: {
     id: string;
@@ -286,6 +288,7 @@ export function OrderFulfillmentDetail({
   const [remarkStage, setRemarkStage] = useState<FulfillmentStage>("order_received");
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelOrderReason, setCancelOrderReason] = useState("");
+  const [cancelKind, setCancelKind] = useState<OrderCancelKindChoice | "">("");
 
   const isBusy = busyKey !== null;
   const stage = (orderDetail?.fulfillmentStage ?? "order_received") as FulfillmentStage;
@@ -357,7 +360,7 @@ export function OrderFulfillmentDetail({
   }
 
   async function handleCancelOrder() {
-    if (!orderId || cancelOrderReason.trim().length < 5) return;
+    if (!orderId || cancelOrderReason.trim().length < 5 || !cancelKind) return;
     if (shouldBlockShopifyCancelInOs(orderDetail?.shopifyOrderId)) {
       notify.error(VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE);
       return;
@@ -367,7 +370,7 @@ export function OrderFulfillmentDetail({
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel_order", reason: cancelOrderReason.trim() }),
+        body: JSON.stringify({ action: "cancel_order", reason: cancelOrderReason.trim(), cancelKind }),
       });
       const data = (await res.json()) as { success?: boolean; requiresApproval?: boolean; error?: string };
       if (!res.ok) { notify.error(data.error ?? "Failed to cancel order"); return; }
@@ -378,6 +381,7 @@ export function OrderFulfillmentDetail({
       }
       setShowCancelDialog(false);
       setCancelOrderReason("");
+      setCancelKind("");
       onRefresh();
     } catch {
       notify.error("Failed to cancel order");
@@ -912,6 +916,11 @@ export function OrderFulfillmentDetail({
                     orderDetail.cancelledBy?.email?.trim() ||
                     "ERP"}
                 </p>
+                {orderDetail.cancelKind === "replacement" ? (
+                  <p className="mt-1 text-muted-foreground">Type: Replacement (no customer SMS)</p>
+                ) : orderDetail.cancelKind === "customer_cancel" ? (
+                  <p className="mt-1 text-muted-foreground">Type: Cancel (customer SMS)</p>
+                ) : null}
                 {orderDetail.cancelReason && (
                   <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
                 )}
@@ -948,7 +957,7 @@ export function OrderFulfillmentDetail({
                   variant="outline"
                   size="sm"
                   className="gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => { setCancelOrderReason(""); setShowCancelDialog(true); }}
+                  onClick={() => { setCancelOrderReason(""); setCancelKind(""); setShowCancelDialog(true); }}
                   disabled={isBusy}
                 >
                   <XCircle className="size-4" />
@@ -1160,7 +1169,7 @@ export function OrderFulfillmentDetail({
       </DialogContent>
     </Dialog>
 
-    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelOrderReason(""); } }}>
+    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelOrderReason(""); setCancelKind(""); } }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail ? (orderDetail.name ?? orderDetail.orderNumber ?? orderDetail.shopifyOrderId) : ""}</AlertDialogTitle>
@@ -1172,7 +1181,13 @@ export function OrderFulfillmentDetail({
             )}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="py-1">
+        <div className="space-y-3 py-1">
+          <OrderCancelKindSelect
+            value={cancelKind}
+            onChange={setCancelKind}
+            disabled={busyKey === "cancel_order"}
+          />
+          <div>
           <label className="mb-1.5 block text-sm font-medium" htmlFor="cancel-order-reason">
             Cancellation reason <span className="text-destructive">*</span>
           </label>
@@ -1186,12 +1201,13 @@ export function OrderFulfillmentDetail({
             disabled={busyKey === "cancel_order"}
           />
           <p className="mt-1 text-xs text-muted-foreground">{cancelOrderReason.trim().length}/500 — minimum 5 characters</p>
+          </div>
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busyKey === "cancel_order"}>Back</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={busyKey === "cancel_order" || cancelOrderReason.trim().length < 5}
+            disabled={busyKey === "cancel_order" || cancelOrderReason.trim().length < 5 || !cancelKind}
             onClick={() => void handleCancelOrder()}
           >
             {busyKey === "cancel_order" ? (

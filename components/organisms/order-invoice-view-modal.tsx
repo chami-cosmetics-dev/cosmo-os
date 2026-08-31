@@ -20,6 +20,7 @@ import {
 import { OrderShippingLine } from "@/components/molecules/order-shipping-line";
 import { OrderLineItemPrice } from "@/components/molecules/order-line-item-price";
 import { OrderLineItemsTotals } from "@/components/molecules/order-line-items-totals";
+import { OrderCancelKindSelect, type OrderCancelKindChoice } from "@/components/molecules/order-cancel-kind-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -198,6 +199,7 @@ type OrderDetail = {
   cancelledAt?: string | null;
   cancelledBy?: UserRef;
   cancelReason?: string | null;
+  cancelKind?: "customer_cancel" | "replacement" | null;
   hasPendingCancelApproval?: boolean;
   replacedByOrder?: {
     id: string;
@@ -581,6 +583,7 @@ export function OrderInvoiceViewModal({
   const [resendSmsBusy, setResendSmsBusy] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelKind, setCancelKind] = useState<OrderCancelKindChoice | "">("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const [showJsonModal, setShowJsonModal] = useState(false);
   const [revertingToStage, setRevertingToStage] = useState<string | null>(null);
@@ -719,7 +722,7 @@ export function OrderInvoiceViewModal({
   }
 
   async function handleCancelOrder() {
-    if (!orderId || cancelReason.trim().length < 5) return;
+    if (!orderId || cancelReason.trim().length < 5 || !cancelKind) return;
     if (shouldBlockShopifyCancelInOs(orderDetail?.shopifyOrderId)) {
       notify.error(VAULT_SHOPIFY_CANCEL_BLOCKED_MESSAGE);
       return;
@@ -729,7 +732,7 @@ export function OrderInvoiceViewModal({
       const res = await fetch(`/api/admin/orders/${orderId}/fulfillment`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "cancel_order", reason: cancelReason.trim() }),
+        body: JSON.stringify({ action: "cancel_order", reason: cancelReason.trim(), cancelKind }),
       });
       const data = (await res.json()) as { error?: string; requiresApproval?: boolean };
       if (!res.ok) { notify.error(data.error ?? "Failed to cancel order"); return; }
@@ -740,6 +743,7 @@ export function OrderInvoiceViewModal({
       }
       setShowCancelDialog(false);
       setCancelReason("");
+      setCancelKind("");
       onRefresh?.();
     } catch {
       notify.error("Failed to cancel order");
@@ -1579,6 +1583,11 @@ export function OrderInvoiceViewModal({
                     orderDetail.cancelledBy?.email?.trim() ||
                     "ERP"}
                 </p>
+                {orderDetail.cancelKind === "replacement" ? (
+                  <p className="mt-1 text-muted-foreground">Type: Replacement (no customer SMS)</p>
+                ) : orderDetail.cancelKind === "customer_cancel" ? (
+                  <p className="mt-1 text-muted-foreground">Type: Cancel (customer SMS)</p>
+                ) : null}
                 {orderDetail.cancelReason && (
                   <p className="mt-1 text-muted-foreground">Reason: {orderDetail.cancelReason}</p>
                 )}
@@ -1615,7 +1624,7 @@ export function OrderInvoiceViewModal({
                   variant="outline"
                   size="sm"
                   className="gap-1.5 border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => { setCancelReason(""); setShowCancelDialog(true); }}
+                  onClick={() => { setCancelReason(""); setCancelKind(""); setShowCancelDialog(true); }}
                 >
                   <XCircle className="size-4" />
                   Cancel Order
@@ -1707,7 +1716,7 @@ export function OrderInvoiceViewModal({
       </DialogContent>
     </Dialog>
 
-    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelReason(""); } }}>
+    <AlertDialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelReason(""); setCancelKind(""); } }}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel Order {orderDetail?.name ?? orderDetail?.orderNumber ?? orderDetail?.shopifyOrderId ?? ""}</AlertDialogTitle>
@@ -1717,7 +1726,9 @@ export function OrderInvoiceViewModal({
               : "This will immediately cancel the order in Shopify and void the ERP Sales Invoice if one exists."}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <div className="py-1">
+        <div className="space-y-3 py-1">
+          <OrderCancelKindSelect value={cancelKind} onChange={setCancelKind} disabled={cancelBusy} />
+          <div>
           <label className="mb-1.5 block text-sm font-medium" htmlFor="modal-cancel-reason">
             Cancellation reason <span className="text-destructive">*</span>
           </label>
@@ -1731,12 +1742,13 @@ export function OrderInvoiceViewModal({
             disabled={cancelBusy}
           />
           <p className="mt-1 text-xs text-muted-foreground">{cancelReason.trim().length}/500 — minimum 5 characters</p>
+          </div>
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={cancelBusy}>Back</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={cancelBusy || cancelReason.trim().length < 5}
+            disabled={cancelBusy || cancelReason.trim().length < 5 || !cancelKind}
             onClick={() => void handleCancelOrder()}
           >
             {cancelBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <XCircle className="size-4" aria-hidden />}

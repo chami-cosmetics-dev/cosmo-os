@@ -18,7 +18,7 @@ import {
   orderDisplayLabel,
   requiresOldItemCollection,
 } from "@/lib/rider-delivery-special";
-import { createErpnextCreditNote, cancelErpnextSalesInvoice } from "@/lib/erpnext-sync";
+import { createErpnextCreditNote, cancelErpnextSalesInvoice, setErpSalesInvoiceCancelKind } from "@/lib/erpnext-sync";
 import {
   cancelShopifyOrder,
   isRealShopifyOrderId,
@@ -94,6 +94,7 @@ const fulfillmentActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("cancel_order"),
     reason: z.string().trim().min(5).max(500),
+    cancelKind: z.enum(["customer_cancel", "replacement"]),
   }),
   z.object({
     action: z.literal("revert_to_stage"),
@@ -1317,8 +1318,19 @@ export async function PATCH(
       const requiresFinanceApproval =
         order.financialStatus?.toLowerCase() === "paid" && isPaidCancelableGateway;
 
+      const cancelKind = data.cancelKind;
+
       if (requiresFinanceApproval) {
         const invoiceLabel = order.name ?? order.orderNumber ?? order.shopifyOrderId ?? order.id;
+        if (location) {
+          await setErpSalesInvoiceCancelKind(location, order.erpnextInvoiceId, cancelKind).catch((err) =>
+            console.warn(`[Cancel] Could not stamp ERP cancel kind for order ${order.id}:`, err),
+          );
+        }
+        await prisma.order.update({
+          where: { id: order.id },
+          data: { cancelKind, cancelReason: data.reason },
+        });
         const approval = await createOrGetOrderCancelApproval({
           companyId,
           orderId: order.id,
@@ -1338,7 +1350,7 @@ export async function PATCH(
           entityId: order.id,
           summary: `Cancel approval requested for order ${invoiceLabel}: ${data.reason}`,
           beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
-          afterData: { cancelReason: data.reason, approvalId: approval.id },
+          afterData: { cancelReason: data.reason, cancelKind, approvalId: approval.id },
         });
 
         return NextResponse.json({ requiresApproval: true, approvalId: approval.id });
@@ -1354,18 +1366,33 @@ export async function PATCH(
         console.warn(`[Cancel] Skipping Shopify cancel for order ${order.id} (ERP-native or no store handle)`);
       }
 
-      // Cancel ERP Sales Invoice if one exists — non-fatal
+      // ERP Sales Invoice — non-fatal. Cancel SMS is ERP Auto SMS (credit-note After Submit), not Cosmo OS.
+      // customer_cancel → credit note so ERP sends SMS. Replacement → SI cancel, no CN, no SMS.
       if (location && order.erpnextInvoiceId && order.erpnextInvoiceId !== "pending" && order.erpnextInvoiceId !== "pending_approval") {
         try {
-          const isErpNative = order.shopifyOrderId?.startsWith("erp-");
-          await cancelErpnextSalesInvoice(
-            order.name ?? order.shopifyOrderId,
-            location,
-            isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
-          );
-          console.log(`[Cancel] ERP SI cancelled for order ${order.id}`);
+          await setErpSalesInvoiceCancelKind(location, order.erpnextInvoiceId, cancelKind);
+          if (cancelKind === "customer_cancel") {
+            const cn = await createErpnextCreditNote(
+              {
+                id: order.id,
+                name: order.name,
+                orderNumber: order.orderNumber,
+                erpnextInvoiceId: order.erpnextInvoiceId,
+              },
+              location,
+            );
+            console.log(`[Cancel] ERP credit note ${cn.creditNoteName} for order ${order.id} (SMS via ERP)`);
+          } else {
+            const isErpNative = order.shopifyOrderId?.startsWith("erp-");
+            await cancelErpnextSalesInvoice(
+              order.name ?? order.shopifyOrderId,
+              location,
+              isErpNative ? { directInvoiceName: order.erpnextInvoiceId } : undefined,
+            );
+            console.log(`[Cancel] ERP SI cancelled for order ${order.id} (replacement — no SMS)`);
+          }
         } catch (err) {
-          console.error(`[Cancel] ERP SI cancel failed (non-fatal) for order ${order.id}:`, err);
+          console.error(`[Cancel] ERP SI cancel/CN failed (non-fatal) for order ${order.id}:`, err);
         }
       }
 
@@ -1376,6 +1403,7 @@ export async function PATCH(
           cancelledAt: now,
           cancelledById: auth.context!.user!.id,
           cancelReason: data.reason,
+          cancelKind,
         },
       });
 
@@ -1388,7 +1416,7 @@ export async function PATCH(
         entityId: order.id,
         summary: `Cancelled order ${order.orderNumber ?? order.name ?? order.id}: ${data.reason}`,
         beforeData: { fulfillmentStage: order.fulfillmentStage, financialStatus: order.financialStatus },
-        afterData: { financialStatus: "voided", cancelReason: data.reason },
+        afterData: { financialStatus: "voided", cancelReason: data.reason, cancelKind },
       });
 
       return NextResponse.json({ success: true });

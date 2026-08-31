@@ -4,6 +4,7 @@ import {
   buildErpOrderDiscountCodes,
   getErpDiscountCouponFromPayload,
   getOrderDiscountCouponCode,
+  mergeDiscountCouponIntoCodes,
 } from "@/lib/order-discount-coupon";
 
 describe("getErpDiscountCouponFromPayload", () => {
@@ -58,5 +59,18 @@ describe("buildErpOrderDiscountCodes", () => {
       { code: "SV20" },
       { code: "MER99-Dinuli", amount: 0 },
     ]);
+  });
+});
+
+describe("mergeDiscountCouponIntoCodes", () => {
+  it("appends a new coupon and skips duplicates", () => {
+    expect(
+      mergeDiscountCouponIntoCodes([{ code: "MER99-Dinuli", amount: 0 }], "SV20"),
+    ).toEqual([
+      { code: "MER99-Dinuli", amount: 0 },
+      { code: "SV20" },
+    ]);
+    const existing = [{ code: "SV20" }];
+    expect(mergeDiscountCouponIntoCodes(existing, "sv20")).toBe(existing);
   });
 });

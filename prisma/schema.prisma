@@ -751,6 +751,8 @@ model Order {
   cancelledAt                     DateTime?
   cancelledById                   String?
   cancelReason                    String?
+  /// merchant cancel dialog: customer_cancel (SMS) vs replacement (no SMS)
+  cancelKind                      OrderCancelKind?
   /// Cosmo cancel→replace: cancelled order points at the ERP/Cosmo order that supersedes it.
   replacedByOrderId               String?
   assignedMerchant                User?                  @relation("OrderAssignedMerchant", fields: [assignedMerchantId], references: [id])
@@ -1679,12 +1681,18 @@ enum OrderRemarkType {
   external
 }
 
+enum OrderCancelKind {
+  customer_cancel
+  replacement
+}
+
 enum SmsNotificationTrigger {
   order_received
   package_ready
   dispatched
   rider_dispatched
   delivery_complete
+  order_cancelled
 }
 
 enum EmployeeStatus {
