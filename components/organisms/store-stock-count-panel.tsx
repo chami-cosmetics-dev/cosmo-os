@@ -1879,7 +1879,7 @@ export function StoreStockCountPanel({
               ) : (
                 <Plus className="size-4" aria-hidden />
               )}
-              Create report
+              {busy ? "Pulling ERP items…" : "Create report"}
             </Button>
           </div>
           <div className="grid max-h-72 gap-x-8 gap-y-1 overflow-y-auto pr-2 md:grid-cols-2 xl:grid-cols-3">

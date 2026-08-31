@@ -12,7 +12,7 @@ import type {
   StoreStockCountWarehouseColumn,
 } from "@/lib/store-stock-count/types";
 
-const PAGE_LENGTH = 500;
+const PAGE_LENGTH = 1000;
 const MAX_PAGES = 80;
 
 function authHeaders(cfg: OsfErpCredentials): Record<string, string> {
@@ -258,41 +258,55 @@ async function fetchBarcodeMap(cfg: OsfErpCredentials): Promise<Map<string, stri
   return map;
 }
 
-function pushBarcode(map: Map<string, string[]>, itemCode: string, rawBarcode: unknown) {
-  const barcode = String(rawBarcode ?? "").trim();
-  if (!itemCode || !barcode) return;
-  const list = map.get(itemCode) ?? [];
-  if (!list.includes(barcode)) list.push(barcode);
-  map.set(itemCode, list);
+function toWarehouseColumns(
+  inst: OsfErpInstance,
+  erpCompany: string,
+  warehouses: string[],
+): StoreStockCountWarehouseColumn[] {
+  const instanceLabel = (inst.label ?? inst.id).trim() || inst.id;
+  return warehouses.map((warehouse) => ({
+    key: `${inst.id}::${erpCompany}::${warehouse}`,
+    label: warehouse,
+    warehouse,
+    instanceId: inst.id,
+    instanceLabel,
+    erpCompany,
+  }));
 }
 
-async function fillBarcodeMapFromItemDetails(
-  cfg: OsfErpCredentials,
-  itemCodes: string[],
-  map: Map<string, string[]>,
-): Promise<void> {
-  const DETAIL_BATCH = 10;
-  for (let i = 0; i < itemCodes.length; i += DETAIL_BATCH) {
-    const batch = itemCodes.slice(i, i + DETAIL_BATCH);
-    await Promise.all(
-      batch.map(async (itemCode) => {
-        try {
-          const json = await erpGetJson<{
-            data?: {
-              barcode?: string;
-              barcodes?: Array<{ barcode?: string }>;
-            };
-          }>(cfg, `/api/resource/Item/${encodeURIComponent(itemCode)}`);
-          pushBarcode(map, itemCode, json.data?.barcode);
-          for (const row of json.data?.barcodes ?? []) {
-            pushBarcode(map, itemCode, row.barcode);
-          }
-        } catch {
-          // Some ERP keys may not allow Item detail reads; keep existing barcode sources.
-        }
-      }),
-    );
-  }
+function catalogToApiItems(
+  catalog: Array<{
+    item_code: string;
+    item_name: string;
+    description: string;
+    barcode: string;
+  }>,
+  barcodeMap: Map<string, string[]>,
+  binQty: Map<string, Map<string, number>>,
+  warehouseColumns: StoreStockCountWarehouseColumn[],
+): StoreStockCountApiItem[] {
+  return catalog.map((row) => ({
+    sku: row.item_code,
+    name: row.item_name || row.item_code,
+    description: row.description,
+    barcodes: [
+      ...new Set(
+        [row.barcode, ...(barcodeMap.get(row.item_code) ?? [])]
+          .map((barcode) => barcode.trim())
+          .filter(Boolean),
+      ),
+    ],
+    stockByWarehouse: Object.fromEntries(
+      warehouseColumns.map((col) => [
+        col.key,
+        binQty.get(row.item_code)?.get(col.warehouse) ?? 0,
+      ]),
+    ),
+    stock: warehouseColumns.reduce(
+      (sum, col) => sum + (binQty.get(row.item_code)?.get(col.warehouse) ?? 0),
+      0,
+    ),
+  }));
 }
 
 async function fetchBinQtyByItemAndWarehouse(
@@ -341,6 +355,17 @@ export class StoreStockCountErpError extends Error {
   }
 }
 
+function wrapErpError(err: unknown): StoreStockCountErpError {
+  if (err instanceof StoreStockCountErpError) return err;
+  if (err instanceof OsfErpError && err.message.startsWith("Unknown ERP company")) {
+    return new StoreStockCountErpError(err.message, 400);
+  }
+  return new StoreStockCountErpError(
+    err instanceof Error ? err.message : String(err),
+    502,
+  );
+}
+
 export async function fetchCompanyStockItems(input: {
   companyId: string;
   instanceId: string;
@@ -353,83 +378,120 @@ export async function fetchCompanyStockItems(input: {
   warehouses: StoreStockCountWarehouseColumn[];
   items: StoreStockCountApiItem[];
 }> {
-  const instances = await getAllOsfErpInstances(input.companyId);
-  const inst = resolveInstance(instances, input.instanceId);
-  if (!inst) {
+  const results = await fetchStockForSelectedCompanies({
+    companyId: input.companyId,
+    companies: [
+      {
+        instanceId: input.instanceId,
+        instanceLabel: "",
+        erpCompany: input.erpCompany,
+      },
+    ],
+    warehouses: input.warehouses,
+  });
+  const row = results[0];
+  if (!row) {
     throw new StoreStockCountErpError("ERP instance not found for this OS", 400);
   }
+  return row;
+}
 
-  const erpCompany = input.erpCompany.trim();
-  try {
-    await assertCompanyExists(inst.cfg, erpCompany);
-  } catch (err) {
-    if (err instanceof OsfErpError && err.message.startsWith("Unknown ERP company")) {
-      throw new StoreStockCountErpError(err.message, 400);
-    }
-    throw new StoreStockCountErpError(
-      err instanceof Error ? err.message : String(err),
-      502,
-    );
+export async function fetchStockForSelectedCompanies(input: {
+  companyId: string;
+  companies: SelectableErpCompany[];
+  warehouses?: StoreStockCountWarehouseColumn[];
+}): Promise<
+  Array<{
+    instanceId: string;
+    instanceLabel: string;
+    erpCompany: string;
+    warehouses: StoreStockCountWarehouseColumn[];
+    items: StoreStockCountApiItem[];
+  }>
+> {
+  const instances = await getAllOsfErpInstances(input.companyId);
+  const warehousesByCompany = new Map<string, StoreStockCountWarehouseColumn[]>();
+  for (const warehouse of input.warehouses ?? []) {
+    const key = `${warehouse.instanceId}::${warehouse.erpCompany}`;
+    const list = warehousesByCompany.get(key) ?? [];
+    list.push(warehouse);
+    warehousesByCompany.set(key, list);
   }
 
-  try {
-    const [catalog, barcodeMap, warehouses] = await Promise.all([
-      fetchStockItems(inst.cfg),
-      fetchBarcodeMap(inst.cfg),
-      input.warehouses ? Promise.resolve(input.warehouses.map((w) => w.warehouse)) : fetchWarehousesForCompany(inst.cfg, erpCompany),
-    ]);
-    const missingBarcodeItemCodes = catalog
-      .filter((row) => !row.barcode && (barcodeMap.get(row.item_code)?.length ?? 0) === 0)
-      .map((row) => row.item_code);
-    if (missingBarcodeItemCodes.length > 0) {
-      await fillBarcodeMapFromItemDetails(inst.cfg, missingBarcodeItemCodes, barcodeMap);
-    }
-    const binQty = await fetchBinQtyByItemAndWarehouse(inst.cfg, warehouses);
-    const instanceLabel = (inst.label ?? inst.id).trim() || inst.id;
-    const warehouseColumns = input.warehouses ?? warehouses.map((warehouse) => ({
-      key: `${inst.id}::${erpCompany}::${warehouse}`,
-      label: warehouse,
-      warehouse,
-      instanceId: inst.id,
-      instanceLabel,
-      erpCompany,
-    }));
-
-    const items: StoreStockCountApiItem[] = catalog.map((row) => ({
-      sku: row.item_code,
-      name: row.item_name || row.item_code,
-      description: row.description,
-      barcodes: [
-        ...new Set(
-          [row.barcode, ...(barcodeMap.get(row.item_code) ?? [])]
-            .map((barcode) => barcode.trim())
-            .filter(Boolean),
-        ),
-      ],
-      stockByWarehouse: Object.fromEntries(
-        warehouseColumns.map((col) => [
-          col.key,
-          binQty.get(row.item_code)?.get(col.warehouse) ?? 0,
-        ]),
-      ),
-      stock: warehouseColumns.reduce(
-        (sum, col) => sum + (binQty.get(row.item_code)?.get(col.warehouse) ?? 0),
-        0,
-      ),
-    }));
-
-    return {
-      instanceId: inst.id,
-      instanceLabel,
-      erpCompany,
-      warehouses: warehouseColumns,
-      items,
-    };
-  } catch (err) {
-    if (err instanceof StoreStockCountErpError) throw err;
-    throw new StoreStockCountErpError(
-      err instanceof Error ? err.message : String(err),
-      502,
-    );
+  const byInstance = new Map<string, SelectableErpCompany[]>();
+  for (const company of input.companies) {
+    const list = byInstance.get(company.instanceId) ?? [];
+    list.push(company);
+    byInstance.set(company.instanceId, list);
   }
+
+  const groups = await Promise.all(
+    [...byInstance.entries()].map(async ([instanceId, companies]) => {
+      const inst = resolveInstance(instances, instanceId);
+      if (!inst) {
+        throw new StoreStockCountErpError("ERP instance not found for this OS", 400);
+      }
+
+      try {
+        await Promise.all(
+          companies.map((company) =>
+            assertCompanyExists(inst.cfg, company.erpCompany.trim()),
+          ),
+        );
+      } catch (err) {
+        throw wrapErpError(err);
+      }
+
+      const warehouseColumnsByCompany = new Map<
+        string,
+        StoreStockCountWarehouseColumn[]
+      >();
+      const warehouseNames = new Set<string>();
+      for (const company of companies) {
+        const erpCompany = company.erpCompany.trim();
+        const key = `${inst.id}::${erpCompany}`;
+        const selected = warehousesByCompany.get(key);
+        const columns =
+          selected && selected.length > 0
+            ? selected
+            : toWarehouseColumns(
+                inst,
+                erpCompany,
+                await fetchWarehousesForCompany(inst.cfg, erpCompany),
+              );
+        warehouseColumnsByCompany.set(key, columns);
+        for (const col of columns) warehouseNames.add(col.warehouse);
+      }
+
+      try {
+        const [catalog, barcodeMap, binQty] = await Promise.all([
+          fetchStockItems(inst.cfg),
+          fetchBarcodeMap(inst.cfg),
+          fetchBinQtyByItemAndWarehouse(inst.cfg, [...warehouseNames]),
+        ]);
+        return companies.map((company) => {
+          const erpCompany = company.erpCompany.trim();
+          const key = `${inst.id}::${erpCompany}`;
+          const warehouseColumns = warehouseColumnsByCompany.get(key) ?? [];
+          const instanceLabel = (inst.label ?? inst.id).trim() || inst.id;
+          return {
+            instanceId: inst.id,
+            instanceLabel,
+            erpCompany,
+            warehouses: warehouseColumns,
+            items: catalogToApiItems(
+              catalog,
+              barcodeMap,
+              binQty,
+              warehouseColumns,
+            ),
+          };
+        });
+      } catch (err) {
+        throw wrapErpError(err);
+      }
+    }),
+  );
+
+  return groups.flat();
 }

@@ -8,7 +8,7 @@ import { requireStoreStockCountAccess } from "@/lib/store-stock-count/auth";
 import { storeStockCountCreateReportSchema } from "@/lib/validation/store-stock-count";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function GET() {
   const auth = await requireStoreStockCountAccess();

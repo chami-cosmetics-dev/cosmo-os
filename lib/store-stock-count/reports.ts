@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { normalizeSkuKey } from "@/lib/store-stock-count/company-key";
-import { fetchCompanyStockItems } from "@/lib/store-stock-count/erp";
+import { fetchStockForSelectedCompanies } from "@/lib/store-stock-count/erp";
 import {
   allCountersSaved,
   displayManualCount,
@@ -27,6 +27,7 @@ type Actor = {
 type CountPatch = { itemId: string; manualCount: number | null };
 type QbStockPatch = { sku: string; qbStock: number | null };
 const SAVE_BATCH_SIZE = 100;
+const CREATE_ITEM_BATCH_SIZE = 500;
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
@@ -386,26 +387,14 @@ export async function createStoreStockCountReport(input: {
     }
   >();
   const warehouses: StoreStockCountWarehouseColumn[] = [];
-  const selectedWarehousesByCompany = new Map<
-    string,
-    StoreStockCountWarehouseColumn[]
-  >();
-  for (const warehouse of input.warehouses ?? []) {
-    const key = `${warehouse.instanceId}::${warehouse.erpCompany}`;
-    const list = selectedWarehousesByCompany.get(key) ?? [];
-    list.push(warehouse);
-    selectedWarehousesByCompany.set(key, list);
-  }
 
-  for (const company of selectedCompanies) {
-    const result = await fetchCompanyStockItems({
-      companyId: input.companyId,
-      instanceId: company.instanceId,
-      erpCompany: company.erpCompany,
-      warehouses: selectedWarehousesByCompany.get(
-        `${company.instanceId}::${company.erpCompany}`,
-      ),
-    });
+  const companyResults = await fetchStockForSelectedCompanies({
+    companyId: input.companyId,
+    companies: selectedCompanies,
+    warehouses: input.warehouses,
+  });
+
+  for (const result of companyResults) {
     warehouses.push(...result.warehouses);
 
     for (const item of result.items) {
@@ -444,23 +433,24 @@ export async function createStoreStockCountReport(input: {
     a.sku.localeCompare(b.sku),
   );
 
-  const report = await prisma.$transaction(async (tx) => {
-    const created = await tx.storeStockCountReport.create({
-      data: {
-        companyId: input.companyId,
-        title: input.title,
-        selectedCompanies:
-          selectedCompanies as unknown as Prisma.InputJsonValue,
-        warehouses: warehouses as unknown as Prisma.InputJsonValue,
-        status: "draft",
-        createdByUserId: input.actor.userId,
-        updatedByUserId: input.actor.userId,
-      },
-    });
+  const report = await prisma.storeStockCountReport.create({
+    data: {
+      companyId: input.companyId,
+      title: input.title,
+      selectedCompanies:
+        selectedCompanies as unknown as Prisma.InputJsonValue,
+      warehouses: warehouses as unknown as Prisma.InputJsonValue,
+      status: "draft",
+      createdByUserId: input.actor.userId,
+      updatedByUserId: input.actor.userId,
+    },
+  });
 
-    if (rows.length > 0) {
-      await tx.storeStockCountReportItem.createMany({
-        data: rows.map((row) => {
+  try {
+    for (let i = 0; i < rows.length; i += CREATE_ITEM_BATCH_SIZE) {
+      const batch = rows.slice(i, i + CREATE_ITEM_BATCH_SIZE);
+      await prisma.storeStockCountReportItem.createMany({
+        data: batch.map((row) => {
           const stockByWarehouse = Object.fromEntries(
             warehouseKeys.map((key) => [key, row.stockByWarehouse[key] ?? 0]),
           );
@@ -470,7 +460,7 @@ export async function createStoreStockCountReport(input: {
           );
           return {
             companyId: input.companyId,
-            reportId: created.id,
+            reportId: report.id,
             sku: row.sku,
             skuKey: row.skuKey,
             name: row.name,
@@ -485,9 +475,10 @@ export async function createStoreStockCountReport(input: {
         }),
       });
     }
-
-    return created;
-  });
+  } catch (err) {
+    await prisma.storeStockCountReport.delete({ where: { id: report.id } });
+    throw err;
+  }
 
   const full = await getStoreStockCountReport({
     companyId: input.companyId,
