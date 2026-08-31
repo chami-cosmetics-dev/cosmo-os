@@ -21,13 +21,17 @@ type Actor = {
 };
 
 type CountPatch = { itemId: string; manualCount: number | null };
+type QbStockPatch = { sku: string; qbStock: number | null };
 const SAVE_BATCH_SIZE = 100;
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
 
-function countDifference(manualCount: number | null, stockSum: number | null): number | null {
+function countDifference(
+  manualCount: number | null,
+  stockSum: number | null,
+): number | null {
   if (manualCount == null || stockSum == null) return null;
   return manualCount - stockSum;
 }
@@ -47,7 +51,9 @@ function asCompanies(value: Prisma.JsonValue): SelectableErpCompany[] {
     .filter((row): row is SelectableErpCompany => row != null);
 }
 
-function asWarehouses(value: Prisma.JsonValue): StoreStockCountWarehouseColumn[] {
+function asWarehouses(
+  value: Prisma.JsonValue,
+): StoreStockCountWarehouseColumn[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((raw) => {
@@ -60,7 +66,14 @@ function asWarehouses(value: Prisma.JsonValue): StoreStockCountWarehouseColumn[]
       const instanceLabel = String(r.instanceLabel ?? "").trim();
       const erpCompany = String(r.erpCompany ?? "").trim();
       if (!key || !warehouse || !instanceId || !erpCompany) return null;
-      return { key, label: label || warehouse, warehouse, instanceId, instanceLabel, erpCompany };
+      return {
+        key,
+        label: label || warehouse,
+        warehouse,
+        instanceId,
+        instanceLabel,
+        erpCompany,
+      };
     })
     .filter((row): row is StoreStockCountWarehouseColumn => row != null);
 }
@@ -93,6 +106,7 @@ function toSavedItem(row: {
   barcodes: string[];
   stockByWarehouse: Prisma.JsonValue;
   stockSum: number | null;
+  qbStock: number | null;
   manualCount: number | null;
   updatedAt?: Date;
 }): StoreStockCountSavedItem {
@@ -108,6 +122,7 @@ function toSavedItem(row: {
     stockByCompany: {},
     stockByWarehouse,
     stockSum: row.stockSum,
+    qbStock: row.qbStock,
     manualCount: row.manualCount,
     updatedAt: row.updatedAt?.toISOString(),
   };
@@ -170,7 +185,8 @@ export async function listStoreStockCountReports(
     submittedAt: report.submittedAt?.toISOString() ?? null,
     createdByName: report.createdBy?.name ?? report.createdBy?.email ?? null,
     updatedByName: report.updatedBy?.name ?? report.updatedBy?.email ?? null,
-    submittedByName: report.submittedBy?.name ?? report.submittedBy?.email ?? null,
+    submittedByName:
+      report.submittedBy?.name ?? report.submittedBy?.email ?? null,
   }));
 }
 
@@ -215,7 +231,10 @@ export async function createStoreStockCountReport(input: {
     }
   >();
   const warehouses: StoreStockCountWarehouseColumn[] = [];
-  const selectedWarehousesByCompany = new Map<string, StoreStockCountWarehouseColumn[]>();
+  const selectedWarehousesByCompany = new Map<
+    string,
+    StoreStockCountWarehouseColumn[]
+  >();
   for (const warehouse of input.warehouses ?? []) {
     const key = `${warehouse.instanceId}::${warehouse.erpCompany}`;
     const list = selectedWarehousesByCompany.get(key) ?? [];
@@ -228,7 +247,9 @@ export async function createStoreStockCountReport(input: {
       companyId: input.companyId,
       instanceId: company.instanceId,
       erpCompany: company.erpCompany,
-      warehouses: selectedWarehousesByCompany.get(`${company.instanceId}::${company.erpCompany}`),
+      warehouses: selectedWarehousesByCompany.get(
+        `${company.instanceId}::${company.erpCompany}`,
+      ),
     });
     warehouses.push(...result.warehouses);
 
@@ -252,21 +273,29 @@ export async function createStoreStockCountReport(input: {
         const b = barcode.trim();
         if (b && !prev.barcodes.includes(b)) prev.barcodes.push(b);
       }
-      if ((!prev.name || prev.name === prev.sku) && item.name?.trim()) prev.name = item.name.trim();
-      if (!prev.description && item.description?.trim()) prev.description = item.description.trim();
-      prev.stockByWarehouse = { ...prev.stockByWarehouse, ...item.stockByWarehouse };
+      if ((!prev.name || prev.name === prev.sku) && item.name?.trim())
+        prev.name = item.name.trim();
+      if (!prev.description && item.description?.trim())
+        prev.description = item.description.trim();
+      prev.stockByWarehouse = {
+        ...prev.stockByWarehouse,
+        ...item.stockByWarehouse,
+      };
     }
   }
 
   const warehouseKeys = warehouses.map((w) => w.key);
-  const rows = [...rowsBySku.values()].sort((a, b) => a.sku.localeCompare(b.sku));
+  const rows = [...rowsBySku.values()].sort((a, b) =>
+    a.sku.localeCompare(b.sku),
+  );
 
   const report = await prisma.$transaction(async (tx) => {
     const created = await tx.storeStockCountReport.create({
       data: {
         companyId: input.companyId,
         title: input.title,
-        selectedCompanies: selectedCompanies as unknown as Prisma.InputJsonValue,
+        selectedCompanies:
+          selectedCompanies as unknown as Prisma.InputJsonValue,
         warehouses: warehouses as unknown as Prisma.InputJsonValue,
         status: "draft",
         createdByUserId: input.actor.userId,
@@ -280,7 +309,10 @@ export async function createStoreStockCountReport(input: {
           const stockByWarehouse = Object.fromEntries(
             warehouseKeys.map((key) => [key, row.stockByWarehouse[key] ?? 0]),
           );
-          const stockSum = Object.values(stockByWarehouse).reduce((sum, raw) => sum + Number(raw || 0), 0);
+          const stockSum = Object.values(stockByWarehouse).reduce(
+            (sum, raw) => sum + Number(raw || 0),
+            0,
+          );
           return {
             companyId: input.companyId,
             reportId: created.id,
@@ -289,8 +321,10 @@ export async function createStoreStockCountReport(input: {
             name: row.name,
             description: row.description,
             barcodes: row.barcodes,
-            stockByWarehouse: stockByWarehouse as unknown as Prisma.InputJsonValue,
+            stockByWarehouse:
+              stockByWarehouse as unknown as Prisma.InputJsonValue,
             stockSum,
+            qbStock: null,
             manualCount: null,
           };
         }),
@@ -300,7 +334,10 @@ export async function createStoreStockCountReport(input: {
     return created;
   });
 
-  const full = await getStoreStockCountReport({ companyId: input.companyId, reportId: report.id });
+  const full = await getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: report.id,
+  });
   if (!full) throw new Error("Created report could not be loaded");
   return full;
 }
@@ -311,13 +348,16 @@ export async function saveStoreStockCountReport(input: {
   items: CountPatch[];
   actor: Actor;
   reload?: boolean;
-}): Promise<StoreStockCountSavedReport | { id: string; updatedAt: string } | null> {
+}): Promise<
+  StoreStockCountSavedReport | { id: string; updatedAt: string } | null
+> {
   const report = await prisma.storeStockCountReport.findFirst({
     where: { id: input.reportId, companyId: input.companyId },
     select: { id: true, status: true },
   });
   if (!report) return null;
-  if (report.status === "submitted") throw new Error("Submitted reports cannot be edited");
+  if (report.status === "submitted")
+    throw new Error("Submitted reports cannot be edited");
   const currentItems = await prisma.storeStockCountReportItem.findMany({
     where: {
       id: { in: input.items.map((item) => item.itemId) },
@@ -326,15 +366,23 @@ export async function saveStoreStockCountReport(input: {
     },
     select: { id: true, manualCount: true },
   });
-  const currentById = new Map(currentItems.map((item) => [item.id, item.manualCount]));
-  const changedItems = input.items.filter((item) => currentById.get(item.itemId) !== item.manualCount);
+  const currentById = new Map(
+    currentItems.map((item) => [item.id, item.manualCount]),
+  );
+  const changedItems = input.items.filter(
+    (item) => currentById.get(item.itemId) !== item.manualCount,
+  );
 
   for (let i = 0; i < changedItems.length; i += SAVE_BATCH_SIZE) {
     const batch = changedItems.slice(i, i + SAVE_BATCH_SIZE);
     await prisma.$transaction(
       batch.map((item) =>
         prisma.storeStockCountReportItem.updateMany({
-          where: { id: item.itemId, reportId: input.reportId, companyId: input.companyId },
+          where: {
+            id: item.itemId,
+            reportId: input.reportId,
+            companyId: input.companyId,
+          },
           data: { manualCount: item.manualCount },
         }),
       ),
@@ -350,10 +398,15 @@ export async function saveStoreStockCountReport(input: {
       where: { id: input.reportId },
       select: { id: true, updatedAt: true },
     });
-    return saved ? { id: saved.id, updatedAt: saved.updatedAt.toISOString() } : null;
+    return saved
+      ? { id: saved.id, updatedAt: saved.updatedAt.toISOString() }
+      : null;
   }
 
-  return getStoreStockCountReport({ companyId: input.companyId, reportId: input.reportId });
+  return getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: input.reportId,
+  });
 }
 
 export async function incrementStoreStockCountBarcode(input: {
@@ -361,7 +414,11 @@ export async function incrementStoreStockCountBarcode(input: {
   reportId: string;
   barcode: string;
   actor: Actor;
-}): Promise<{ item: StoreStockCountSavedItem; status: "done" | "difference"; difference: number | null } | null> {
+}): Promise<{
+  item: StoreStockCountSavedItem;
+  status: "done" | "difference";
+  difference: number | null;
+} | null> {
   const code = input.barcode.trim();
   if (!code) throw new Error("Barcode is required");
 
@@ -374,7 +431,11 @@ export async function incrementStoreStockCountBarcode(input: {
     if (report.status === "submitted") throw new Error("Report is submitted");
 
     let matches = await tx.storeStockCountReportItem.findMany({
-      where: { reportId: input.reportId, companyId: input.companyId, barcodes: { has: code } },
+      where: {
+        reportId: input.reportId,
+        companyId: input.companyId,
+        barcodes: { has: code },
+      },
       select: {
         id: true,
         reportId: true,
@@ -385,7 +446,9 @@ export async function incrementStoreStockCountBarcode(input: {
         barcodes: true,
         stockByWarehouse: true,
         stockSum: true,
+        qbStock: true,
         manualCount: true,
+        updatedAt: true,
       },
     });
 
@@ -404,10 +467,14 @@ export async function incrementStoreStockCountBarcode(input: {
             barcodes: true,
             stockByWarehouse: true,
             stockSum: true,
+            qbStock: true,
             manualCount: true,
+            updatedAt: true,
           },
         });
-        matches = rows.filter((row) => row.barcodes.some((barcode) => digitsOnly(barcode) === scannedDigits));
+        matches = rows.filter((row) =>
+          row.barcodes.some((barcode) => digitsOnly(barcode) === scannedDigits),
+        );
       }
     }
 
@@ -417,7 +484,12 @@ export async function incrementStoreStockCountBarcode(input: {
 
     const target = matches[0]!;
     await tx.storeStockCountReportItem.updateMany({
-      where: { id: target.id, reportId: input.reportId, companyId: input.companyId, manualCount: null },
+      where: {
+        id: target.id,
+        reportId: input.reportId,
+        companyId: input.companyId,
+        manualCount: null,
+      },
       data: { manualCount: 0 },
     });
     const updated = await tx.storeStockCountReportItem.update({
@@ -431,8 +503,88 @@ export async function incrementStoreStockCountBarcode(input: {
 
     const item = toSavedItem(updated);
     const diff = countDifference(item.manualCount, item.stockSum);
-    return { item, status: diff === 0 ? "done" : "difference", difference: diff };
+    return {
+      item,
+      status: diff === 0 ? "done" : "difference",
+      difference: diff,
+    };
   });
+}
+export async function importStoreStockCountQbStock(input: {
+  companyId: string;
+  reportId: string;
+  items: QbStockPatch[];
+  actor: Actor;
+}): Promise<{
+  report: StoreStockCountSavedReport;
+  updatedCount: number;
+  missingSkus: string[];
+} | null> {
+  const report = await prisma.storeStockCountReport.findFirst({
+    where: { id: input.reportId, companyId: input.companyId },
+    select: { id: true, status: true },
+  });
+  if (!report) return null;
+  if (report.status === "submitted")
+    throw new Error("Submitted reports cannot be edited");
+
+  const normalized = new Map<string, number | null>();
+  for (const item of input.items) {
+    const skuKey = normalizeSkuKey(item.sku);
+    if (skuKey) normalized.set(skuKey, item.qbStock);
+  }
+
+  const existingItems = await prisma.storeStockCountReportItem.findMany({
+    where: {
+      reportId: input.reportId,
+      companyId: input.companyId,
+      skuKey: { in: [...normalized.keys()] },
+    },
+    select: { id: true, skuKey: true },
+  });
+  const existingKeys = new Set(existingItems.map((item) => item.skuKey));
+  const missingSkus = [...normalized.keys()].filter(
+    (skuKey) => !existingKeys.has(skuKey),
+  );
+  const existingBySkuKey = new Map(
+    existingItems.map((item) => [item.skuKey, item.id]),
+  );
+  let updatedCount = 0;
+
+  const updates = [...normalized.entries()]
+    .map(([skuKey, qbStock]) => {
+      const itemId = existingBySkuKey.get(skuKey);
+      return itemId ? { itemId, qbStock } : null;
+    })
+    .filter(
+      (item): item is { itemId: string; qbStock: number | null } =>
+        item != null,
+    );
+
+  for (let i = 0; i < updates.length; i += SAVE_BATCH_SIZE) {
+    const batch = updates.slice(i, i + SAVE_BATCH_SIZE);
+    await prisma.$transaction(
+      batch.map((item) =>
+        prisma.storeStockCountReportItem.update({
+          where: { id: item.itemId },
+          data: { qbStock: item.qbStock },
+        }),
+      ),
+    );
+    updatedCount += batch.length;
+  }
+
+  await prisma.storeStockCountReport.update({
+    where: { id: input.reportId },
+    data: { updatedByUserId: input.actor.userId },
+  });
+
+  const full = await getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: input.reportId,
+  });
+  if (!full) return null;
+  return { report: full, updatedCount, missingSkus };
 }
 export async function submitStoreStockCountReport(input: {
   companyId: string;
@@ -455,7 +607,10 @@ export async function submitStoreStockCountReport(input: {
       },
     });
   }
-  return getStoreStockCountReport({ companyId: input.companyId, reportId: input.reportId });
+  return getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: input.reportId,
+  });
 }
 
 export async function deleteStoreStockCountReport(input: {
