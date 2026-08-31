@@ -4,7 +4,14 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { normalizeSkuKey } from "@/lib/store-stock-count/company-key";
-import { fetchCompanyStockItems } from "@/lib/store-stock-count/erp";
+import {
+  fetchCompanyStockItems,
+  fetchLiveStockByWarehouseKey,
+} from "@/lib/store-stock-count/erp";
+import {
+  applyLiveWarehouseQty,
+  stockByWarehouseChanged,
+} from "@/lib/store-stock-count/live-stock";
 import type {
   SelectableErpCompany,
   StoreStockCountReportListItem,
@@ -204,6 +211,117 @@ export async function getStoreStockCountReport(input: {
     },
   });
   return report ? toSavedReport(report) : null;
+}
+
+export async function refreshStoreStockCountLiveStock(input: {
+  companyId: string;
+  reportId: string;
+  scope?: "all" | "counted";
+  itemIds?: string[];
+  reload?: boolean;
+}): Promise<StoreStockCountSavedReport | null> {
+  const report = await prisma.storeStockCountReport.findFirst({
+    where: { id: input.reportId, companyId: input.companyId },
+    select: {
+      id: true,
+      status: true,
+      warehouses: true,
+      items: {
+        select: {
+          id: true,
+          sku: true,
+          stockByWarehouse: true,
+          stockSum: true,
+          manualCount: true,
+          updatedAt: true,
+        },
+      },
+    },
+  });
+  if (!report) return null;
+  if (report.status === "submitted") {
+    return input.reload === false
+      ? null
+      : getStoreStockCountReport({
+          companyId: input.companyId,
+          reportId: input.reportId,
+        });
+  }
+
+  const warehouses = asWarehouses(report.warehouses);
+  const itemIdSet =
+    input.itemIds && input.itemIds.length > 0
+      ? new Set(input.itemIds)
+      : null;
+  const scopedItems = report.items.filter((item) => {
+    if (itemIdSet) return itemIdSet.has(item.id);
+    if (input.scope === "counted") return item.manualCount != null;
+    return true;
+  });
+  if (scopedItems.length === 0) {
+    return input.reload === false
+      ? null
+      : getStoreStockCountReport({
+          companyId: input.companyId,
+          reportId: input.reportId,
+        });
+  }
+
+  const itemCodes =
+    itemIdSet || input.scope === "counted"
+      ? scopedItems.map((item) => item.sku)
+      : undefined;
+  const liveQty = await fetchLiveStockByWarehouseKey({
+    companyId: input.companyId,
+    warehouses,
+    itemCodes,
+  });
+
+  const patches = scopedItems.flatMap((item) => {
+    const next = applyLiveWarehouseQty({
+      warehouses,
+      sku: item.sku,
+      liveQty,
+    });
+    const currentMap = asStockMap(item.stockByWarehouse);
+    if (
+      item.stockSum === next.stockSum &&
+      !stockByWarehouseChanged(currentMap, next.stockByWarehouse)
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: item.id,
+        stockByWarehouse: next.stockByWarehouse,
+        stockSum: Math.round(next.stockSum),
+        updatedAt: item.updatedAt,
+      },
+    ];
+  });
+
+  for (let i = 0; i < patches.length; i += SAVE_BATCH_SIZE) {
+    const batch = patches.slice(i, i + SAVE_BATCH_SIZE);
+    await prisma.$transaction(
+      batch.map((patch) =>
+        prisma.storeStockCountReportItem.update({
+          where: { id: patch.id },
+          data: {
+            stockByWarehouse:
+              patch.stockByWarehouse as unknown as Prisma.InputJsonValue,
+            stockSum: patch.stockSum,
+            updatedAt: patch.updatedAt,
+          },
+        }),
+      ),
+    );
+  }
+
+  if (input.reload === false) return null;
+  return getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: input.reportId,
+  });
 }
 
 export async function createStoreStockCountReport(input: {
@@ -414,6 +532,8 @@ export async function incrementStoreStockCountBarcode(input: {
   reportId: string;
   barcode: string;
   actor: Actor;
+  skipLiveStockRefresh?: boolean;
+  liveStockCache?: Set<string>;
 }): Promise<{
   item: StoreStockCountSavedItem;
   status: "done" | "difference";
@@ -421,6 +541,51 @@ export async function incrementStoreStockCountBarcode(input: {
 } | null> {
   const code = input.barcode.trim();
   if (!code) throw new Error("Barcode is required");
+
+  if (!input.skipLiveStockRefresh) {
+    try {
+      let preview = await prisma.storeStockCountReportItem.findMany({
+        where: {
+          reportId: input.reportId,
+          companyId: input.companyId,
+          barcodes: { has: code },
+        },
+        select: { id: true, skuKey: true },
+      });
+      if (preview.length === 0) {
+        const scannedDigits = digitsOnly(code);
+        if (scannedDigits) {
+          const rows = await prisma.storeStockCountReportItem.findMany({
+            where: {
+              reportId: input.reportId,
+              companyId: input.companyId,
+            },
+            select: { id: true, skuKey: true, barcodes: true },
+          });
+          preview = rows.filter((row) =>
+            row.barcodes.some(
+              (barcode) => digitsOnly(barcode) === scannedDigits,
+            ),
+          );
+        }
+      }
+      const skuKeys = new Set(preview.map((item) => item.skuKey));
+      if (preview.length > 0 && skuKeys.size === 1) {
+        const itemId = preview[0]!.id;
+        if (!input.liveStockCache?.has(itemId)) {
+          await refreshStoreStockCountLiveStock({
+            companyId: input.companyId,
+            reportId: input.reportId,
+            itemIds: [itemId],
+            reload: false,
+          });
+          input.liveStockCache?.add(itemId);
+        }
+      }
+    } catch {
+      // ERP down: keep last snapshot so scanning still works.
+    }
+  }
 
   return prisma.$transaction(async (tx) => {
     const report = await tx.storeStockCountReport.findFirst({
@@ -597,6 +762,16 @@ export async function submitStoreStockCountReport(input: {
   });
   if (!report) return null;
   if (report.status !== "submitted") {
+    try {
+      await refreshStoreStockCountLiveStock({
+        companyId: input.companyId,
+        reportId: input.reportId,
+        scope: "all",
+        reload: false,
+      });
+    } catch {
+      // Lock with last snapshot if live ERP stock cannot be fetched.
+    }
     await prisma.storeStockCountReport.update({
       where: { id: input.reportId },
       data: {

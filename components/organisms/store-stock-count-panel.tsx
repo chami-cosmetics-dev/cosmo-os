@@ -174,6 +174,25 @@ function formatBarcodes(barcodes: string[] | undefined, fallback = "-") {
   return text || fallback;
 }
 
+function mergeLiveStockFields(
+  current: StoreStockCountSavedReport,
+  live: StoreStockCountSavedReport,
+): StoreStockCountSavedReport {
+  const byId = new Map(live.items.map((item) => [item.id, item]));
+  return {
+    ...current,
+    items: current.items.map((item) => {
+      const next = byId.get(item.id);
+      if (!next) return item;
+      return {
+        ...item,
+        stockSum: next.stockSum,
+        stockByWarehouse: next.stockByWarehouse,
+      };
+    }),
+  };
+}
+
 function decrementCount(current: number | null): number | null {
   if (current == null || current <= 1) return null;
   return current - 1;
@@ -426,6 +445,8 @@ export function StoreStockCountPanel({
   const [reportDateFrom, setReportDateFrom] = useState("");
   const [reportDateTo, setReportDateTo] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [liveStockAt, setLiveStockAt] = useState<string | null>(null);
+  const [liveStockBusy, setLiveStockBusy] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -442,6 +463,7 @@ export function StoreStockCountPanel({
   const pendingScansRef = useRef<string[]>([]);
   const drainScheduledRef = useRef(false);
   const scanBatchTimerRef = useRef<number | null>(null);
+  const liveStockInFlightRef = useRef(false);
 
   const warehouseByKey = useMemo(() => {
     const m = new Map<string, SelectableErpWarehouse>();
@@ -703,6 +725,7 @@ export function StoreStockCountPanel({
         setRecentKeys(recentKeysFromReport(json.report.items));
         setCountDrafts({});
         setHighlightedSku(null);
+        setLiveStockAt(null);
         setScrollTop(0);
         requestAnimationFrame(() => {
           if (viewportRef.current) viewportRef.current.scrollTop = 0;
@@ -726,6 +749,50 @@ export function StoreStockCountPanel({
     );
   }, []);
 
+  const refreshLiveStock = useCallback(
+    async (scope: "all" | "counted", opts?: { silent?: boolean }) => {
+      const report = activeReportRef.current;
+      if (!report || report.status === "submitted") return;
+      if (liveStockInFlightRef.current) return;
+      liveStockInFlightRef.current = true;
+      if (!opts?.silent) setLiveStockBusy(true);
+      try {
+        const res = await fetch(
+          `/api/admin/store-stock-count/reports/${report.id}/refresh-stock`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ scope }),
+          },
+        );
+        const json = (await res.json()) as {
+          report?: StoreStockCountSavedReport;
+          liveStockAt?: string;
+          error?: string;
+        };
+        if (!res.ok || !json.report)
+          throw new Error(json.error ?? "Could not refresh live stock");
+        setActiveReport((current) => {
+          if (!current || current.id !== json.report?.id) return current;
+          const next = mergeLiveStockFields(current, json.report);
+          activeReportRef.current = next;
+          return next;
+        });
+        setLiveStockAt(json.liveStockAt ?? new Date().toISOString());
+      } catch (err) {
+        if (!opts?.silent) {
+          notify.error(
+            err instanceof Error ? err.message : "Could not refresh live stock",
+          );
+        }
+      } finally {
+        liveStockInFlightRef.current = false;
+        setLiveStockBusy(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     activeReportRef.current = activeReport;
   }, [activeReport]);
@@ -737,6 +804,21 @@ export function StoreStockCountPanel({
   useEffect(() => {
     if (initialReportId) void openReport(initialReportId);
   }, [initialReportId, openReport]);
+
+  useEffect(() => {
+    if (!activeReport || isLocked) return;
+    void refreshLiveStock("counted", { silent: true });
+  }, [activeReport?.id, isLocked, refreshLiveStock]);
+
+  useEffect(() => {
+    if (!activeReport || isLocked) return;
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshLiveStock("counted", { silent: true });
+    };
+    const timer = window.setInterval(tick, 45_000);
+    return () => window.clearInterval(timer);
+  }, [activeReport?.id, isLocked, refreshLiveStock]);
 
   useEffect(() => {
     if (!activeReport || isLocked) return;
@@ -1612,9 +1694,10 @@ export function StoreStockCountPanel({
             Store stock count
           </h1>
           <p className="text-sm text-muted-foreground">
-            Create saved reports from live ERP warehouse stock, scan
-            continuously, download Ongoing / Done / Difference as CSV and PDF
-            anytime without locking, and submit when the count is finished.
+            Create saved reports from live ERP warehouse stock. Total and Diff
+            stay on live Bin qty while counting. Download Ongoing / Done /
+            Difference as CSV and PDF anytime without locking, and submit when
+            the count is finished.
           </p>
         </div>
         {!standalone ? (
@@ -1972,6 +2055,15 @@ export function StoreStockCountPanel({
                   {activeReport.status === "submitted"
                     ? `Submitted ${activeReport.submittedAt ? formatDate(activeReport.submittedAt) : ""}`
                     : autoSaveLabel}
+                  {activeReport.status === "draft"
+                    ? ` - ${
+                        liveStockBusy
+                          ? "Refreshing live ERP stock"
+                          : liveStockAt
+                            ? `Live ERP stock ${formatDate(liveStockAt)}`
+                            : "Live ERP stock"
+                      }`
+                    : null}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -2006,6 +2098,19 @@ export function StoreStockCountPanel({
                     <Upload className="size-4" aria-hidden />
                   )}
                   Import QB
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={liveStockBusy || isLocked}
+                  onClick={() => void refreshLiveStock("all")}
+                >
+                  {liveStockBusy ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="size-4" aria-hidden />
+                  )}
+                  Refresh stock
                 </Button>
                 <Button
                   type="button"

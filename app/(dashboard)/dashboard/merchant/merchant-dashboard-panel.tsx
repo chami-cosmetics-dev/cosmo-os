@@ -348,6 +348,9 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     null,
   );
   const [salesMovementLoading, setSalesMovementLoading] = useState(false);
+  const [salesChangePeriod, setSalesChangePeriod] = useState<"today" | "mtd">(
+    "mtd",
+  );
   const [showCustomerLists, setShowCustomerLists] = useState(
     initialData.showCustomerLists ?? false,
   );
@@ -391,6 +394,7 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     setLocationShareId("");
     setSalesChangeOpen(false);
     setSalesMovement(null);
+    setSalesChangePeriod("mtd");
   }, [initialData]);
 
   async function reload(
@@ -2460,15 +2464,19 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         open={salesChangeOpen}
         onOpenChange={(open) => {
           setSalesChangeOpen(open);
-          if (!open) setSalesMovement(null);
+          if (!open) {
+            setSalesMovement(null);
+            setSalesChangePeriod("mtd");
+          }
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>How sales changed</DialogTitle>
             <DialogDescription>
-              Through yesterday, then today&apos;s invoices, minus voids and
-              returns. Matches this month (MTD).
+              {salesChangePeriod === "mtd"
+                ? "Every invoice this month, minus voids and returns. Matches this month (MTD)."
+                : "Through yesterday, then today's invoices, minus voids and returns."}
             </DialogDescription>
           </DialogHeader>
           {salesMovementLoading && !salesMovement ? (
@@ -2477,26 +2485,52 @@ export function MerchantDashboardPanel({ initialData }: Props) {
               Loading...
             </div>
           ) : salesMovement ? (
+            <div className="space-y-3">
+              <Tabs
+                value={salesChangePeriod}
+                onValueChange={(value) =>
+                  setSalesChangePeriod(value as "today" | "mtd")
+                }
+              >
+                <TabsList className="h-auto w-full justify-start gap-1 sm:w-fit">
+                  <TabsTrigger value="today">Today</TabsTrigger>
+                  <TabsTrigger value="mtd">MTD</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              {(() => {
+                const view =
+                  salesChangePeriod === "mtd"
+                    ? salesMovement.mtd
+                    : salesMovement.today;
+                const isMtd = salesChangePeriod === "mtd";
+                return (
             <div className="max-h-[60vh] space-y-3 overflow-y-auto text-sm">
+              {view.openingLabel ? (
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-muted-foreground">
-                  Through yesterday ({salesMovement.yesterdayYmd})
+                  {view.openingLabel}
                 </span>
                 <span className="tabular-nums">
-                  {formatMoney(salesMovement.openingTotal)}
+                  {formatMoney(view.openingTotal)}
                 </span>
               </div>
-              {salesMovement.additions.length > 0 ? (
+              ) : null}
+              {view.additions.length > 0 ? (
                 <div className="space-y-1">
                   <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                    Added today
+                    {isMtd ? "Invoices this month" : "Added today"}
                   </p>
-                  {salesMovement.additions.map((line, index) => (
+                  {view.additions.map((line, index) => (
                     <div
                       key={`add-${index}-${line.invoiceLabel}`}
                       className="flex items-baseline justify-between gap-3"
                     >
-                      <span className="truncate">+ {line.invoiceLabel}</span>
+                      <span className="truncate">
+                        + {line.invoiceLabel}
+                        {isMtd && line.ymd ? (
+                          <span className="text-muted-foreground"> {line.ymd}</span>
+                        ) : null}
+                      </span>
                       <span className="shrink-0 tabular-nums text-teal-700 dark:text-teal-400">
                         {formatMoney(line.amount)}
                       </span>
@@ -2504,14 +2538,16 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                   ))}
                 </div>
               ) : (
-                <p className="text-muted-foreground text-xs">No new invoices today</p>
+                <p className="text-muted-foreground text-xs">
+                  {isMtd ? "No invoices this month" : "No new invoices today"}
+                </p>
               )}
-              {salesMovement.removals.length > 0 ? (
+              {view.removals.length > 0 ? (
                 <div className="space-y-1">
                   <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-                    Left today
+                    {isMtd ? "Voids / returns this month" : "Left today"}
                   </p>
-                  {salesMovement.removals.map((line, index) => (
+                  {view.removals.map((line, index) => (
                     <div
                       key={`rm-${index}-${line.invoiceLabel}`}
                       className="flex items-baseline justify-between gap-3"
@@ -2520,7 +2556,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                         − {line.invoiceLabel}
                         <span className="text-muted-foreground">
                           {" "}
-                          ({line.reason === "return" ? "return" : "voided"})
+                          ({line.reason === "return" ? "return" : "voided"}
+                          {isMtd && line.ymd ? ` · ${line.ymd}` : ""})
                         </span>
                       </span>
                       <span className="text-destructive shrink-0 tabular-nums">
@@ -2531,20 +2568,25 @@ export function MerchantDashboardPanel({ initialData }: Props) {
                 </div>
               ) : (
                 <p className="text-muted-foreground text-xs">
-                  No voids or returns today
+                  {isMtd
+                    ? "No voids or returns this month"
+                    : "No voids or returns today"}
                 </p>
               )}
               <div className="flex items-baseline justify-between gap-3 border-t pt-2 font-medium">
-                <span>This month (MTD)</span>
+                <span>{isMtd ? "This month (MTD)" : "Today → MTD"}</span>
                 <span className="tabular-nums">
-                  {formatMoney(salesMovement.closingTotal)}
+                  {formatMoney(view.closingTotal)}
                 </span>
               </div>
               <p className="text-muted-foreground text-xs">
-                Today counted {formatMoney(salesMovement.countedToday)} ·{" "}
-                {salesMovement.additions.length} in + ·{" "}
-                {salesMovement.removals.length} in −
+                {isMtd
+                  ? `${view.additions.length} invoices · ${view.removals.length} left the count`
+                  : `Today counted ${formatMoney(salesMovement.countedToday)} · ${view.additions.length} in + · ${view.removals.length} in −`}
               </p>
+            </div>
+                );
+              })()}
             </div>
           ) : (
             <p className="text-muted-foreground text-sm">No movement to show.</p>

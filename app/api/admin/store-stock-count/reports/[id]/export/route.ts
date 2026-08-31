@@ -11,7 +11,10 @@ import {
   snapshotRowsForBucket,
   type StockCountSnapshot,
 } from "@/lib/store-stock-count/export-snapshot";
-import { getStoreStockCountReport } from "@/lib/store-stock-count/reports";
+import {
+  getStoreStockCountReport,
+  refreshStoreStockCountLiveStock,
+} from "@/lib/store-stock-count/reports";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -90,12 +93,24 @@ export async function GET(request: NextRequest, context: Ctx) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id } = await context.params;
-  const report = await getStoreStockCountReport({
+  let report = await getStoreStockCountReport({
     companyId: auth.companyId,
     reportId: id,
   });
   if (!report)
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
+  if (report.status !== "submitted") {
+    try {
+      report =
+        (await refreshStoreStockCountLiveStock({
+          companyId: auth.companyId,
+          reportId: id,
+          scope: "all",
+        })) ?? report;
+    } catch {
+      // Export last snapshot if live ERP stock cannot be fetched.
+    }
+  }
 
   const formatParam = request.nextUrl.searchParams.get("format")?.toLowerCase();
   const format =

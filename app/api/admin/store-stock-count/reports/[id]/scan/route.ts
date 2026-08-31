@@ -5,6 +5,7 @@ import { incrementStoreStockCountBarcode } from "@/lib/store-stock-count/reports
 import { storeStockCountScanSchema } from "@/lib/validation/store-stock-count";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest, context: Ctx) {
   };
   const barcodes = parsed.data.barcodes?.length ? parsed.data.barcodes : [parsed.data.barcode!];
   const results = [];
+  const liveStockCache = new Set<string>();
 
   for (const barcode of barcodes) {
     try {
@@ -43,6 +45,7 @@ export async function POST(request: NextRequest, context: Ctx) {
         reportId: id,
         barcode,
         actor,
+        liveStockCache,
       });
       if (!result) return NextResponse.json({ error: "Report not found" }, { status: 404 });
       results.push({ ok: true, barcode, ...result });

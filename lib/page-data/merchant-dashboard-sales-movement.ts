@@ -15,20 +15,27 @@ export type MerchantSalesMovementLine = {
   amount: number;
   kind: "add" | "remove";
   reason: "sale" | "voided" | "return";
+  ymd: string;
+};
+
+export type MerchantSalesMovementView = {
+  openingTotal: number;
+  openingLabel: string | null;
+  additions: MerchantSalesMovementLine[];
+  removals: MerchantSalesMovementLine[];
+  additionsTotal: number;
+  removalsTotal: number;
+  closingTotal: number;
 };
 
 export type MerchantSalesMovement = {
   todayYmd: string;
   yesterdayYmd: string;
   yearMonth: string;
-  openingTotal: number;
-  additions: MerchantSalesMovementLine[];
-  removals: MerchantSalesMovementLine[];
-  additionsTotal: number;
-  removalsTotal: number;
-  closingTotal: number;
   countedMtd: number;
   countedToday: number;
+  today: MerchantSalesMovementView;
+  mtd: MerchantSalesMovementView;
 };
 
 export type MovementSourceOrder = {
@@ -41,7 +48,8 @@ export type MovementSourceOrder = {
   removalReason: "voided" | "return";
 };
 
-const LINE_CAP = 60;
+const TODAY_LINE_CAP = 60;
+const MTD_LINE_CAP = 250;
 
 function parseDayStartUtc(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000+05:30`);
@@ -71,26 +79,56 @@ function leftToday(order: MovementSourceOrder, todayYmd: string, monthFrom: stri
   return eventYmd === todayYmd;
 }
 
-function capLines(lines: MerchantSalesMovementLine[]): MerchantSalesMovementLine[] {
-  if (lines.length <= LINE_CAP) return lines;
-  const kept = lines.slice(0, LINE_CAP);
-  const rest = lines.slice(LINE_CAP);
+function sortLines(lines: MerchantSalesMovementLine[]): MerchantSalesMovementLine[] {
+  return [...lines].sort((a, b) => {
+    if (a.ymd !== b.ymd) return b.ymd.localeCompare(a.ymd);
+    return b.amount - a.amount;
+  });
+}
+
+function capLines(
+  lines: MerchantSalesMovementLine[],
+  cap: number,
+): MerchantSalesMovementLine[] {
+  if (lines.length <= cap) return lines;
+  const kept = lines.slice(0, cap);
+  const rest = lines.slice(cap);
   const restTotal = rest.reduce((sum, row) => sum + row.amount, 0);
   kept.push({
     invoiceLabel: `${rest.length} more`,
     amount: restTotal,
     kind: lines[0]?.kind ?? "add",
     reason: lines[0]?.kind === "remove" ? "voided" : "sale",
+    ymd: rest[0]?.ymd ?? "",
   });
   return kept;
 }
 
+function finishView(
+  view: Omit<MerchantSalesMovementView, "additions" | "removals" | "additionsTotal" | "removalsTotal" | "closingTotal"> & {
+    additions: MerchantSalesMovementLine[];
+    removals: MerchantSalesMovementLine[];
+  },
+  cap: number,
+): MerchantSalesMovementView {
+  const additions = capLines(sortLines(view.additions), cap);
+  const removals = capLines(sortLines(view.removals), cap);
+  const additionsTotal = view.additions.reduce((sum, row) => sum + row.amount, 0);
+  const removalsTotal = view.removals.reduce((sum, row) => sum + row.amount, 0);
+  return {
+    openingTotal: view.openingTotal,
+    openingLabel: view.openingLabel,
+    additions,
+    removals,
+    additionsTotal,
+    removalsTotal,
+    closingTotal: view.openingTotal + additionsTotal - removalsTotal,
+  };
+}
+
 /**
- * MTD walk for one Colombo day:
- * opening (through yesterday, including invoices that dropped today)
- * + invoices placed today
- * − returns/voids that left the count today
- * = current MTD.
+ * Today walk: through yesterday + today's invoices − today's voids/returns.
+ * MTD walk: every attributed invoice this month, minus voids/returns still out of the count.
  */
 export function buildMerchantSalesMovement(input: {
   todayYmd: string;
@@ -101,11 +139,13 @@ export function buildMerchantSalesMovement(input: {
   const monthFrom = monthFromYmd(todayYmd);
   const yearMonth = todayYmd.slice(0, 7);
 
-  let openingTotal = 0;
   let countedMtd = 0;
   let countedToday = 0;
-  const additions: MerchantSalesMovementLine[] = [];
-  const removals: MerchantSalesMovementLine[] = [];
+  let todayOpening = 0;
+  const todayAdds: MerchantSalesMovementLine[] = [];
+  const todayRemoves: MerchantSalesMovementLine[] = [];
+  const mtdAdds: MerchantSalesMovementLine[] = [];
+  const mtdRemoves: MerchantSalesMovementLine[] = [];
 
   for (const order of input.orders) {
     const inMonth = inMonthThrough(order.createdYmd, monthFrom, todayYmd);
@@ -120,46 +160,71 @@ export function buildMerchantSalesMovement(input: {
     const priorDay = order.createdYmd <= yesterdayYmd;
 
     if (priorDay && (order.eligible || droppedToday)) {
-      openingTotal += order.amount;
+      todayOpening += order.amount;
     }
 
     if (order.createdYmd === todayYmd) {
-      additions.push({
+      todayAdds.push({
         invoiceLabel: order.invoiceLabel,
         amount: order.amount,
         kind: "add",
         reason: "sale",
+        ymd: order.createdYmd,
       });
     }
 
     if (droppedToday) {
-      removals.push({
+      todayRemoves.push({
         invoiceLabel: order.invoiceLabel,
         amount: order.amount,
         kind: "remove",
         reason: order.removalReason,
+        ymd: order.cancelledYmd ?? order.updatedYmd,
+      });
+    }
+
+    mtdAdds.push({
+      invoiceLabel: order.invoiceLabel,
+      amount: order.amount,
+      kind: "add",
+      reason: "sale",
+      ymd: order.createdYmd,
+    });
+    if (!order.eligible) {
+      mtdRemoves.push({
+        invoiceLabel: order.invoiceLabel,
+        amount: order.amount,
+        kind: "remove",
+        reason: order.removalReason,
+        ymd: order.cancelledYmd ?? order.updatedYmd,
       });
     }
   }
-
-  additions.sort((a, b) => b.amount - a.amount);
-  removals.sort((a, b) => b.amount - a.amount);
-
-  const additionsTotal = additions.reduce((sum, row) => sum + row.amount, 0);
-  const removalsTotal = removals.reduce((sum, row) => sum + row.amount, 0);
 
   return {
     todayYmd,
     yesterdayYmd,
     yearMonth,
-    openingTotal,
-    additions: capLines(additions),
-    removals: capLines(removals),
-    additionsTotal,
-    removalsTotal,
-    closingTotal: openingTotal + additionsTotal - removalsTotal,
     countedMtd,
     countedToday,
+    today: finishView(
+      {
+        openingTotal: todayOpening,
+        openingLabel: `Through yesterday (${yesterdayYmd})`,
+        additions: todayAdds,
+        removals: todayRemoves,
+      },
+      TODAY_LINE_CAP,
+    ),
+    mtd: finishView(
+      {
+        openingTotal: 0,
+        openingLabel: null,
+        additions: mtdAdds,
+        removals: mtdRemoves,
+      },
+      MTD_LINE_CAP,
+    ),
   };
 }
 
