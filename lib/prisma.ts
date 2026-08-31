@@ -62,6 +62,8 @@ function getRuntimeDatabaseUrl() {
   try {
     const url = new URL(raw);
     const isNeonPooler = url.hostname.includes("-pooler.");
+    const isNeonDirect =
+      url.hostname.includes(".neon.tech") && !isNeonPooler;
 
     if (isNeonPooler) {
       // Prisma + pooled Neon works more reliably with pgbouncer mode.
@@ -75,6 +77,26 @@ function getRuntimeDatabaseUrl() {
       if (url.searchParams.get("channel_binding") === "require") {
         url.searchParams.delete("channel_binding");
       }
+    }
+
+    if (isNeonDirect && process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[Prisma] DATABASE_URL is Neon compute (no -pooler). App should use the pooler host. Direct host exhausts max connections under Next.js load. See README Neon mapping.",
+      );
+    }
+
+    // Prisma default is ~num_cpus*2+1 (often 5) and pool_timeout=10.
+    // Next.js cache revalidation + parallel page queries hit P2024 on that.
+    // Do not override values already in the URL (Vault uses connection_limit=1).
+    if (!url.searchParams.has("connection_limit")) {
+      const fromEnv = process.env.PRISMA_CONNECTION_LIMIT?.trim();
+      url.searchParams.set(
+        "connection_limit",
+        fromEnv && /^\d+$/.test(fromEnv) ? fromEnv : "10",
+      );
+    }
+    if (!url.searchParams.has("pool_timeout")) {
+      url.searchParams.set("pool_timeout", "20");
     }
 
     return url.toString();
