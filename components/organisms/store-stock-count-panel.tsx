@@ -1824,9 +1824,10 @@ export function StoreStockCountPanel({
             Store stock count
           </h1>
           <p className="text-sm text-muted-foreground">
-            Two people can count the same SKU separately. Each screen shows
-            only your scans. After both save, those counts add into one report.
-            Download Excel and PDF anytime without locking.
+            Several people can count at once, including the same SKU. Each
+            screen shows only your scans. After every counter saves, those
+            counts add into one report. Download Excel and PDF anytime without
+            locking.
           </p>
         </div>
         {!standalone ? (

@@ -147,6 +147,7 @@ const orderSelect = {
   },
   cancelledAt: true,
   cancelReason: true,
+  cancelKind: true,
   cancelledBy: { select: { id: true, name: true, email: true } },
   replacedByOrderId: true,
   replacedByOrder: {
@@ -758,6 +759,7 @@ export async function GET(
       ? { id: details.cancelledBy.id, name: details.cancelledBy.name, email: details.cancelledBy.email }
       : null,
     cancelReason: details.cancelReason ?? null,
+    cancelKind: details.cancelKind ?? null,
     hasPendingCancelApproval: details.approvalRequests.some(
       (a) => a.type === ORDER_CANCEL_APPROVAL && a.status === "pending"
     ),
