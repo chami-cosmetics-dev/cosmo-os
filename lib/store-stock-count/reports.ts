@@ -359,6 +359,50 @@ export async function saveMyStoreStockCountLanes(input: {
   });
 }
 
+export async function startNewStoreStockCountRound(input: {
+  companyId: string;
+  reportId: string;
+  actor: Actor;
+}): Promise<StoreStockCountSavedReport | null> {
+  const report = await prisma.storeStockCountReport.findFirst({
+    where: { id: input.reportId, companyId: input.companyId },
+    select: { id: true, status: true, combinedAt: true },
+  });
+  if (!report) return null;
+  if (report.status === "submitted") {
+    throw new Error("Submitted reports cannot be edited");
+  }
+  if (report.combinedAt == null) {
+    throw new Error("Combine and download this round before starting a new one");
+  }
+
+  await prisma.$transaction([
+    prisma.storeStockCountItemLane.deleteMany({
+      where: { reportId: input.reportId, companyId: input.companyId },
+    }),
+    prisma.storeStockCountUserSave.deleteMany({
+      where: { reportId: input.reportId, companyId: input.companyId },
+    }),
+    prisma.storeStockCountReportItem.updateMany({
+      where: { reportId: input.reportId, companyId: input.companyId },
+      data: { manualCount: null },
+    }),
+    prisma.storeStockCountReport.update({
+      where: { id: input.reportId },
+      data: {
+        combinedAt: null,
+        updatedByUserId: input.actor.userId,
+      },
+    }),
+  ]);
+
+  return getStoreStockCountReport({
+    companyId: input.companyId,
+    reportId: input.reportId,
+    viewerUserId: input.actor.userId,
+  });
+}
+
 export async function createStoreStockCountReport(input: {
   companyId: string;
   title: string;
