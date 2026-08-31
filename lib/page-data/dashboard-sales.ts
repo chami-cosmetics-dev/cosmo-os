@@ -47,7 +47,11 @@ function parseDayEndUtc(ymd: string): Date {
   return new Date(`${ymd}T23:59:59.999+05:30`);
 }
 
-const DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES = new Set(["paid", "pending"]);
+const DASHBOARD_INVOICE_DATE_FINANCIAL_STATUSES = new Set([
+  "paid",
+  "pending",
+  "partially_paid",
+]);
 const DASHBOARD_POS_SOURCE_NAMES = new Set(["pos", "erpnext-pos"]);
 
 export type DashboardSalesEligibilityOrder = {
