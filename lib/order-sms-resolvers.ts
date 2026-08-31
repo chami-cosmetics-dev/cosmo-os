@@ -1,3 +1,5 @@
+import { getAppBaseUrl } from "@/lib/app-base-url";
+
 export type SmsTrigger =
   | "order_received"
   | "package_ready"
@@ -84,7 +86,5 @@ export function resolveCustomerPhone(order: {
 
 export function getDeliveryUrl(order: { riderDeliveryToken: string | null }): string {
   if (!order.riderDeliveryToken) return "";
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL ?? "http://localhost:3000";
-  const protocol = base.startsWith("http") ? "" : "https://";
-  return `${protocol}${base}/r/d/${order.riderDeliveryToken}`;
+  return `${getAppBaseUrl()}/r/d/${order.riderDeliveryToken}`;
 }

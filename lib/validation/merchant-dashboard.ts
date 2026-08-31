@@ -32,6 +32,10 @@ export const merchantDashboardDailyInvoicesQuerySchema = z.object({
   day: merchantDashboardDayYmdSchema,
 });
 
+export const merchantDashboardSalesMovementQuerySchema = z.object({
+  merchantUserId: cuidSchema.optional(),
+});
+
 export const merchantMonthlyTargetUpsertSchema = z.object({
   merchantUserId: cuidSchema,
   yearMonth: merchantDashboardYearMonthSchema,

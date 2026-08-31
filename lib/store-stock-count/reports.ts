@@ -108,6 +108,7 @@ function toSavedItem(row: {
   stockSum: number | null;
   qbStock: number | null;
   manualCount: number | null;
+  updatedAt?: Date;
 }): StoreStockCountSavedItem {
   const stockByWarehouse = asStockMap(row.stockByWarehouse);
   return {
@@ -123,6 +124,7 @@ function toSavedItem(row: {
     stockSum: row.stockSum,
     qbStock: row.qbStock,
     manualCount: row.manualCount,
+    updatedAt: row.updatedAt?.toISOString(),
   };
 }
 
@@ -444,7 +446,9 @@ export async function incrementStoreStockCountBarcode(input: {
         barcodes: true,
         stockByWarehouse: true,
         stockSum: true,
+        qbStock: true,
         manualCount: true,
+        updatedAt: true,
       },
     });
 
@@ -463,7 +467,9 @@ export async function incrementStoreStockCountBarcode(input: {
             barcodes: true,
             stockByWarehouse: true,
             stockSum: true,
+            qbStock: true,
             manualCount: true,
+            updatedAt: true,
           },
         });
         matches = rows.filter((row) =>

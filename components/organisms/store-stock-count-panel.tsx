@@ -8,6 +8,7 @@ import {
   Download,
   History,
   Loader2,
+  Minus,
   Plus,
   RefreshCw,
   Search,
@@ -31,6 +32,11 @@ import {
   toCompanyKey,
 } from "@/lib/store-stock-count/company-key";
 import { difference } from "@/lib/store-stock-count/difference";
+import { matchScan } from "@/lib/store-stock-count/match-scan";
+import {
+  playScanErrorSound,
+  unlockScanSound,
+} from "@/lib/store-stock-count/scan-sound";
 import type {
   SelectableErpCompany,
   SelectableErpWarehouse,
@@ -57,11 +63,18 @@ type ScanJob = {
   status: ScanStatus;
   message: string;
   sku?: string;
+  skuKey?: string;
+  barcodes?: string[];
   itemId?: string;
   totalCount?: number | null;
   manualCount?: number | null;
   diff?: number | null;
   qbStock?: number | null;
+};
+type LastScan = {
+  code: string;
+  ok: boolean;
+  message: string;
 };
 type AutoSaveStatus = "idle" | "pending" | "saving" | "saved" | "error";
 
@@ -111,6 +124,38 @@ function hasExactBarcodeMatch(code: string, rows: StoreStockCountSavedItem[]) {
   return hits === 1;
 }
 
+function prependRecentKeys(prev: string[], keys: string[]): string[] {
+  if (keys.length === 0) return prev;
+  const drop = new Set(keys);
+  return [...keys, ...prev.filter((key) => !drop.has(key))];
+}
+
+function sortByRecentKeys<T>(
+  rows: T[],
+  recentKeys: string[],
+  keyOf: (row: T) => string | undefined,
+): T[] {
+  if (recentKeys.length === 0 || rows.length < 2) return rows;
+  const rank = new Map(recentKeys.map((key, i) => [key, i]));
+  return [...rows].sort((a, b) => {
+    const ka = keyOf(a);
+    const kb = keyOf(b);
+    const ra =
+      ka != null && rank.has(ka) ? rank.get(ka)! : Number.MAX_SAFE_INTEGER;
+    const rb =
+      kb != null && rank.has(kb) ? rank.get(kb)! : Number.MAX_SAFE_INTEGER;
+    return ra - rb;
+  });
+}
+
+function recentKeysFromReport(items: StoreStockCountSavedItem[]): string[] {
+  return items
+    .filter((item) => item.manualCount != null)
+    .slice()
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
+    .map((item) => item.id);
+}
+
 function upsertScanJob(jobs: ScanJob[], job: ScanJob) {
   return [job, ...jobs.filter((existing) => existing.id !== job.id)].slice(
     0,
@@ -124,19 +169,50 @@ function scanCountMessage(diff: number | null, count: number) {
     : `Difference ${diff == null ? "-" : diff > 0 ? `+${diff}` : diff} - count ${count}`;
 }
 
+function formatBarcodes(barcodes: string[] | undefined, fallback = "-") {
+  const text = (barcodes ?? []).map((b) => b.trim()).filter(Boolean).join(" · ");
+  return text || fallback;
+}
+
+function decrementCount(current: number | null): number | null {
+  if (current == null || current <= 1) return null;
+  return current - 1;
+}
+
+function scanRejectMessage(kind: "none" | "ambiguous" | "no-report" | "submitted") {
+  if (kind === "ambiguous") return "Barcode matches multiple items";
+  if (kind === "no-report") return "Open or create a report first";
+  if (kind === "submitted") return "Report is submitted";
+  return "Item not found";
+}
+
 function ScanStatusCard({
   title,
   jobs,
   empty,
   tone,
+  locked,
+  busy,
+  countDrafts,
   onSelectItem,
+  onCountDraftChange,
+  onCommitCount,
+  onAdjustCount,
+  onCountFocusChange,
   showQbStock = false,
 }: {
   title: string;
   jobs: ScanJob[];
   empty: string;
   tone: "muted" | "success" | "warning";
+  locked?: boolean;
+  busy?: boolean;
+  countDrafts: Record<string, string>;
   onSelectItem?: (itemId: string) => void;
+  onCountDraftChange: (skuKey: string, value: string) => void;
+  onCommitCount: (itemId: string, raw: string) => void;
+  onAdjustCount: (itemId: string, delta: -1 | 1) => void;
+  onCountFocusChange: (focused: boolean) => void;
   showQbStock?: boolean;
 }) {
   const toneClass =
@@ -145,10 +221,10 @@ function ScanStatusCard({
       : tone === "warning"
         ? "text-amber-700 dark:text-amber-400"
         : "text-muted-foreground";
-
+  const canEdit = !locked && !busy;
   const gridColumns = showQbStock
-    ? "minmax(7rem,1fr) 4rem 4rem 4rem 5rem"
-    : "minmax(7rem,1fr) 4rem 4rem 5rem";
+    ? "minmax(8rem,1.2fr) 3.5rem 3.5rem 8.75rem 3.5rem"
+    : "minmax(8rem,1.2fr) 3.5rem 8.75rem 3.5rem";
 
   return (
     <div className="rounded-lg border p-4">
@@ -160,61 +236,130 @@ function ScanStatusCard({
         className="grid gap-2 border-b pb-2 text-xs font-medium text-muted-foreground"
         style={{ gridTemplateColumns: gridColumns }}
       >
-        <span>Item</span>
+        <span>Item / barcode</span>
         <span className="text-right">Total</span>
         {showQbStock ? <span className="text-right">QB Stock</span> : null}
-        <span className="text-right">Count</span>
+        <span className="text-center">Count</span>
         <span className="text-right">Diff</span>
       </div>
       <div className="max-h-72 min-h-64 overflow-y-auto text-sm">
-        {jobs.map((job) => (
-          <button
-            key={job.id}
-            type="button"
-            className="grid w-full gap-2 border-b py-2 text-left last:border-b-0 hover:bg-muted/40 disabled:cursor-default disabled:hover:bg-transparent"
-            style={{ gridTemplateColumns: gridColumns }}
-            disabled={!job.itemId || !onSelectItem}
-            onClick={() => {
-              if (job.itemId) onSelectItem?.(job.itemId);
-            }}
-          >
-            <span className="truncate font-medium">
-              {job.sku ?? job.barcode}
-            </span>
-            {job.status === "errored" ? (
-              <span
-                className={
-                  showQbStock
-                    ? "col-span-4 truncate text-xs text-destructive"
-                    : "col-span-3 truncate text-xs text-destructive"
-                }
+        {jobs.map((job) => {
+          const barcodeText = formatBarcodes(job.barcodes, job.barcode);
+          const draft =
+            job.skuKey &&
+            Object.prototype.hasOwnProperty.call(countDrafts, job.skuKey)
+              ? countDrafts[job.skuKey]
+              : undefined;
+          return (
+            <div
+              key={job.id}
+              className="grid items-center gap-2 border-b py-2 last:border-b-0"
+              style={{ gridTemplateColumns: gridColumns }}
+            >
+              <button
+                type="button"
+                className="min-w-0 text-left hover:underline disabled:cursor-default disabled:no-underline"
+                disabled={!job.itemId || !onSelectItem}
+                onClick={() => {
+                  if (job.itemId) onSelectItem?.(job.itemId);
+                }}
               >
-                {job.message}
-              </span>
-            ) : (
-              <>
-                <span className={`text-right tabular-nums ${toneClass}`}>
-                  {job.totalCount ?? "-"}
+                <span className="block truncate font-medium">
+                  {job.sku ?? job.barcode}
                 </span>
-                {showQbStock ? (
+                <span
+                  className="block truncate font-mono text-xs text-muted-foreground"
+                  title={barcodeText}
+                >
+                  {barcodeText}
+                </span>
+              </button>
+              {job.status === "errored" ? (
+                <span
+                  className={
+                    showQbStock
+                      ? "col-span-4 truncate text-xs text-destructive"
+                      : "col-span-3 truncate text-xs text-destructive"
+                  }
+                >
+                  {job.message}
+                </span>
+              ) : (
+                <>
                   <span className={`text-right tabular-nums ${toneClass}`}>
-                    {job.qbStock ?? "-"}
+                    {job.totalCount ?? "-"}
                   </span>
-                ) : null}
-                <span className={`text-right tabular-nums ${toneClass}`}>
-                  {job.manualCount ?? "-"}
-                </span>
-                <span className={`text-right tabular-nums ${toneClass}`}>
-                  {job.diff == null
-                    ? "-"
-                    : job.diff > 0
-                      ? `+${job.diff}`
-                      : job.diff}
-                </span>
-              </>
-            )}
-          </button>
-        ))}
+                  {showQbStock ? (
+                    <span className={`text-right tabular-nums ${toneClass}`}>
+                      {job.qbStock ?? "-"}
+                    </span>
+                  ) : null}
+                  {job.itemId && canEdit ? (
+                    <div className="flex items-center justify-center gap-0.5">
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="outline"
+                        aria-label={`Decrease count for ${job.sku ?? job.barcode}`}
+                        disabled={job.manualCount == null}
+                        onClick={() => onAdjustCount(job.itemId!, -1)}
+                      >
+                        <Minus aria-hidden />
+                      </Button>
+                      <Input
+                        className="h-7 w-12 px-1 text-center tabular-nums"
+                        inputMode="numeric"
+                        aria-label={`Count for ${job.sku ?? job.barcode}`}
+                        value={
+                          draft !== undefined
+                            ? draft
+                            : job.manualCount == null
+                              ? ""
+                              : String(job.manualCount)
+                        }
+                        onFocus={() => onCountFocusChange(true)}
+                        onBlur={(e) => {
+                          onCountFocusChange(false);
+                          onCommitCount(job.itemId!, e.target.value);
+                        }}
+                        onChange={(e) => {
+                          if (job.skuKey)
+                            onCountDraftChange(job.skuKey, e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            (e.target as HTMLInputElement).blur();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="icon-xs"
+                        variant="outline"
+                        aria-label={`Increase count for ${job.sku ?? job.barcode}`}
+                        onClick={() => onAdjustCount(job.itemId!, 1)}
+                      >
+                        <Plus aria-hidden />
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className={`text-center tabular-nums ${toneClass}`}>
+                      {job.manualCount ?? "-"}
+                    </span>
+                  )}
+                  <span className={`text-right tabular-nums ${toneClass}`}>
+                    {job.diff == null
+                      ? "-"
+                      : job.diff > 0
+                        ? `+${job.diff}`
+                        : job.diff}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        })}
         {jobs.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">{empty}</p>
         ) : null}
@@ -253,6 +398,7 @@ export function StoreStockCountPanel({
   const [qbImportBusy, setQbImportBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [scanQueue, setScanQueue] = useState<ScanJob[]>([]);
+  const [recentKeys, setRecentKeys] = useState<string[]>([]);
   const [highlightedSku, setHighlightedSku] = useState<string | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [countDrafts, setCountDrafts] = useState<Record<string, string>>({});
@@ -264,7 +410,9 @@ export function StoreStockCountPanel({
   );
   const [query, setQuery] = useState("");
   const [scanCardQuery, setScanCardQuery] = useState("");
-  const [countFilter, setCountFilter] = useState<CountFilter>("all");
+  const [countFilter, setCountFilter] = useState<CountFilter>("uncounted");
+  const [scanInput, setScanInput] = useState("");
+  const [lastScan, setLastScan] = useState<LastScan | null>(null);
   const [stockOp, setStockOp] = useState<NumberOp>("");
   const [stockTarget, setStockTarget] = useState("");
   const [manualOp, setManualOp] = useState<NumberOp>("");
@@ -277,8 +425,10 @@ export function StoreStockCountPanel({
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
   const qbImportInputRef = useRef<HTMLInputElement>(null);
   const countFocusedRef = useRef(false);
+  const scanFieldFocusedRef = useRef(false);
   const lastScanKeyAtRef = useRef(0);
   const scanBufferRef = useRef("");
   const activeReportRef = useRef<StoreStockCountSavedReport | null>(null);
@@ -333,7 +483,7 @@ export function StoreStockCountPanel({
     .map(() => "minmax(7.5rem,1fr)")
     .join(" ");
   const qbStockGridColumn = hasQbStock ? " 6rem" : "";
-  const tableGridColumns = `minmax(6.5rem,0.65fr) minmax(10rem,1.15fr) minmax(7rem,0.7fr) ${warehouseGridColumns} 6.5rem${qbStockGridColumn} 6.5rem 4.5rem`;
+  const tableGridColumns = `minmax(6.5rem,0.65fr) minmax(9rem,1fr) minmax(10rem,1.1fr) ${warehouseGridColumns} 6.5rem${qbStockGridColumn} 6.5rem 4.5rem`;
   const filteredReports = useMemo(() => {
     const fromTime = reportDateFrom
       ? new Date(`${reportDateFrom}T00:00:00`).getTime()
@@ -353,7 +503,6 @@ export function StoreStockCountPanel({
     if (!activeReport) return [];
     const q = query.trim().toLowerCase();
     return activeReport.items.filter((row) => {
-      if (row.manualCount != null) return false;
       const manualCount = countValue(row, draftCounts);
       const diff = difference(manualCount, row.stockSum);
       if (q) {
@@ -399,6 +548,9 @@ export function StoreStockCountPanel({
       scanBatchTimerRef.current = null;
     }
     setScanQueue([]);
+    setRecentKeys([]);
+    setScanInput("");
+    setLastScan(null);
   }, []);
 
   const resetDraftState = useCallback(() => {
@@ -545,6 +697,7 @@ export function StoreStockCountPanel({
         setVisibleWarehouseKeys(new Set());
         resetScanState();
         resetDraftState();
+        setRecentKeys(recentKeysFromReport(json.report.items));
         setCountDrafts({});
         setHighlightedSku(null);
         setScrollTop(0);
@@ -581,6 +734,12 @@ export function StoreStockCountPanel({
   useEffect(() => {
     if (initialReportId) void openReport(initialReportId);
   }, [initialReportId, openReport]);
+
+  useEffect(() => {
+    if (!activeReport || isLocked) return;
+    if (countFocusedRef.current) return;
+    scanInputRef.current?.focus();
+  }, [activeReport?.id, isLocked]);
 
   useEffect(() => {
     let cancelled = false;
@@ -635,6 +794,7 @@ export function StoreStockCountPanel({
     const removeJobIds = new Set<string>();
     const returnedItems = new Map<string, StoreStockCountSavedItem>();
     const countedSkuKeys = new Set<string>();
+    const touchedKeys: string[] = [];
     let lastSkuKey: string | null = null;
 
     if (report && report.status !== "submitted") {
@@ -652,23 +812,33 @@ export function StoreStockCountPanel({
     }
 
     if (!report) {
+      playScanErrorSound();
+      const message = scanRejectMessage("no-report");
+      setLastScan({ code: scans[scans.length - 1]!, ok: false, message });
       for (const code of scans) {
+        const id = `none:barcode:${code}`;
+        touchedKeys.push(id);
         scanUpdates.push({
-          id: `none:barcode:${code}`,
+          id,
           reportId: null,
           barcode: code,
           status: "errored",
-          message: "Open or create a report first",
+          message,
         });
       }
     } else if (report.status === "submitted") {
+      playScanErrorSound();
+      const message = scanRejectMessage("submitted");
+      setLastScan({ code: scans[scans.length - 1]!, ok: false, message });
       for (const code of scans) {
+        const id = `${report.id}:barcode:${code}`;
+        touchedKeys.push(id);
         scanUpdates.push({
-          id: `${report.id}:barcode:${code}`,
+          id,
           reportId: report.id,
           barcode: code,
           status: "errored",
-          message: "Report is submitted",
+          message,
         });
       }
     } else {
@@ -698,13 +868,17 @@ export function StoreStockCountPanel({
         for (const result of json.results) {
           const barcodeJobId = `${report.id}:barcode:${result.barcode}`;
           if (!result.ok || !result.item) {
+            playScanErrorSound();
+            const message = result.error ?? "Could not count barcode";
+            setLastScan({ code: result.barcode, ok: false, message });
             scanUpdates.push({
               id: barcodeJobId,
               reportId: report.id,
               barcode: result.barcode,
               status: "errored",
-              message: result.error ?? "Could not count barcode",
+              message,
             });
+            touchedKeys.push(barcodeJobId);
             continue;
           }
           const previousReturned = returnedItems.get(result.item.id);
@@ -717,8 +891,14 @@ export function StoreStockCountPanel({
           }
           countedSkuKeys.add(result.item.skuKey);
           lastSkuKey = result.item.skuKey;
+          touchedKeys.push(result.item.id);
           delete dirtyCountsRef.current[result.item.id];
           removeJobIds.add(barcodeJobId);
+          setLastScan({
+            code: result.barcode,
+            ok: true,
+            message: `${result.item.sku} · count ${result.item.manualCount ?? 0}`,
+          });
           scanUpdates.push({
             id: `${report.id}:item:${result.item.id}`,
             reportId: report.id,
@@ -729,15 +909,30 @@ export function StoreStockCountPanel({
               result.item.manualCount ?? 0,
             ),
             sku: result.item.sku,
+            skuKey: result.item.skuKey,
+            barcodes: result.item.barcodes,
+            itemId: result.item.id,
+            totalCount: result.item.stockSum,
+            manualCount: result.item.manualCount,
+            diff: result.difference ?? null,
+            qbStock: result.item.qbStock,
           });
         }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Could not count barcode batch";
         notify.error(message);
+        playScanErrorSound();
+        setLastScan({
+          code: scans[scans.length - 1]!,
+          ok: false,
+          message,
+        });
         for (const code of scans) {
+          const id = `${report.id}:barcode:${code}`;
+          touchedKeys.push(id);
           scanUpdates.push({
-            id: `${report.id}:barcode:${code}`,
+            id,
             reportId: report.id,
             barcode: code,
             status: "errored",
@@ -747,6 +942,11 @@ export function StoreStockCountPanel({
       }
     }
 
+    if (touchedKeys.length > 0) {
+      setRecentKeys((prev) =>
+        prependRecentKeys(prev, [...touchedKeys].reverse()),
+      );
+    }
     if (returnedItems.size > 0) {
       setActiveReport((current) => {
         if (!current || current.id !== report?.id) return current;
@@ -786,17 +986,62 @@ export function StoreStockCountPanel({
     }
   }, [flushAutoSave, scrollToSku]);
 
+  const rejectBarcode = useCallback(
+    (
+      code: string,
+      kind: "none" | "ambiguous" | "no-report" | "submitted",
+    ) => {
+      playScanErrorSound();
+      const message = scanRejectMessage(kind);
+      const reportId = activeReportRef.current?.id ?? null;
+      setLastScan({ code, ok: false, message });
+      setRecentKeys((prev) =>
+        prependRecentKeys(prev, [`${reportId ?? "none"}:barcode:${code}`]),
+      );
+      setScanQueue((q) =>
+        upsertScanJob(q, {
+          id: `${reportId ?? "none"}:barcode:${code}`,
+          reportId,
+          barcode: code,
+          status: "errored",
+          message,
+        }),
+      );
+    },
+    [],
+  );
+
   const processBarcode = useCallback(
     (rawCode: string) => {
       const code = rawCode.trim();
       if (!code) return;
-      const reportId = activeReportRef.current?.id ?? null;
-      const barcodeJobId = `${reportId ?? "none"}:barcode:${code}`;
+      unlockScanSound();
+      const report = activeReportRef.current;
+      if (!report) {
+        rejectBarcode(code, "no-report");
+        return;
+      }
+      if (report.status === "submitted") {
+        rejectBarcode(code, "submitted");
+        return;
+      }
+      const match = matchScan(code, report.items);
+      if (match.kind === "none") {
+        rejectBarcode(code, "none");
+        return;
+      }
+      if (match.kind === "ambiguous") {
+        rejectBarcode(code, "ambiguous");
+        return;
+      }
+      const barcodeJobId = `${report.id}:barcode:${code}`;
       pendingScansRef.current.push(code);
+      setLastScan({ code, ok: true, message: "Counting…" });
+      setRecentKeys((prev) => prependRecentKeys(prev, [barcodeJobId]));
       setScanQueue((q) =>
         upsertScanJob(q, {
           id: barcodeJobId,
-          reportId,
+          reportId: report.id,
           barcode: code,
           status: "processing",
           message: "Processing",
@@ -821,11 +1066,13 @@ export function StoreStockCountPanel({
         }, SCAN_BATCH_DELAY_MS);
       }
     },
-    [drainPendingScans],
+    [drainPendingScans, rejectBarcode],
   );
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      unlockScanSound();
       if (e.ctrlKey || e.altKey || e.metaKey || e.repeat) return;
+      if (scanFieldFocusedRef.current) return;
       if (e.key === "Enter" || e.key === "Tab") {
         const code = scanBufferRef.current;
         if (code.trim().length >= MIN_SCAN_LENGTH) {
@@ -1021,23 +1268,13 @@ export function StoreStockCountPanel({
     }
   }
 
-  function commitDraft(item: StoreStockCountSavedItem, raw: string) {
+  function applyCount(item: StoreStockCountSavedItem, parsed: number | null) {
     if (isLocked) return;
-    const previous = countValue(item, draftCounts);
-    const parsed = parseCountInput(raw, previous);
-    if (raw.trim() !== "" && parsed === previous && !/^\d+$/.test(raw.trim())) {
-      notify.error("Count must be a whole number >= 0");
-      setCountDrafts((d) => ({
-        ...d,
-        [item.skuKey]: previous == null ? "" : String(previous),
-      }));
-      return;
-    }
     const nextDrafts = { ...draftCountsRef.current, [item.id]: parsed };
     draftCountsRef.current = nextDrafts;
     setDraftCounts(nextDrafts);
     setActiveReport((current) => {
-      if (!current || current.id !== activeReport?.id) return current;
+      if (!current || current.id !== activeReportRef.current?.id) return current;
       const next = {
         ...current,
         items: current.items.map((row) =>
@@ -1048,16 +1285,25 @@ export function StoreStockCountPanel({
       return next;
     });
     scheduleAutoSave({ [item.id]: parsed });
-    if (activeReport && parsed != null) {
+    setRecentKeys((prev) => prependRecentKeys(prev, [item.id]));
+    const report = activeReportRef.current;
+    if (report && parsed != null) {
       const diff = difference(parsed, item.stockSum);
       setScanQueue((q) =>
         upsertScanJob(q, {
-          id: `${activeReport.id}:item:${item.id}`,
-          reportId: activeReport.id,
+          id: `${report.id}:item:${item.id}`,
+          reportId: report.id,
           barcode: item.barcodes[0] ?? item.sku,
           status: diff === 0 ? "done" : "difference",
           message: scanCountMessage(diff, parsed),
           sku: item.sku,
+          skuKey: item.skuKey,
+          barcodes: item.barcodes,
+          itemId: item.id,
+          totalCount: item.stockSum,
+          manualCount: parsed,
+          diff,
+          qbStock: item.qbStock,
         }),
       );
     }
@@ -1066,6 +1312,37 @@ export function StoreStockCountPanel({
       delete next[item.skuKey];
       return next;
     });
+  }
+
+  function commitDraft(item: StoreStockCountSavedItem, raw: string) {
+    if (isLocked) return;
+    const previous = countValue(item, draftCountsRef.current);
+    const parsed = parseCountInput(raw, previous);
+    if (raw.trim() !== "" && parsed === previous && !/^\d+$/.test(raw.trim())) {
+      notify.error("Count must be a whole number >= 0");
+      setCountDrafts((d) => ({
+        ...d,
+        [item.skuKey]: previous == null ? "" : String(previous),
+      }));
+      return;
+    }
+    applyCount(item, parsed);
+  }
+
+  function commitCardCount(itemId: string, raw: string) {
+    const item = activeReportRef.current?.items.find((row) => row.id === itemId);
+    if (item) commitDraft(item, raw);
+  }
+
+  function adjustCount(itemId: string, delta: -1 | 1) {
+    const item = activeReportRef.current?.items.find((row) => row.id === itemId);
+    if (!item || isLocked) return;
+    const current = countValue(item, draftCountsRef.current);
+    applyCount(
+      item,
+      delta === 1 ? (current ?? 0) + 1 : decrementCount(current),
+    );
+    scanInputRef.current?.focus();
   }
 
   async function importQbStockFile(file: File) {
@@ -1161,7 +1438,7 @@ export function StoreStockCountPanel({
   const scanCardSearch = scanCardQuery.trim().toLowerCase();
   const matchesScanCardSearch = (job: ScanJob) =>
     !scanCardSearch ||
-    [job.sku, job.barcode]
+    [job.sku, job.barcode, ...(job.barcodes ?? [])]
       .filter(Boolean)
       .join(" ")
       .toLowerCase()
@@ -1169,35 +1446,45 @@ export function StoreStockCountPanel({
   const activeScanQueue = activeReport
     ? scanQueue.filter((job) => job.reportId === activeReport.id)
     : [];
-  const processingScans = activeScanQueue.filter(
-    (job) =>
-      (job.status === "processing" || job.status === "errored") &&
-      matchesScanCardSearch(job),
+  const processingScans = sortByRecentKeys(
+    activeScanQueue.filter(
+      (job) =>
+        (job.status === "processing" || job.status === "errored") &&
+        matchesScanCardSearch(job),
+    ),
+    recentKeys,
+    (job) => job.id,
   );
-  const reportCountJobs: ScanJob[] = activeReport
-    ? activeReport.items
-        .flatMap((item) => {
-          const manualCount = item.manualCount;
-          const diff = difference(manualCount, item.stockSum);
-          if (manualCount == null || diff == null) return [];
-          return [
-            {
-              id: `${activeReport.id}:item:${item.id}`,
-              reportId: activeReport.id,
-              barcode: item.barcodes[0] ?? item.sku,
-              sku: item.sku,
-              itemId: item.id,
-              status: diff === 0 ? "done" : "difference",
-              message: scanCountMessage(diff, manualCount),
-              totalCount: item.stockSum,
-              manualCount,
-              diff,
-              qbStock: item.qbStock,
-            } satisfies ScanJob,
-          ];
-        })
-        .filter((job) => matchesScanCardSearch(job))
-    : [];
+  const reportCountJobs: ScanJob[] = sortByRecentKeys(
+    activeReport
+      ? activeReport.items
+          .flatMap((item) => {
+            const manualCount = item.manualCount;
+            const diff = difference(manualCount, item.stockSum);
+            if (manualCount == null || diff == null) return [];
+            return [
+              {
+                id: `${activeReport.id}:item:${item.id}`,
+                reportId: activeReport.id,
+                barcode: item.barcodes[0] ?? item.sku,
+                sku: item.sku,
+                skuKey: item.skuKey,
+                barcodes: item.barcodes,
+                itemId: item.id,
+                status: diff === 0 ? "done" : "difference",
+                message: scanCountMessage(diff, manualCount),
+                totalCount: item.stockSum,
+                manualCount,
+                diff,
+                qbStock: item.qbStock,
+              } satisfies ScanJob,
+            ];
+          })
+          .filter((job) => matchesScanCardSearch(job))
+      : [],
+    recentKeys,
+    (job) => job.itemId,
+  );
   const doneScans = reportCountJobs.filter((job) => job.diff === 0);
   const ongoingScans =
     activeReport?.status === "draft"
@@ -1214,6 +1501,20 @@ export function StoreStockCountPanel({
     ? (activeReport?.items.find((item) => item.id === selectedCardItemId) ??
       null)
     : null;
+  const countCardProps = {
+    locked: isLocked,
+    busy,
+    countDrafts,
+    onSelectItem: setSelectedCardItemId,
+    onCountDraftChange: (skuKey: string, value: string) =>
+      setCountDrafts((d) => ({ ...d, [skuKey]: value })),
+    onCommitCount: commitCardCount,
+    onAdjustCount: adjustCount,
+    onCountFocusChange: (focused: boolean) => {
+      countFocusedRef.current = focused;
+    },
+    showQbStock: hasQbStock,
+  };
 
   const pendingCount =
     activeReport?.items.filter((item) => item.manualCount == null).length ?? 0;
@@ -1396,6 +1697,63 @@ export function StoreStockCountPanel({
 
       {activeReport ? (
         <div className="space-y-3">
+          <div className="space-y-2 rounded-lg border p-4">
+            <label htmlFor="stock-count-barcode" className="text-sm font-medium">
+              Barcode
+            </label>
+            <Input
+              id="stock-count-barcode"
+              ref={scanInputRef}
+              value={scanInput}
+              autoComplete="off"
+              autoFocus={!isLocked}
+              disabled={busy || isLocked}
+              placeholder="Scan or type barcode, then Enter"
+              className={`font-mono text-lg ${lastScan && !lastScan.ok ? "border-destructive focus-visible:ring-destructive/40" : ""}`}
+              onFocus={() => {
+                scanFieldFocusedRef.current = true;
+                unlockScanSound();
+              }}
+              onBlur={() => {
+                scanFieldFocusedRef.current = false;
+              }}
+              onChange={(e) => {
+                const v = e.target.value;
+                setScanInput(v);
+                const report = activeReportRef.current;
+                if (
+                  report &&
+                  report.status !== "submitted" &&
+                  hasExactBarcodeMatch(v, report.items)
+                ) {
+                  setScanInput("");
+                  processBarcode(v);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                const code = scanInput.trim();
+                setScanInput("");
+                processBarcode(code);
+              }}
+            />
+            {lastScan ? (
+              <p
+                className={`text-sm ${lastScan.ok ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}
+                role={lastScan.ok ? "status" : "alert"}
+              >
+                <span className="font-mono">{lastScan.code}</span>
+                {" — "}
+                {lastScan.message}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Unknown barcode plays an error sound and is not counted. Use −
+                on a counted item to undo a mistaken scan.
+              </p>
+            )}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div className="rounded-lg border p-4">
               <div className="text-xs text-muted-foreground">Pending</div>
@@ -1443,24 +1801,21 @@ export function StoreStockCountPanel({
               jobs={ongoingScans}
               empty="No ongoing counts"
               tone="warning"
-              onSelectItem={setSelectedCardItemId}
-              showQbStock={hasQbStock}
+              {...countCardProps}
             />
             <ScanStatusCard
               title="Done"
               jobs={doneScans}
               empty="No completed counts"
               tone="success"
-              onSelectItem={setSelectedCardItemId}
-              showQbStock={hasQbStock}
+              {...countCardProps}
             />
             <ScanStatusCard
               title="Difference"
               jobs={differenceScans}
               empty="No differences"
               tone="warning"
-              onSelectItem={setSelectedCardItemId}
-              showQbStock={hasQbStock}
+              {...countCardProps}
             />
           </div>
         </div>
@@ -1784,10 +2139,10 @@ export function StoreStockCountPanel({
                         {row.name}
                       </span>
                       <span
-                        className="truncate text-xs text-muted-foreground"
-                        title={row.barcodes.join(", ")}
+                        className="truncate font-mono text-xs"
+                        title={formatBarcodes(row.barcodes)}
                       >
-                        {row.barcodes[0] ?? "-"}
+                        {formatBarcodes(row.barcodes)}
                       </span>
                       {visibleLoadedKeys.map((key) => (
                         <span
@@ -1848,8 +2203,7 @@ export function StoreStockCountPanel({
               </div>
             </div>
             <p className="border-t px-3 py-2 text-xs text-muted-foreground">
-              {filteredRows.length} pending from {activeReport.items.length}{" "}
-              items
+              {filteredRows.length} shown of {activeReport.items.length} items
             </p>
           </div>
           <section className="space-y-3 rounded-lg border p-4">
@@ -1865,8 +2219,8 @@ export function StoreStockCountPanel({
                   key={job.id}
                   className="flex items-center justify-between gap-3 border-b px-3 py-2 text-sm last:border-b-0"
                 >
-                  <span className="min-w-0 truncate font-medium">
-                    {job.sku ?? job.barcode}
+                  <span className="min-w-0 truncate font-mono text-sm">
+                    {job.barcode}
                   </span>
                   <span
                     className={
@@ -1899,6 +2253,11 @@ export function StoreStockCountPanel({
               {selectedCardItem?.sku ?? "Warehouse stock"}
             </DialogTitle>
             <DialogDescription>{selectedCardItem?.name}</DialogDescription>
+            {selectedCardItem ? (
+              <p className="font-mono text-sm text-foreground">
+                {formatBarcodes(selectedCardItem.barcodes, "No barcode")}
+              </p>
+            ) : null}
           </DialogHeader>
           <div className="overflow-hidden rounded-md border">
             <div className="grid grid-cols-[minmax(12rem,1fr)_6rem] gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
