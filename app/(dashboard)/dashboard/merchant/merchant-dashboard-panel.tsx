@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Cake, Crown, Download, Loader2, Phone, Target, AlertTriangle } from "lucide-react";
+import { Cake, Crown, Download, History, Loader2, Phone, Target, AlertTriangle } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -28,6 +28,7 @@ import { type ChartConfig, ChartContainer } from "@/components/ui/chart";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -62,6 +63,7 @@ import { buildBirthdayWishMessage } from "@/lib/page-data/merchant-birthday-wish
 import type { CallQueueRowDto } from "@/lib/customer-insight/call-queue";
 import type { MerchantDashboardPageData } from "@/lib/page-data/merchant-dashboard";
 import type { MerchantDailyInvoiceRow } from "@/lib/page-data/merchant-dashboard-sales";
+import type { MerchantSalesMovement } from "@/lib/page-data/merchant-dashboard-sales-movement";
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-LK", {
@@ -341,6 +343,11 @@ export function MerchantDashboardPanel({ initialData }: Props) {
   const [dailyInvoicesOrderCount, setDailyInvoicesOrderCount] = useState(
     initialData.dailyInvoicesOrderCount,
   );
+  const [salesChangeOpen, setSalesChangeOpen] = useState(false);
+  const [salesMovement, setSalesMovement] = useState<MerchantSalesMovement | null>(
+    null,
+  );
+  const [salesMovementLoading, setSalesMovementLoading] = useState(false);
   const [showCustomerLists, setShowCustomerLists] = useState(
     initialData.showCustomerLists ?? false,
   );
@@ -382,6 +389,8 @@ export function MerchantDashboardPanel({ initialData }: Props) {
     setDailyInvoicesTotal(initialData.dailyInvoicesTotal);
     setDailyInvoicesOrderCount(initialData.dailyInvoicesOrderCount);
     setLocationShareId("");
+    setSalesChangeOpen(false);
+    setSalesMovement(null);
   }, [initialData]);
 
   async function reload(
@@ -438,11 +447,35 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         setDailyInvoices(json.dailyInvoices);
         setDailyInvoicesTotal(json.dailyInvoicesTotal);
         setDailyInvoicesOrderCount(json.dailyInvoicesOrderCount);
+        setSalesMovement(null);
       });
     } catch {
       notify.error("Failed to load merchant dashboard");
     } finally {
       setBusyKey(null);
+    }
+  }
+
+  async function openSalesChange() {
+    setSalesChangeOpen(true);
+    setSalesMovementLoading(true);
+    try {
+      const params = new URLSearchParams({
+        merchantUserId: merchantId,
+      });
+      const res = await fetch(
+        `/api/admin/merchant-dashboard/sales-movement?${params}`,
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        notify.error(json.error ?? "Failed to load sales change");
+        return;
+      }
+      setSalesMovement(json as MerchantSalesMovement);
+    } catch {
+      notify.error("Failed to load sales change");
+    } finally {
+      setSalesMovementLoading(false);
     }
   }
 
@@ -1064,6 +1097,28 @@ export function MerchantDashboardPanel({ initialData }: Props) {
             </p>
           </CardContent>
         </Card>
+      </div>
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="text-muted-foreground"
+          disabled={salesMovementLoading}
+          onClick={() => void openSalesChange()}
+        >
+          {salesMovementLoading ? (
+            <>
+              <Loader2 className="animate-spin" aria-hidden />
+              Loading...
+            </>
+          ) : (
+            <>
+              <History aria-hidden />
+              How sales changed
+            </>
+          )}
+        </Button>
       </div>
 
       {data.sales.hasDmSplit ? (
@@ -2400,6 +2455,102 @@ export function MerchantDashboardPanel({ initialData }: Props) {
         )}
       </div>
       </div>
+
+      <Dialog
+        open={salesChangeOpen}
+        onOpenChange={(open) => {
+          setSalesChangeOpen(open);
+          if (!open) setSalesMovement(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>How sales changed</DialogTitle>
+            <DialogDescription>
+              Through yesterday, then today&apos;s invoices, minus voids and
+              returns. Matches this month (MTD).
+            </DialogDescription>
+          </DialogHeader>
+          {salesMovementLoading && !salesMovement ? (
+            <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
+              <Loader2 className="animate-spin" aria-hidden />
+              Loading...
+            </div>
+          ) : salesMovement ? (
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto text-sm">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-muted-foreground">
+                  Through yesterday ({salesMovement.yesterdayYmd})
+                </span>
+                <span className="tabular-nums">
+                  {formatMoney(salesMovement.openingTotal)}
+                </span>
+              </div>
+              {salesMovement.additions.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    Added today
+                  </p>
+                  {salesMovement.additions.map((line, index) => (
+                    <div
+                      key={`add-${index}-${line.invoiceLabel}`}
+                      className="flex items-baseline justify-between gap-3"
+                    >
+                      <span className="truncate">+ {line.invoiceLabel}</span>
+                      <span className="shrink-0 tabular-nums text-teal-700 dark:text-teal-400">
+                        {formatMoney(line.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-xs">No new invoices today</p>
+              )}
+              {salesMovement.removals.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+                    Left today
+                  </p>
+                  {salesMovement.removals.map((line, index) => (
+                    <div
+                      key={`rm-${index}-${line.invoiceLabel}`}
+                      className="flex items-baseline justify-between gap-3"
+                    >
+                      <span className="truncate">
+                        − {line.invoiceLabel}
+                        <span className="text-muted-foreground">
+                          {" "}
+                          ({line.reason === "return" ? "return" : "voided"})
+                        </span>
+                      </span>
+                      <span className="text-destructive shrink-0 tabular-nums">
+                        {formatMoney(line.amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  No voids or returns today
+                </p>
+              )}
+              <div className="flex items-baseline justify-between gap-3 border-t pt-2 font-medium">
+                <span>This month (MTD)</span>
+                <span className="tabular-nums">
+                  {formatMoney(salesMovement.closingTotal)}
+                </span>
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Today counted {formatMoney(salesMovement.countedToday)} ·{" "}
+                {salesMovement.additions.length} in + ·{" "}
+                {salesMovement.removals.length} in −
+              </p>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">No movement to show.</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={wishContact != null}

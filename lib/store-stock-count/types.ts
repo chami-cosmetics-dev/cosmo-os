@@ -46,6 +46,7 @@ export type StoreStockCountSavedItem = StoreStockCountRow & {
   stockByWarehouse: Record<string, number | null>;
   stockSum: number | null;
   manualCount: number | null;
+  updatedAt?: string;
 };
 
 export type StoreStockCountReportStatus = "draft" | "submitted";

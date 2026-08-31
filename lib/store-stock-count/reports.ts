@@ -94,6 +94,7 @@ function toSavedItem(row: {
   stockByWarehouse: Prisma.JsonValue;
   stockSum: number | null;
   manualCount: number | null;
+  updatedAt?: Date;
 }): StoreStockCountSavedItem {
   const stockByWarehouse = asStockMap(row.stockByWarehouse);
   return {
@@ -108,6 +109,7 @@ function toSavedItem(row: {
     stockByWarehouse,
     stockSum: row.stockSum,
     manualCount: row.manualCount,
+    updatedAt: row.updatedAt?.toISOString(),
   };
 }
 
